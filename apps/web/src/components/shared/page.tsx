@@ -46,17 +46,21 @@ export function Toolbar({ children, right, className }: { children?: ReactNode; 
 export function PageTabs({ tabs, className }: { tabs: Array<{ label: string; to: string; count?: number }>; className?: string }) {
   return (
     <div className={cn('flex shrink-0 items-center gap-1 border-b bg-card px-3', className)}>
-      {tabs.map((t) => (
+      {tabs.map((t) => {
+        // A tab whose path is a prefix of a sibling tab (e.g. /timetable vs /timetable/teachers) must match exactly
+        const exact = tabs.some((o) => o !== t && o.to.startsWith(t.to.endsWith('/') ? t.to : t.to + '/'))
+        return (
         <Link
           key={t.to}
           to={t.to}
           className="relative flex h-11 items-center gap-2 px-2.5 text-[13.5px] text-muted-foreground hover:text-foreground [&.active]:font-medium [&.active]:text-foreground [&.active]:after:absolute [&.active]:after:inset-x-2 [&.active]:after:bottom-0 [&.active]:after:h-0.5 [&.active]:after:rounded-full [&.active]:after:bg-foreground"
-          activeOptions={{ exact: false }}
+          activeOptions={{ exact }}
         >
           {t.label}
           {t.count !== undefined && <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">{t.count}</span>}
         </Link>
-      ))}
+        )
+      })}
     </div>
   )
 }

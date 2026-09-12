@@ -4,9 +4,10 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "pnpm --filter @erp/web dev",
-    "build": "pnpm -r build",
+    "build": "pnpm --filter @erp/web build && rm -rf dist && cp -R apps/web/dist dist",
     "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "build:web": "pnpm --filter @erp/web build"
   },
   "packageManager": "pnpm@10.34.4"
 }
