@@ -18,6 +18,9 @@ export const AuditEntity = z.enum([
   'user',
   'role',
   'document',
+  'timetable',
+  'bell_schedule',
+  'substitution',
 ])
 export type AuditEntity = z.infer<typeof AuditEntity>
 

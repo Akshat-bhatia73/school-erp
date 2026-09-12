@@ -48,6 +48,7 @@ export const moduleLabels: Record<Module, { label: string; description: string }
   staff: { label: 'Staff', description: 'Teacher and staff records' },
   student_attendance: { label: 'Student attendance', description: 'Daily attendance for students' },
   staff_attendance: { label: 'Staff attendance', description: 'Attendance and leave for staff' },
+  timetable: { label: 'Timetable', description: 'Class and teacher timetables, substitutions' },
   fee_structure: { label: 'Fee structure', description: 'Fee heads, plans and concessions' },
   fee_collection: { label: 'Fee collection', description: 'Receipts, dues and refunds' },
   fee_reports: { label: 'Fee reports', description: 'Collection and dues reporting' },
@@ -81,4 +82,7 @@ export const entityLabels: Record<AuditEntity, string> = {
   user: 'User',
   role: 'Role',
   document: 'Document',
+  timetable: 'Timetable',
+  bell_schedule: 'Bell schedule',
+  substitution: 'Substitution',
 }

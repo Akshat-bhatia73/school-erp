@@ -32,4 +32,12 @@ export const qk = {
   roles: ['roles'] as const,
   auditLogs: (p?: object) => ['auditLogs', p ?? {}] as const,
   dashboard: ['dashboard'] as const,
+  bellSchedules: ['bellSchedules'] as const,
+  timetableSection: (sectionId: string) => ['timetable', 'section', sectionId] as const,
+  timetableStaff: (staffId: string) => ['timetable', 'staff', staffId] as const,
+  teacherLoads: ['timetable', 'loads'] as const,
+  timetableConflicts: ['timetable', 'conflicts'] as const,
+  freeTeachers: (p: object) => ['timetable', 'free', p] as const,
+  substitutions: (date: string) => ['substitutions', date] as const,
+  absentTeacherPeriods: (p: object) => ['timetable', 'absent', p] as const,
 }

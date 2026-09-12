@@ -8,6 +8,7 @@ export const Module = z.enum([
   'staff',
   'student_attendance',
   'staff_attendance',
+  'timetable',
   'fee_structure',
   'fee_collection',
   'fee_reports',

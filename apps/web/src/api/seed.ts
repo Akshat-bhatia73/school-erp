@@ -17,6 +17,8 @@ import type {
   Subject,
   User,
   AuditLog,
+  BellSchedule,
+  Substitution,
 } from '@erp/shared'
 import type { Store } from './store'
 
@@ -86,37 +88,37 @@ function systemRoles(schoolId: string): Role[] {
   return [
     mk('owner', 'Owner / Principal', 'Runs the school. Sees everything, approves everything.', [
       P('school_setup', ALL, 'all'), P('students', ALL, 'all'), P('staff', ALL, 'all'),
-      P('student_attendance', ALL, 'all'), P('staff_attendance', ALL, 'all'),
+      P('student_attendance', ALL, 'all'), P('staff_attendance', ALL, 'all'), P('timetable', ALL, 'all'),
       P('fee_structure', ALL, 'all'), P('fee_collection', ['view', 'export'], 'all'), P('fee_reports', ALL, 'all'),
       P('exams', ALL, 'all'), P('report_cards', ALL, 'all'), P('communication', ALL, 'all'),
       P('ai_assistant', ALL, 'all'), P('users_roles', ALL, 'all'), P('audit_log', ['view', 'export'], 'all'),
     ]),
     mk('admin', 'Admin / Office Clerk', 'Front desk and accounts. Admits students, collects fees, sends notices.', [
       P('school_setup', ALL, 'all'), P('students', ALL, 'all'), P('staff', EDIT, 'all'),
-      P('student_attendance', EDIT, 'all'), P('staff_attendance', EDIT, 'all'),
+      P('student_attendance', EDIT, 'all'), P('staff_attendance', EDIT, 'all'), P('timetable', ALL, 'all'),
       P('fee_structure', ALL, 'all'), P('fee_collection', EDIT, 'all'), P('fee_reports', ['view', 'export'], 'all'),
       P('exams', VIEW, 'all'), P('report_cards', ['view', 'create'], 'all'), P('communication', EDIT, 'all'),
       P('ai_assistant', ALL, 'all'), P('users_roles', EDIT, 'all'), P('audit_log', [], 'none'),
     ]),
     mk('accountant', 'Accountant', 'Handles money. Fee structures, collection, dues and reports.', [
       P('school_setup', VIEW, 'all'), P('students', VIEW, 'all'), P('staff', VIEW, 'all'),
-      P('student_attendance', VIEW, 'all'), P('staff_attendance', VIEW, 'all'),
+      P('student_attendance', VIEW, 'all'), P('staff_attendance', VIEW, 'all'), P('timetable', VIEW, 'all'),
       P('fee_structure', ALL, 'all'), P('fee_collection', ALL, 'all'), P('fee_reports', ALL, 'all'),
       P('ai_assistant', VIEW, 'all'), P('audit_log', VIEW, 'all'),
     ]),
     mk('teacher', 'Teacher', 'Marks attendance, enters marks, messages parents of their classes.', [
       P('school_setup', VIEW, 'all'), P('students', ['view', 'edit'], 'own_classes'), P('staff', VIEW, 'self'),
-      P('student_attendance', EDIT, 'own_classes'), P('staff_attendance', ['view', 'create'], 'self'),
+      P('student_attendance', EDIT, 'own_classes'), P('staff_attendance', ['view', 'create'], 'self'), P('timetable', VIEW, 'own_classes'),
       P('exams', EDIT, 'own_classes'), P('report_cards', ['view', 'create'], 'own_classes'),
       P('communication', ['view', 'create'], 'own_classes'), P('ai_assistant', VIEW, 'own_classes'),
     ]),
     mk('parent', 'Parent', 'Sees their own children: attendance, fees, marks, notices.', [
-      P('students', VIEW, 'own_children'), P('student_attendance', VIEW, 'own_children'),
+      P('students', VIEW, 'own_children'), P('student_attendance', VIEW, 'own_children'), P('timetable', VIEW, 'own_children'),
       P('fee_collection', VIEW, 'own_children'), P('report_cards', VIEW, 'own_children'),
       P('communication', VIEW, 'own_children'),
     ]),
     mk('student', 'Student', 'Class 9 to 12 only. Own attendance, marks, homework. No fees.', [
-      P('student_attendance', VIEW, 'self'), P('exams', VIEW, 'self'), P('report_cards', VIEW, 'self'),
+      P('student_attendance', VIEW, 'self'), P('timetable', VIEW, 'self'), P('exams', VIEW, 'self'), P('report_cards', VIEW, 'self'),
       P('communication', VIEW, 'self'),
     ]),
   ]
@@ -408,6 +410,80 @@ function buildSchool(spec: SchoolSpec, out: Store) {
     }
   }
 
+
+  // Bell schedule: 8 periods, break after 3rd, lunch after 5th. Saturday = first 5 periods.
+  const periods: BellSchedule['periods'] = [
+    { index: 0, name: 'Assembly', startTime: '07:50', endTime: '08:00', type: 'assembly' },
+    { index: 1, name: 'Period 1', startTime: '08:00', endTime: '08:40', type: 'period' },
+    { index: 2, name: 'Period 2', startTime: '08:40', endTime: '09:20', type: 'period' },
+    { index: 3, name: 'Period 3', startTime: '09:20', endTime: '10:00', type: 'period' },
+    { index: 4, name: 'Break', startTime: '10:00', endTime: '10:20', type: 'break' },
+    { index: 5, name: 'Period 4', startTime: '10:20', endTime: '11:00', type: 'period' },
+    { index: 6, name: 'Period 5', startTime: '11:00', endTime: '11:40', type: 'period' },
+    { index: 7, name: 'Lunch', startTime: '11:40', endTime: '12:10', type: 'lunch' },
+    { index: 8, name: 'Period 6', startTime: '12:10', endTime: '12:50', type: 'period' },
+    { index: 9, name: 'Period 7', startTime: '12:50', endTime: '13:30', type: 'period' },
+    { index: 10, name: 'Period 8', startTime: '13:30', endTime: '14:10', type: 'period' },
+  ]
+  const bell: BellSchedule = {
+    id: id('bell'), ...base(schoolId, 300), academicYearId: yCur.id, name: 'Main schedule', gradeIds: [],
+    workingDays: [1, 2, 3, 4, 5, 6], periods, saturdayPeriodCount: 7,
+  }
+  out.bellSchedules.push(bell)
+
+  // Timetable: greedy fill from teaching assignments, avoiding teacher clashes.
+  const teachingSlots = periods.filter((p) => p.type === 'period').map((p) => p.index)
+  const busy = new Set<string>() // `${staffId}|${day}|${period}`
+  const sectionsHere = out.sections.filter((s) => s.schoolId === schoolId && s.academicYearId === yCur.id)
+  for (const sec of sectionsHere) {
+    const assigns = out.teachingAssignments.filter((t) => t.sectionId === sec.id)
+    if (!assigns.length) continue
+    // weight: core subjects get more periods per week
+    const weight = (subjectId: string) => {
+      const code = out.subjects.find((x) => x.id === subjectId)?.code ?? ''
+      if (['MATH', 'ENG', 'HIN', 'SCI', 'SST', 'PHY', 'CHEM', 'BIO', 'EVS'].includes(code)) return 6
+      if (['CS', 'SKT', 'ACC', 'BST', 'ECO', 'HIST', 'POL'].includes(code)) return 4
+      return 2
+    }
+    const queue: string[] = []
+    for (const a of assigns) for (let i = 0; i < weight(a.subjectId); i++) queue.push(a.id)
+    // shuffle deterministically
+    for (let i = queue.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [queue[i], queue[j]] = [queue[j]!, queue[i]!] }
+    let qi = 0
+    for (const day of bell.workingDays) {
+      const slots = day === 6 ? teachingSlots.filter((p) => p < (bell.saturdayPeriodCount ?? 99)) : teachingSlots
+      const usedToday = new Set<string>()
+      for (const pIdx of slots) {
+        let placed = false
+        for (let tries = 0; tries < queue.length && !placed; tries++) {
+          const a = assigns.find((x) => x.id === queue[(qi + tries) % queue.length])!
+          const key = `${a.staffId}|${day}|${pIdx}`
+          // avoid same subject twice a day where possible
+          if (busy.has(key) || (usedToday.has(a.subjectId) && tries < queue.length - 1)) continue
+          busy.add(key); usedToday.add(a.subjectId)
+          out.timetableEntries.push({ id: id('tt'), ...base(schoolId, 120), academicYearId: yCur.id, sectionId: sec.id, dayOfWeek: day, periodIndex: pIdx, subjectId: a.subjectId, staffId: a.staffId, roomNumber: sec.roomNumber })
+          queue.splice((qi + tries) % queue.length, 1)
+          if (queue.length === 0) for (const a2 of assigns) for (let i = 0; i < weight(a2.subjectId); i++) queue.push(a2.id)
+          placed = true
+        }
+        qi = queue.length ? (qi + 1) % queue.length : 0
+      }
+    }
+  }
+
+  // Substitutions for today (12 Sep 2026 is a Saturday, so use Monday 14 Sep as "today" for arrangements)
+  const today = '2026-09-14'
+  const onLeave = staffList.filter((s) => s.status === 'on_leave' && s.staffType === 'teaching').slice(0, 2)
+  for (const t of onLeave) {
+    const theirs = out.timetableEntries.filter((e) => e.schoolId === schoolId && e.staffId === t.id && e.dayOfWeek === 1)
+    for (const e of theirs) {
+      const free = teachers.find((c) => c.id !== t.id && c.status === 'active' && !busy.has(`${c.id}|1|${e.periodIndex}`))
+      const sub: Substitution = { id: id('subst'), ...base(schoolId, 0), date: today, sectionId: e.sectionId, periodIndex: e.periodIndex, subjectId: e.subjectId, absentStaffId: t.id, substituteStaffId: chance(0.7) ? free?.id : undefined, reason: 'On leave', notified: chance(0.5) }
+      out.substitutions.push(sub)
+      if (sub.substituteStaffId) busy.add(`${sub.substituteStaffId}|1|${e.periodIndex}`)
+    }
+  }
+
   // Holidays for current year
   const HOLS: Array<[string, string, string, Holiday['type']]> = [
     ['Ambedkar Jayanti', '2026-04-14', '2026-04-14', 'national'],
@@ -456,6 +532,7 @@ export function seed(): Store {
     schools: [], academicYears: [], grades: [], sections: [], subjects: [], gradeSubjects: [], holidays: [],
     students: [], enrollments: [], guardians: [], studentGuardians: [], documents: [],
     staff: [], teachingAssignments: [], roles: [], users: [], auditLogs: [],
+    bellSchedules: [], timetableEntries: [], substitutions: [],
   }
   buildSchool({
     name: 'Saraswati Vidya Mandir Senior Secondary School', shortName: 'SVM', board: 'cbse', city: CITIES[0]!,

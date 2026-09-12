@@ -6,6 +6,7 @@
 import type {
   AcademicYear,
   AuditLog,
+  BellSchedule,
   Enrollment,
   Grade,
   GradeSubject,
@@ -19,7 +20,9 @@ import type {
   StudentDocument,
   StudentGuardian,
   Subject,
+  Substitution,
   TeachingAssignment,
+  TimetableEntry,
   User,
 } from '@erp/shared'
 import { seed } from './seed'
@@ -42,6 +45,9 @@ export interface Store {
   roles: Role[]
   users: User[]
   auditLogs: AuditLog[]
+  bellSchedules: BellSchedule[]
+  timetableEntries: TimetableEntry[]
+  substitutions: Substitution[]
 }
 
 let _store: Store | null = null

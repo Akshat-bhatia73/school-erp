@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus } from 'lucide-react'
+import { BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus, CalendarClock } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { api } from '@/api/client'
 import { UserAvatar } from '@/components/shared/avatar'
@@ -18,6 +18,7 @@ const goTo: Entry[] = [
   { label: 'Dashboard', icon: <LayoutDashboard />, to: '/dashboard' },
   { label: 'Students', icon: <GraduationCap />, to: '/students', module: 'students' },
   { label: 'Staff', icon: <Users />, to: '/staff', module: 'staff' },
+  { label: 'Timetable', icon: <CalendarClock />, to: '/timetable', module: 'timetable' },
   { label: 'School profile', icon: <School />, to: '/setup/school', module: 'school_setup' },
   { label: 'Academic years', icon: <CalendarDays />, to: '/setup/academic-years', module: 'school_setup' },
   { label: 'Classes & sections', icon: <Building2 />, to: '/setup/classes', module: 'school_setup' },

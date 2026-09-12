@@ -1,6 +1,6 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, CalendarDays, ChevronsUpDown, GraduationCap, LayoutDashboard, ListChecks, Moon, PanelLeft, School, ScrollText, Search, Settings2, ShieldCheck, Sun, Users, UserRound, BookOpen, Check, Sparkles } from 'lucide-react'
+import { Building2, CalendarClock, CalendarDays, ChevronsUpDown, GraduationCap, LayoutDashboard, ListChecks, Moon, PanelLeft, School, ScrollText, Search, Settings2, ShieldCheck, Sun, Users, UserRound, BookOpen, Check, Sparkles } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import { api } from '@/api/client'
 import { UserAvatar } from '@/components/shared/avatar'
@@ -41,6 +41,7 @@ export function Sidebar({ collapsed, onToggle, onOpenQuickActions }: { collapsed
     { label: 'Dashboard', to: '/dashboard', icon: <LayoutDashboard />, exact: true },
     { label: 'Students', to: '/students', icon: <GraduationCap />, count: dash?.students.active, module: 'students' },
     { label: 'Staff', to: '/staff', icon: <Users />, count: dash?.staff.total, module: 'staff' },
+    { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, module: 'timetable' },
   ]
   const setup: NavItem[] = [
     { label: 'School profile', to: '/setup/school', icon: <School />, module: 'school_setup' },

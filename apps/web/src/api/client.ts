@@ -7,6 +7,7 @@ import type {
   Guardian, GuardianInput, Holiday, HolidayInput, ImportPreview, Paginated, PromotionInput, Role, RoleInput,
   School, SchoolInput, Section, SectionInput, Staff, StaffInput, Student, StudentDocument, StudentImportRow,
   StudentInput, Subject, SubjectInput, TeachingAssignment, User, UserInput, StudentGuardian,
+  BellSchedule, BellScheduleInput, TimetableEntry, TimetableEntryInput, Substitution, SubstitutionInput, TimetableConflict, TeacherLoad,
 } from '@erp/shared'
 import { StudentImportRow as StudentImportRowSchema } from '@erp/shared'
 import { delay, getStore, newId, nowIso } from './store'
@@ -491,6 +492,145 @@ export const auditLogs = {
   },
 }
 
+
+// ---------- timetable ----------
+export interface TimetableCell extends TimetableEntry { subject?: Subject; staff?: Staff; section?: Section; grade?: Grade }
+function joinEntry(e: TimetableEntry): TimetableCell {
+  const st = getStore(); const section = st.sections.find((x) => x.id === e.sectionId)
+  return { ...e, subject: st.subjects.find((x) => x.id === e.subjectId), staff: st.staff.find((x) => x.id === e.staffId), section, grade: section ? st.grades.find((g) => g.id === section.gradeId) : undefined }
+}
+function currentYearId() { return scoped(getStore().academicYears).find((y) => y.status === 'current')?.id ?? '' }
+function bellFor(sectionId?: string): BellSchedule | undefined {
+  const st = getStore(); const bells = scoped(st.bellSchedules).filter((b) => b.academicYearId === currentYearId())
+  const section = st.sections.find((x) => x.id === sectionId)
+  return (section && bells.find((b) => b.gradeIds.includes(section.gradeId))) ?? bells.find((b) => b.gradeIds.length === 0) ?? bells[0]
+}
+const MAX_PERIODS_PER_WEEK = 30
+export const timetable = {
+  async bellSchedules(): Promise<BellSchedule[]> { await delay(); return scoped(getStore().bellSchedules).filter((b) => b.academicYearId === currentYearId()) },
+  async bellFor(sectionId?: string): Promise<BellSchedule | undefined> { await delay(50); return bellFor(sectionId) },
+  async saveBellSchedule(id: string | null, input: BellScheduleInput): Promise<BellSchedule> {
+    await delay(); const st = getStore(); const now = nowIso()
+    if (id) { const b = st.bellSchedules.find((x) => x.id === id); if (!b) throw new Error('Not found'); Object.assign(b, input); stamp(b); audit({ action: 'update', entity: 'bell_schedule', entityId: id, summary: `Updated bell schedule ${b.name}` }); return b }
+    const b: BellSchedule = { id: newId('bell'), schoolId: currentSchoolId, createdAt: now, updatedAt: now, ...input }
+    st.bellSchedules.push(b); audit({ action: 'create', entity: 'bell_schedule', entityId: b.id, summary: `Created bell schedule ${b.name}` }); return b
+  },
+  /** All entries for one section in the current year */
+  async forSection(sectionId: string): Promise<TimetableCell[]> {
+    await delay(); return scoped(getStore().timetableEntries).filter((e) => e.sectionId === sectionId && e.academicYearId === currentYearId()).map(joinEntry)
+  },
+  /** All entries for one teacher in the current year */
+  async forStaff(staffId: string): Promise<TimetableCell[]> {
+    await delay(); return scoped(getStore().timetableEntries).filter((e) => e.staffId === staffId && e.academicYearId === currentYearId()).map(joinEntry)
+  },
+  /** Which teachers are free at a slot. Optionally only those who teach the subject. Sorted by lightest load first. */
+  async freeTeachers(params: { dayOfWeek: number; periodIndex: number; subjectId?: string; date?: string }): Promise<Array<Staff & { periodsPerWeek: number; teachesSubject: boolean }>> {
+    await delay(); const st = getStore(); const year = currentYearId()
+    const entries = scoped(st.timetableEntries).filter((e) => e.academicYearId === year)
+    const busyIds = new Set(entries.filter((e) => e.dayOfWeek === params.dayOfWeek && e.periodIndex === params.periodIndex).map((e) => e.staffId))
+    if (params.date) for (const s of scoped(st.substitutions).filter((x) => x.date === params.date && x.periodIndex === params.periodIndex)) { if (s.substituteStaffId) busyIds.add(s.substituteStaffId); busyIds.add(s.absentStaffId) }
+    const teaches = new Set(scoped(st.teachingAssignments).filter((t) => t.subjectId === params.subjectId).map((t) => t.staffId))
+    return scoped(st.staff).filter((s) => s.staffType === 'teaching' && s.status === 'active' && !busyIds.has(s.id))
+      .map((s) => ({ ...s, periodsPerWeek: entries.filter((e) => e.staffId === s.id).length, teachesSubject: teaches.has(s.id) }))
+      .sort((a, b) => Number(b.teachesSubject) - Number(a.teachesSubject) || a.periodsPerWeek - b.periodsPerWeek)
+  },
+  /** Set or replace the entry at a slot. Throws on teacher clash. */
+  async setEntry(input: TimetableEntryInput): Promise<TimetableEntry> {
+    await delay(); const st = getStore(); const now = nowIso(); const year = currentYearId()
+    if (input.staffId) {
+      const clash = scoped(st.timetableEntries).find((e) => e.academicYearId === year && e.staffId === input.staffId && e.dayOfWeek === input.dayOfWeek && e.periodIndex === input.periodIndex && e.sectionId !== input.sectionId)
+      if (clash) { const c = joinEntry(clash); throw new Error(`${fullName(c.staff!)} is already teaching ${c.grade?.name} - ${c.section?.name} at that time`) }
+    }
+    st.timetableEntries = st.timetableEntries.filter((e) => !(e.academicYearId === year && e.sectionId === input.sectionId && e.dayOfWeek === input.dayOfWeek && e.periodIndex === input.periodIndex))
+    const e: TimetableEntry = { id: newId('tt'), schoolId: currentSchoolId, createdAt: now, updatedAt: now, academicYearId: year, ...input }
+    st.timetableEntries.push(e)
+    const c = joinEntry(e); audit({ action: 'update', entity: 'timetable', entityId: input.sectionId, summary: `Set ${c.subject?.name ?? 'subject'} for ${c.grade?.name} - ${c.section?.name} on ${['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][input.dayOfWeek]} period ${input.periodIndex}` })
+    return e
+  },
+  async clearEntry(params: { sectionId: string; dayOfWeek: number; periodIndex: number }): Promise<void> {
+    await delay(); const st = getStore(); const year = currentYearId()
+    st.timetableEntries = st.timetableEntries.filter((e) => !(e.academicYearId === year && e.sectionId === params.sectionId && e.dayOfWeek === params.dayOfWeek && e.periodIndex === params.periodIndex))
+    audit({ action: 'update', entity: 'timetable', entityId: params.sectionId, summary: 'Cleared a timetable slot' })
+  },
+  /** Wipe and regenerate a section's week from its teaching assignments. Core subjects get more periods. */
+  async generateForSection(sectionId: string): Promise<{ placed: number; unplaced: number }> {
+    await delay(500); const st = getStore(); const now = nowIso(); const year = currentYearId()
+    const bell = bellFor(sectionId); if (!bell) throw new Error('Set up the bell schedule first')
+    const assigns = scoped(st.teachingAssignments).filter((t) => t.sectionId === sectionId)
+    if (!assigns.length) throw new Error('No subject teachers assigned to this section yet')
+    st.timetableEntries = st.timetableEntries.filter((e) => !(e.academicYearId === year && e.sectionId === sectionId))
+    const busy = new Set(scoped(st.timetableEntries).filter((e) => e.academicYearId === year && e.staffId).map((e) => `${e.staffId}|${e.dayOfWeek}|${e.periodIndex}`))
+    const weight = (subjectId: string) => { const code = st.subjects.find((x) => x.id === subjectId)?.code ?? ''; return ['MATH', 'ENG', 'HIN', 'SCI', 'SST', 'PHY', 'CHEM', 'BIO', 'EVS'].includes(code) ? 6 : ['CS', 'SKT', 'ACC', 'BST', 'ECO', 'HIST', 'POL'].includes(code) ? 4 : 2 }
+    const queue: TeachingAssignment[] = []; for (const a of assigns) for (let i = 0; i < weight(a.subjectId); i++) queue.push(a)
+    const slots = bell.periods.filter((p) => p.type === 'period').map((p) => p.index)
+    let placed = 0, unplaced = 0
+    const section = st.sections.find((x) => x.id === sectionId)
+    for (const day of bell.workingDays) {
+      const daySlots = day === 6 && bell.saturdayPeriodCount ? slots.filter((p) => p < bell.saturdayPeriodCount!) : slots
+      const usedToday = new Set<string>()
+      for (const pIdx of daySlots) {
+        let idx = queue.findIndex((a) => !busy.has(`${a.staffId}|${day}|${pIdx}`) && !usedToday.has(a.subjectId))
+        if (idx < 0) idx = queue.findIndex((a) => !busy.has(`${a.staffId}|${day}|${pIdx}`))
+        if (idx < 0) { unplaced++; continue }
+        const a = queue.splice(idx, 1)[0]!
+        busy.add(`${a.staffId}|${day}|${pIdx}`); usedToday.add(a.subjectId)
+        st.timetableEntries.push({ id: newId('tt'), schoolId: currentSchoolId, createdAt: now, updatedAt: now, academicYearId: year, sectionId, dayOfWeek: day, periodIndex: pIdx, subjectId: a.subjectId, staffId: a.staffId, roomNumber: section?.roomNumber })
+        placed++
+        if (!queue.length) for (const a2 of assigns) for (let i = 0; i < weight(a2.subjectId); i++) queue.push(a2)
+      }
+    }
+    const grade = section ? st.grades.find((g) => g.id === section.gradeId) : undefined
+    audit({ action: 'update', entity: 'timetable', entityId: sectionId, summary: `Generated timetable for ${grade?.name} - ${section?.name} (${placed} periods)` })
+    return { placed, unplaced }
+  },
+  /** Teacher clashes and unassigned slots across the school */
+  async conflicts(): Promise<TimetableConflict[]> {
+    await delay(); const st = getStore(); const year = currentYearId(); const out: TimetableConflict[] = []
+    const entries = scoped(st.timetableEntries).filter((e) => e.academicYearId === year)
+    const byKey = new Map<string, TimetableEntry[]>()
+    for (const e of entries) { if (!e.staffId) { const c = joinEntry(e); out.push({ kind: 'teacher_not_assigned', message: `${c.grade?.name} - ${c.section?.name}: ${c.subject?.name} has no teacher`, dayOfWeek: e.dayOfWeek, periodIndex: e.periodIndex, sectionId: e.sectionId }); continue } const k = `${e.staffId}|${e.dayOfWeek}|${e.periodIndex}`; byKey.set(k, [...(byKey.get(k) ?? []), e]) }
+    for (const [, list] of byKey) if (list.length > 1) { const c = list.map(joinEntry); out.push({ kind: 'teacher_busy', message: `${fullName(c[0]!.staff!)} is in ${c.map((x) => `${x.grade?.name} - ${x.section?.name}`).join(' and ')} at the same time`, dayOfWeek: list[0]!.dayOfWeek, periodIndex: list[0]!.periodIndex, staffId: list[0]!.staffId }) }
+    return out
+  },
+  async teacherLoads(): Promise<Array<TeacherLoad & { staff: Staff }>> {
+    await delay(); const st = getStore(); const year = currentYearId()
+    const entries = scoped(st.timetableEntries).filter((e) => e.academicYearId === year)
+    return scoped(st.staff).filter((s) => s.staffType === 'teaching' && (s.status === 'active' || s.status === 'on_leave')).map((staff) => {
+      const mine = entries.filter((e) => e.staffId === staff.id)
+      const perDay: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }; for (const e of mine) perDay[e.dayOfWeek] = (perDay[e.dayOfWeek] ?? 0) + 1
+      return { staff, staffId: staff.id, periodsPerWeek: mine.length, sectionsCount: new Set(mine.map((e) => e.sectionId)).size, subjectsCount: new Set(mine.map((e) => e.subjectId)).size, perDay, maxPerWeek: MAX_PERIODS_PER_WEEK }
+    }).sort((a, b) => b.periodsPerWeek - a.periodsPerWeek)
+  },
+  // ---- substitutions ----
+  async substitutions(date: string): Promise<Array<Substitution & { section?: Section; grade?: Grade; subject?: Subject; absent?: Staff; substitute?: Staff }>> {
+    await delay(); const st = getStore()
+    return scoped(st.substitutions).filter((s) => s.date === date).map((s) => { const section = st.sections.find((x) => x.id === s.sectionId); return { ...s, section, grade: section ? st.grades.find((g) => g.id === section.gradeId) : undefined, subject: st.subjects.find((x) => x.id === s.subjectId), absent: st.staff.find((x) => x.id === s.absentStaffId), substitute: st.staff.find((x) => x.id === s.substituteStaffId) } }).sort((a, b) => a.periodIndex - b.periodIndex)
+  },
+  /** The periods an absent teacher has on a given date, with whether an arrangement already exists */
+  async absentTeacherPeriods(params: { staffId: string; date: string }): Promise<Array<TimetableCell & { substitution?: Substitution }>> {
+    await delay(); const st = getStore(); const day = new Date(params.date + 'T00:00:00').getDay() // 0=Sun
+    const dow = day === 0 ? 7 : day
+    return scoped(st.timetableEntries).filter((e) => e.academicYearId === currentYearId() && e.staffId === params.staffId && e.dayOfWeek === dow).map(joinEntry)
+      .map((c) => ({ ...c, substitution: scoped(st.substitutions).find((s) => s.date === params.date && s.sectionId === c.sectionId && s.periodIndex === c.periodIndex) })).sort((a, b) => a.periodIndex - b.periodIndex)
+  },
+  async addSubstitution(input: SubstitutionInput): Promise<Substitution> {
+    await delay(); const st = getStore(); const now = nowIso()
+    st.substitutions = st.substitutions.filter((s) => !(s.schoolId === currentSchoolId && s.date === input.date && s.sectionId === input.sectionId && s.periodIndex === input.periodIndex))
+    const s: Substitution = { id: newId('subst'), schoolId: currentSchoolId, createdAt: now, updatedAt: now, ...input }
+    st.substitutions.push(s)
+    const sub = st.staff.find((x) => x.id === input.substituteStaffId); const section = st.sections.find((x) => x.id === input.sectionId); const grade = section ? st.grades.find((g) => g.id === section.gradeId) : undefined
+    audit({ action: 'create', entity: 'substitution', entityId: s.id, summary: `${sub ? fullName(sub) : 'Free period'} arranged for ${grade?.name} - ${section?.name} period ${input.periodIndex} on ${input.date}` })
+    return s
+  },
+  async removeSubstitution(id: string): Promise<void> {
+    await delay(); const st = getStore(); st.substitutions = st.substitutions.filter((s) => s.id !== id); audit({ action: 'delete', entity: 'substitution', entityId: id, summary: 'Removed an arrangement' })
+  },
+  async markNotified(date: string): Promise<number> {
+    await delay(300); const st = getStore(); let n = 0; for (const s of scoped(st.substitutions)) if (s.date === date && !s.notified) { s.notified = true; n++ }
+    audit({ action: 'send', entity: 'substitution', summary: `Sent ${n} arrangement notices for ${date}` }); return n
+  },
+}
+
 // ---------- dashboard ----------
 export const dashboard = {
   async summary(): Promise<DashboardSummary> {
@@ -529,5 +669,5 @@ export const dashboard = {
   },
 }
 
-export const api = { schools, academicYears, grades, sections, subjects, holidays, students, staff, users, roles, auditLogs, dashboard }
+export const api = { schools, academicYears, grades, sections, subjects, holidays, students, staff, users, roles, auditLogs, dashboard, timetable }
 export type Api = typeof api
