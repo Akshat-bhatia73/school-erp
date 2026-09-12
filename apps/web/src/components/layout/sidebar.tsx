@@ -1,7 +1,7 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Building2, CalendarDays, ChevronsUpDown, GraduationCap, LayoutDashboard, ListChecks, Moon, PanelLeft, School, ScrollText, Search, Settings2, ShieldCheck, Sun, Users, UserRound, BookOpen, Check, Sparkles } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { api } from '@/api/client'
 import { UserAvatar } from '@/components/shared/avatar'
 import { SectionLabel } from '@/components/shared/page'
@@ -10,7 +10,7 @@ import { qk } from '@/lib/query'
 import { useSession } from '@/lib/session'
 import { useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
-import type { Module } from '@erp/shared'
+import type { Module, Role } from '@erp/shared'
 
 interface NavItem { label: string; to: string; icon: ReactNode; count?: number | string; module?: Module; exact?: boolean }
 
@@ -21,7 +21,7 @@ function NavLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
     <Link
       to={item.to}
       title={collapsed ? item.label : undefined}
-      className={cn('group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[13.5px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent', active && 'bg-sidebar-accent font-medium', collapsed && 'justify-center px-0')}
+      className={cn('group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[14px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent', active && 'bg-sidebar-accent font-medium', collapsed && 'justify-center px-0')}
     >
       <span className={cn('flex size-5 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-[17px]', active && 'text-foreground')}>{item.icon}</span>
       {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
@@ -30,12 +30,12 @@ function NavLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   )
 }
 
-export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+export function Sidebar({ collapsed, onToggle, onOpenQuickActions }: { collapsed: boolean; onToggle: () => void; onOpenQuickActions: () => void }) {
   const { school, schools, setSchoolId, user, users, setUserId, roles, can } = useSession()
   const { theme, toggle } = useTheme()
   const { data: dash } = useQuery({ queryKey: qk.dashboard, queryFn: api.dashboard.summary })
-  const [cmdOpen, setCmdOpen] = useState(false)
-  void cmdOpen; void setCmdOpen
+  const { data: allRoles = [] } = useQuery({ queryKey: qk.roles, queryFn: () => api.roles.list() })
+  const switcherUsers = useMemo(() => groupUsers(users, allRoles), [users, allRoles])
 
   const primary: NavItem[] = [
     { label: 'Dashboard', to: '/dashboard', icon: <LayoutDashboard />, exact: true },
@@ -63,7 +63,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button type="button" className={cn('flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-1 text-left hover:bg-sidebar-accent', collapsed && 'flex-none px-0')}>
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Sparkles className="size-4" /></span>
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-foreground text-background"><Sparkles className="size-4" /></span>
               {!collapsed && (
                 <>
                   <span className="min-w-0 flex-1">
@@ -96,7 +96,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2 scrollbar-thin">
         {/* Quick actions */}
-        <button type="button" className={cn('mt-3 flex h-9 items-center gap-2 rounded-lg border bg-card px-2.5 text-[13.5px] text-muted-foreground shadow-xs hover:bg-accent', collapsed && 'justify-center px-0')} title="Quick actions">
+        <button type="button" onClick={onOpenQuickActions} className={cn('mt-3 flex h-10 items-center gap-2 rounded-xl border bg-card px-3 text-[14px] text-muted-foreground shadow-xs hover:bg-accent', collapsed && 'justify-center px-0')} title="Quick actions">
           <Search className="size-4" />
           {!collapsed && (<><span className="flex-1 text-left">Quick actions</span><span className="kbd">⌘K</span></>)}
         </button>
@@ -148,7 +148,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
           <DropdownMenuContent align="end" side="top" className="w-72">
             <DropdownMenuLabel className="text-[11.5px] font-medium tracking-wide text-muted-foreground">Switch user (auth is off in this build)</DropdownMenuLabel>
             <div className="max-h-72 overflow-y-auto">
-              {groupUsers(users, roles.length ? [] : []).map((u) => (
+              {switcherUsers.map((u) => (
                 <DropdownMenuItem key={u.id} onClick={() => setUserId(u.id)} className="gap-2">
                   <UserAvatar name={u.name} src={u.avatarUrl} size="sm" />
                   <span className="min-w-0 flex-1">
@@ -172,18 +172,23 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
   )
 }
 
+interface SwitcherUser { id: string; name: string; avatarUrl?: string; roleLabel: string }
+
 /** One representative user per role first, so the switcher is useful without scrolling through 40 teachers */
-function groupUsers(users: ReturnType<typeof useSession>['users'], _unused: unknown[]) {
-  const { roles } = getRolesIndex()
+function groupUsers(users: ReturnType<typeof useSession>['users'], allRoles: Role[]): SwitcherUser[] {
+  const roleNames = new Map(allRoles.map((r) => [r.id, r.name]))
+  const labelled: SwitcherUser[] = users.map((u) => ({
+    id: u.id,
+    name: u.name,
+    avatarUrl: u.avatarUrl,
+    roleLabel: u.roleIds.map((id) => roleNames.get(id)).filter(Boolean).join(', ') || 'No role',
+  }))
+  const firstPerRole: SwitcherUser[] = []
+  const rest: SwitcherUser[] = []
   const seen = new Set<string>()
-  const out: Array<(typeof users)[number] & { roleLabel: string }> = []
-  const withLabel = users.map((u) => ({ ...u, roleLabel: u.roleIds.map((id) => roles.get(id) ?? '').filter(Boolean).join(', ') }))
-  for (const u of withLabel) { const k = u.roleLabel; if (!seen.has(k)) { seen.add(k); out.push(u) } }
-  for (const u of withLabel) if (!out.includes(u)) out.push(u)
-  return out.slice(0, 14)
-}
-import { getStore } from '@/api/store'
-function getRolesIndex() {
-  const roles = new Map(getStore().roles.map((r) => [r.id, r.name]))
-  return { roles }
+  for (const u of labelled) {
+    if (seen.has(u.roleLabel)) rest.push(u)
+    else { seen.add(u.roleLabel); firstPerRole.push(u) }
+  }
+  return [...firstPerRole, ...rest].slice(0, 14)
 }

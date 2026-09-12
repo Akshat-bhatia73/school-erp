@@ -35,7 +35,7 @@ export function PageHeader({ crumbs, actions, badge, className }: { crumbs: Crum
 /** Toolbar under the header: filter chips on the left, secondary actions on the right */
 export function Toolbar({ children, right, className }: { children?: ReactNode; right?: ReactNode; className?: string }) {
   return (
-    <div className={cn('flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card px-4 py-2', className)}>
+    <div className={cn('flex min-h-[52px] shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card px-4 py-2', className)}>
       <div className="flex flex-wrap items-center gap-2">{children}</div>
       {right && <div className="flex items-center gap-2">{right}</div>}
     </div>

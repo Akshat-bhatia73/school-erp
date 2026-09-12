@@ -1,6 +1,6 @@
 import { flexRender, getCoreRowModel, getSortedRowModel, useReactTable, type ColumnDef, type Row, type RowSelectionState, type SortingState, type OnChangeFn } from '@tanstack/react-table'
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight } from 'lucide-react'
-import { type ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -29,8 +29,16 @@ export interface DataTableProps<T> {
  * Data table in the style of the reference: hairline row dividers, column dividers,
  * checkbox column, sortable headers, optional footer bar.
  */
+const EMPTY_ROWS: never[] = []
+const EMPTY_SORTING: SortingState = []
+const EMPTY_SELECTION: RowSelectionState = {}
+
 export function DataTable<T>({ columns, data, isLoading, selectable, rowSelection, onRowSelectionChange, getRowId, sorting, onSortingChange, onRowClick, emptyState, footer, pagination, className, dense }: DataTableProps<T>) {
-  const cols: ColumnDef<T, any>[] = selectable
+  // TanStack Table re-runs its auto-reset logic whenever `data` or `columns` change identity.
+  // Callers often pass `data?.items ?? []`, which is a new array every render while loading and
+  // causes an infinite render loop. Keep references stable here so no caller has to remember.
+  const stableData = data.length === 0 ? (EMPTY_ROWS as T[]) : data
+  const cols = useMemo<ColumnDef<T, any>[]>(() => selectable
     ? [
         {
           id: '_select',
@@ -43,16 +51,17 @@ export function DataTable<T>({ columns, data, isLoading, selectable, rowSelectio
         },
         ...columns,
       ]
-    : columns
+    : columns, [columns, selectable])
 
   const table = useReactTable({
-    data, columns: cols, getRowId,
-    state: { rowSelection: rowSelection ?? {}, sorting: sorting ?? [] },
+    data: stableData, columns: cols, getRowId,
+    state: { rowSelection: rowSelection ?? EMPTY_SELECTION, sorting: sorting ?? EMPTY_SORTING },
     onRowSelectionChange, onSortingChange,
     enableRowSelection: !!selectable,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     manualSorting: !!onSortingChange,
+    autoResetAll: false,
   })
 
   const rowH = dense ? 'h-10' : 'h-12'
@@ -71,7 +80,7 @@ export function DataTable<T>({ columns, data, isLoading, selectable, rowSelectio
                     <th
                       key={h.id}
                       style={{ width: h.getSize() !== 150 ? h.getSize() : undefined }}
-                      className={cn('h-11 border-b bg-card px-3 text-left font-medium text-muted-foreground', i > 0 && 'border-l', i === 0 && selectable && 'pl-4 pr-0 w-11', canSort && 'cursor-pointer select-none hover:text-foreground')}
+                      className={cn('h-11 border-b bg-card px-3 text-left text-[13px] font-medium text-muted-foreground', i > 0 && 'border-l', i === 0 && selectable && 'pl-4 pr-0 w-11', canSort && 'cursor-pointer select-none hover:text-foreground')}
                       onClick={canSort ? h.column.getToggleSortingHandler() : undefined}
                     >
                       <span className="inline-flex items-center gap-1.5">

@@ -504,3 +504,61 @@ These are opinions, not requirements. They come from how Indian schools actually
 | WhatsApp API rules change or costs rise | Keep SMS and email as fallbacks. Keep the message layer swappable. |
 | Teachmint or a big player goes aggressive on price | Our edge is the assistant and onboarding speed, not the module list. Keep investing there. |
 | Children's data privacy incident | Data in India, OTP login, role-based access, encryption, and a clear privacy policy that schools can show parents. |
+
+---
+
+## 14. What it costs us to run (hosting, messaging, AI)
+
+Estimates in Indian rupees, September 2026 list prices, ₹84 per dollar. Two sizes: the pilot (3 schools, about 1,500 students, 100 staff) and a first scale point (50 schools, about 25,000 students). Treat these as planning numbers, not quotes.
+
+### 14.1 Monthly cost by item
+
+| Item | What we use | Pilot / month | 50 schools / month | Notes |
+|---|---|---|---|---|
+| Servers | AWS Mumbai: 1 small app server + managed Postgres (RDS) | ₹4,000–5,000 | ₹20,000–25,000 (2 app servers, load balancer, Postgres with standby, backups) | Data stays in India. A single VPS is fine for the pilot. |
+| File storage | S3 or Cloudflare R2 for photos and documents | under ₹100 | ₹500–1,000 | 25,000 students × 3 files × 400 KB is about 30 GB. Tiny. |
+| Email | Amazon SES (₹0.008 per email) or Resend | ₹150 | ₹2,000 | Never send bulk email from Gmail or Google Workspace. It caps at about 2,000 a day and gets the domain flagged. |
+| WhatsApp | Meta Cloud API directly, or an Indian provider (Gupshup, AiSensy, Interakt) | ₹2,500 | ₹40,000–45,000 | Meta charges about ₹0.115 per "utility" message in India (absent alert, fee receipt, notice). Marketing messages are 7× more, avoid them. Replies to a parent within 24 hours of their message are free. Providers add ₹0.02–0.05 per message or a ₹1,500–5,000 monthly fee. Avoid Twilio for India, it is dollar-priced with markup. |
+| SMS | MSG91, Kaleyra or Gupshup. About ₹0.15–0.25 per SMS | ₹1,500–2,000 | ₹15,000–30,000 | One-time DLT registration about ₹6,000 plus template approval, required by law in India. Use SMS only when WhatsApp fails, that halves the bill. |
+| OTP logins | WhatsApp authentication (₹0.115) or SMS (₹0.20) | ₹300 | ₹5,000–6,000 | Keep parents logged in for 60–90 days so OTPs are rare. |
+| AI assistant | Claude API. Sonnet 5 for most queries, Haiku 4.5 for simple ones | ₹5,000–8,000 | ₹60,000–1,00,000 | See 14.2. This is our second biggest variable cost after messaging. |
+| Push notifications | Firebase (Android) and Apple push | ₹0 | ₹0 | Free. |
+| Domain, SSL, CDN | Cloudflare free plan | about ₹100 | about ₹100 | ₹1,000 a year for the domain. SSL is free. |
+| Monitoring, errors | Sentry and an uptime checker, free tiers | ₹0 | ₹2,000–3,000 | |
+| App stores | Google Play ₹2,100 once, Apple ₹8,300 a year | ₹700 (averaged) | ₹700 | |
+| Payment gateway | Razorpay / Cashfree | ₹0 to us | ₹0 to us | Cards and net banking cost about 2% plus GST. UPI is usually free or near free. Pass the fee to the parent as a small convenience fee, or let schools use their own UPI QR which costs nothing. |
+| **Total** | | **₹18,000–22,000** (about $250) | **₹1.5–2.2 lakh** (about $2,000–2,600) | |
+
+### 14.2 The AI assistant cost, worked out
+
+Claude API list prices (per million tokens): Haiku 4.5 is $1 in / $5 out, Sonnet 5 is $2 in / $10 out, Opus 5 is $5 in / $25 out. Cached prompt text is read at roughly one tenth the input price. Nightly batch jobs get 50% off.
+
+A typical assistant question ("who in Class 6 has not paid?") costs roughly:
+- About 4,000 tokens of fixed instructions and tool definitions, cached, so nearly free after the first call.
+- About 2,000 tokens of live data pulled from our database.
+- About 400 tokens of answer.
+- That is about ₹0.75 on Sonnet 5 per step. Questions that need two or three steps cost ₹1.5–2.5.
+
+Usage assumptions: 5 active staff per school, 10 questions a day each, 26 working days. That is 1,300 questions per school per month, or about ₹1,200–2,000 per school per month on Sonnet 5. Routing simple questions to Haiku 4.5 cuts it by a third. Opus 5 is 2.5× Sonnet and only worth it for hard, multi-step tasks. The 6 pm principal summary can run as a batch job at half price.
+
+### 14.3 What this means per school
+
+| | Pilot | 50 schools |
+|---|---|---|
+| Our cost per school per month | about ₹6,500 | about ₹3,500–4,500 |
+| Our cost per student per year | about ₹50 | about ₹75–100 (heavier messaging and AI use at scale) |
+| Suggested price per student per year | ₹150–300 | ₹150–300 |
+| Rough gross margin | 60–70% | 50–65% |
+
+Messaging (WhatsApp plus SMS) is the biggest variable cost, about 35–40% of the total at scale. The AI assistant is next at 30–40%. Servers are small. So the two levers that protect margin are: send fewer, better messages (WhatsApp first, SMS only as fallback, no marketing messages), and route simple AI questions to the cheaper model with caching turned on.
+
+### 14.4 One-time and yearly costs
+
+| Item | Cost |
+|---|---|
+| DLT registration for SMS (legal requirement) | about ₹6,000 once, plus a few hundred per template |
+| Meta Business verification for WhatsApp | free, takes 1–3 weeks |
+| Google Play developer account | ₹2,100 once |
+| Apple developer account | ₹8,300 a year |
+| Domain | ₹1,000 a year |
+| Company email (Google Workspace) for the team | about ₹160 per person per month |

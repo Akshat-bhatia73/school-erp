@@ -4,23 +4,23 @@ import type { ReactNode } from 'react'
 export type TagColor = 'orange' | 'blue' | 'teal' | 'cyan' | 'purple' | 'pink' | 'red' | 'green' | 'yellow' | 'indigo' | 'grey'
 
 const colorClass: Record<TagColor, string> = {
-  orange: 'text-tag-orange border-tag-orange/40 dark:bg-tag-orange/15 dark:border-transparent',
-  blue: 'text-tag-blue border-tag-blue/40 dark:bg-tag-blue/15 dark:border-transparent',
-  teal: 'text-tag-teal border-tag-teal/40 dark:bg-tag-teal/15 dark:border-transparent',
-  cyan: 'text-tag-cyan border-tag-cyan/40 dark:bg-tag-cyan/15 dark:border-transparent',
-  purple: 'text-tag-purple border-tag-purple/40 dark:bg-tag-purple/15 dark:border-transparent',
-  pink: 'text-tag-pink border-tag-pink/40 dark:bg-tag-pink/15 dark:border-transparent',
-  red: 'text-tag-red border-tag-red/40 dark:bg-tag-red/15 dark:border-transparent',
-  green: 'text-tag-green border-tag-green/40 dark:bg-tag-green/15 dark:border-transparent',
-  yellow: 'text-tag-yellow border-tag-yellow/50 dark:bg-tag-yellow/15 dark:border-transparent',
-  indigo: 'text-tag-indigo border-tag-indigo/40 dark:bg-tag-indigo/15 dark:border-transparent',
-  grey: 'text-muted-foreground border-border dark:bg-muted dark:border-transparent',
+  orange: 'bg-tag-orange/12 text-tag-orange dark:bg-tag-orange/18',
+  blue: 'bg-tag-blue/12 text-tag-blue dark:bg-tag-blue/18',
+  teal: 'bg-tag-teal/12 text-tag-teal dark:bg-tag-teal/18',
+  cyan: 'bg-tag-cyan/12 text-tag-cyan dark:bg-tag-cyan/18',
+  purple: 'bg-tag-purple/12 text-tag-purple dark:bg-tag-purple/18',
+  pink: 'bg-tag-pink/12 text-tag-pink dark:bg-tag-pink/18',
+  red: 'bg-tag-red/12 text-tag-red dark:bg-tag-red/18',
+  green: 'bg-tag-green/12 text-tag-green dark:bg-tag-green/18',
+  yellow: 'bg-tag-yellow/15 text-tag-yellow dark:bg-tag-yellow/18',
+  indigo: 'bg-tag-indigo/12 text-tag-indigo dark:bg-tag-indigo/18',
+  grey: 'bg-muted text-muted-foreground',
 }
 
-/** Outline pill like "Project Management" in the reference. */
+/** Filled tinted pill like "Enterprise" / "Upsell" in the reference. */
 export function Tag({ color = 'grey', className, children, dot }: { color?: TagColor; className?: string; children: ReactNode; dot?: boolean }) {
   return (
-    <span className={cn('inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-[12.5px] font-medium leading-none', colorClass[color], className)}>
+    <span className={cn('inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-[12.5px] font-medium leading-none', colorClass[color], className)}>
       {dot && <span className="size-1.5 rounded-full bg-current" />}
       {children}
     </span>
