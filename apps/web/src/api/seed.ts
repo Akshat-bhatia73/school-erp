@@ -261,7 +261,9 @@ function buildSchool(spec: SchoolSpec, out: Store) {
   mkStaff('Vikas', 'Saini', 'male', 'non_teaching', 'Lab Assistant', 'Science', 16000, 3)
   mkStaff('Pooja', 'Rani', 'female', 'non_teaching', 'Librarian', 'Library', 18000, 6)
 
-  const teacherCount = Math.max(12, Math.round(grades.length * spec.sectionsPerGrade * 0.8))
+  // About 1.6 teachers per section keeps loads near 25–30 periods a week once the timetable is filled
+  const sectionTotal = [...sectionsByGrade.values()].reduce((n, arr) => n + arr.length, 0)
+  const teacherCount = Math.max(12, Math.round(sectionTotal * 1.6))
   const DESIGS = ['PRT', 'TGT', 'PGT']
   const DEPTS = ['English', 'Hindi', 'Mathematics', 'Science', 'Social Science', 'Computer Science', 'Primary', 'Physical Education', 'Art']
   const teachers: Staff[] = []
@@ -275,6 +277,7 @@ function buildSchool(spec: SchoolSpec, out: Store) {
 
   // Class teachers + teaching assignments
   let ti = 0
+  let rr = 0 // round-robin so every teacher ends up with a similar weekly load
   for (const g of grades) {
     const secs = sectionsByGrade.get(g.id)!
     const gsubs = out.gradeSubjects.filter((x) => x.gradeId === g.id)
@@ -283,7 +286,7 @@ function buildSchool(spec: SchoolSpec, out: Store) {
       ti++
       sec.classTeacherId = ct.id
       for (const gs of gsubs) {
-        const t = chance(0.4) ? ct : pick(teachers)
+        const t = chance(0.25) ? ct : teachers[rr++ % teachers.length]!
         out.teachingAssignments.push({ id: id('ta'), ...base(schoolId, 150), staffId: t.id, academicYearId: yCur.id, sectionId: sec.id, subjectId: gs.subjectId })
       }
     }
