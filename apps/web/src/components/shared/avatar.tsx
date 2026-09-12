@@ -1,0 +1,14 @@
+import { cn, initials } from '@/lib/utils'
+
+/** Rounded-square avatar with a tinted fallback like the inbox reference */
+export function UserAvatar({ name, src, size = 'md', className }: { name: string; src?: string; size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'; className?: string }) {
+  const sz = { xs: 'size-5 text-[9px]', sm: 'size-6 text-[10px]', md: 'size-8 text-[11px]', lg: 'size-10 text-[13px]', xl: 'size-16 text-[20px]' }[size]
+  const hues = ['bg-tag-orange/20 text-tag-orange', 'bg-tag-blue/20 text-tag-blue', 'bg-tag-teal/20 text-tag-teal', 'bg-tag-purple/20 text-tag-purple', 'bg-tag-pink/20 text-tag-pink', 'bg-tag-green/20 text-tag-green']
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return (
+    <span className={cn('inline-flex shrink-0 items-center justify-center overflow-hidden rounded-lg font-semibold', sz, hues[h % hues.length], className)}>
+      {src ? <img src={src} alt={name} className="size-full object-cover" loading="lazy" /> : initials(name)}
+    </span>
+  )
+}

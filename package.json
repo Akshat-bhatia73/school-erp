@@ -1,0 +1,12 @@
+{
+  "name": "school-erp",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "pnpm --filter @erp/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint"
+  },
+  "packageManager": "pnpm@10.34.4"
+}

@@ -1,0 +1,135 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+  Design tokens. Modelled on the reference screenshots:
+  soft grey canvas, white panels, hairline borders, 12px radii,
+  muted text hierarchy, outline pill tags with tinted colours.
+*/
+:root {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --background: oklch(0.965 0 0);        /* app canvas, light grey */
+  --foreground: oklch(0.2 0 0);
+  --card: oklch(1 0 0);                  /* panels */
+  --card-foreground: oklch(0.2 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0 0);
+  --primary: oklch(0.21 0 0);            /* near-black buttons like the reference */
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.955 0 0);
+  --secondary-foreground: oklch(0.25 0 0);
+  --muted: oklch(0.955 0 0);
+  --muted-foreground: oklch(0.52 0 0);
+  --accent: oklch(0.945 0 0);            /* hover / selected nav row */
+  --accent-foreground: oklch(0.2 0 0);
+  --destructive: oklch(0.58 0.22 27);
+  --border: oklch(0.91 0 0);
+  --input: oklch(0.9 0 0);
+  --ring: oklch(0.65 0 0);
+  --sidebar: oklch(0.975 0 0);
+  --sidebar-foreground: oklch(0.25 0 0);
+  --sidebar-accent: oklch(0.935 0 0);
+  --sidebar-border: oklch(0.91 0 0);
+  --radius: 0.75rem;
+
+  /* Tag palette: text colour + border. Background is transparent in light mode. */
+  --tag-orange: oklch(0.7 0.19 45);
+  --tag-blue: oklch(0.62 0.19 255);
+  --tag-teal: oklch(0.72 0.15 175);
+  --tag-cyan: oklch(0.75 0.15 215);
+  --tag-purple: oklch(0.62 0.22 300);
+  --tag-pink: oklch(0.68 0.22 350);
+  --tag-red: oklch(0.62 0.22 25);
+  --tag-green: oklch(0.68 0.18 150);
+  --tag-yellow: oklch(0.78 0.16 85);
+  --tag-indigo: oklch(0.6 0.2 275);
+  --tag-grey: oklch(0.55 0 0);
+
+  /* Brand accent, used sparingly (primary CTA in dark mode, focus) */
+  --brand: oklch(0.58 0.22 275);
+}
+
+.dark {
+  --background: oklch(0.13 0 0);
+  --foreground: oklch(0.93 0 0);
+  --card: oklch(0.17 0 0);
+  --card-foreground: oklch(0.93 0 0);
+  --popover: oklch(0.19 0 0);
+  --popover-foreground: oklch(0.93 0 0);
+  --primary: oklch(0.58 0.22 275);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.23 0 0);
+  --secondary-foreground: oklch(0.9 0 0);
+  --muted: oklch(0.23 0 0);
+  --muted-foreground: oklch(0.65 0 0);
+  --accent: oklch(0.24 0 0);
+  --accent-foreground: oklch(0.95 0 0);
+  --destructive: oklch(0.65 0.2 25);
+  --border: oklch(0.26 0 0);
+  --input: oklch(0.3 0 0);
+  --ring: oklch(0.5 0 0);
+  --sidebar: oklch(0.15 0 0);
+  --sidebar-foreground: oklch(0.85 0 0);
+  --sidebar-accent: oklch(0.22 0 0);
+  --sidebar-border: oklch(0.24 0 0);
+}
+
+@theme inline {
+  --font-sans: var(--font-sans);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-brand: var(--brand);
+  --color-tag-orange: var(--tag-orange);
+  --color-tag-blue: var(--tag-blue);
+  --color-tag-teal: var(--tag-teal);
+  --color-tag-cyan: var(--tag-cyan);
+  --color-tag-purple: var(--tag-purple);
+  --color-tag-pink: var(--tag-pink);
+  --color-tag-red: var(--tag-red);
+  --color-tag-green: var(--tag-green);
+  --color-tag-yellow: var(--tag-yellow);
+  --color-tag-indigo: var(--tag-indigo);
+  --color-tag-grey: var(--tag-grey);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  html { font-feature-settings: 'cv11', 'ss01'; -webkit-font-smoothing: antialiased; }
+  body { @apply bg-background text-foreground font-sans text-[13.5px] leading-snug; }
+  ::selection { @apply bg-brand/20; }
+}
+
+@layer utilities {
+  /* Dotted underline used for entity names in the reference table */
+  .link-dotted { @apply underline decoration-dotted decoration-muted-foreground/60 underline-offset-[3px] hover:decoration-foreground; }
+  .scrollbar-thin { scrollbar-width: thin; scrollbar-color: color-mix(in oklch, var(--foreground) 15%, transparent) transparent; }
+  .kbd { @apply inline-flex h-5 min-w-5 items-center justify-center rounded border bg-card px-1 font-mono text-[10.5px] text-muted-foreground; }
+}
