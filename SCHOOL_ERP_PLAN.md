@@ -52,6 +52,7 @@ There are many school ERPs. We should not pretend otherwise. Well-known ones:
 | Fedena | Very complete, open-source roots, many modules | Old-looking interface, complex setup, feels heavy |
 | Teachmint | Modern, mobile-first, popular with Indian schools, free tier | Started as a teaching app; fee and office work is less deep. Pushes upsells. |
 | Entab, Skolaro, MyClassboard, Vidyalaya | Full-featured, used by big city schools | Priced for big schools, long onboarding, need training, sales-driven |
+| EdiSAPP (Eloit, Kochi) | Very broad: claims 40 to 540 modules, parent/teacher/principal apps, BBPS fee payments, GPS transport, AI lesson planning and message drafting, 700+ schools in India and abroad | Module sprawl, no public pricing, reviews mention training gaps and glitches after updates. Timetable is listed but substitution handling is not shown anywhere public. See section 15. |
 | PowerSchool, Veracross (US) | Very mature, deep gradebook and reporting | Built for US schools, expensive, not a fit for our market |
 | Google Classroom | Free, teachers know it | Only teaching. No fees, no admissions, no attendance in the office sense. |
 | eSchool / openSIS (open-source) | Free to run | Needs a tech person to set up and maintain |
@@ -91,12 +92,13 @@ We split features into three buckets.
 | 10 | Roles and permissions (RBAC) | Each person only sees and does what their role allows. Explained in section 5. |
 | 11 | AI assistant | A chat box where staff ask questions about school data and ask it to do simple tasks. Explained in section 6. |
 | 12 | Dashboard | Principal opens the app and sees today's attendance %, fees collected this month, dues pending, upcoming exams. |
+| 13 | Timetable | Bell schedule (periods and times), class timetable grid, each teacher's timetable and weekly load, and daily substitutions when a teacher is absent, with free teachers suggested. Moved into the MVP on 12 Sep 2026 because it only depends on classes, subjects and staff, and schools ask for it on day one. |
 
 ### 4.2 Should have (right after MVP, months 3 to 5)
 
 | Feature | What it means |
 |---|---|
-| Timetable | Which teacher teaches which class at what period. Substitute teacher when someone is absent. |
+| Timetable, advanced | Auto-generation with constraints (labs, double periods, teacher preferences), rotating day cycles, printing. The basic timetable is now in the MVP. |
 | Homework / assignments | Teacher posts homework, parents see it. Students in Class 9 to 12 can get their own login and submit homework as a photo. |
 | Online class links | A field on the timetable or a notice where the school pastes a Meet or Zoom link. We do not build our own video. |
 | Online fee payment | Parent pays from the app via UPI / payment gateway. Receipt auto-generated. |
@@ -562,3 +564,44 @@ Messaging (WhatsApp plus SMS) is the biggest variable cost, about 35–40% of th
 | Apple developer account | ₹8,300 a year |
 | Domain | ₹1,000 a year |
 | Company email (Google Workspace) for the team | about ₹160 per person per month |
+
+
+---
+
+## 15. Feature map against EdiSAPP
+
+EdiSAPP (by Eloit Innovations, Kochi) is one of the broadest Indian school ERPs, so it is a good yardstick. We do not have a login to it. This map is built from their public website, app store listings and review sites on 12 September 2026. Their own site was down at the time, so details come from eloit.com and reviews. Where their pages only name a feature without showing it, we say so.
+
+### 15.1 Module by module
+
+| Area | What EdiSAPP offers (public claims) | Where we stand | Our call |
+|---|---|---|---|
+| Admissions | Enquiry to enrolment, class assignment, leaving certificates | Admit form, Excel import, promotion built. Enquiry tracking and TC generation planned for Phase 2. | Match by Phase 2. |
+| Students | Profiles with academic history, alumni, hostel, events, inventory | Profiles with guardians, documents, history built. No hostel, inventory, events. | Skip hostel, inventory, events unless a paying school asks. |
+| Fees | Online payment gateway, BBPS bill-pay, dynamic UPI QR, PC-POS, Tally integration | Phase 2. | Match UPI QR and Tally export. BBPS and POS are nice-to-have, not early. |
+| Attendance | Student and staff attendance, biometric and RFID devices, teacher marks from app | Phase 2. | Match app-based attendance. Devices later. |
+| Timetable | Named only: "timetable scheduling", "automated timetables", flexible period lengths and rotations. No screenshots, no substitution flow shown. | Bell schedule, class grid, teacher view and load, daily substitutions with free-teacher suggestions being built now. | Likely ahead of them on substitutions. Add constraint-based auto-generation later. |
+| Exams | Exam scheduling, gradebook, results, progress analytics | Phase 3. | Match. |
+| Homework and learning | Homework, lesson plans, LMS with forums, Microsoft Teams for online classes | Homework in Phase 2. No LMS. | Do not build an LMS. Paste a Meet or Zoom link instead. |
+| Communication | Push, SMS, email, in-app chat, WhatsApp, AI-written messages | Phase 2 for channels. AI drafting is part of our Phase 4 assistant. | Match. Our assistant goes further (answers questions on data, takes actions). |
+| Transport | GPS bus tracking, routes, driver coordination | Not planned for MVP. | Later, only if asked. |
+| Library | Library with barcode and Google Books | Not planned for MVP. | Later. |
+| HR and payroll | Staff records, leave, payroll | Staff records built. Leave in Phase 2, basic payroll in should-have. | Match by Phase 2 or 3. |
+| Principal app | Live dashboard app, even a smartwatch app | Dashboard built. Daily WhatsApp summary planned. | Skip the watch. The 6 pm WhatsApp summary is the same idea, cheaper. |
+| Parent app | Grades, attendance, homework, leave requests, fee payment, chat, timetable. 100K+ installs, 3.8 stars. | Phase 3, Android first, plus a no-install web view from WhatsApp links. | Match. Aim for fewer features that actually get opened. |
+| Teacher app | Attendance, homework, timetable, AI lesson planning, parent messaging | Phase 2 and 3. | Match, minus lesson planning at first. |
+| AI | Lesson planning, student insights, message drafting, speech to text in Indian languages, adaptive learning content | Assistant in Phase 4 answers questions on school data and takes actions with confirmation. | Different bet: theirs is content generation for teachers, ours is an office assistant for the clerk and principal. Both can exist; ours is the sales demo. |
+| Roles and audit | Role-based access, audit trails, ISO 27001 hosting, GDPR | Roles matrix and audit log built. | Match. Add hosting and data-protection statement before pilot. |
+| Integrations | Teams, Office 365, Google Maps, biometric, payment gateways, banks, SMS gateways, ID card printers, Tally | None yet. | Tally export, WhatsApp, SMS, one payment gateway. That is enough for our schools. |
+
+### 15.2 What this tells us
+
+- **They win on breadth.** Their marketing counts modules. We should not compete on that number. Our pitch is the six modules that work perfectly on a phone plus the assistant.
+- **Their timetable is thin in public.** Nobody shows a substitution screen. A principal doing 7:45 am arrangements on their phone, with free teachers suggested, is a demo moment we can own.
+- **Their parent app rating is 3.8.** Complaints in reviews mention glitches after updates and training gaps. Reliability and a one-day onboarding are where we can be visibly better.
+- **Pricing is hidden** and tiered by student count with a setup fee and paid add-ons. Our simple per-student price with everything included is a clean contrast.
+- **They already do WhatsApp, SMS, email and push.** Parents expect this. It is table stakes, not a differentiator.
+
+### 15.3 Sources
+
+eloit.com product, AI, teacher app, parent app and school-management pages; Google Play listings for the parent and teacher apps; SoftwareSuggest, GetApp, Capterra and TrustRadius listings; Eloit posts on Medium and Blogspot. Their main domain edisapp.com was unreachable when checked.
