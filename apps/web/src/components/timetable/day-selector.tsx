@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
  */
 export function DaySelector({ days, value, onChange, className }: { days: number[]; value: number; onChange: (d: number) => void; className?: string }) {
   return (
-    <div role="tablist" aria-label="Day" className={cn('flex shrink-0 items-center gap-1.5 overflow-x-auto border-b bg-card px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:hidden', className)}>
+    <div role="tablist" aria-label="Day" className={cn('flex shrink-0 items-center gap-1.5 overflow-x-auto border-b bg-card px-3 py-2 no-scrollbar md:hidden', className)}>
       {days.map((d) => (
         <button
           key={d}

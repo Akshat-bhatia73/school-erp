@@ -64,12 +64,15 @@ export function Toolbar({ children, right, search, className }: { children?: Rea
   return (
     <div className={cn('shrink-0 border-b bg-card', className)}>
       {search && <div className="border-b px-3 py-2 md:hidden">{search}</div>}
-      <div className="flex min-h-[52px] flex-nowrap items-center justify-between gap-2 px-3 py-2 md:flex-wrap md:px-4">
-        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto scrollbar-thin [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible">
+      <div className="flex min-h-[52px] items-center justify-between gap-2 px-3 py-2 md:flex-wrap md:px-4">
+        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar md:flex-wrap md:overflow-visible">
           {search && <div className="hidden md:block">{search}</div>}
           {children}
+          {/* On mobile the secondary actions join the scrolling strip instead of
+              squeezing the filter chips into a sliver of the row. */}
+          {right && <div className="flex items-center gap-2 md:hidden">{right}</div>}
         </div>
-        {right && <div className="flex shrink-0 items-center gap-2">{right}</div>}
+        {right && <div className="hidden shrink-0 items-center gap-2 md:flex">{right}</div>}
       </div>
     </div>
   )
@@ -78,7 +81,7 @@ export function Toolbar({ children, right, search, className }: { children?: Rea
 /** Tabs row like "Companies | Deals | Forecast" under a page title */
 export function PageTabs({ tabs, className }: { tabs: Array<{ label: string; to: string; count?: number }>; className?: string }) {
   return (
-    <div className={cn('flex shrink-0 items-center gap-1 overflow-x-auto border-b bg-card px-3 scrollbar-thin [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', className)}>
+    <div className={cn('flex shrink-0 items-center gap-1 overflow-x-auto border-b bg-card px-3 no-scrollbar', className)}>
       {tabs.map((t) => {
         // A tab whose path is a prefix of a sibling tab (e.g. /timetable vs /timetable/teachers) must match exactly
         const exact = tabs.some((o) => o !== t && o.to.startsWith(t.to.endsWith('/') ? t.to : t.to + '/'))
