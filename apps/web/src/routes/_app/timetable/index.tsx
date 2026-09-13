@@ -12,6 +12,7 @@ import { Tag, colorFor } from '@/components/shared/tag'
 import { useAcademicYears } from '@/components/setup/use-current-year'
 import { TimetableTabs } from '@/components/timetable/timetable-tabs'
 import { TimetableGrid } from '@/components/timetable/timetable-grid'
+import { DaySelector, defaultDay } from '@/components/timetable/day-selector'
 import { SetPeriodDialog, type SetPeriodTarget } from '@/components/timetable/set-period-dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -19,6 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { qk } from '@/lib/query'
 import { useSession } from '@/lib/session'
+import { useIsMobile } from '@/lib/use-media'
 
 const searchSchema = z.object({ gradeId: z.string().optional(), sectionId: z.string().optional() })
 
@@ -34,6 +36,7 @@ function Page() {
   const yearId = current?.id ?? ''
 
   const [target, setTarget] = useState<SetPeriodTarget | null>(null)
+  const [day, setDay] = useState<number | undefined>()
   const [confirmGenerate, setConfirmGenerate] = useState(false)
 
   const { data: grades = [] } = useQuery({ queryKey: qk.grades, queryFn: () => api.grades.list() })
@@ -106,6 +109,10 @@ function Page() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const isMobile = useIsMobile()
+  const workingDays = useMemo(() => [...(bell?.workingDays ?? [])].sort((a, b) => a - b), [bell])
+  const shownDay = day !== undefined && workingDays.includes(day) ? day : defaultDay(workingDays)
+
   const onCellClick = (dayOfWeek: number, periodIndex: number, existing?: TimetableCell) => {
     if (!canEdit) return
     const p = bell?.periods.find((x) => x.index === periodIndex)
@@ -155,7 +162,7 @@ function Page() {
       </Toolbar>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-auto scrollbar-thin">
-        <div className="flex flex-wrap items-center gap-3 border-b bg-card px-4 py-2 text-[13px] text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-card px-3 py-2 text-[13px] text-muted-foreground md:px-4">
           <span><span className="font-medium text-foreground tabular-nums">{stats.filled}</span> of {stats.total} periods filled</span>
           <span>·</span>
           <span>{stats.subjects} subjects</span>
@@ -191,8 +198,9 @@ function Page() {
           <EmptyState icon={<CalendarDays />} title="No bell schedule yet" description="Set up periods on the Bell schedule tab before filling the timetable." />
         ) : (
           <>
-            <TimetableGrid bell={bell} cells={cells} mode="section" editable={canEdit} onCellClick={canEdit ? onCellClick : undefined} />
-            <div className="p-4">
+            <DaySelector days={workingDays} value={shownDay} onChange={setDay} />
+            <TimetableGrid bell={bell} cells={cells} mode="section" editable={canEdit} dayFilter={isMobile ? shownDay : undefined} onCellClick={canEdit ? onCellClick : undefined} />
+            <div className="p-3 md:p-4">
               <Panel title="Subject periods per week">
                 {perSubject.length === 0 ? (
                   <p className="text-[13px] text-muted-foreground">Nothing placed yet.</p>

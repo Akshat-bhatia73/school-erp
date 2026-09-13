@@ -87,7 +87,7 @@ function Page() {
       />
       <Toolbar><StepBar steps={STEPS} current={step} /></Toolbar>
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
-        <div className="mx-auto max-w-4xl p-5">
+        <div className="mx-auto max-w-4xl p-3 md:p-5">
           {step === 0 && (
             <ImportUpload
               isBusy={previewMut.isPending}

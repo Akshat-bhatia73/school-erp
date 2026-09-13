@@ -32,7 +32,7 @@ function Page() {
         }
       />
 
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="flex-1 overflow-y-auto p-3 md:p-5">
         <div className="mx-auto flex max-w-[1400px] flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-[13.5px] text-muted-foreground">Overview for {school.name}</p>

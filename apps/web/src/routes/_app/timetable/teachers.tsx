@@ -5,12 +5,15 @@ import { CalendarDays, Search, UserRound } from 'lucide-react'
 import { z } from 'zod'
 import { DAY_LABELS } from '@erp/shared'
 import { api } from '@/api/client'
+import { useIsMobile } from '@/lib/use-media'
 import { UserAvatar } from '@/components/shared/avatar'
 import { EmptyState, PageHeader } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
 import { useAcademicYears } from '@/components/setup/use-current-year'
 import { TimetableTabs } from '@/components/timetable/timetable-tabs'
 import { TimetableGrid } from '@/components/timetable/timetable-grid'
+import { DaySelector, defaultDay } from '@/components/timetable/day-selector'
+import { MobilePicker } from '@/components/shared/mobile-picker'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { qk } from '@/lib/query'
@@ -39,6 +42,7 @@ function Page() {
 
   const load = loads.find((l) => l.staffId === staffId)
 
+  const [day, setDay] = useState<number | undefined>()
   const { data: bell, isLoading: bellLoading } = useQuery({ queryKey: [...qk.bellSchedules, 'staff'], queryFn: () => api.timetable.bellFor(undefined) })
   const { data: cells = [], isLoading: cellsLoading } = useQuery({ queryKey: qk.timetableStaff(staffId ?? ''), queryFn: () => api.timetable.forStaff(staffId!), enabled: !!staffId })
 
@@ -49,52 +53,67 @@ function Page() {
     return `${g?.name ?? ''} - ${s.name}`
   }, [sections, grades, staffId])
 
+  const isMobile = useIsMobile()
+  const workingDays = useMemo(() => [...(bell?.workingDays ?? [])].sort((a, b) => a - b), [bell])
+  const shownDay = day !== undefined && workingDays.includes(day) ? day : defaultDay(workingDays)
+
+  const teacherList = (onPick?: () => void) => isLoading ? (
+    <div className="grid gap-2 p-3">{Array.from({ length: 10 }).map((_, i) => <Skeleton key={i} className="h-11 rounded-lg" />)}</div>
+  ) : filtered.length === 0 ? (
+    <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">No teachers found.</p>
+  ) : filtered.map((l) => {
+    const ratio = l.maxPerWeek ? Math.min(1, l.periodsPerWeek / l.maxPerWeek) : 0
+    const over = l.periodsPerWeek > l.maxPerWeek
+    const near = !over && l.periodsPerWeek / l.maxPerWeek >= 0.9
+    return (
+      <button
+        key={l.staffId}
+        type="button"
+        onClick={() => { navigate({ search: { staffId: l.staffId }, replace: true }); onPick?.() }}
+        className={cn('flex w-full items-center gap-2.5 border-l-2 border-transparent px-3 py-2.5 text-left hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:-outline-offset-2 md:py-2', l.staffId === staffId && 'border-l-foreground bg-accent')}
+      >
+        <UserAvatar name={fullName(l.staff)} size="sm" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13.5px] font-medium">{fullName(l.staff)}</span>
+          <span className="block truncate text-[12px] text-muted-foreground">{l.staff.designation}</span>
+        </span>
+        <span className="w-10 shrink-0 text-right">
+          <span className="block text-[13px] tabular-nums">{l.periodsPerWeek}</span>
+          <span className="mt-1 block h-1 w-full overflow-hidden rounded-full bg-muted">
+            <span className={cn('block h-full rounded-full', over ? 'bg-tag-red' : near ? 'bg-tag-orange' : 'bg-tag-blue')} style={{ width: `${Math.round(ratio * 100)}%` }} />
+          </span>
+        </span>
+      </button>
+    )
+  })
+
   return (
     <>
       <PageHeader crumbs={[{ label: 'Timetable' }, { label: 'Teachers' }]} />
       <TimetableTabs />
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-72 shrink-0 flex-col border-r bg-card">
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <MobilePicker label="Teacher" value={load ? fullName(load.staff) : undefined} title="Pick a teacher">
+          {(close) => (
+            <>
+              <div className="relative sticky top-0 z-10 shrink-0 border-b bg-card p-2">
+                <Search className="pointer-events-none absolute top-1/2 left-4 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teachers" aria-label="Search teachers" className="h-9 pl-8" />
+              </div>
+              {teacherList(close)}
+            </>
+          )}
+        </MobilePicker>
+        <aside className="hidden w-72 shrink-0 flex-col border-r bg-card md:flex">
           <div className="relative shrink-0 border-b p-2">
             <Search className="pointer-events-none absolute top-1/2 left-4 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teachers" className="h-8 pl-8" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teachers" aria-label="Search teachers" className="h-8 pl-8" />
           </div>
-          <div className="min-h-0 flex-1 overflow-auto scrollbar-thin">
-            {isLoading ? (
-              <div className="grid gap-2 p-3">{Array.from({ length: 10 }).map((_, i) => <Skeleton key={i} className="h-11 rounded-lg" />)}</div>
-            ) : filtered.length === 0 ? (
-              <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">No teachers found.</p>
-            ) : filtered.map((l) => {
-              const ratio = l.maxPerWeek ? Math.min(1, l.periodsPerWeek / l.maxPerWeek) : 0
-              const over = l.periodsPerWeek > l.maxPerWeek
-              const near = !over && l.periodsPerWeek / l.maxPerWeek >= 0.9
-              return (
-                <button
-                  key={l.staffId}
-                  type="button"
-                  onClick={() => navigate({ search: { staffId: l.staffId }, replace: true })}
-                  className={cn('flex w-full items-center gap-2.5 border-l-2 border-transparent px-3 py-2 text-left hover:bg-accent/60', l.staffId === staffId && 'border-l-foreground bg-accent')}
-                >
-                  <UserAvatar name={fullName(l.staff)} size="sm" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13.5px] font-medium">{fullName(l.staff)}</span>
-                    <span className="block truncate text-[12px] text-muted-foreground">{l.staff.designation}</span>
-                  </span>
-                  <span className="w-10 shrink-0 text-right">
-                    <span className="block text-[13px] tabular-nums">{l.periodsPerWeek}</span>
-                    <span className="mt-1 block h-1 w-full overflow-hidden rounded-full bg-muted">
-                      <span className={cn('block h-full rounded-full', over ? 'bg-tag-red' : near ? 'bg-tag-orange' : 'bg-tag-blue')} style={{ width: `${Math.round(ratio * 100)}%` }} />
-                    </span>
-                  </span>
-                </button>
-              )
-            })}
-          </div>
+          <div className="min-h-0 flex-1 overflow-auto scrollbar-thin">{teacherList()}</div>
         </aside>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {!load ? (
-            <EmptyState icon={<UserRound />} title="Pick a teacher" description="Choose a teacher on the left to see their week." />
+            <EmptyState icon={<UserRound />} title="Pick a teacher" description="Choose a teacher to see their week." />
           ) : (
             <>
               <div className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-card px-4 py-3">
@@ -116,7 +135,10 @@ function Page() {
                 <EmptyState icon={<CalendarDays />} title="No bell schedule yet" description="Set up periods on the Bell schedule tab to see the week." />
               ) : (
                 <div className="flex min-h-0 flex-1 flex-col overflow-auto scrollbar-thin">
-                  <TimetableGrid bell={bell} cells={cells} mode="staff" highlightFree />
+                  <>
+                    <DaySelector days={workingDays} value={shownDay} onChange={setDay} />
+                    <TimetableGrid bell={bell} cells={cells} mode="staff" highlightFree dayFilter={isMobile ? shownDay : undefined} />
+                  </>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t bg-card px-4 py-2.5 text-[13px] text-muted-foreground">
                     <span className="text-[12px] font-medium tracking-wide">Per day</span>
                     {Object.keys(DAY_LABELS).map(Number).filter((d) => bell.workingDays.includes(d)).map((d) => (

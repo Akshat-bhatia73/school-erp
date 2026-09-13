@@ -87,6 +87,12 @@ function Page() {
         </Alert>
       </div>
       <Toolbar
+        search={
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} placeholder="Search entries" aria-label="Search audit entries" className="h-9 w-full pl-8 md:w-64" />
+          </div>
+        }
         right={
           <Tooltip>
             <TooltipTrigger asChild>
@@ -96,10 +102,6 @@ function Page() {
           </Tooltip>
         }
       >
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} placeholder="Search entries" className="h-9 w-64 pl-8" />
-        </div>
         <FilterChip
           label="Entity" value={entity} onChange={(v) => { setEntity(v); setPage(1) }} allLabel="Any"
           options={AuditEntity.options.map((e) => ({ value: e, label: entityLabels[e] }))}
@@ -128,6 +130,11 @@ function Page() {
         rowSelection={selection}
         onRowSelectionChange={setSelection}
         onRowClick={(r) => setDetail(r)}
+        mobileRow={(r) => ({
+          title: `${humanize(r.action)} · ${entityLabels[r.entity]}`,
+          subtitle: r.summary,
+          meta: <span className="truncate">{r.actorName} · {formatWhen(r.createdAt).date}</span>,
+        })}
         emptyState={<EmptyState icon={<History />} title="No entries match" description="Try a wider date range or clear the filters." />}
         footer={
           <>

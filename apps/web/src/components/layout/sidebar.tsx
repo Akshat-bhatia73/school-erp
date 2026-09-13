@@ -1,6 +1,6 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, CalendarClock, CalendarDays, ChevronsUpDown, GraduationCap, LayoutDashboard, ListChecks, Moon, PanelLeft, School, ScrollText, Search, Settings2, ShieldCheck, Sun, Users, UserRound, BookOpen, Check, Sparkles } from 'lucide-react'
+import { Building2, CalendarClock, CalendarDays, ChevronsUpDown, GraduationCap, LayoutDashboard, ListChecks, Moon, PanelLeft, School, ScrollText, Search, Settings2, ShieldCheck, Sun, Users, UserRound, BookOpen, Check, Sparkles, X } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import { api } from '@/api/client'
 import { UserAvatar } from '@/components/shared/avatar'
@@ -14,14 +14,15 @@ import type { Module, Role } from '@erp/shared'
 
 interface NavItem { label: string; to: string; icon: ReactNode; count?: number | string; module?: Module; exact?: boolean }
 
-function NavLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+function NavLink({ item, collapsed, onNavigate }: { item: NavItem; collapsed: boolean; onNavigate?: () => void }) {
   const path = useRouterState({ select: (s) => s.location.pathname })
   const active = item.exact ? path === item.to : path === item.to || path.startsWith(item.to + '/')
   return (
     <Link
       to={item.to}
       title={collapsed ? item.label : undefined}
-      className={cn('group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[14px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent', active && 'bg-sidebar-accent font-medium', collapsed && 'justify-center px-0')}
+      onClick={onNavigate}
+      className={cn('group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[14px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none', active && 'bg-sidebar-accent font-medium', collapsed && 'justify-center px-0')}
     >
       <span className={cn('flex size-5 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-[17px]', active && 'text-foreground')}>{item.icon}</span>
       {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
@@ -30,7 +31,16 @@ function NavLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   )
 }
 
-export function Sidebar({ collapsed, onToggle, onOpenQuickActions }: { collapsed: boolean; onToggle: () => void; onOpenQuickActions: () => void }) {
+export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions, variant = 'rail', onNavigate }: {
+  collapsed?: boolean
+  onToggle?: () => void
+  onOpenQuickActions: () => void
+  /** 'rail' is the desktop sidebar; 'drawer' is the same nav inside the mobile sheet (never collapsed, no toggle) */
+  variant?: 'rail' | 'drawer'
+  onNavigate?: () => void
+}) {
+  const drawer = variant === 'drawer'
+  const collapsed = drawer ? false : !!collapsedProp
   const { school, schools, setSchoolId, user, users, setUserId, roles, can } = useSession()
   const { theme, toggle } = useTheme()
   const { data: dash } = useQuery({ queryKey: qk.dashboard, queryFn: api.dashboard.summary })
@@ -58,7 +68,7 @@ export function Sidebar({ collapsed, onToggle, onOpenQuickActions }: { collapsed
   const visible = (items: NavItem[]) => items.filter((i) => !i.module || can(i.module))
 
   return (
-    <aside className={cn('flex h-full shrink-0 flex-col border-r bg-sidebar transition-[width] duration-200', collapsed ? 'w-14' : 'w-64')}>
+    <aside className={cn('flex h-full min-h-0 flex-col bg-sidebar', drawer ? 'w-full' : 'shrink-0 border-r transition-[width] duration-200', !drawer && (collapsed ? 'w-14' : 'w-64'))}>
       {/* School switcher */}
       <div className={cn('flex h-14 items-center gap-2 border-b px-3', collapsed && 'justify-center px-0')}>
         <DropdownMenu>
@@ -90,32 +100,35 @@ export function Sidebar({ collapsed, onToggle, onOpenQuickActions }: { collapsed
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        {!collapsed && (
-          <button type="button" onClick={onToggle} className="rounded-md p-1.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground" title="Collapse sidebar"><PanelLeft className="size-4" /></button>
+        {drawer && (
+          <button type="button" onClick={onNavigate} aria-label="Close navigation menu" className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"><X className="size-5" /></button>
+        )}
+        {!collapsed && !drawer && (
+          <button type="button" onClick={onToggle} aria-label="Collapse sidebar" className="rounded-md p-1.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground" title="Collapse sidebar"><PanelLeft className="size-4" /></button>
         )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2 scrollbar-thin">
         {/* Quick actions */}
-        <button type="button" onClick={onOpenQuickActions} className={cn('mt-3 flex h-10 items-center gap-2 rounded-xl border bg-card px-3 text-[14px] text-muted-foreground shadow-xs hover:bg-accent', collapsed && 'justify-center px-0')} title="Quick actions">
+        <button type="button" onClick={() => { onNavigate?.(); onOpenQuickActions() }} className={cn('mt-3 flex h-10 items-center gap-2 rounded-xl border bg-card px-3 text-[14px] text-muted-foreground shadow-xs hover:bg-accent', collapsed && 'justify-center px-0')} title="Quick actions">
           <Search className="size-4" />
-          {!collapsed && (<><span className="flex-1 text-left">Quick actions</span><span className="kbd">⌘K</span></>)}
+          {!collapsed && (<><span className="flex-1 text-left">Quick actions</span>{!drawer && <span className="kbd">⌘K</span>}</>)}
         </button>
 
-        <nav className="mt-3 flex flex-col gap-0.5">{visible(primary).map((i) => <NavLink key={i.to} item={i} collapsed={collapsed} />)}</nav>
+        <nav className="mt-3 flex flex-col gap-0.5">{visible(primary).map((i) => <NavLink key={i.to} item={i} collapsed={collapsed} onNavigate={onNavigate} />)}</nav>
 
         {visible(setup).length > 0 && (
           <>
             {!collapsed && <SectionLabel>School setup</SectionLabel>}
             {collapsed && <div className="my-2 border-t" />}
-            <nav className="flex flex-col gap-0.5">{visible(setup).map((i) => <NavLink key={i.to} item={i} collapsed={collapsed} />)}</nav>
+            <nav className="flex flex-col gap-0.5">{visible(setup).map((i) => <NavLink key={i.to} item={i} collapsed={collapsed} onNavigate={onNavigate} />)}</nav>
           </>
         )}
         {visible(settings).length > 0 && (
           <>
             {!collapsed && <SectionLabel>Settings</SectionLabel>}
             {collapsed && <div className="my-2 border-t" />}
-            <nav className="flex flex-col gap-0.5">{visible(settings).map((i) => <NavLink key={i.to} item={i} collapsed={collapsed} />)}</nav>
+            <nav className="flex flex-col gap-0.5">{visible(settings).map((i) => <NavLink key={i.to} item={i} collapsed={collapsed} onNavigate={onNavigate} />)}</nav>
           </>
         )}
 
@@ -162,11 +175,11 @@ export function Sidebar({ collapsed, onToggle, onOpenQuickActions }: { collapsed
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={toggle} className="gap-2">{theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}{theme === 'dark' ? 'Light mode' : 'Dark mode'}</DropdownMenuItem>
-            <DropdownMenuItem asChild><Link to="/settings/users" className="gap-2"><Settings2 className="size-4" />Manage users</Link></DropdownMenuItem>
+            <DropdownMenuItem asChild><Link to="/settings/users" onClick={onNavigate} className="gap-2"><Settings2 className="size-4" />Manage users</Link></DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        {collapsed && (
-          <button type="button" onClick={onToggle} className="rounded-md p-1.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground" title="Expand sidebar"><PanelLeft className="size-4" /></button>
+        {collapsed && !drawer && (
+          <button type="button" onClick={onToggle} aria-label="Expand sidebar" className="rounded-md p-1.5 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground" title="Expand sidebar"><PanelLeft className="size-4" /></button>
         )}
       </div>
     </aside>

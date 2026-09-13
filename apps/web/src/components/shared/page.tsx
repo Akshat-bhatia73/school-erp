@@ -1,19 +1,40 @@
 import { Link } from '@tanstack/react-router'
-import { ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 export interface Crumb { label: string; to?: string; icon?: ReactNode }
 
-/** Top bar of a page: breadcrumb on the left, actions on the right. Matches "Companies / Database". */
-export function PageHeader({ crumbs, actions, badge, className }: { crumbs: Crumb[]; actions?: ReactNode; badge?: ReactNode; className?: string }) {
+/**
+ * Top bar of a page: breadcrumb on the left, actions on the right. Matches "Companies / Database".
+ * On mobile the breadcrumb collapses to a back chevron plus the current page, and `mobileActions`
+ * (when given) replaces a wide action cluster that would not fit at 390px.
+ */
+export function PageHeader({ crumbs, actions, mobileActions, badge, className }: { crumbs: Crumb[]; actions?: ReactNode; mobileActions?: ReactNode; badge?: ReactNode; className?: string }) {
+  const last = crumbs[crumbs.length - 1]
+  const back = [...crumbs.slice(0, -1)].reverse().find((c) => c.to)
   return (
-    <div className={cn('flex h-14 shrink-0 items-center justify-between gap-4 border-b bg-card px-5', className)}>
-      <nav className="flex min-w-0 items-center gap-1.5 text-[15px]">
+    <div className={cn('flex h-12 shrink-0 items-center justify-between gap-2 border-b bg-card px-2 md:h-14 md:gap-4 md:px-5', className)}>
+      {/* Mobile: back chevron + current page */}
+      <nav className="flex min-w-0 items-center gap-1 text-[15px] md:hidden">
+        {back && (
+          <Link to={back.to} aria-label={`Back to ${back.label}`} className="-ml-1 flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+            <ChevronLeft className="size-5" />
+          </Link>
+        )}
+        <span className={cn('flex min-w-0 items-center gap-1.5 truncate font-semibold', !back && 'pl-1.5')}>
+          {!back && last?.icon && <span className="[&>svg]:size-4 [&>svg]:text-muted-foreground">{last.icon}</span>}
+          <span className="truncate">{last?.label}</span>
+        </span>
+        {badge}
+      </nav>
+
+      {/* Desktop: full breadcrumb */}
+      <nav className="hidden min-w-0 items-center gap-1.5 text-[15px] md:flex">
         {crumbs.map((c, i) => {
-          const last = i === crumbs.length - 1
+          const isLast = i === crumbs.length - 1
           const content = (
-            <span className={cn('flex items-center gap-1.5 truncate', last ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+            <span className={cn('flex items-center gap-1.5 truncate', isLast ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground')}>
               {c.icon && <span className="[&>svg]:size-4 [&>svg]:text-muted-foreground">{c.icon}</span>}
               {c.label}
             </span>
@@ -21,23 +42,35 @@ export function PageHeader({ crumbs, actions, badge, className }: { crumbs: Crum
           return (
             <span key={i} className="flex min-w-0 items-center gap-1.5">
               {i > 0 && <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" />}
-              {c.to && !last ? <Link to={c.to}>{content}</Link> : content}
+              {c.to && !isLast ? <Link to={c.to}>{content}</Link> : content}
             </span>
           )
         })}
         {badge}
       </nav>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+
+      {actions && <div className="hidden shrink-0 items-center gap-2 md:flex">{actions}</div>}
+      {(mobileActions ?? actions) && <div className="flex shrink-0 items-center gap-1 md:hidden">{mobileActions ?? actions}</div>}
     </div>
   )
 }
 
-/** Toolbar under the header: filter chips on the left, secondary actions on the right */
-export function Toolbar({ children, right, className }: { children?: ReactNode; right?: ReactNode; className?: string }) {
+/**
+ * Toolbar under the header: filter chips on the left, secondary actions on the right.
+ * On mobile `search` gets its own full-width row and the chips scroll horizontally
+ * instead of wrapping into a tall stack.
+ */
+export function Toolbar({ children, right, search, className }: { children?: ReactNode; right?: ReactNode; search?: ReactNode; className?: string }) {
   return (
-    <div className={cn('flex min-h-[52px] shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card px-4 py-2', className)}>
-      <div className="flex flex-wrap items-center gap-2">{children}</div>
-      {right && <div className="flex items-center gap-2">{right}</div>}
+    <div className={cn('shrink-0 border-b bg-card', className)}>
+      {search && <div className="border-b px-3 py-2 md:hidden">{search}</div>}
+      <div className="flex min-h-[52px] flex-nowrap items-center justify-between gap-2 px-3 py-2 md:flex-wrap md:px-4">
+        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto scrollbar-thin [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible">
+          {search && <div className="hidden md:block">{search}</div>}
+          {children}
+        </div>
+        {right && <div className="flex shrink-0 items-center gap-2">{right}</div>}
+      </div>
     </div>
   )
 }
@@ -45,7 +78,7 @@ export function Toolbar({ children, right, className }: { children?: ReactNode; 
 /** Tabs row like "Companies | Deals | Forecast" under a page title */
 export function PageTabs({ tabs, className }: { tabs: Array<{ label: string; to: string; count?: number }>; className?: string }) {
   return (
-    <div className={cn('flex shrink-0 items-center gap-1 border-b bg-card px-3', className)}>
+    <div className={cn('flex shrink-0 items-center gap-1 overflow-x-auto border-b bg-card px-3 scrollbar-thin [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', className)}>
       {tabs.map((t) => {
         // A tab whose path is a prefix of a sibling tab (e.g. /timetable vs /timetable/teachers) must match exactly
         const exact = tabs.some((o) => o !== t && o.to.startsWith(t.to.endsWith('/') ? t.to : t.to + '/'))
@@ -53,7 +86,7 @@ export function PageTabs({ tabs, className }: { tabs: Array<{ label: string; to:
         <Link
           key={t.to}
           to={t.to}
-          className="relative flex h-11 items-center gap-2 px-2.5 text-[13.5px] text-muted-foreground hover:text-foreground [&.active]:font-medium [&.active]:text-foreground [&.active]:after:absolute [&.active]:after:inset-x-2 [&.active]:after:bottom-0 [&.active]:after:h-0.5 [&.active]:after:rounded-full [&.active]:after:bg-foreground"
+          className="relative flex h-11 shrink-0 items-center gap-2 px-2.5 text-[13.5px] text-muted-foreground hover:text-foreground [&.active]:font-medium [&.active]:text-foreground [&.active]:after:absolute [&.active]:after:inset-x-2 [&.active]:after:bottom-0 [&.active]:after:h-0.5 [&.active]:after:rounded-full [&.active]:after:bg-foreground"
           activeOptions={{ exact }}
         >
           {t.label}
@@ -70,7 +103,7 @@ export function Panel({ title, description, actions, children, className, bodyCl
   return (
     <section className={cn('rounded-xl border bg-card', className)}>
       {(title || actions) && (
-        <header className="flex items-start justify-between gap-3 px-4 pt-3.5 pb-2">
+        <header className="flex items-start justify-between gap-3 px-3 pt-3.5 pb-2 md:px-4">
           <div>
             {title && <h3 className="text-[13.5px] font-semibold">{title}</h3>}
             {description && <p className="mt-0.5 text-[12.5px] text-muted-foreground">{description}</p>}
@@ -78,16 +111,17 @@ export function Panel({ title, description, actions, children, className, bodyCl
           {actions}
         </header>
       )}
-      <div className={cn('px-4 pb-4', !title && 'pt-4', bodyClassName)}>{children}</div>
+      <div className={cn('px-3 pb-4 md:px-4', !title && 'pt-4', bodyClassName)}>{children}</div>
     </section>
   )
 }
 
 /** Label / value pairs for detail pages */
 export function Facts({ items, columns = 2, className }: { items: Array<{ label: string; value: ReactNode }>; columns?: 1 | 2 | 3 | 4; className?: string }) {
-  const cols = { 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4' }[columns]
+  // One column on mobile whatever the caller asks for: two 190px columns clip at 390px.
+  const cols = { 1: 'grid-cols-1', 2: 'sm:grid-cols-2', 3: 'sm:grid-cols-2 lg:grid-cols-3', 4: 'grid-cols-2 lg:grid-cols-4' }[columns]
   return (
-    <dl className={cn('grid gap-x-6 gap-y-3', cols, className)}>
+    <dl className={cn('grid grid-cols-1 gap-x-6 gap-y-3', cols, className)}>
       {items.map((it) => (
         <div key={it.label} className="min-w-0">
           <dt className="text-[12px] text-muted-foreground">{it.label}</dt>

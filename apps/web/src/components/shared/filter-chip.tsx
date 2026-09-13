@@ -25,7 +25,7 @@ export function FilterChip<T extends string>({ label, value, options, onChange, 
         <button
           type="button"
           className={cn(
-            'inline-flex h-8 items-center gap-1.5 rounded-full border bg-card pr-2 pl-3 text-[13px] transition-colors hover:bg-accent dark:bg-secondary dark:hover:bg-accent',
+            'inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border bg-card pr-2 pl-3 text-[13px] transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none dark:bg-secondary dark:hover:bg-accent',
             value ? 'text-foreground' : 'text-muted-foreground',
             className,
           )}
@@ -63,7 +63,7 @@ export function FilterChip<T extends string>({ label, value, options, onChange, 
 /** Pill toolbar button like "Export" / "Sort" in the reference */
 export function ToolbarButton({ icon, children, onClick, active, className }: { icon?: ReactNode; children: ReactNode; onClick?: () => void; active?: boolean; className?: string }) {
   return (
-    <button type="button" onClick={onClick} className={cn('inline-flex h-8 items-center gap-1.5 rounded-full border bg-card px-3 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground dark:bg-secondary dark:hover:bg-accent [&>svg]:size-3.5', active && 'text-foreground', className)}>
+    <button type="button" onClick={onClick} className={cn('inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border bg-card px-3 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none dark:bg-secondary dark:hover:bg-accent [&>svg]:size-3.5', active && 'text-foreground', className)}>
       {icon}{children}
     </button>
   )

@@ -103,10 +103,10 @@ function Page() {
         ) : undefined}
       />
       <Toolbar
-        right={
+        search={
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, code, phone" className="h-9 w-64 pl-8" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, code, phone" aria-label="Search staff" className="h-9 w-full pl-8 md:w-64" />
           </div>
         }
       >
@@ -123,7 +123,13 @@ function Page() {
         rowSelection={selection}
         onRowSelectionChange={setSelection}
         getRowId={(r: StaffRow) => r.id}
-        onRowClick={(r: StaffRow) => navigate({ to: '/staff/$staffId', params: { staffId: r.id } })}
+        rowLink={(r: StaffRow) => `/staff/${r.id}`}
+        mobileRow={(r: StaffRow) => ({
+          title: fullName(r),
+          subtitle: `${r.designation} · ${r.employeeCode}`,
+          meta: <span className="truncate font-mono">{r.phone}</span>,
+          trailing: <Tag color={staffTypeColor[r.staffType]}>{staffTypeLabel[r.staffType]}</Tag>,
+        })}
         emptyState={<EmptyState icon={<Users />} title="No staff match these filters" description="Try clearing a filter or searching for another name." />}
         footer={
           <>

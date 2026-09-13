@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 
 export function StepRail({ steps, current, onGo }: { steps: string[]; current: number; onGo: (i: number) => void }) {
   return (
-    <nav className="w-56 shrink-0 border-r bg-card px-3 py-5">
+    <nav aria-label="Admission steps" className="hidden w-56 shrink-0 border-r bg-card px-3 py-5 md:block">
       <ol className="space-y-0.5">
         {steps.map((label, i) => {
           const done = i < current
@@ -30,6 +30,26 @@ export function StepRail({ steps, current, onGo }: { steps: string[]; current: n
         })}
       </ol>
     </nav>
+  )
+}
+
+/**
+ * Mobile stand-in for the step rail: there is no room for a 224px column at 390px,
+ * so the same progress is shown as "Step 2 of 4" plus a bar.
+ */
+export function StepProgress({ steps, current, className }: { steps: string[]; current: number; className?: string }) {
+  return (
+    <div className={cn('shrink-0 border-b bg-card px-3 py-2.5 md:hidden', className)}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="truncate text-[13.5px] font-medium">{steps[current]}</span>
+        <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">Step {current + 1} of {steps.length}</span>
+      </div>
+      <div className="mt-2 flex gap-1" role="progressbar" aria-valuenow={current + 1} aria-valuemin={1} aria-valuemax={steps.length} aria-label={`Step ${current + 1} of ${steps.length}: ${steps[current]}`}>
+        {steps.map((label, i) => (
+          <span key={label} className={cn('h-1 flex-1 rounded-full', i <= current ? 'bg-foreground' : 'bg-muted')} />
+        ))}
+      </div>
+    </div>
   )
 }
 
