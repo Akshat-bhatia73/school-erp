@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { cloneElement, isValidElement, useId, type ReactElement, type ReactNode } from 'react'
 import { StaffInput } from '@erp/shared'
 import type { BloodGroup, Staff } from '@erp/shared'
 import { Input } from '@/components/ui/input'
@@ -106,12 +106,29 @@ export function draftToInput(d: StaffDraft): unknown {
 
 export type FieldErrors = Record<string, string>
 
+/** Same label/error wiring as the admission `Field`: see the comment there for the three cases. */
 export function Field({ label, error, hint, children, className }: { label: string; error?: string; hint?: string; children: ReactNode; className?: string }) {
+  const base = useId()
+  const labelId = `${base}-label`
+  const controlId = `${base}-control`
+  const describedBy = error ? `${base}-error` : hint ? `${base}-hint` : undefined
+  const injectable = isValidElement(children) && children.type === Input
+  let control: ReactNode
+  if (injectable) {
+    const el = children as ReactElement<Record<string, unknown>>
+    control = cloneElement(el, {
+      id: el.props.id ?? controlId,
+      'aria-invalid': el.props['aria-invalid'] ?? !!error,
+      'aria-describedby': el.props['aria-describedby'] ?? describedBy,
+    })
+  } else {
+    control = <div role="group" aria-labelledby={labelId} aria-describedby={describedBy}>{children}</div>
+  }
   return (
     <div className={cn('min-w-0', className)}>
-      <Label className="mb-1.5 text-[12.5px] text-muted-foreground">{label}</Label>
-      {children}
-      {error ? <p className="mt-1 text-[12px] text-destructive">{error}</p> : hint ? <p className="mt-1 text-[12px] text-muted-foreground">{hint}</p> : null}
+      <Label id={labelId} htmlFor={injectable ? controlId : undefined} className="mb-1.5 text-[12.5px] text-muted-foreground">{label}</Label>
+      {control}
+      {error ? <p id={`${base}-error`} className="mt-1 text-[12px] text-destructive">{error}</p> : hint ? <p id={`${base}-hint`} className="mt-1 text-[12px] text-muted-foreground">{hint}</p> : null}
     </div>
   )
 }

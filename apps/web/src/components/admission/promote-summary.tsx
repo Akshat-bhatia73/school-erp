@@ -22,7 +22,7 @@ export function PromoteSummary({ total, promoteCount, detainCount, fromLabel, to
   onConfirm: () => void
 }) {
   return (
-    <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l bg-card p-4 scrollbar-thin">
+    <aside className="flex shrink-0 flex-col gap-3 border-t bg-card p-3 scrollbar-thin md:w-80 md:overflow-y-auto md:border-t-0 md:border-l md:p-4">
       <Panel title="What will happen">
         <p className="text-[13.5px]">
           <span className="font-semibold tabular-nums">{total}</span> students ·{' '}

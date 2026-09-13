@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { CircleSlash, MoreHorizontal, PauseCircle, PlayCircle, Users } from 'lucide-react'
+import { CircleSlash, MoreHorizontal, PauseCircle, PlayCircle, Users , Pencil} from 'lucide-react'
 import type { StaffStatus } from '@erp/shared'
 import { api } from '@/api/client'
 import { EmptyState, Facts, PageHeader, Panel } from '@/components/shared/page'
@@ -52,7 +52,7 @@ function Page() {
     return (
       <>
         <PageHeader crumbs={[{ label: 'Staff', to: '/staff', icon: <Users /> }, { label: 'Loading…' }]} />
-        <div className="space-y-4 p-5"><Skeleton className="h-24 w-full" /><Skeleton className="h-64 w-full" /></div>
+        <div className="space-y-4 p-3 md:p-5"><Skeleton className="h-24 w-full" /><Skeleton className="h-64 w-full" /></div>
       </>
     )
   }
@@ -92,13 +92,31 @@ function Page() {
             </DropdownMenu>
           </>
         ) : undefined}
+        mobileActions={canEdit ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9" aria-label="Staff actions"><MoreHorizontal /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-48">
+              <DropdownMenuItem onClick={() => setEditing(true)}><Pencil />Edit</DropdownMenuItem>
+              {staff.status === 'active' ? (
+                <DropdownMenuItem onClick={() => setStatus.mutate({ status: 'on_leave' })}><PauseCircle />Mark on leave</DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onClick={() => setStatus.mutate({ status: 'active' })}><PlayCircle />Mark active</DropdownMenuItem>
+              )}
+              {staff.status !== 'resigned' && (
+                <DropdownMenuItem variant="destructive" onClick={() => setResigning(true)}><CircleSlash />Mark resigned</DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : undefined}
       />
 
       <div className="min-h-0 flex-1 overflow-auto scrollbar-thin">
-        <div className="flex items-start gap-4 border-b bg-card px-5 py-5">
-          <UserAvatar name={name} src={staff.photoUrl} size="xl" />
+        <div className="flex items-start gap-3 border-b bg-card p-3 md:gap-4 md:px-5 md:py-5">
+          <UserAvatar name={name} src={staff.photoUrl} size="xl" className="size-12 md:size-16" />
           <div className="min-w-0">
-            <h1 className="text-[20px] font-semibold">{name}</h1>
+            <h1 className="text-[17px] font-semibold md:text-[20px]">{name}</h1>
             <p className="mt-0.5 text-[13.5px] text-muted-foreground">{staff.designation}</p>
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
               <StaffTypeTag type={staff.staffType} />
@@ -114,7 +132,7 @@ function Page() {
         </div>
 
         <Tabs defaultValue="overview" className="gap-0">
-          <div className="border-b bg-card px-4 py-2">
+          <div className="border-b bg-card px-3 py-2 md:px-4">
             <TabsList variant="line">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="teaching">Teaching</TabsTrigger>
@@ -122,7 +140,7 @@ function Page() {
             </TabsList>
           </div>
 
-          <TabsContent value="overview" className="space-y-4 p-5">
+          <TabsContent value="overview" className="space-y-4 p-3 md:p-5">
             <Panel title="Personal">
               <Facts
                 columns={3}
@@ -184,11 +202,11 @@ function Page() {
             </Panel>
           </TabsContent>
 
-          <TabsContent value="teaching" className="p-5">
+          <TabsContent value="teaching" className="p-3 md:p-5">
             <TeachingTab staff={staff} />
           </TabsContent>
 
-          <TabsContent value="login" className="p-5">
+          <TabsContent value="login" className="p-3 md:p-5">
             <LoginTab staff={staff} canCreate={can('users_roles', 'create')} />
           </TabsContent>
         </Tabs>

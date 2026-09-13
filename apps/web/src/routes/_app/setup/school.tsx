@@ -15,8 +15,9 @@ function Page() {
       <PageHeader
         crumbs={[{ label: 'School setup' }, { label: 'School profile' }]}
         actions={canEdit ? <Button size="sm" disabled={!ctl.dirty || ctl.saving} onClick={ctl.submit}>Save changes</Button> : undefined}
+        hideOnMobile
       />
-      <SetupTabs />
+      <SetupTabs actions={canEdit ? <Button size="sm" disabled={!ctl.dirty || ctl.saving} onClick={ctl.submit}>Save</Button> : undefined} />
       <div className="min-h-0 flex-1 overflow-auto scrollbar-thin">
         <SchoolProfileBody ctl={ctl} canEdit={canEdit} />
       </div>

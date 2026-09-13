@@ -118,7 +118,7 @@ function Page() {
 
   return (
     <>
-      <PageHeader crumbs={[{ label: 'Timetable' }, { label: 'Substitutions' }]} />
+      <PageHeader crumbs={[{ label: 'Timetable' }, { label: 'Substitutions' }]} hideOnMobile />
       <TimetableTabs />
       <Toolbar
         right={canEdit ? (

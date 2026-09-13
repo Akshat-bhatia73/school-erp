@@ -172,9 +172,9 @@ function Page() {
         <FilterChip label="Section" clearable={false} value={toSectionId} options={sectionOpts(toSections, toGradeId)} onChange={(v) => setToSectionId(v)} />
       </Toolbar>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="border-b bg-card px-4 py-3">
+          <div className="border-b bg-card px-3 py-2 md:px-4 md:py-3">
             <Alert>
               <Info />
               <AlertTitle>Promotion creates a new enrolment in the next year</AlertTitle>

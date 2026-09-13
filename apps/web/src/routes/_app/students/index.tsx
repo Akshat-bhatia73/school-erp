@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import type { RowSelectionState } from '@tanstack/react-table'
-import { ArrowUpDown, Check, Search, Users } from 'lucide-react'
+import { ArrowUpDown, Check, MoreHorizontal, Plus, Search, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { z } from 'zod'
 import { api } from '@/api/client'
@@ -10,12 +10,14 @@ import { FilterChip, ToolbarButton } from '@/components/shared/filter-chip'
 import { EmptyState, PageHeader, Toolbar } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
 import { StudentBulkBar } from '@/components/students/student-bulk-bar'
-import { exportStudentsCsv, studentColumns } from '@/components/students/student-columns'
+import { classLabel, exportStudentsCsv, studentColumns } from '@/components/students/student-columns'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { qk } from '@/lib/query'
 import { useSession } from '@/lib/session'
+import { colorFor } from '@/components/shared/tag'
+import { fullName } from '@/lib/utils'
 
 const searchSchema = z.object({
   q: z.string().optional(),
@@ -95,18 +97,38 @@ function Page() {
             </>
           ) : undefined
         }
+        mobileActions={
+          can('students', 'create') ? (
+            <>
+              <Button size="sm" onClick={() => navigate({ to: '/students/new' })} className="h-9"><Plus />Admit</Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" aria-label="More student actions" className="size-9 p-0"><MoreHorizontal /></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => navigate({ to: '/students/import' })}>Import from Excel</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate({ to: '/students/promote' })}>Promote students</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          ) : undefined
+        }
       />
 
-      <Toolbar>
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search.q ?? ''}
-            onChange={(e) => setSearch({ q: e.target.value || undefined })}
-            placeholder="Search name, admission no, parent phone"
-            className="w-56 pl-8"
-          />
-        </div>
+      <Toolbar
+        search={
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search.q ?? ''}
+              onChange={(e) => setSearch({ q: e.target.value || undefined })}
+              placeholder="Search name, admission no, parent phone"
+              aria-label="Search students"
+              className="w-full pl-8 md:w-56"
+            />
+          </div>
+        }
+      >
         <FilterChip
           label="Class"
           value={search.gradeId}
@@ -172,7 +194,13 @@ function Page() {
           getRowId={(r) => r.id}
           rowSelection={rowSelection}
           onRowSelectionChange={setRowSelection}
-          onRowClick={(r) => navigate({ to: '/students/$studentId', params: { studentId: r.id } })}
+          rowLink={(r) => `/students/${r.id}`}
+          mobileRow={(r) => ({
+            title: fullName(r),
+            subtitle: `${r.admissionNumber} · Roll ${r.enrollment?.rollNumber ?? '—'}`,
+            meta: r.primaryGuardian ? <span className="truncate font-mono">{r.primaryGuardian.phone}</span> : undefined,
+            trailing: r.grade ? <Tag color={colorFor(r.grade.name)}>{classLabel(r)}</Tag> : undefined,
+          })}
           emptyState={
             <EmptyState
               icon={<Users />}

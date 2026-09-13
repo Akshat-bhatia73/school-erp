@@ -35,10 +35,11 @@ export function TimetableGrid({ bell, cells, mode, onCellClick, highlightFree, d
 
   return (
     <div className={cn('min-h-0 overflow-auto scrollbar-thin', className)}>
-      <table className="w-full min-w-[760px] border-separate border-spacing-0 text-[13.5px]">
+      {/* A single day fits a phone; the full week needs the fixed width and horizontal scroll. */}
+      <table className={cn('w-full border-separate border-spacing-0 text-[13.5px]', days.length > 1 && 'min-w-[760px]')}>
         <thead className="sticky top-0 z-20">
           <tr>
-            <th className="sticky left-0 z-30 h-10 w-40 border-b border-r bg-card px-3 text-left text-[13px] font-medium text-muted-foreground">Period</th>
+            <th className="sticky left-0 z-30 h-10 w-28 border-b border-r bg-card px-3 md:w-40 text-left text-[13px] font-medium text-muted-foreground">Period</th>
             {days.map((d) => (
               <th key={d} className="h-10 border-b border-l bg-card px-3 text-left text-[13px] font-medium text-muted-foreground first:border-l-0">{DAY_LABELS[d]}</th>
             ))}

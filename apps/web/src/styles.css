@@ -131,5 +131,8 @@
   /* Dotted underline used for entity names in the reference table */
   .link-dotted { @apply underline decoration-dotted decoration-muted-foreground/60 underline-offset-[3px] hover:decoration-foreground; }
   .scrollbar-thin { scrollbar-width: thin; scrollbar-color: color-mix(in oklch, var(--foreground) 15%, transparent) transparent; }
+  /* Horizontal strips that scroll on touch: the track would otherwise sit on a hairline border */
+  .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
   .kbd { @apply inline-flex h-5 min-w-5 items-center justify-center rounded border bg-card px-1 font-mono text-[10.5px] text-muted-foreground; }
 }

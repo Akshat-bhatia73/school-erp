@@ -52,7 +52,7 @@ function Page() {
     return (
       <>
         <PageHeader crumbs={[{ label: 'Students', to: '/students', icon: <Users /> }, { label: 'Loading…' }]} />
-        <div className="flex items-center gap-4 border-b p-5">
+        <div className="flex items-center gap-4 border-b p-3 md:p-5">
           <Skeleton className="size-16 rounded-lg" />
           <div className="grid gap-2"><Skeleton className="h-5 w-48" /><Skeleton className="h-4 w-64" /></div>
         </div>
@@ -86,12 +86,26 @@ function Page() {
             </>
           ) : undefined
         }
+        mobileActions={
+          canEdit ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="h-9">Actions<ChevronDown /></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-48">
+                <DropdownMenuItem onClick={() => setEdit(true)}><Pencil />Edit</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setMove(true)}><ArrowRightLeft />Move to section</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setMarkLeft(true)}><UserMinus />Mark as left</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : undefined
+        }
       />
 
-      <div className="flex items-start gap-4 border-b p-5">
-        <UserAvatar name={name} src={student.photoUrl} size="xl" />
+      <div className="flex items-start gap-3 border-b p-3 md:gap-4 md:p-5">
+        <UserAvatar name={name} src={student.photoUrl} size="xl" className="size-12 md:size-16" />
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold">{name}</h1>
+          <h1 className="text-[17px] font-semibold md:text-xl">{name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {student.grade && <Tag color={colorFor(student.grade.name)}>{student.grade.shortName} - {student.section?.name ?? '—'}</Tag>}
             {student.enrollment?.rollNumber !== undefined && <Tag>Roll {student.enrollment.rollNumber}</Tag>}
@@ -110,8 +124,8 @@ function Page() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="min-w-0 flex-1 overflow-y-auto p-4 scrollbar-thin">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+        <div className="min-w-0 flex-1 p-3 scrollbar-thin md:overflow-y-auto md:p-4">
           <Tabs defaultValue="overview" className="gap-4">
             <TabsList variant="line">
               <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -133,7 +147,7 @@ function Page() {
             <TabsContent value="history"><HistoryTab enrollments={enrollments} isLoading={enrollmentsQ.isLoading} /></TabsContent>
           </Tabs>
         </div>
-        <aside className="w-80 shrink-0 overflow-y-auto border-l p-4 scrollbar-thin">
+        <aside className="shrink-0 border-t p-3 scrollbar-thin md:w-80 md:overflow-y-auto md:border-t-0 md:border-l md:p-4">
           <QuickFacts student={student} siblingCount={siblingsQ.data?.length ?? 0} />
         </aside>
       </div>

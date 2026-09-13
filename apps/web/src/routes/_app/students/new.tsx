@@ -8,7 +8,7 @@ import { qk } from '@/lib/query'
 import { useSession } from '@/lib/session'
 import { EmptyState, PageHeader } from '@/components/shared/page'
 import { Button } from '@/components/ui/button'
-import { StepRail } from '@/components/admission/step-rail'
+import { StepProgress, StepRail } from '@/components/admission/step-rail'
 import { StudentStep } from '@/components/admission/student-step'
 import { GuardiansStep } from '@/components/admission/guardians-step'
 import { ClassStep } from '@/components/admission/class-step'
@@ -90,22 +90,24 @@ function Page() {
         crumbs={[{ label: 'Students', to: '/students' }, { label: 'Admit student' }]}
         actions={<Button variant="outline" size="sm" onClick={() => navigate({ to: '/students' })}>Cancel</Button>}
       />
+      <StepProgress steps={STEPS} current={step} />
       <div className="flex min-h-0 flex-1">
         <StepRail steps={STEPS} current={step} onGo={(i) => { setErrors({}); setStep(i) }} />
         <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
-          <div className="mx-auto max-w-3xl p-5">
-            <h1 className="mb-4 text-[16px] font-semibold">{STEPS[step]}</h1>
+          <div className="mx-auto max-w-3xl p-3 md:p-5">
+            <h1 className="mb-4 hidden text-[16px] font-semibold md:block">{STEPS[step]}</h1>
             {step === 0 && <StudentStep draft={draft} set={set} errors={errors} />}
             {step === 1 && <GuardiansStep draft={draft} set={set} errors={errors} />}
             {step === 2 && <ClassStep draft={draft} set={set} errors={errors} yearId={year?.id ?? ''} yearName={year?.name ?? '—'} />}
             {step === 3 && <ReviewStep draft={draft} onEdit={setStep} yearId={year?.id ?? ''} yearName={year?.name ?? '—'} />}
 
-            <div className="mt-5 flex items-center justify-between border-t pt-4">
+            {/* Sticky on mobile so Next is always in reach on a long form */}
+            <div className="sticky bottom-0 -mx-3 mt-5 flex items-center justify-between gap-3 border-t bg-card px-3 py-3 md:static md:mx-0 md:bg-transparent md:px-0 md:pt-4 md:pb-0">
               <Button variant="outline" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0}>Back</Button>
               {step < STEPS.length - 1 ? (
-                <Button onClick={next}>Next</Button>
+                <Button onClick={next} className="min-w-28">Next</Button>
               ) : (
-                <Button onClick={submit} disabled={create.isPending}>{create.isPending ? 'Admitting…' : 'Admit student'}</Button>
+                <Button onClick={submit} disabled={create.isPending} className="min-w-28">{create.isPending ? 'Admitting…' : 'Admit student'}</Button>
               )}
             </div>
           </div>

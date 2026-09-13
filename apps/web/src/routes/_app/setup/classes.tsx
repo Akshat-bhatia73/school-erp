@@ -13,6 +13,7 @@ import { SetupTabs } from '@/components/setup/setup-tabs'
 import { GradeSheet } from '@/components/setup/grade-sheet'
 import { SectionSheet } from '@/components/setup/section-sheet'
 import { useAcademicYears } from '@/components/setup/use-current-year'
+import { MobilePicker } from '@/components/shared/mobile-picker'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -114,31 +115,37 @@ function Page() {
 
   const totalStudents = sections.reduce((a, s) => a + (strengths[s.id] ?? 0), 0)
 
+  const gradeList = (onPick?: () => void) => gradesLoading
+    ? <div className="grid gap-2 px-3">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-9 rounded-lg" />)}</div>
+    : grades.length === 0
+    ? <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">No classes yet.</p>
+    : grades.map((g) => (
+        <button
+          key={g.id}
+          type="button"
+          onClick={() => { setGradeId(g.id); onPick?.() }}
+          className={cn('flex h-11 w-full shrink-0 items-center justify-between gap-2 border-l-2 border-transparent px-4 text-left text-[13.5px] hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:-outline-offset-2 md:h-10', g.id === gradeId && 'border-l-foreground bg-accent font-medium')}
+        >
+          <span className="truncate">{g.name}{g.stream ? <span className="ml-1 text-muted-foreground capitalize">· {g.stream}</span> : null}</span>
+          <span className="tabular-nums text-[12px] text-muted-foreground">{studentsByGrade[g.id] ?? 0}</span>
+        </button>
+      ))
+
   return (
     <>
       <PageHeader
         crumbs={[{ label: 'School setup' }, { label: 'Classes & sections' }]}
         actions={canEdit ? <Button size="sm" variant="outline" onClick={() => setGradeSheet(true)}><Plus /> Add class</Button> : undefined}
+        hideOnMobile
       />
-      <SetupTabs />
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-72 shrink-0 flex-col overflow-auto border-r bg-card scrollbar-thin">
+      <SetupTabs actions={canEdit ? <Button size="sm" variant="outline" onClick={() => setGradeSheet(true)}><Plus /> Class</Button> : undefined} />
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <MobilePicker label="Class" value={grade?.name} title="Pick a class">
+          {(close) => gradeList(() => close())}
+        </MobilePicker>
+        <aside className="hidden w-72 shrink-0 flex-col overflow-auto border-r bg-card scrollbar-thin md:flex">
           <div className="px-4 pt-4 pb-2 text-[12px] font-medium tracking-wide text-muted-foreground">Classes</div>
-          {gradesLoading
-            ? <div className="grid gap-2 px-3">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-9 rounded-lg" />)}</div>
-            : grades.length === 0
-            ? <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">No classes yet.</p>
-            : grades.map((g) => (
-                <button
-                  key={g.id}
-                  type="button"
-                  onClick={() => setGradeId(g.id)}
-                  className={cn('flex h-10 shrink-0 items-center justify-between gap-2 border-l-2 border-transparent px-4 text-left text-[13.5px] hover:bg-accent/60', g.id === gradeId && 'border-l-foreground bg-accent font-medium')}
-                >
-                  <span className="truncate">{g.name}{g.stream ? <span className="ml-1 text-muted-foreground capitalize">· {g.stream}</span> : null}</span>
-                  <span className="tabular-nums text-[12px] text-muted-foreground">{studentsByGrade[g.id] ?? 0}</span>
-                </button>
-              ))}
+          {gradeList()}
         </aside>
 
         <div className="flex min-w-0 min-h-0 flex-1 flex-col">

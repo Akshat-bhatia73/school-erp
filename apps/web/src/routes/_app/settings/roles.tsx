@@ -7,6 +7,7 @@ import type { Role } from '@erp/shared'
 import { api } from '@/api/client'
 import { EmptyState, PageHeader } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
+import { MobilePicker } from '@/components/shared/mobile-picker'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { qk } from '@/lib/query'
@@ -57,31 +58,36 @@ function Page() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const roleList = (onPick?: () => void) => isLoading
+    ? <div className="space-y-2 p-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+    : roles.map((r) => (
+        <button
+          key={r.id}
+          type="button"
+          onClick={() => { setSelectedId(r.id); onPick?.() }}
+          className={cn('w-full border-b px-3.5 py-3 text-left transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:-outline-offset-2', r.id === selectedId && 'bg-accent')}
+        >
+          <span className="flex items-center justify-between gap-2">
+            <span className="truncate text-[13.5px] font-medium">{r.name}</span>
+            {r.isSystem && <Tag color="grey">System</Tag>}
+          </span>
+          {r.description && <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">{r.description}</span>}
+          <span className="mt-1 block text-[12px] text-muted-foreground tabular-nums">{userCount(r.id)} users</span>
+        </button>
+      ))
+
   return (
     <>
-      <PageHeader crumbs={[{ label: 'Settings', icon: <UserCog /> }, { label: 'Roles & permissions' }]} />
+      <PageHeader crumbs={[{ label: 'Settings', icon: <UserCog /> }, { label: 'Roles & permissions' }]} hideOnMobile />
       <SettingsTabs />
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-r">
-          {isLoading
-            ? <div className="space-y-2 p-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
-            : roles.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => setSelectedId(r.id)}
-                  className={cn('w-full border-b px-3.5 py-3 text-left transition-colors hover:bg-accent/60', r.id === selectedId && 'bg-accent')}
-                >
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate text-[13.5px] font-medium">{r.name}</span>
-                    {r.isSystem && <Tag color="grey">System</Tag>}
-                  </span>
-                  {r.description && <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">{r.description}</span>}
-                  <span className="mt-1 block text-[12px] text-muted-foreground tabular-nums">{userCount(r.id)} users</span>
-                </button>
-              ))}
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <MobilePicker label="Role" value={selected?.name} title="Pick a role">
+          {(close) => roleList(close)}
+        </MobilePicker>
+        <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-r md:flex">
+          {roleList()}
         </aside>
-        <div className="min-w-0 flex-1 overflow-y-auto bg-background p-5">
+        <div className="min-w-0 flex-1 overflow-y-auto bg-background p-3 md:p-5">
           {isLoading && <div className="space-y-4"><Skeleton className="h-16 w-full" /><Skeleton className="h-80 w-full" /></div>}
           {!isLoading && roles.length === 0 && (
             <EmptyState icon={<ShieldCheck />} title="No roles yet" description="Roles decide what each person can see and change." />

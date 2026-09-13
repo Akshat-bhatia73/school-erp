@@ -64,9 +64,10 @@ function Page() {
       <PageHeader
         crumbs={[{ label: 'School setup' }, { label: 'Academic years' }]}
         actions={canEdit ? <Button size="sm" onClick={() => { setEditing(undefined); setSheetOpen(true) }}><Plus /> Add academic year</Button> : undefined}
+        hideOnMobile
       />
-      <SetupTabs />
-      <div className="border-b bg-card px-5 py-3">
+      <SetupTabs actions={canEdit ? <Button size="sm" onClick={() => { setEditing(undefined); setSheetOpen(true) }}><Plus /> Add year</Button> : undefined} />
+      <div className="border-b bg-card px-3 py-2 md:px-5 md:py-3">
         <Alert>
           <Info />
           <AlertTitle>The current year drives the whole school</AlertTitle>

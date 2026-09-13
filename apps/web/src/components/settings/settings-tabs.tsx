@@ -1,11 +1,13 @@
+import type { ReactNode } from 'react'
 import type { Module, RoleKey, Scope, AuditAction, AuditEntity, UserStatus } from '@erp/shared'
 import { PageTabs } from '@/components/shared/page'
 import type { TagColor } from '@/components/shared/tag'
 
 /** Tabs shared by the three settings screens */
-export function SettingsTabs() {
+export function SettingsTabs({ actions }: { actions?: ReactNode }) {
   return (
     <PageTabs
+      actions={actions}
       tabs={[
         { label: 'Users & logins', to: '/settings/users' },
         { label: 'Roles & permissions', to: '/settings/roles' },

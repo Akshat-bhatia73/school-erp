@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { AlertTriangle, CalendarDays, Printer, Wand2 } from 'lucide-react'
+import { AlertTriangle, CalendarDays, ChevronUp, Printer, Wand2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import { DAY_LABELS } from '@erp/shared'
@@ -12,6 +12,7 @@ import { Tag, colorFor } from '@/components/shared/tag'
 import { useAcademicYears } from '@/components/setup/use-current-year'
 import { TimetableTabs } from '@/components/timetable/timetable-tabs'
 import { TimetableGrid } from '@/components/timetable/timetable-grid'
+import { DaySelector, defaultDay } from '@/components/timetable/day-selector'
 import { SetPeriodDialog, type SetPeriodTarget } from '@/components/timetable/set-period-dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -19,6 +20,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { qk } from '@/lib/query'
 import { useSession } from '@/lib/session'
+import { cn } from '@/lib/utils'
+import { useIsMobile } from '@/lib/use-media'
 
 const searchSchema = z.object({ gradeId: z.string().optional(), sectionId: z.string().optional() })
 
@@ -34,7 +37,9 @@ function Page() {
   const yearId = current?.id ?? ''
 
   const [target, setTarget] = useState<SetPeriodTarget | null>(null)
+  const [day, setDay] = useState<number | undefined>()
   const [confirmGenerate, setConfirmGenerate] = useState(false)
+  const [subjectsOpen, setSubjectsOpen] = useState(false)
 
   const { data: grades = [] } = useQuery({ queryKey: qk.grades, queryFn: () => api.grades.list() })
   const { data: allSections = [] } = useQuery({ queryKey: qk.sections({ academicYearId: yearId }), queryFn: () => api.sections.list({ academicYearId: yearId }), enabled: !!yearId })
@@ -106,6 +111,23 @@ function Page() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const isMobile = useIsMobile()
+  const workingDays = useMemo(() => [...(bell?.workingDays ?? [])].sort((a, b) => a - b), [bell])
+  const shownDay = day !== undefined && workingDays.includes(day) ? day : defaultDay(workingDays)
+
+  const subjectBreakdown = perSubject.length === 0 ? (
+    <p className="text-[13px] text-muted-foreground">Nothing placed yet.</p>
+  ) : (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      {perSubject.map((s) => (
+        <span key={s.code} className="flex items-center gap-1.5">
+          <Tag color={colorFor(s.code)}>{s.name}</Tag>
+          <span className="text-[13px] tabular-nums text-muted-foreground">{s.count}</span>
+        </span>
+      ))}
+    </div>
+  )
+
   const onCellClick = (dayOfWeek: number, periodIndex: number, existing?: TimetableCell) => {
     if (!canEdit) return
     const p = bell?.periods.find((x) => x.index === periodIndex)
@@ -114,7 +136,7 @@ function Page() {
 
   return (
     <>
-      <PageHeader crumbs={[{ label: 'Timetable' }, { label: 'Class timetable' }]} />
+      <PageHeader crumbs={[{ label: 'Timetable' }, { label: 'Class timetable' }]} hideOnMobile />
       <TimetableTabs />
       <Toolbar
         right={
@@ -155,7 +177,7 @@ function Page() {
       </Toolbar>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-auto scrollbar-thin">
-        <div className="flex flex-wrap items-center gap-3 border-b bg-card px-4 py-2 text-[13px] text-muted-foreground">
+        <div className="hidden flex-wrap items-center gap-x-3 gap-y-1 border-b bg-card px-3 py-2 text-[13px] text-muted-foreground md:flex md:px-4">
           <span><span className="font-medium text-foreground tabular-nums">{stats.filled}</span> of {stats.total} periods filled</span>
           <span>·</span>
           <span>{stats.subjects} subjects</span>
@@ -191,22 +213,53 @@ function Page() {
           <EmptyState icon={<CalendarDays />} title="No bell schedule yet" description="Set up periods on the Bell schedule tab before filling the timetable." />
         ) : (
           <>
-            <TimetableGrid bell={bell} cells={cells} mode="section" editable={canEdit} onCellClick={canEdit ? onCellClick : undefined} />
-            <div className="p-4">
-              <Panel title="Subject periods per week">
-                {perSubject.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground">Nothing placed yet.</p>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                    {perSubject.map((s) => (
-                      <span key={s.code} className="flex items-center gap-1.5">
-                        <Tag color={colorFor(s.code)}>{s.name}</Tag>
-                        <span className="text-[13px] tabular-nums text-muted-foreground">{s.count}</span>
-                      </span>
-                    ))}
+            <DaySelector days={workingDays} value={shownDay} onChange={setDay} />
+            <TimetableGrid bell={bell} cells={cells} mode="section" editable={canEdit} dayFilter={isMobile ? shownDay : undefined} onCellClick={canEdit ? onCellClick : undefined} />
+            {/* Desktop shows the breakdown inline; on a phone it is reference detail,
+                so it collapses to a bar that opens a bottom drawer. */}
+            <div className="hidden p-4 md:block">
+              <Panel title="Subject periods per week">{subjectBreakdown}</Panel>
+            </div>
+            {/* Sits on the bottom edge of the scroll area and expands upward in place. */}
+            <div className="sticky bottom-0 z-20 mt-auto border-t bg-card md:hidden">
+              <button
+                type="button"
+                onClick={() => setSubjectsOpen((o) => !o)}
+                aria-expanded={subjectsOpen}
+                className="flex h-12 w-full items-center justify-between gap-2 px-3 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:-outline-offset-2"
+              >
+                <span className="min-w-0 truncate text-[13.5px]">
+                  <span className="font-medium tabular-nums">{stats.filled}</span> of {stats.total} periods filled
+                </span>
+                <span className="flex shrink-0 items-center gap-2 text-[12.5px] text-muted-foreground">
+                  {myConflicts.length > 0 && (
+                    <Tag color="orange"><AlertTriangle className="size-3" />{myConflicts.length}</Tag>
+                  )}
+                  <ChevronUp className={cn('size-4 transition-transform duration-200', subjectsOpen && 'rotate-180')} />
+                </span>
+              </button>
+              {/* 0fr -> 1fr animates to the content's own height, so the panel can grow
+                  with the number of subjects without a hard-coded max height. */}
+              <div className={cn('grid transition-[grid-template-rows] duration-200 ease-out', subjectsOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]')}>
+                {/* min-h-0 matters: a grid item defaults to min-height:auto and would
+                    refuse to shrink below its content, so 0fr alone collapses nothing. */}
+                <div className="min-h-0 overflow-hidden">
+                  <div className="space-y-3 border-t px-3 py-3">
+                    <p className="text-[12.5px] text-muted-foreground">{stats.subjects} subjects · {stats.teachers} teachers</p>
+                    {subjectBreakdown}
+                    {myConflicts.length > 0 && (
+                      <ul className="space-y-1.5 border-t pt-3">
+                        {myConflicts.map((c, i) => (
+                          <li key={i} className="text-[12.5px]">
+                            <span className="text-tag-orange">{c.message}</span>
+                            <span className="block text-[11.5px] text-muted-foreground">{DAY_LABELS[c.dayOfWeek]} · {bell?.periods.find((p) => p.index === c.periodIndex)?.name ?? `Period ${c.periodIndex + 1}`}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
-                )}
-              </Panel>
+                </div>
+              </div>
             </div>
           </>
         )}
