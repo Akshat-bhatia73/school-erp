@@ -9,7 +9,8 @@ import type {
   StudentInput, Subject, SubjectInput, TeachingAssignment, User, UserInput, StudentGuardian,
   BellSchedule, BellScheduleInput, TimetableEntry, TimetableEntryInput, Substitution, SubstitutionInput, TimetableConflict, TeacherLoad,
 } from '@erp/shared'
-import { StudentImportRow as StudentImportRowSchema } from '@erp/shared'
+import { StudentImportRow as StudentImportRowSchema, resolvePermission } from '@erp/shared'
+import type { Action, Module, Scope } from '@erp/shared'
 import { delay, getStore, newId, nowIso } from './store'
 
 // ---------- context (who is acting, which school) ----------
@@ -35,6 +36,95 @@ function stamp<T extends { updatedAt: string }>(x: T): T {
 function scoped<T extends { schoolId: string }>(rows: T[], schoolId = currentSchoolId) {
   return rows.filter((r) => r.schoolId === schoolId)
 }
+/** Look up by id inside the acting school. A cross-school id must not resolve. */
+function findScoped<T extends { id: string; schoolId: string }>(rows: T[], id: string): T | undefined {
+  return rows.find((r) => r.id === id && r.schoolId === currentSchoolId)
+}
+
+// ---------- role scope ----------
+// The permission matrix has always carried a scope per module; nothing enforced it, so every
+// role saw the whole school. The real API will apply these same rules server-side.
+
+function actorUser(): User | undefined {
+  return findScoped(getStore().users, currentUserId)
+}
+function actorRoles(): Role[] {
+  const u = actorUser()
+  if (!u) return []
+  return scoped(getStore().roles).filter((r) => u.roleIds.includes(r.id))
+}
+function scopeOf(module: Module, action: Action = 'view'): Scope {
+  return resolvePermission(actorRoles(), module, action)
+}
+
+/** Sections the acting staff member teaches or is class teacher of, in the current year. */
+function ownSectionIds(): Set<string> {
+  const st = getStore()
+  const out = new Set<string>()
+  const staffId = actorUser()?.staffId
+  if (!staffId) return out
+  const yearId = scoped(st.academicYears).find((y) => y.status === 'current')?.id
+  const inYear = (id: string) => !yearId || id === yearId
+  for (const sec of scoped(st.sections)) if (sec.classTeacherId === staffId && inYear(sec.academicYearId)) out.add(sec.id)
+  for (const t of scoped(st.teachingAssignments)) if (t.staffId === staffId && inYear(t.academicYearId)) out.add(t.sectionId)
+  return out
+}
+
+/**
+ * Student ids this user may reach. `null` means the whole school, which is not the same as
+ * an empty set: an empty set means "nothing", and the two must not be conflated.
+ */
+function visibleStudentIds(action: Action = 'view'): Set<string> | null {
+  const st = getStore()
+  switch (scopeOf('students', action)) {
+    case 'all':
+      return null
+    case 'own_classes': {
+      const sections = ownSectionIds()
+      return new Set(scoped(st.enrollments).filter((e) => e.outcome === 'ongoing' && sections.has(e.sectionId)).map((e) => e.studentId))
+    }
+    case 'own_children': {
+      const guardianId = actorUser()?.guardianId
+      if (!guardianId) return new Set()
+      return new Set(scoped(st.studentGuardians).filter((l) => l.guardianId === guardianId).map((l) => l.studentId))
+    }
+    default:
+      // 'self' has no student login in this data yet, and 'none' sees nothing.
+      return new Set()
+  }
+}
+
+/** Staff ids this user may reach. `null` means the whole school. */
+function visibleStaffIds(action: Action = 'view'): Set<string> | null {
+  switch (scopeOf('staff', action)) {
+    case 'all':
+      return null
+    case 'self': {
+      const staffId = actorUser()?.staffId
+      return new Set(staffId ? [staffId] : [])
+    }
+    default:
+      return new Set()
+  }
+}
+
+/**
+ * Resolve a student the caller is allowed to touch. Out-of-scope and cross-school ids raise the
+ * same "not found" as a missing one, so a lookup cannot be used to probe what exists elsewhere.
+ */
+function requireStudent(id: string, action: Action = 'view'): Student {
+  const s = findScoped(getStore().students, id)
+  const allowed = visibleStudentIds(action)
+  if (!s || (allowed && !allowed.has(s.id))) throw new Error('Student not found')
+  return s
+}
+function requireStaff(id: string, action: Action = 'view'): Staff {
+  const s = findScoped(getStore().staff, id)
+  const allowed = visibleStaffIds(action)
+  if (!s || (allowed && !allowed.has(s.id))) throw new Error('Staff not found')
+  return s
+}
+
 function paginate<T>(items: T[], page = 1, pageSize = 25): Paginated<T> {
   return { items: items.slice((page - 1) * pageSize, page * pageSize), total: items.length, page, pageSize }
 }
@@ -65,7 +155,7 @@ export const academicYears = {
     getStore().academicYears.push(y); audit({ action: 'create', entity: 'academic_year', entityId: y.id, summary: `Created academic year ${y.name}` }); return y
   },
   async update(id: string, patch: Partial<AcademicYearInput>): Promise<AcademicYear> {
-    await delay(); const y = getStore().academicYears.find((x) => x.id === id); if (!y) throw new Error('Not found')
+    await delay(); const y = findScoped(getStore().academicYears, id); if (!y) throw new Error('Not found')
     if (patch.status === 'current') scoped(getStore().academicYears).forEach((o) => { if (o.status === 'current') o.status = 'closed' })
     Object.assign(y, patch); stamp(y); audit({ action: 'update', entity: 'academic_year', entityId: id, summary: `Updated academic year ${y.name}` }); return y
   },
@@ -79,7 +169,7 @@ export const grades = {
     getStore().grades.push(g); audit({ action: 'create', entity: 'grade', entityId: g.id, summary: `Added ${g.name}` }); return g
   },
   async update(id: string, patch: Partial<GradeInput>): Promise<Grade> {
-    await delay(); const g = getStore().grades.find((x) => x.id === id); if (!g) throw new Error('Not found')
+    await delay(); const g = findScoped(getStore().grades, id); if (!g) throw new Error('Not found')
     Object.assign(g, patch); stamp(g); audit({ action: 'update', entity: 'grade', entityId: id, summary: `Updated ${g.name}` }); return g
   },
   async remove(id: string): Promise<void> {
@@ -96,7 +186,7 @@ export const sections = {
     if (params?.gradeId) rows = rows.filter((s) => s.gradeId === params.gradeId)
     return rows.sort((a, b) => a.name.localeCompare(b.name))
   },
-  async get(id: string): Promise<Section> { await delay(); const s = getStore().sections.find((x) => x.id === id); if (!s) throw new Error('Not found'); return s },
+  async get(id: string): Promise<Section> { await delay(); const s = findScoped(getStore().sections, id); if (!s) throw new Error('Not found'); return s },
   async create(input: SectionInput): Promise<Section> {
     await delay(); const now = nowIso(); const s: Section = { id: newId('sec'), schoolId: currentSchoolId, createdAt: now, updatedAt: now, ...input }
     getStore().sections.push(s); audit({ action: 'create', entity: 'section', entityId: s.id, summary: `Added section ${s.name}` }); return s
@@ -125,7 +215,7 @@ export const subjects = {
     getStore().subjects.push(s); audit({ action: 'create', entity: 'subject', entityId: s.id, summary: `Added subject ${s.name}` }); return s
   },
   async update(id: string, patch: Partial<SubjectInput>): Promise<Subject> {
-    await delay(); const s = getStore().subjects.find((x) => x.id === id); if (!s) throw new Error('Not found')
+    await delay(); const s = findScoped(getStore().subjects, id); if (!s) throw new Error('Not found')
     Object.assign(s, patch); stamp(s); audit({ action: 'update', entity: 'subject', entityId: id, summary: `Updated subject ${s.name}` }); return s
   },
   async remove(id: string): Promise<void> {
@@ -152,7 +242,7 @@ export const holidays = {
     getStore().holidays.push(h); audit({ action: 'create', entity: 'holiday', entityId: h.id, summary: `Added holiday ${h.name}` }); return h
   },
   async update(id: string, patch: Partial<HolidayInput>): Promise<Holiday> {
-    await delay(); const h = getStore().holidays.find((x) => x.id === id); if (!h) throw new Error('Not found')
+    await delay(); const h = findScoped(getStore().holidays, id); if (!h) throw new Error('Not found')
     Object.assign(h, patch); stamp(h); audit({ action: 'update', entity: 'holiday', entityId: id, summary: `Updated holiday ${h.name}` }); return h
   },
   async remove(id: string): Promise<void> {
@@ -195,7 +285,8 @@ export const students = {
     await delay(200)
     const st = getStore()
     const year = params.academicYearId ?? scoped(st.academicYears).find((y) => y.status === 'current')?.id
-    let rows = scoped(st.students).map((s) => joinStudent(s, year))
+    const allowed = visibleStudentIds()
+    let rows = scoped(st.students).filter((s) => !allowed || allowed.has(s.id)).map((s) => joinStudent(s, year))
     if (params.status && params.status !== 'all') rows = rows.filter((r) => r.status === params.status)
     else if (!params.status) rows = rows.filter((r) => r.status === 'active')
     if (params.gradeId) rows = rows.filter((r) => r.grade?.id === params.gradeId)
@@ -220,22 +311,24 @@ export const students = {
     return paginate(rows, params.page, params.pageSize)
   },
   async get(id: string): Promise<StudentRow> {
-    await delay(); const s = getStore().students.find((x) => x.id === id); if (!s) throw new Error('Student not found'); return joinStudent(s)
+    await delay(); return joinStudent(requireStudent(id))
   },
   async guardians(studentId: string): Promise<Array<Guardian & { link: StudentGuardian }>> {
-    await delay(); const st = getStore()
-    return st.studentGuardians.filter((x) => x.studentId === studentId).map((link) => ({ ...st.guardians.find((g) => g.id === link.guardianId)!, link }))
+    await delay(); requireStudent(studentId); const st = getStore()
+    return scoped(st.studentGuardians).filter((x) => x.studentId === studentId).map((link) => ({ ...st.guardians.find((g) => g.id === link.guardianId)!, link }))
   },
   async siblings(studentId: string): Promise<StudentRow[]> {
-    await delay(); const st = getStore()
-    const gids = st.studentGuardians.filter((x) => x.studentId === studentId).map((x) => x.guardianId)
-    const sids = new Set(st.studentGuardians.filter((x) => gids.includes(x.guardianId) && x.studentId !== studentId).map((x) => x.studentId))
-    return st.students.filter((s) => sids.has(s.id)).map((s) => joinStudent(s))
+    await delay(); requireStudent(studentId); const st = getStore()
+    const gids = scoped(st.studentGuardians).filter((x) => x.studentId === studentId).map((x) => x.guardianId)
+    const sids = new Set(scoped(st.studentGuardians).filter((x) => gids.includes(x.guardianId) && x.studentId !== studentId).map((x) => x.studentId))
+    // A sibling can sit outside the caller's classes, so it gets the same check as any other student.
+    const allowed = visibleStudentIds()
+    return scoped(st.students).filter((s) => sids.has(s.id) && (!allowed || allowed.has(s.id))).map((s) => joinStudent(s))
   },
-  async documents(studentId: string): Promise<StudentDocument[]> { await delay(); return getStore().documents.filter((d) => d.studentId === studentId) },
+  async documents(studentId: string): Promise<StudentDocument[]> { await delay(); requireStudent(studentId); return scoped(getStore().documents).filter((d) => d.studentId === studentId) },
   async enrollments(studentId: string): Promise<Array<Enrollment & { section?: Section; grade?: Grade; year?: AcademicYear }>> {
-    await delay(); const st = getStore()
-    return st.enrollments.filter((e) => e.studentId === studentId).map((e) => {
+    await delay(); requireStudent(studentId); const st = getStore()
+    return scoped(st.enrollments).filter((e) => e.studentId === studentId).map((e) => {
       const section = st.sections.find((x) => x.id === e.sectionId); const grade = section ? st.grades.find((g) => g.id === section.gradeId) : undefined
       return { ...e, section, grade, year: st.academicYears.find((y) => y.id === e.academicYearId) }
     }).sort((a, b) => b.joinedOn.localeCompare(a.joinedOn))
@@ -260,7 +353,7 @@ export const students = {
     return s
   },
   async update(id: string, patch: Partial<Omit<StudentInput, 'guardians' | 'sectionId' | 'rollNumber'>>): Promise<Student> {
-    await delay(); const s = getStore().students.find((x) => x.id === id); if (!s) throw new Error('Not found')
+    await delay(); const s = requireStudent(id, 'edit')
     const changes = Object.entries(patch).filter(([k, v]) => JSON.stringify((s as Record<string, unknown>)[k]) !== JSON.stringify(v)).map(([field, to]) => ({ field, from: (s as Record<string, unknown>)[field], to }))
     Object.assign(s, patch); stamp(s)
     audit({ action: 'update', entity: 'student', entityId: id, summary: `Updated ${fullName(s)}`, changes }); return s
@@ -288,7 +381,7 @@ export const students = {
     audit({ action: 'create', entity: 'guardian', entityId: g.id, summary: `Added guardian ${fullName(g)}` }); return g
   },
   async updateGuardian(guardianId: string, patch: Partial<GuardianInput>): Promise<Guardian> {
-    await delay(); const g = getStore().guardians.find((x) => x.id === guardianId); if (!g) throw new Error('Not found')
+    await delay(); const g = findScoped(getStore().guardians, guardianId); if (!g) throw new Error('Not found')
     Object.assign(g, patch); stamp(g); audit({ action: 'update', entity: 'guardian', entityId: guardianId, summary: `Updated guardian ${fullName(g)}` }); return g
   },
   /** Parse already-extracted rows (from xlsx) into a validated preview */
@@ -400,7 +493,8 @@ function joinStaff(s: Staff): StaffRow {
 }
 export const staff = {
   async list(params: StaffListParams = {}): Promise<Paginated<StaffRow>> {
-    await delay(); let rows = scoped(getStore().staff).map(joinStaff)
+    await delay(); const allowed = visibleStaffIds()
+    let rows = scoped(getStore().staff).filter((s) => !allowed || allowed.has(s.id)).map(joinStaff)
     if (params.staffType && params.staffType !== 'all') rows = rows.filter((r) => r.staffType === params.staffType)
     if (params.status && params.status !== 'all') rows = rows.filter((r) => r.status === params.status)
     else if (!params.status) rows = rows.filter((r) => r.status === 'active' || r.status === 'on_leave')
@@ -409,7 +503,7 @@ export const staff = {
     rows.sort((a, b) => a.employeeCode.localeCompare(b.employeeCode))
     return paginate(rows, params.page, params.pageSize ?? 50)
   },
-  async get(id: string): Promise<StaffRow> { await delay(); const s = getStore().staff.find((x) => x.id === id); if (!s) throw new Error('Staff not found'); return joinStaff(s) },
+  async get(id: string): Promise<StaffRow> { await delay(); return joinStaff(requireStaff(id)) },
   async departments(): Promise<string[]> { await delay(50); return [...new Set(scoped(getStore().staff).map((s) => s.department).filter((d): d is string => !!d))].sort() },
   async assignments(staffId: string): Promise<Array<TeachingAssignment & { section?: Section; grade?: Grade; subject?: Subject }>> {
     await delay(); const st = getStore()
@@ -431,7 +525,7 @@ export const staff = {
     getStore().staff.push(s); audit({ action: 'create', entity: 'staff', entityId: s.id, summary: `Added staff ${fullName(s)} (${s.designation})` }); return s
   },
   async update(id: string, patch: Partial<StaffInput>): Promise<Staff> {
-    await delay(); const s = getStore().staff.find((x) => x.id === id); if (!s) throw new Error('Not found')
+    await delay(); const s = requireStaff(id, 'edit')
     const changes = Object.entries(patch).filter(([k, v]) => JSON.stringify((s as Record<string, unknown>)[k]) !== JSON.stringify(v)).map(([field, to]) => ({ field, from: (s as Record<string, unknown>)[field], to }))
     Object.assign(s, patch); stamp(s); audit({ action: 'update', entity: 'staff', entityId: id, summary: `Updated ${fullName(s)}`, changes }); return s
   },
@@ -450,11 +544,11 @@ export const users = {
   },
   async create(input: UserInput): Promise<User> {
     await delay(); const now = nowIso(); const u: User = { id: newId('usr'), schoolId: currentSchoolId, createdAt: now, updatedAt: now, ...input, avatarUrl: input.avatarUrl ?? `https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(input.name)}` }
-    getStore().users.push(u); if (u.staffId) { const s = getStore().staff.find((x) => x.id === u.staffId); if (s) s.userId = u.id }
+    getStore().users.push(u); if (u.staffId) { const s = findScoped(getStore().staff, u.staffId); if (s) s.userId = u.id }
     audit({ action: 'create', entity: 'user', entityId: u.id, summary: `Invited ${u.name}` }); return u
   },
   async update(id: string, patch: Partial<UserInput>): Promise<User> {
-    await delay(); const u = getStore().users.find((x) => x.id === id); if (!u) throw new Error('Not found')
+    await delay(); const u = findScoped(getStore().users, id); if (!u) throw new Error('Not found')
     Object.assign(u, patch); stamp(u); audit({ action: 'update', entity: 'user', entityId: id, summary: `Updated user ${u.name}` }); return u
   },
 }
@@ -465,7 +559,7 @@ export const roles = {
     getStore().roles.push(r); audit({ action: 'create', entity: 'role', entityId: r.id, summary: `Created role ${r.name}` }); return r
   },
   async update(id: string, patch: Partial<RoleInput>): Promise<Role> {
-    await delay(); const r = getStore().roles.find((x) => x.id === id); if (!r) throw new Error('Not found')
+    await delay(); const r = findScoped(getStore().roles, id); if (!r) throw new Error('Not found')
     Object.assign(r, patch); stamp(r); audit({ action: 'update', entity: 'role', entityId: id, summary: `Updated role ${r.name}` }); return r
   },
   async remove(id: string): Promise<void> {
@@ -636,13 +730,18 @@ export const dashboard = {
   async summary(): Promise<DashboardSummary> {
     await delay(250); const st = getStore()
     const year = scoped(st.academicYears).find((y) => y.status === 'current')
-    const studs = scoped(st.students); const active = studs.filter((s) => s.status === 'active')
-    const enr = scoped(st.enrollments).filter((e) => e.academicYearId === year?.id && e.outcome === 'ongoing')
+    // The tiles have to agree with what the Students and Staff screens will actually show,
+    // otherwise a teacher reads "835 students" and then finds 58 in the list.
+    const seeStudents = visibleStudentIds()
+    const seeStaff = visibleStaffIds()
+    const studs = scoped(st.students).filter((s) => !seeStudents || seeStudents.has(s.id))
+    const active = studs.filter((s) => s.status === 'active')
+    const enr = scoped(st.enrollments).filter((e) => e.academicYearId === year?.id && e.outcome === 'ongoing' && (!seeStudents || seeStudents.has(e.studentId)))
     const byGrade = scoped(st.grades).sort((a, b) => a.order - b.order).map((g) => {
       const secIds = new Set(st.sections.filter((s) => s.gradeId === g.id && s.academicYearId === year?.id).map((s) => s.id))
       return { gradeId: g.id, gradeName: g.name, count: enr.filter((e) => secIds.has(e.sectionId)).length }
     })
-    const stf = scoped(st.staff).filter((s) => s.status !== 'resigned' && s.status !== 'retired')
+    const stf = scoped(st.staff).filter((s) => (!seeStaff || seeStaff.has(s.id)) && s.status !== 'resigned' && s.status !== 'retired')
     const school = st.schools.find((s) => s.id === currentSchoolId)
     return {
       schoolId: currentSchoolId, academicYearName: year?.name ?? '',
