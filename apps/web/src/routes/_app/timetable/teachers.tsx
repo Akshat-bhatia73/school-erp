@@ -89,7 +89,7 @@ function Page() {
 
   return (
     <>
-      <PageHeader crumbs={[{ label: 'Timetable' }, { label: 'Teachers' }]} />
+      <PageHeader crumbs={[{ label: 'Timetable' }, { label: 'Teachers' }]} hideOnMobile />
       <TimetableTabs />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <MobilePicker label="Teacher" value={load ? fullName(load.staff) : undefined} title="Pick a teacher">

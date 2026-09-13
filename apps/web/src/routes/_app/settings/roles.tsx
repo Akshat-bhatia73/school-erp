@@ -78,7 +78,7 @@ function Page() {
 
   return (
     <>
-      <PageHeader crumbs={[{ label: 'Settings', icon: <UserCog /> }, { label: 'Roles & permissions' }]} />
+      <PageHeader crumbs={[{ label: 'Settings', icon: <UserCog /> }, { label: 'Roles & permissions' }]} hideOnMobile />
       <SettingsTabs />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <MobilePicker label="Role" value={selected?.name} title="Pick a role">

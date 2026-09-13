@@ -136,8 +136,9 @@ function Page() {
       <PageHeader
         crumbs={[{ label: 'School setup' }, { label: 'Classes & sections' }]}
         actions={canEdit ? <Button size="sm" variant="outline" onClick={() => setGradeSheet(true)}><Plus /> Add class</Button> : undefined}
+        hideOnMobile
       />
-      <SetupTabs />
+      <SetupTabs actions={canEdit ? <Button size="sm" variant="outline" onClick={() => setGradeSheet(true)}><Plus /> Class</Button> : undefined} />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <MobilePicker label="Class" value={grade?.name} title="Pick a class">
           {(close) => gradeList(() => close())}

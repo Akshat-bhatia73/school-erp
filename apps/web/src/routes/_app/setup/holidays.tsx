@@ -75,7 +75,7 @@ function Page() {
 
   return (
     <>
-      <PageHeader crumbs={[{ label: 'School setup' }, { label: 'Holidays' }]} />
+      <PageHeader crumbs={[{ label: 'School setup' }, { label: 'Holidays' }]} hideOnMobile />
       <SetupTabs />
       <Toolbar
         right={canEdit ? <Button size="sm" disabled={!activeYearId} onClick={() => { setEditing(undefined); setSheetOpen(true) }}><Plus /> Add holiday</Button> : undefined}

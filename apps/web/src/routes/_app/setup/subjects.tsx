@@ -79,8 +79,9 @@ function Page() {
       <PageHeader
         crumbs={[{ label: 'School setup' }, { label: 'Subjects' }]}
         actions={canEdit ? <Button size="sm" onClick={() => { setEditing(undefined); setSheetOpen(true) }}><Plus /> Add subject</Button> : undefined}
+        hideOnMobile
       />
-      <SetupTabs />
+      <SetupTabs actions={canEdit ? <Button size="sm" onClick={() => { setEditing(undefined); setSheetOpen(true) }}><Plus /> Add</Button> : undefined} />
       <Tabs defaultValue="all" className="min-h-0 flex-1 gap-0">
         <div className="flex h-12 shrink-0 items-center border-b bg-card px-4">
           <TabsList>

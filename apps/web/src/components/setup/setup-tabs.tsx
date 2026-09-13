@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { PageTabs } from '@/components/shared/page'
 
 const TABS = [
@@ -9,6 +10,6 @@ const TABS = [
 ]
 
 /** The five School setup tabs, shared by every setup screen. */
-export function SetupTabs() {
-  return <PageTabs tabs={TABS} />
+export function SetupTabs({ actions }: { actions?: ReactNode }) {
+  return <PageTabs tabs={TABS} actions={actions} />
 }

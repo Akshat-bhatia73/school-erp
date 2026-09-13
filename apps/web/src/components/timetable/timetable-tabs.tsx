@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { PageTabs } from '@/components/shared/page'
 
 const TABS = [
@@ -8,6 +9,6 @@ const TABS = [
 ]
 
 /** The four Timetable tabs, shared by every timetable screen. */
-export function TimetableTabs() {
-  return <PageTabs tabs={TABS} />
+export function TimetableTabs({ actions }: { actions?: ReactNode }) {
+  return <PageTabs tabs={TABS} actions={actions} />
 }

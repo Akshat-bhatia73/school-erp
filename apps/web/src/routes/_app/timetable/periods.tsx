@@ -131,8 +131,9 @@ function Page() {
       <PageHeader
         crumbs={[{ label: 'Timetable' }, { label: 'Bell schedule' }]}
         actions={canEdit && bell ? <Button size="sm" disabled={!dirty || Object.keys(errors).length > 0 || save.isPending} onClick={() => save.mutate()}>Save changes</Button> : undefined}
+        hideOnMobile
       />
-      <TimetableTabs />
+      <TimetableTabs actions={canEdit && bell ? <Button size="sm" disabled={!dirty || Object.keys(errors).length > 0 || save.isPending} onClick={() => save.mutate()}>Save</Button> : undefined} />
       <div className="flex min-h-0 flex-1">
         {schedules.length > 1 && (
           <aside className="w-56 shrink-0 overflow-auto border-r bg-card scrollbar-thin">

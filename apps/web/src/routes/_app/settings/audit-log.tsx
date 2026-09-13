@@ -78,7 +78,7 @@ function Page() {
 
   return (
     <>
-      <PageHeader crumbs={[{ label: 'Settings', icon: <UserCog /> }, { label: 'Audit log' }]} />
+      <PageHeader crumbs={[{ label: 'Settings', icon: <UserCog /> }, { label: 'Audit log' }]} hideOnMobile />
       <SettingsTabs />
       <div className="shrink-0 border-b bg-card px-4 py-3">
         <Alert>

@@ -136,7 +136,7 @@ function Page() {
 
   return (
     <>
-      <PageHeader crumbs={[{ label: 'Timetable' }, { label: 'Class timetable' }]} />
+      <PageHeader crumbs={[{ label: 'Timetable' }, { label: 'Class timetable' }]} hideOnMobile />
       <TimetableTabs />
       <Toolbar
         right={
@@ -177,7 +177,7 @@ function Page() {
       </Toolbar>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-auto scrollbar-thin">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-card px-3 py-2 text-[13px] text-muted-foreground md:px-4">
+        <div className="hidden flex-wrap items-center gap-x-3 gap-y-1 border-b bg-card px-3 py-2 text-[13px] text-muted-foreground md:flex md:px-4">
           <span><span className="font-medium text-foreground tabular-nums">{stats.filled}</span> of {stats.total} periods filled</span>
           <span>·</span>
           <span>{stats.subjects} subjects</span>
@@ -228,9 +228,13 @@ function Page() {
                 aria-expanded={subjectsOpen}
                 className="flex h-12 w-full items-center justify-between gap-2 px-3 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:-outline-offset-2"
               >
-                <span className="text-[13.5px] font-medium">Subject periods per week</span>
-                <span className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
-                  {perSubject.length} {perSubject.length === 1 ? 'subject' : 'subjects'}
+                <span className="min-w-0 truncate text-[13.5px]">
+                  <span className="font-medium tabular-nums">{stats.filled}</span> of {stats.total} periods filled
+                </span>
+                <span className="flex shrink-0 items-center gap-2 text-[12.5px] text-muted-foreground">
+                  {myConflicts.length > 0 && (
+                    <Tag color="orange"><AlertTriangle className="size-3" />{myConflicts.length}</Tag>
+                  )}
                   <ChevronUp className={cn('size-4 transition-transform duration-200', subjectsOpen && 'rotate-180')} />
                 </span>
               </button>
@@ -240,7 +244,20 @@ function Page() {
                 {/* min-h-0 matters: a grid item defaults to min-height:auto and would
                     refuse to shrink below its content, so 0fr alone collapses nothing. */}
                 <div className="min-h-0 overflow-hidden">
-                  <div className="border-t px-3 py-3">{subjectBreakdown}</div>
+                  <div className="space-y-3 border-t px-3 py-3">
+                    <p className="text-[12.5px] text-muted-foreground">{stats.subjects} subjects · {stats.teachers} teachers</p>
+                    {subjectBreakdown}
+                    {myConflicts.length > 0 && (
+                      <ul className="space-y-1.5 border-t pt-3">
+                        {myConflicts.map((c, i) => (
+                          <li key={i} className="text-[12.5px]">
+                            <span className="text-tag-orange">{c.message}</span>
+                            <span className="block text-[11.5px] text-muted-foreground">{DAY_LABELS[c.dayOfWeek]} · {bell?.periods.find((p) => p.index === c.periodIndex)?.name ?? `Period ${c.periodIndex + 1}`}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

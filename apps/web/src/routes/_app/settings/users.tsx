@@ -137,8 +137,9 @@ function Page() {
       <PageHeader
         crumbs={[{ label: 'Settings', icon: <UserCog /> }, { label: 'Users & logins' }]}
         actions={canCreate ? <Button onClick={() => setInvite(true)}><Plus className="size-4" />Invite user</Button> : undefined}
+        hideOnMobile
       />
-      <SettingsTabs />
+      <SettingsTabs actions={canCreate ? <Button size="sm" onClick={() => setInvite(true)}><Plus />Invite</Button> : undefined} />
       <div className="shrink-0 border-b bg-card px-4 py-3">
         <Alert>
           <Info className="size-4" />

@@ -10,11 +10,19 @@ export interface Crumb { label: string; to?: string; icon?: ReactNode }
  * On mobile the breadcrumb collapses to a back chevron plus the current page, and `mobileActions`
  * (when given) replaces a wide action cluster that would not fit at 390px.
  */
-export function PageHeader({ crumbs, actions, mobileActions, badge, className }: { crumbs: Crumb[]; actions?: ReactNode; mobileActions?: ReactNode; badge?: ReactNode; className?: string }) {
+export function PageHeader({ crumbs, actions, mobileActions, badge, hideOnMobile, className }: {
+  crumbs: Crumb[]
+  actions?: ReactNode
+  mobileActions?: ReactNode
+  badge?: ReactNode
+  /** For tabbed screens: the tab row already names the page, so the title bar is a wasted row. */
+  hideOnMobile?: boolean
+  className?: string
+}) {
   const last = crumbs[crumbs.length - 1]
   const back = [...crumbs.slice(0, -1)].reverse().find((c) => c.to)
   return (
-    <div className={cn('flex h-12 shrink-0 items-center justify-between gap-2 border-b bg-card px-2 md:h-14 md:gap-4 md:px-5', className)}>
+    <div className={cn('h-12 shrink-0 items-center justify-between gap-2 border-b bg-card px-2 md:h-14 md:gap-4 md:px-5', hideOnMobile ? 'hidden md:flex' : 'flex', className)}>
       {/* Mobile: back chevron + current page */}
       <nav className="flex min-w-0 items-center gap-1 text-[15px] md:hidden">
         {back && (
@@ -78,25 +86,32 @@ export function Toolbar({ children, right, search, className }: { children?: Rea
   )
 }
 
-/** Tabs row like "Companies | Deals | Forecast" under a page title */
-export function PageTabs({ tabs, className }: { tabs: Array<{ label: string; to: string; count?: number }>; className?: string }) {
+/**
+ * Tabs row like "Companies | Deals | Forecast" under a page title.
+ * On mobile it also carries the page actions, so a tabbed screen spends one row
+ * of chrome on this instead of two.
+ */
+export function PageTabs({ tabs, actions, className }: { tabs: Array<{ label: string; to: string; count?: number }>; actions?: ReactNode; className?: string }) {
   return (
-    <div className={cn('flex shrink-0 items-center gap-1 overflow-x-auto border-b bg-card px-3 no-scrollbar', className)}>
-      {tabs.map((t) => {
-        // A tab whose path is a prefix of a sibling tab (e.g. /timetable vs /timetable/teachers) must match exactly
-        const exact = tabs.some((o) => o !== t && o.to.startsWith(t.to.endsWith('/') ? t.to : t.to + '/'))
-        return (
-        <Link
-          key={t.to}
-          to={t.to}
-          className="relative flex h-11 shrink-0 items-center gap-2 px-2.5 text-[13.5px] text-muted-foreground hover:text-foreground [&.active]:font-medium [&.active]:text-foreground [&.active]:after:absolute [&.active]:after:inset-x-2 [&.active]:after:bottom-0 [&.active]:after:h-0.5 [&.active]:after:rounded-full [&.active]:after:bg-foreground"
-          activeOptions={{ exact }}
-        >
-          {t.label}
-          {t.count !== undefined && <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">{t.count}</span>}
-        </Link>
-        )
-      })}
+    <div className={cn('flex shrink-0 items-center gap-2 border-b bg-card pr-2 md:pr-3', className)}>
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-3 no-scrollbar">
+        {tabs.map((t) => {
+          // A tab whose path is a prefix of a sibling tab (e.g. /timetable vs /timetable/teachers) must match exactly
+          const exact = tabs.some((o) => o !== t && o.to.startsWith(t.to.endsWith('/') ? t.to : t.to + '/'))
+          return (
+          <Link
+            key={t.to}
+            to={t.to}
+            className="relative flex h-10 shrink-0 items-center gap-2 px-2.5 text-[13.5px] text-muted-foreground hover:text-foreground md:h-11 [&.active]:font-medium [&.active]:text-foreground [&.active]:after:absolute [&.active]:after:inset-x-2 [&.active]:after:bottom-0 [&.active]:after:h-0.5 [&.active]:after:rounded-full [&.active]:after:bg-foreground"
+            activeOptions={{ exact }}
+          >
+            {t.label}
+            {t.count !== undefined && <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">{t.count}</span>}
+          </Link>
+          )
+        })}
+      </div>
+      {actions && <div className="flex shrink-0 items-center gap-1.5 md:hidden">{actions}</div>}
     </div>
   )
 }
