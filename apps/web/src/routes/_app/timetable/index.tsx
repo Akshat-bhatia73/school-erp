@@ -16,11 +16,11 @@ import { DaySelector, defaultDay } from '@/components/timetable/day-selector'
 import { SetPeriodDialog, type SetPeriodTarget } from '@/components/timetable/set-period-dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { qk } from '@/lib/query'
 import { useSession } from '@/lib/session'
+import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/lib/use-media'
 
 const searchSchema = z.object({ gradeId: z.string().optional(), sectionId: z.string().optional() })
@@ -220,23 +220,30 @@ function Page() {
             <div className="hidden p-4 md:block">
               <Panel title="Subject periods per week">{subjectBreakdown}</Panel>
             </div>
-            <button
-              type="button"
-              onClick={() => setSubjectsOpen(true)}
-              className="flex h-12 w-full shrink-0 items-center justify-between gap-2 border-t bg-card px-3 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:-outline-offset-2 md:hidden"
-            >
-              <span className="text-[13.5px] font-medium">Subject periods per week</span>
-              <span className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
-                {perSubject.length} {perSubject.length === 1 ? 'subject' : 'subjects'}
-                <ChevronUp className="size-4" />
-              </span>
-            </button>
-            <Sheet open={subjectsOpen} onOpenChange={setSubjectsOpen}>
-              <SheetContent side="bottom" className="max-h-[70dvh] gap-0 p-0 md:hidden">
-                <SheetTitle className="shrink-0 border-b px-4 py-3 text-[14px] font-semibold">Subject periods per week</SheetTitle>
-                <div className="min-h-0 flex-1 overflow-y-auto p-4 scrollbar-thin">{subjectBreakdown}</div>
-              </SheetContent>
-            </Sheet>
+            {/* Sits on the bottom edge of the scroll area and expands upward in place. */}
+            <div className="sticky bottom-0 z-20 mt-auto border-t bg-card md:hidden">
+              <button
+                type="button"
+                onClick={() => setSubjectsOpen((o) => !o)}
+                aria-expanded={subjectsOpen}
+                className="flex h-12 w-full items-center justify-between gap-2 px-3 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:-outline-offset-2"
+              >
+                <span className="text-[13.5px] font-medium">Subject periods per week</span>
+                <span className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
+                  {perSubject.length} {perSubject.length === 1 ? 'subject' : 'subjects'}
+                  <ChevronUp className={cn('size-4 transition-transform duration-200', subjectsOpen && 'rotate-180')} />
+                </span>
+              </button>
+              {/* 0fr -> 1fr animates to the content's own height, so the panel can grow
+                  with the number of subjects without a hard-coded max height. */}
+              <div className={cn('grid transition-[grid-template-rows] duration-200 ease-out', subjectsOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]')}>
+                {/* min-h-0 matters: a grid item defaults to min-height:auto and would
+                    refuse to shrink below its content, so 0fr alone collapses nothing. */}
+                <div className="min-h-0 overflow-hidden">
+                  <div className="border-t px-3 py-3">{subjectBreakdown}</div>
+                </div>
+              </div>
+            </div>
           </>
         )}
       </div>
