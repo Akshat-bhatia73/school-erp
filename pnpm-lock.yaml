@@ -99,8 +99,21 @@ importers:
         specifier: ^8.2.2
         version: 8.2.2(@types/node@24.13.3)(jiti@2.7.0)
 
+  packages/contracts:
+    dependencies:
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+    devDependencies:
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   packages/shared:
     dependencies:
+      '@erp/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       zod:
         specifier: ^4
         version: 4.5.4
