@@ -48,6 +48,9 @@ export interface DataTableProps<T> {
  * Data table in the style of the reference: hairline row dividers, column dividers,
  * checkbox column, sortable headers, optional footer bar.
  */
+/** Fixed width for the leading checkbox column, so every table lines up. */
+const SELECT_COL_PX = 50
+
 const EMPTY_ROWS: never[] = []
 const EMPTY_SORTING: SortingState = []
 const EMPTY_SELECTION: RowSelectionState = {}
@@ -63,11 +66,17 @@ export function DataTable<T>({ columns, data, isLoading, selectable, rowSelectio
     ? [
         {
           id: '_select',
-          size: 44,
+          size: SELECT_COL_PX,
           header: ({ table }) => (
-            <Checkbox checked={table.getIsAllPageRowsSelected() ? true : table.getIsSomePageRowsSelected() ? 'indeterminate' : false} onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)} aria-label="Select all" className="translate-y-px" />
+            <span className="flex w-[50px] items-center justify-center">
+              <Checkbox checked={table.getIsAllPageRowsSelected() ? true : table.getIsSomePageRowsSelected() ? 'indeterminate' : false} onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)} aria-label="Select all" />
+            </span>
           ),
-          cell: ({ row }) => <Checkbox checked={row.getIsSelected()} onCheckedChange={(v) => row.toggleSelected(!!v)} onClick={(e) => e.stopPropagation()} aria-label="Select row" className="translate-y-px" />,
+          cell: ({ row }) => (
+            <span className="flex w-[50px] items-center justify-center">
+              <Checkbox checked={row.getIsSelected()} onCheckedChange={(v) => row.toggleSelected(!!v)} onClick={(e) => e.stopPropagation()} aria-label="Select row" />
+            </span>
+          ),
           enableSorting: false,
         },
         ...columns,
@@ -145,7 +154,7 @@ export function DataTable<T>({ columns, data, isLoading, selectable, rowSelectio
                       key={h.id}
                       style={{ width: h.getSize() !== 150 ? h.getSize() : undefined }}
                       aria-sort={canSort ? (sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none') : undefined}
-                      className={cn('h-11 border-b bg-card px-3 text-left text-[13px] font-medium text-muted-foreground', i > 0 && 'border-l', i === 0 && selectable && 'pl-4 pr-0 w-11')}
+                      className={cn('h-11 border-b bg-card px-3 text-left text-[13px] font-medium text-muted-foreground', i > 0 && 'border-l', i === 0 && selectable && 'w-[50px] min-w-[50px] px-0')}
                     >
                       {canSort ? (
                         <button
@@ -171,7 +180,7 @@ export function DataTable<T>({ columns, data, isLoading, selectable, rowSelectio
               ? Array.from({ length: 8 }).map((_, r) => (
                   <tr key={r}>
                     {cols.map((_, c) => (
-                      <td key={c} className={cn(rowH, 'border-b px-3', c > 0 && 'border-l')}><Skeleton className="h-4 w-[70%]" /></td>
+                      <td key={c} className={cn(rowH, 'border-b px-3', c > 0 && 'border-l', c === 0 && selectable && 'w-[50px] min-w-[50px] px-0')}><Skeleton className={cn('h-4', c === 0 && selectable ? 'mx-auto w-4' : 'w-[70%]')} /></td>
                     ))}
                   </tr>
                 ))
@@ -190,7 +199,7 @@ export function DataTable<T>({ columns, data, isLoading, selectable, rowSelectio
                     {row.getVisibleCells().map((cell, i) => {
                       const content = flexRender(cell.column.columnDef.cell, cell.getContext())
                       return (
-                      <td key={cell.id} className={cn(rowH, 'border-b px-3 align-middle', i > 0 && 'border-l', i === 0 && selectable && 'pl-4 pr-0 w-11')}>
+                      <td key={cell.id} className={cn(rowH, 'border-b px-3 align-middle', i > 0 && 'border-l', i === 0 && selectable && 'w-[50px] min-w-[50px] px-0')}>
                         {cell.column.id !== linkColumnId ? content
                           : href ? <Link to={href} className="block rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">{content}</Link>
                           : click ? <button type="button" onClick={click} className="block w-full rounded-sm text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">{content}</button>

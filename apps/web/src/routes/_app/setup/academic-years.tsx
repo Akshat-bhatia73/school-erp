@@ -67,7 +67,7 @@ function Page() {
         hideOnMobile
       />
       <SetupTabs actions={canEdit ? <Button size="sm" onClick={() => { setEditing(undefined); setSheetOpen(true) }}><Plus /> Add year</Button> : undefined} />
-      <div className="border-b bg-card px-5 py-3">
+      <div className="border-b bg-card px-3 py-2 md:px-5 md:py-3">
         <Alert>
           <Info />
           <AlertTitle>The current year drives the whole school</AlertTitle>

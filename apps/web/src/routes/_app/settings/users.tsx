@@ -140,7 +140,7 @@ function Page() {
         hideOnMobile
       />
       <SettingsTabs actions={canCreate ? <Button size="sm" onClick={() => setInvite(true)}><Plus />Invite</Button> : undefined} />
-      <div className="shrink-0 border-b bg-card px-4 py-3">
+      <div className="shrink-0 border-b bg-card px-3 py-2 md:px-4 md:py-3">
         <Alert>
           <Info className="size-4" />
           <AlertDescription>
