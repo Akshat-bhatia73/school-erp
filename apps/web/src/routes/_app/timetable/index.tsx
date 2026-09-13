@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { AlertTriangle, CalendarDays, Printer, Wand2 } from 'lucide-react'
+import { AlertTriangle, CalendarDays, ChevronUp, Printer, Wand2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import { DAY_LABELS } from '@erp/shared'
@@ -16,6 +16,7 @@ import { DaySelector, defaultDay } from '@/components/timetable/day-selector'
 import { SetPeriodDialog, type SetPeriodTarget } from '@/components/timetable/set-period-dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { qk } from '@/lib/query'
@@ -38,6 +39,7 @@ function Page() {
   const [target, setTarget] = useState<SetPeriodTarget | null>(null)
   const [day, setDay] = useState<number | undefined>()
   const [confirmGenerate, setConfirmGenerate] = useState(false)
+  const [subjectsOpen, setSubjectsOpen] = useState(false)
 
   const { data: grades = [] } = useQuery({ queryKey: qk.grades, queryFn: () => api.grades.list() })
   const { data: allSections = [] } = useQuery({ queryKey: qk.sections({ academicYearId: yearId }), queryFn: () => api.sections.list({ academicYearId: yearId }), enabled: !!yearId })
@@ -112,6 +114,19 @@ function Page() {
   const isMobile = useIsMobile()
   const workingDays = useMemo(() => [...(bell?.workingDays ?? [])].sort((a, b) => a - b), [bell])
   const shownDay = day !== undefined && workingDays.includes(day) ? day : defaultDay(workingDays)
+
+  const subjectBreakdown = perSubject.length === 0 ? (
+    <p className="text-[13px] text-muted-foreground">Nothing placed yet.</p>
+  ) : (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      {perSubject.map((s) => (
+        <span key={s.code} className="flex items-center gap-1.5">
+          <Tag color={colorFor(s.code)}>{s.name}</Tag>
+          <span className="text-[13px] tabular-nums text-muted-foreground">{s.count}</span>
+        </span>
+      ))}
+    </div>
+  )
 
   const onCellClick = (dayOfWeek: number, periodIndex: number, existing?: TimetableCell) => {
     if (!canEdit) return
@@ -200,22 +215,28 @@ function Page() {
           <>
             <DaySelector days={workingDays} value={shownDay} onChange={setDay} />
             <TimetableGrid bell={bell} cells={cells} mode="section" editable={canEdit} dayFilter={isMobile ? shownDay : undefined} onCellClick={canEdit ? onCellClick : undefined} />
-            <div className="p-3 md:p-4">
-              <Panel title="Subject periods per week">
-                {perSubject.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground">Nothing placed yet.</p>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                    {perSubject.map((s) => (
-                      <span key={s.code} className="flex items-center gap-1.5">
-                        <Tag color={colorFor(s.code)}>{s.name}</Tag>
-                        <span className="text-[13px] tabular-nums text-muted-foreground">{s.count}</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </Panel>
+            {/* Desktop shows the breakdown inline; on a phone it is reference detail,
+                so it collapses to a bar that opens a bottom drawer. */}
+            <div className="hidden p-4 md:block">
+              <Panel title="Subject periods per week">{subjectBreakdown}</Panel>
             </div>
+            <button
+              type="button"
+              onClick={() => setSubjectsOpen(true)}
+              className="flex h-12 w-full shrink-0 items-center justify-between gap-2 border-t bg-card px-3 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:-outline-offset-2 md:hidden"
+            >
+              <span className="text-[13.5px] font-medium">Subject periods per week</span>
+              <span className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
+                {perSubject.length} {perSubject.length === 1 ? 'subject' : 'subjects'}
+                <ChevronUp className="size-4" />
+              </span>
+            </button>
+            <Sheet open={subjectsOpen} onOpenChange={setSubjectsOpen}>
+              <SheetContent side="bottom" className="max-h-[70dvh] gap-0 p-0 md:hidden">
+                <SheetTitle className="shrink-0 border-b px-4 py-3 text-[14px] font-semibold">Subject periods per week</SheetTitle>
+                <div className="min-h-0 flex-1 overflow-y-auto p-4 scrollbar-thin">{subjectBreakdown}</div>
+              </SheetContent>
+            </Sheet>
           </>
         )}
       </div>
