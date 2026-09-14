@@ -3,7 +3,7 @@ export type DeliveryChannel = 'email' | 'sms'
 export interface DeliveryMessage {
   readonly channel: DeliveryChannel
   readonly to: string
-  readonly purpose: 'otp' | 'password_reset' | 'verification'
+  readonly purpose: 'otp' | 'password_reset' | 'verification' | 'invitation'
   /** The OTP, token or link. Never log or return this to a browser. */
   readonly secret: string
   readonly sentAt: string
