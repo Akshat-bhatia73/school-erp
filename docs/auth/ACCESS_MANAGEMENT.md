@@ -8,7 +8,7 @@ Source files: [memberships/routes.ts](../../apps/api/src/memberships/routes.ts),
 
 In scope: the member directory, invitations and their acceptance, role changes, suspend, remove and restore, ownership transfer, administrator started credential recovery, and the access explanation endpoint.
 
-Out of scope, deliberately. There is no web UI: no screen calls these routes and the web app still runs on its mock API, which is Tasks 6 to 8. There is no real message delivery: an invitation is handed to the sandbox adapter described in [authentication and sessions](./AUTHENTICATION.md), and `DELIVERY_MODE=provider` still refuses to start. There are no custom roles: the assignable set is the fixed role templates from `@erp/contracts`, role rows are looked up by key inside the school, and nothing here creates a role. Field level projection of responses is still Task 5.
+Out of scope, deliberately. There is no web UI: no screen calls these routes and the web app still runs on its mock API, which is Tasks 6 to 8. There is no real message delivery: an invitation is handed to the sandbox adapter described in [authentication and sessions](./AUTHENTICATION.md), and `DELIVERY_MODE=provider` still refuses to start. There are no custom roles: the assignable set is the fixed role templates from `@erp/contracts`, role rows are looked up by key inside the school, and nothing here creates a role. Field level projection of responses is Task 5; see [protected school APIs](./PROTECTED_APIS.md).
 
 ## Endpoints
 
