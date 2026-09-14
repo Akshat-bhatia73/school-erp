@@ -8,7 +8,10 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "test:contracts": "pnpm --filter @erp/contracts test",
-    "build:web": "pnpm --filter @erp/web build"
+    "build:web": "pnpm --filter @erp/web build",
+    "db:migrate": "pnpm --filter @erp/db migrate",
+    "db:fixtures": "pnpm --filter @erp/db fixtures",
+    "test:db": "pnpm --filter @erp/db test"
   },
   "packageManager": "pnpm@10.34.4"
 }
