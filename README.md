@@ -29,7 +29,7 @@ pnpm dev:api      # http://127.0.0.1:3001
 pnpm test:api
 ```
 
-Environment variables, credential boundaries, endpoints, session limits, MFA rules and rate limits are documented in [authentication and sessions](docs/auth/AUTHENTICATION.md).
+Environment variables, credential boundaries, endpoints, session limits, MFA rules and rate limits are documented in [authentication and sessions](docs/auth/AUTHENTICATION.md). What a signed-in member may then read or write is decided by `packages/authz` and documented in [authorization and access scope](docs/auth/AUTHORIZATION.md).
 
 ## Deploy on Vercel
 
@@ -40,6 +40,7 @@ Import the GitHub repo in Vercel. `vercel.json` at the repo root already sets th
 - `apps/web` — React 19 + Vite + TanStack Router/Query + Tailwind v4 + shadcn/ui
 - `apps/api` — authentication and session service; see [authentication and sessions](docs/auth/AUTHENTICATION.md)
 - `packages/db` — PostgreSQL schema, tenant isolation and database tests; see [database setup](docs/auth/DATABASE.md)
+- `packages/authz` — permission policy service: decisions, relationship scope, list predicates and the access version protocol; see [authorization and access scope](docs/auth/AUTHORIZATION.md)
 - `packages/contracts` — auth/RBAC permission catalogue, fixed roles, strict API schemas and server interfaces
 - `packages/shared` — data models (Zod schemas and TypeScript types), shared by web, the future backend and the mobile app
 - `apps/web/src/api` — in-memory mock API and seeded dummy data for two schools. Same function shapes the real backend will expose.
