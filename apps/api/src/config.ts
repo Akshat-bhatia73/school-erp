@@ -12,6 +12,8 @@ const EnvSchema = z.object({
     .default('false')
     .transform((value) => value === 'true'),
   DELIVERY_MODE: z.enum(['sandbox', 'provider']).default('sandbox'),
+  /** Where private student documents live. Only server.ts reads it. */
+  DOCUMENT_STORAGE_DIR: z.string().min(1).default('.documents'),
   PORT: z.coerce.number().int().min(0).max(65_535).default(3001),
   NODE_ENV: z
     .enum(['development', 'test', 'production'])

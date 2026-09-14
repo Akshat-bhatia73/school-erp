@@ -7,7 +7,7 @@ import {
   type AuthzConnection,
 } from '@erp/authz'
 import { PERMISSION_CATALOGUE, type PermissionKey } from '@erp/contracts'
-import type { RequestContext, ResourceReference } from '@erp/contracts/server'
+import type { AuthorizationDecision, RequestContext, ResourceReference } from '@erp/contracts/server'
 import { ApiFailure } from '../http/errors.ts'
 
 /**
@@ -15,16 +15,16 @@ import { ApiFailure } from '../http/errors.ts'
  * decision always comes from the shared evaluator, never from a role check
  * written here.
  */
-async function decide(
+export async function decideAction(
   conn: AuthzConnection,
   context: RequestContext,
   permission: PermissionKey,
   resourceId: string,
   aggregate: boolean,
-): Promise<void> {
+): Promise<AuthorizationDecision> {
   // A suspended or removed membership is treated exactly like no access.
   const state = await loadMembershipStateById(conn, context.schoolId, context.membershipId)
-  if (!state || state.status !== 'active') throw new ApiFailure('ACCESS_DENIED')
+  if (!state || state.status !== 'active') return { allowed: false, code: 'ACCESS_DENIED' }
 
   const resourceType = PERMISSION_CATALOGUE[permission].resourceType
   const resource: ResourceReference = { schoolId: context.schoolId, resourceType, id: resourceId }
@@ -34,7 +34,18 @@ async function decide(
     ? { resourceType, id: resourceId, aggregate: true as const }
     : await loadResourceFacts(conn, context, resource)
 
-  const decision = evaluate({ context, permission, resource, snapshot, facts, resourceFacts })
+  return evaluate({ context, permission, resource, snapshot, facts, resourceFacts })
+}
+
+/** The same decision, as the failure a route may simply let escape. */
+async function decide(
+  conn: AuthzConnection,
+  context: RequestContext,
+  permission: PermissionKey,
+  resourceId: string,
+  aggregate: boolean,
+): Promise<void> {
+  const decision = await decideAction(conn, context, permission, resourceId, aggregate)
   if (!decision.allowed) throw new ApiFailure(decision.code)
 }
 

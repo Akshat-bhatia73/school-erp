@@ -1,4 +1,5 @@
 import net from 'node:net'
+import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
 import pg from 'pg'
 import { seedFixtures } from '@erp/db/fixtures'
@@ -6,16 +7,26 @@ import { loadConfig, type ApiConfig } from '../src/config.ts'
 import { createPools, type ApiPools } from '../src/db.ts'
 import { createSandboxDelivery } from '../src/delivery/index.ts'
 import type { DeliveryAdapter } from '../src/delivery/index.ts'
+import { createAuthorizationService } from '@erp/authz'
 import { createAuth, type AuthInstance } from '../src/auth/better-auth.ts'
+import {
+  createMemoryDocumentStorage,
+  type MemoryDocumentStorage,
+} from '../src/files/storage.ts'
 import { buildApp } from '../src/app.ts'
+import type { ModuleDependencies } from '../src/modules/shared/route.ts'
 
-export const MIGRATOR_URL =
-  'postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp'
+/**
+ * The disposable database name. Parallel test runs (one per module while the
+ * suites are being written) each point at their own migrated copy so fixture
+ * rewrites in one run cannot break sign-in in another.
+ */
+const DB_NAME = process.env.ERP_TEST_DB ?? 'erp'
+export const MIGRATOR_URL = `postgres://erp_migrator:erp_migrator@127.0.0.1:54329/${DB_NAME}`
 export const DB_URLS = {
-  AUTH_DATABASE_URL: 'postgres://erp_auth:erp_auth@127.0.0.1:54329/erp',
-  IDENTITY_DATABASE_URL:
-    'postgres://erp_identity:erp_identity@127.0.0.1:54329/erp',
-  DATABASE_URL: 'postgres://erp_runtime:erp_runtime@127.0.0.1:54329/erp',
+  AUTH_DATABASE_URL: `postgres://erp_auth:erp_auth@127.0.0.1:54329/${DB_NAME}`,
+  IDENTITY_DATABASE_URL: `postgres://erp_identity:erp_identity@127.0.0.1:54329/${DB_NAME}`,
+  DATABASE_URL: `postgres://erp_runtime:erp_runtime@127.0.0.1:54329/${DB_NAME}`,
 }
 
 export async function freePort(): Promise<number> {
@@ -47,6 +58,8 @@ export interface TestServer {
   auth: AuthInstance
   delivery: DeliveryAdapter
   pools: ApiPools
+  /** In-memory document bytes, so a test can put a file without a disk. */
+  documents: MemoryDocumentStorage
   origin: string
   fetch(path: string, init?: RequestInit): Promise<Response>
   jar: CookieJar
@@ -75,15 +88,36 @@ export class CookieJar {
   }
 }
 
+/**
+ * Extra routes a test may register before the server listens. It exists so a
+ * test can exercise the shared route helper without any test-only route ever
+ * existing in the running application.
+ */
+export type TestRouteExtension = (
+  app: FastifyInstance,
+  deps: ModuleDependencies,
+) => void
+
 export async function startTestServer(
   overrides: Record<string, string> = {},
+  extend?: TestRouteExtension,
 ): Promise<TestServer> {
   const port = await freePort()
   const config = loadConfig(testEnv(port, overrides))
   const pools = await createPools(config)
   const delivery = createSandboxDelivery(() => {})
   const auth = createAuth(config, pools.auth, delivery, pools.identity)
-  const app = buildApp({ config, auth, delivery, pools })
+  const documents = createMemoryDocumentStorage()
+  const app = buildApp({ config, auth, delivery, pools, documents })
+  if (extend) {
+    extend(app, {
+      auth,
+      pools,
+      delivery,
+      documents,
+      authz: createAuthorizationService({ pool: pools.runtime }),
+    })
+  }
   await app.listen({ port: config.PORT, host: '127.0.0.1' })
   const origin = `http://127.0.0.1:${config.PORT}`
   const jar = new CookieJar()
@@ -92,6 +126,7 @@ export async function startTestServer(
     auth,
     delivery,
     pools,
+    documents,
     origin,
     jar,
     async fetch(path, init = {}) {

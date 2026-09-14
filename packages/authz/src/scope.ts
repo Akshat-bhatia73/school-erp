@@ -4,6 +4,8 @@ import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
 
 import {
   academicYears,
+  auditEvents,
+  bellSchedules,
   enrollments,
   grades,
   guardians,
@@ -13,6 +15,9 @@ import {
   studentDocuments,
   students,
   subjects,
+  substitutions,
+  teachingAssignments,
+  timetableEntries,
 } from '@erp/db/schema'
 import { PERMISSION_CATALOGUE, PermissionKey, ROLE_TEMPLATES } from '@erp/contracts'
 import type { AccessScope, ResourceAccessRule, ResourceType, RoleKey } from '@erp/contracts'
@@ -28,11 +33,17 @@ interface AssignedPair {
   readonly academicYearId: string
 }
 
+/** A (section, year, subject) triple the member teaches. */
+interface AssignedTriple extends AssignedPair {
+  readonly subjectId: string
+}
+
 interface PlanInternals {
   readonly scopes: readonly AccessScope[]
   readonly allows: readonly ResourceAccessRule[]
   readonly denies: readonly ResourceAccessRule[]
   readonly pairs: readonly AssignedPair[]
+  readonly triples: readonly AssignedTriple[]
   readonly subjectIds: readonly string[]
   readonly childStudentIds: readonly string[]
   readonly selfStaffId: string | null
@@ -53,6 +64,9 @@ export interface ScopedTable {
   readonly sectionId?: PgColumn
   readonly academicYearId?: PgColumn
   readonly gradeId?: PgColumn
+  readonly subjectId?: PgColumn
+  /** The staff member a row belongs to, for the self scope. */
+  readonly staffId?: PgColumn
 }
 
 const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
@@ -84,6 +98,42 @@ const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
   academic_year: { table: academicYears, schoolId: academicYears.schoolId, id: academicYears.id },
   holiday: { table: holidays, schoolId: holidays.schoolId, id: holidays.id },
   guardian: { table: guardians, schoolId: guardians.schoolId, id: guardians.id },
+  timetable: {
+    table: timetableEntries,
+    schoolId: timetableEntries.schoolId,
+    id: timetableEntries.id,
+    sectionId: timetableEntries.sectionId,
+    academicYearId: timetableEntries.academicYearId,
+    subjectId: timetableEntries.subjectId,
+    staffId: timetableEntries.staffId,
+  },
+  substitution: {
+    table: substitutions,
+    schoolId: substitutions.schoolId,
+    id: substitutions.id,
+    sectionId: substitutions.sectionId,
+    subjectId: substitutions.subjectId,
+    // The absent teacher owns the row. The stand-in does not, because the
+    // single-read facts name only the absent teacher and a list must never
+    // show a row the detail read then refuses.
+    staffId: substitutions.absentStaffId,
+  },
+  teaching_assignment: {
+    table: teachingAssignments,
+    schoolId: teachingAssignments.schoolId,
+    id: teachingAssignments.id,
+    staffId: teachingAssignments.staffId,
+    sectionId: teachingAssignments.sectionId,
+    academicYearId: teachingAssignments.academicYearId,
+    subjectId: teachingAssignments.subjectId,
+  },
+  bell_schedule: {
+    table: bellSchedules,
+    schoolId: bellSchedules.schoolId,
+    id: bellSchedules.id,
+    academicYearId: bellSchedules.academicYearId,
+  },
+  audit_event: { table: auditEvents, schoolId: auditEvents.schoolId, id: auditEvents.id },
 }
 
 /** The table a plan of this resource type lists, or null when there is none. */
@@ -165,11 +215,27 @@ export function createReadPlan(
     accessVersion: snapshot.accessVersion,
   }) as unknown as AuthorizedReadPlan
 
+  const triples: AssignedTriple[] = []
+  for (const assignment of facts.assignments) {
+    if (
+      triples.some(
+        (t) =>
+          t.sectionId === assignment.sectionId &&
+          t.academicYearId === assignment.academicYearId &&
+          t.subjectId === assignment.subjectId,
+      )
+    ) {
+      continue
+    }
+    triples.push(assignment)
+  }
+
   internals.set(plan, {
     scopes: [...new Set(scopes)],
     allows,
     denies,
     pairs,
+    triples,
     subjectIds: [...new Set(facts.assignments.map((assignment) => assignment.subjectId))],
     childStudentIds: [...facts.ownChildStudentIds],
     selfStaffId: facts.selfStaffId,
@@ -218,9 +284,58 @@ function assignedSectionsTerm(plan: AuthorizedReadPlan, table: ScopedTable, pair
       return sql`EXISTS (SELECT 1 FROM sections sec
           WHERE sec.school_id = ${table.schoolId} AND sec.grade_id = ${table.id}
             AND ${pairTerm(sql`sec.id`, sql`sec.academic_year_id`, pairs)})`
+    case 'timetable':
+    case 'teaching_assignment':
+      return table.sectionId === undefined || table.academicYearId === undefined
+        ? FALSE
+        : pairTerm(table.sectionId, table.academicYearId, pairs)
+    case 'substitution':
+      // A substitution names a date, not an academic year, so the section on
+      // its own is all there is to match against the assigned pairs.
+      return table.sectionId === undefined
+        ? FALSE
+        : idInTerm(
+            table.sectionId,
+            pairs.map((pair) => pair.sectionId),
+          )
     default:
       return FALSE
   }
+}
+
+/** Rows whose (section, year, subject) is exactly one the member teaches. */
+function assignedSubjectsTerm(
+  plan: AuthorizedReadPlan,
+  table: ScopedTable,
+  triples: readonly AssignedTriple[],
+): SQL {
+  if (triples.length === 0) return FALSE
+  if (plan.resourceType !== 'timetable' && plan.resourceType !== 'teaching_assignment') return FALSE
+  if (table.sectionId === undefined || table.academicYearId === undefined || table.subjectId === undefined) {
+    return FALSE
+  }
+  // The triple must match as a whole: teaching maths in 6A does not open
+  // science in 6A, and it does not open maths in 7B either.
+  const tuples = triples.map(
+    (triple) =>
+      sql`(${triple.sectionId}::uuid, ${triple.academicYearId}::uuid, ${triple.subjectId}::uuid)`,
+  )
+  return sql`(${table.sectionId}, ${table.academicYearId}, ${table.subjectId}) IN (${sql.join(tuples, sql`, `)})`
+}
+
+/** Rows whose staff column names the caller's own staff record. */
+function selfTerm(plan: AuthorizedReadPlan, table: ScopedTable, selfStaffId: string | null): SQL {
+  if (selfStaffId === null) return FALSE
+  if (plan.resourceType === 'staff') return sql`${table.id} = ${selfStaffId}::uuid`
+  if (
+    plan.resourceType !== 'timetable' &&
+    plan.resourceType !== 'substitution' &&
+    plan.resourceType !== 'teaching_assignment'
+  ) {
+    return FALSE
+  }
+  if (table.staffId === undefined) return FALSE
+  return sql`${table.staffId} = ${selfStaffId}::uuid`
 }
 
 function ownChildrenTerm(plan: AuthorizedReadPlan, table: ScopedTable, childIds: readonly string[]): SQL {
@@ -244,6 +359,19 @@ function ownChildrenTerm(plan: AuthorizedReadPlan, table: ScopedTable, childIds:
         table,
         childList,
       )
+    case 'timetable':
+      // A timetable row is shared, so a parent reaches it through the class a
+      // child currently sits in, in the same academic year.
+      if (table.sectionId === undefined || table.academicYearId === undefined) return FALSE
+      return enrollmentExistsForChildren(
+        sql`e.section_id = ${table.sectionId} AND e.academic_year_id = ${table.academicYearId}`,
+        table,
+        childList,
+      )
+    case 'substitution':
+      // A substitution carries no academic year, so the section is the match.
+      if (table.sectionId === undefined) return FALSE
+      return enrollmentExistsForChildren(sql`e.section_id = ${table.sectionId}`, table, childList)
     case 'subject':
       // A subject is a shared row, so a parent reaches it through the class a
       // child is enrolled in and the subjects that class studies this year.
@@ -272,12 +400,12 @@ function scopeTerm(plan: AuthorizedReadPlan, table: ScopedTable, scope: AccessSc
     case 'finance':
       return TRUE
     case 'self':
-      if (plan.resourceType !== 'staff' || parts.selfStaffId === null) return FALSE
-      return sql`${table.id} = ${parts.selfStaffId}::uuid`
+      return selfTerm(plan, table, parts.selfStaffId)
     case 'assigned_sections':
       return assignedSectionsTerm(plan, table, parts.pairs)
     case 'assigned_subjects':
-      return plan.resourceType === 'subject' ? idInTerm(table.id, parts.subjectIds) : FALSE
+      if (plan.resourceType === 'subject') return idInTerm(table.id, parts.subjectIds)
+      return assignedSubjectsTerm(plan, table, parts.triples)
     case 'own_children':
       return ownChildrenTerm(plan, table, parts.childStudentIds)
     case 'own_record':

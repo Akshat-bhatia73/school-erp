@@ -541,10 +541,17 @@ export async function loadResourceFacts(
       )
       const found = row.rows[0]
       if (!found) return null
+      // The row is shared by the class, so a parent reaches it through the
+      // section a child currently sits in, exactly as the list predicate does.
+      const child = await ownChildBehind(conn, schoolId, context.membershipId, {
+        by: 'section',
+        sectionId: found.section_id,
+      })
       return facts(resource, {
         sectionIds: [found.section_id],
         subjectIds: [found.subject_id],
         staffId: found.absent_staff_id,
+        ...(child === undefined ? {} : { studentId: child }),
       })
     }
     case 'academic_year': {

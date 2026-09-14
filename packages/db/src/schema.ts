@@ -753,6 +753,58 @@ export const deliveryOutbox = pgTable(
   (t) => [index('delivery_outbox_ready_idx').on(t.status, t.availableAt)],
 )
 
+/**
+ * Task 5 working tables. Both hold work in progress that expires, not school
+ * records: the staged import keeps only server-validated rows, and the export
+ * job keeps the permission and access version it was requested under.
+ */
+export const studentImportPreviews = pgTable(
+  'student_import_previews',
+  {
+    id: id(),
+    schoolId: tenant(),
+    createdByMembershipId: uuid('created_by_membership_id').notNull(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    status: text('status').notNull(),
+    totalRows: integer('total_rows').notNull(),
+    validRows: integer('valid_rows').notNull(),
+    rows: jsonb('rows').notNull(),
+    errors: jsonb('errors')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    version: integer('version').notNull().default(1),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('student_import_previews_school_id_unique').on(t.schoolId, t.id),
+    index('student_import_previews_expiry_idx').on(t.schoolId, t.expiresAt),
+  ],
+)
+export const exportJobs = pgTable(
+  'export_jobs',
+  {
+    id: id(),
+    schoolId: tenant(),
+    requestedByMembershipId: uuid('requested_by_membership_id').notNull(),
+    kind: text('kind').notNull(),
+    status: text('status').notNull(),
+    accessVersion: integer('access_version').notNull(),
+    permission: text('permission').notNull(),
+    criteria: jsonb('criteria')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    rowCount: integer('row_count'),
+    storageKey: text('storage_key'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('export_jobs_school_id_unique').on(t.schoolId, t.id),
+    index('export_jobs_requester_idx').on(t.schoolId, t.requestedByMembershipId, t.createdAt),
+  ],
+)
+
 export const schoolTables = [
   schoolMemberships,
   roles,
@@ -783,4 +835,6 @@ export const schoolTables = [
   resourceAccessRules,
   auditEvents,
   deliveryOutbox,
+  studentImportPreviews,
+  exportJobs,
 ] as const
