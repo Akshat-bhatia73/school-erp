@@ -2,7 +2,11 @@ import { Pool, type PoolClient, type PoolConfig } from 'pg'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { RequestContext } from '@erp/contracts/server'
 
-export { activeMembershipsForUser, createIdentityPool } from './identity.ts'
+export {
+  activeMembershipsForUser,
+  createIdentityPool,
+  userHasStudentMembership,
+} from './identity.ts'
 
 export class DatabaseConfigurationError extends Error {}
 export class TransactionAbortedError extends Error {}

@@ -80,10 +80,27 @@ export const authSessions = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
+    mfaVerifiedAt: timestamp('mfa_verified_at', { withTimezone: true }),
+    sharedDevice: boolean('shared_device').notNull().default(false),
     ...timestamps(),
   },
   (t) => [index('auth_session_user_idx').on(t.userId)],
 )
+// Better Auth rateLimit model with storage "database". Global auth table.
+export const authRateLimit = pgTable('auth_rate_limit', {
+  id: id(),
+  key: text('key').notNull().unique(),
+  count: integer('count').notNull().default(0),
+  lastRequest: bigint('last_request', { mode: 'number' }).notNull().default(0),
+})
+// Our own throttling store: budgets Better Auth must not prune.
+export const authThrottle = pgTable('auth_throttle', {
+  id: id(),
+  key: text('key').notNull().unique(),
+  count: integer('count').notNull().default(0),
+  lastRequest: bigint('last_request', { mode: 'number' }).notNull().default(0),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+})
 export const authAccounts = pgTable(
   'auth_account',
   {

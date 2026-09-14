@@ -19,3 +19,15 @@ export async function activeMembershipsForUser(pool: Pool, userId: string) {
   )
   return result.rows
 }
+
+/** True when the identity has any student membership. Student logins stay denied. */
+export async function userHasStudentMembership(
+  pool: Pool,
+  userId: string,
+): Promise<boolean> {
+  const result = await pool.query<{ has: boolean }>(
+    'SELECT user_has_student_membership($1) AS has',
+    [userId],
+  )
+  return result.rows[0]?.has === true
+}
