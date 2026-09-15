@@ -90,6 +90,28 @@ export async function insertSubject(schoolId: string, code = `SUB-${Date.now()}`
   return remember('subjects', id)
 }
 
+export async function insertAcademicYear(
+  schoolId: string,
+  name = 'Test year',
+): Promise<string> {
+  const id = crypto.randomUUID()
+  await migrator.query(
+    `INSERT INTO academic_years(id, school_id, name, start_date, end_date, status)
+     VALUES ($1,$2,$3,'2026-04-01','2027-03-31','current')`,
+    [id, schoolId, `${name}-${id.slice(0, 8)}`],
+  )
+  return remember('academic_years', id)
+}
+
+export async function insertGrade(schoolId: string, order = 6): Promise<string> {
+  const id = crypto.randomUUID()
+  await migrator.query(
+    `INSERT INTO grades(id, school_id, name, short_name, sort_order) VALUES ($1,$2,$3,$4,$5)`,
+    [id, schoolId, `Grade-${id.slice(0, 8)}`, id.slice(0, 4), order],
+  )
+  return remember('grades', id)
+}
+
 export async function insertSection(
   schoolId: string,
   academicYearId: string,
@@ -173,6 +195,60 @@ export async function insertTeachingAssignment(input: {
     ],
   )
   return remember('teaching_assignments', id)
+}
+
+export async function insertTimetableEntry(input: {
+  schoolId: string
+  academicYearId: string
+  sectionId: string
+  subjectId: string
+  dayOfWeek: number
+  periodIndex: number
+  staffId?: string | null
+}): Promise<string> {
+  const id = crypto.randomUUID()
+  await migrator.query(
+    `INSERT INTO timetable_entries(id, school_id, academic_year_id, section_id, day_of_week, period_index, subject_id, staff_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [
+      id,
+      input.schoolId,
+      input.academicYearId,
+      input.sectionId,
+      input.dayOfWeek,
+      input.periodIndex,
+      input.subjectId,
+      input.staffId ?? null,
+    ],
+  )
+  return remember('timetable_entries', id)
+}
+
+export async function insertSubstitution(input: {
+  schoolId: string
+  date: string
+  sectionId: string
+  periodIndex: number
+  subjectId: string
+  absentStaffId: string
+  substituteStaffId?: string | null
+}): Promise<string> {
+  const id = crypto.randomUUID()
+  await migrator.query(
+    `INSERT INTO substitutions(id, school_id, date, section_id, period_index, subject_id, absent_staff_id, substitute_staff_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [
+      id,
+      input.schoolId,
+      input.date,
+      input.sectionId,
+      input.periodIndex,
+      input.subjectId,
+      input.absentStaffId,
+      input.substituteStaffId ?? null,
+    ],
+  )
+  return remember('substitutions', id)
 }
 
 /** Creates a user, a membership and its role rows, returning the membership id. */

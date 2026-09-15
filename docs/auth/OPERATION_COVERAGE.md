@@ -4,6 +4,26 @@ This inventory covers every route in `apps/web/src/routes` and every exported op
 
 Safe response families below are contract names for implementation ownership; they deliberately do not reuse storage models.
 
+## Status
+
+Task 5 is built. Every operation below marked `Task 5` now has a real endpoint in `apps/api/src/modules`; see [protected school APIs](./PROTECTED_APIS.md) for the route tables, the read and write protocols, the projection rules and the known gaps. This inventory stays the statement of intent and is not rewritten to match the code. Where the two differ, the differences are these.
+
+Owner or permission changed:
+
+- `staff.assignments` is gated on `staff.read_employment` (school or self) and `staff.sectionAssignments` on `sections.read`, not `timetable.read`. Both are at least as strict for the callers that matter.
+- `/staff/:staffId` is gated on `staff.read_directory`, not `staff.read_employment`, because the four staff projection keys are separate checks and the gate must be the weakest of them. Employment, private and pay are still decided per record.
+- `timetable.absentTeacherPeriods` is gated on `timetable.manage_substitutions`, not `timetable.read`.
+- `timetable.freeTeachers` accepts `timetable.manage_entries` or `timetable.manage_substitutions` inside the handler, but its route gate names `manage_entries` only, because the route helper takes one permission.
+- `students.update` is two endpoints, `students.update_basic` and `students.update_sensitive`, rather than one endpoint that sorts fields; medical fields on the sensitive write also need `students.read_medical`.
+- `students.enrollments` scope is now also applied to the class summary carried on a student hit in the roster, the search and the detail read, so a caller with no enrolment grant sees the pupil without the class.
+- Attaching an existing guardian during admission needs `students.manage_guardians` as well as `students.create`.
+- `subjects.setGradeSubjects` answers `GradeSubjectList`, not `Subject` or `EmptySuccess`.
+- Export job status polling (`GET /api/schools/:schoolId/exports/:jobId`) is an endpoint this inventory does not list. It requires one of `students.export`, `staff.export` or `audit.export` and then re-decides the permission the job itself recorded.
+- `auditLogs.list` redaction by audience is not implemented: `audit.read` at the `finance` scope still reaches every row, because the scope term maps to TRUE.
+- `timetable.bellSchedules` and `timetable.bellFor` are school-wide rather than matched scope: `timetable.read` is a permission over timetable entries, so no read plan can be built for a bell schedule.
+- Search merges the student and staff search rows into one command-menu endpoint, returns at most ten hits of each kind with no count, and answers `staff: []` rather than a refusal for a caller who holds no staff key.
+- `dashboard.summary` has no `clerk` audience, because there is no `clerk` role key in this build; the office audience is owner, principal and admin.
+
 ## Routes
 
 | Current route | Entry permission and scope | Safe response family | Future owner |

@@ -101,7 +101,7 @@ export const TimetableResponse = z.strictObject({ cells: z.array(TimetableCell),
 /** No arbitrary `changes: unknown` field that could smuggle private records or credentials. */
 export const AuditEventSummary = z.strictObject({
   id: Id, at: Timestamp, actorDisplayName: DisplayName,
-  action: PermissionKey, summary: z.string().max(500),
+  action: z.string().min(1).max(100), summary: z.string().max(500),
   outcome: z.enum(['allowed', 'denied']),
 })
 export const AuditListResponse = pageOf(AuditEventSummary)

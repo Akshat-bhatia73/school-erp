@@ -5,6 +5,7 @@ import type { ApiConfig } from './config.ts'
 import type { AuthInstance } from './auth/better-auth.ts'
 import type { DeliveryAdapter } from './delivery/index.ts'
 import type { ApiPools } from './db.ts'
+import type { DocumentStorage } from './files/storage.ts'
 import { AuthorizationError, createAuthorizationService } from '@erp/authz'
 import { isAllowedAuthRoute } from './auth/provider-routes.ts'
 import { registerIdentityRoutes } from './routes/identity.ts'
@@ -22,6 +23,7 @@ import { enforceSessionPolicy, resolveSession } from './auth/session.ts'
 import { registerSessionRoutes } from './routes/sessions.ts'
 import { registerMembershipRoutes } from './memberships/routes.ts'
 import { registerInvitationRoutes } from './invitations/routes.ts'
+import { registerModuleRoutes } from './modules/index.ts'
 import {
   MFA_ATTEMPT_LIMIT,
   MFA_ATTEMPT_WINDOW_SECONDS,
@@ -73,6 +75,8 @@ export interface AppDependencies {
   auth: AuthInstance
   delivery: DeliveryAdapter
   pools: ApiPools
+  /** Private document bytes. Storage keys never leave the server. */
+  documents: DocumentStorage
 }
 
 /** Internal header carrying the address Fastify resolved for this request. */
@@ -96,6 +100,7 @@ export function buildApp({
   auth,
   delivery,
   pools,
+  documents,
 }: AppDependencies): FastifyInstance {
   const app = Fastify({
     trustProxy: config.API_TRUST_PROXY,
@@ -166,6 +171,7 @@ export function buildApp({
   registerSessionRoutes(app, { auth, pools })
   registerMembershipRoutes(app, { auth, pools, authz, delivery })
   registerInvitationRoutes(app, { auth, pools, authz, delivery })
+  registerModuleRoutes(app, { auth, pools, authz, delivery, documents })
 
   app.route({
     method: ['GET', 'POST'],

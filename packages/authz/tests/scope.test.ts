@@ -12,13 +12,18 @@ import {
   contextFor,
   fx,
   insertAccessRule,
+  insertAcademicYear,
   insertEnrollment,
+  insertGrade,
   insertGradeSubject,
   insertMembership,
   insertSection,
+  insertStaff,
   insertStudent,
   insertSubject,
+  insertSubstitution,
   insertTeachingAssignment,
+  insertTimetableEntry,
   migrator,
   runtime,
   seed,
@@ -39,6 +44,14 @@ let unassignedSubjectId = ''
 let childSectionId = ''
 let parentSectionId = ''
 let parentEnrollmentId = ''
+let ownTimetableId = ''
+let sectionTimetableId = ''
+let childTimetableId = ''
+let parentTimetableId = ''
+let unrelatedTimetableId = ''
+let sectionSubstitutionId = ''
+let parentSubstitutionId = ''
+let exceptionTeacher = { membershipId: '', userId: '' }
 
 function tableFor(resourceType: ResourceType): ScopedTable {
   const table = scopedTableFor(resourceType)
@@ -63,6 +76,8 @@ const TABLE_NAMES: Partial<Record<ResourceType, string>> = {
   subject: 'subjects',
   enrollment: 'enrollments',
   student_document: 'student_documents',
+  timetable: 'timetable_entries',
+  substitution: 'substitutions',
 }
 
 async function idsOf(resourceType: ResourceType, schoolId: string): Promise<string[]> {
@@ -204,6 +219,108 @@ before(async () => {
     academicYearId: fx('yearA'),
     sectionId: parentSectionId,
   })
+  // Timetable rows covering every relationship a teacher or parent can have:
+  // the teacher's own period, another period in the same class, a period in
+  // the class its child sits in, a period in the other parent's child's class
+  // and one in a class nobody here is related to.
+  ownTimetableId = await insertTimetableEntry({
+    schoolId: schoolA,
+    academicYearId: fx('yearA'),
+    sectionId: fx('sectionA'),
+    subjectId: assignedSubjectId,
+    dayOfWeek: 1,
+    periodIndex: 0,
+    staffId: fx('staffA'),
+  })
+  sectionTimetableId = await insertTimetableEntry({
+    schoolId: schoolA,
+    academicYearId: fx('yearA'),
+    sectionId: fx('sectionA'),
+    subjectId: unassignedSubjectId,
+    dayOfWeek: 1,
+    periodIndex: 1,
+  })
+  childTimetableId = await insertTimetableEntry({
+    schoolId: schoolA,
+    academicYearId: fx('yearA'),
+    sectionId: childSectionId,
+    subjectId: assignedSubjectId,
+    dayOfWeek: 1,
+    periodIndex: 0,
+  })
+  parentTimetableId = await insertTimetableEntry({
+    schoolId: schoolA,
+    academicYearId: fx('yearA'),
+    sectionId: parentSectionId,
+    subjectId: assignedSubjectId,
+    dayOfWeek: 1,
+    periodIndex: 0,
+  })
+  const unrelatedSectionId = await insertSection(schoolA, fx('yearA'), fx('gradeA'), 'Unrelated')
+  unrelatedTimetableId = await insertTimetableEntry({
+    schoolId: schoolA,
+    academicYearId: fx('yearA'),
+    sectionId: unrelatedSectionId,
+    subjectId: assignedSubjectId,
+    dayOfWeek: 1,
+    periodIndex: 0,
+  })
+  sectionSubstitutionId = await insertSubstitution({
+    schoolId: schoolA,
+    date: '2026-06-15',
+    sectionId: fx('sectionA'),
+    periodIndex: 0,
+    subjectId: assignedSubjectId,
+    absentStaffId: fx('staffA'),
+  })
+  parentSubstitutionId = await insertSubstitution({
+    schoolId: schoolA,
+    date: '2026-06-15',
+    sectionId: parentSectionId,
+    periodIndex: 0,
+    subjectId: assignedSubjectId,
+    absentStaffId: fx('staffA'),
+  })
+
+  // School B needs rows of its own, otherwise the cross school assertions
+  // would pass on an empty set.
+  const yearB = await insertAcademicYear(schoolB)
+  const gradeB = await insertGrade(schoolB)
+  const sectionB = await insertSection(schoolB, yearB, gradeB, 'B')
+  const subjectB = await insertSubject(schoolB)
+  const staffB = await insertStaff(schoolB)
+  await insertTimetableEntry({
+    schoolId: schoolB,
+    academicYearId: yearB,
+    sectionId: sectionB,
+    subjectId: subjectB,
+    dayOfWeek: 1,
+    periodIndex: 0,
+    staffId: staffB,
+  })
+  await insertSubstitution({
+    schoolId: schoolB,
+    date: '2026-06-15',
+    sectionId: sectionB,
+    periodIndex: 0,
+    subjectId: subjectB,
+    absentStaffId: staffB,
+  })
+
+  // A member with no relationship of its own, reaching one class through a
+  // section exception. It proves the exception term on the timetable table.
+  exceptionTeacher = await insertMembership({ schoolId: schoolA, roleKeys: ['teacher'] })
+  await insertAccessRule({
+    schoolId: schoolA,
+    membershipId: exceptionTeacher.membershipId,
+    permission: 'timetable.read',
+    effect: 'allow',
+    targetType: 'section',
+    sectionId: fx('sectionA'),
+    academicYearId: fx('yearA'),
+    authorMembershipId: fx('ownerA'),
+  })
+
   teacherNoStaff = await insertMembership({ schoolId: schoolA, roleKeys: ['teacher'] })
   accountant = await insertMembership({ schoolId: schoolA, roleKeys: ['accountant'] })
   deniedAccountant = await insertMembership({ schoolId: schoolA, roleKeys: ['accountant'] })
@@ -480,6 +597,65 @@ test('documents are listed for the school scope and refused where there is no gr
   // No role template gives a parent a document grant, so no plan exists.
   await assert.rejects(
     () => authz.scopeQuery(parentContext(), 'students.read_documents', 'student_document'),
+    (error: Error & { code?: string }) => error.code === 'ACCESS_DENIED',
+  )
+})
+
+test('the timetable list agrees with a single read for every relationship', async () => {
+  const adult = await agreeOn({
+    name: 'teacher and parent',
+    context: adultContext(),
+    permission: 'timetable.read',
+    resourceType: 'timetable',
+  })
+  // Its own period, the rest of the class it teaches and its own child's class.
+  assert.deepEqual(adult, [ownTimetableId, sectionTimetableId, childTimetableId].sort())
+  assert.equal(adult.includes(unrelatedTimetableId), false)
+
+  const parent = await agreeOn({
+    name: 'parent',
+    context: parentContext(),
+    permission: 'timetable.read',
+    resourceType: 'timetable',
+  })
+  assert.deepEqual(parent, [parentTimetableId])
+
+  const owner = await agreeOn({
+    name: 'owner',
+    context: ownerContext(),
+    permission: 'timetable.read',
+    resourceType: 'timetable',
+  })
+  assert.equal(owner.includes(unrelatedTimetableId), true)
+
+  // An exception naming one section and year reaches exactly that class.
+  const viaException = await agreeOn({
+    name: 'teacher with a section exception',
+    context: contextFor({
+      schoolId: schoolA,
+      membershipId: exceptionTeacher.membershipId,
+      roleKeys: ['teacher'],
+      assurance: 'single_factor',
+    }),
+    permission: 'timetable.read',
+    resourceType: 'timetable',
+  })
+  assert.deepEqual(viaException, [ownTimetableId, sectionTimetableId].sort())
+})
+
+test('the substitution list agrees with a single read and stays inside the school', async () => {
+  const owner = await agreeOn({
+    name: 'owner',
+    context: ownerContext(),
+    permission: 'timetable.manage_substitutions',
+    resourceType: 'substitution',
+  })
+  assert.deepEqual(owner, [sectionSubstitutionId, parentSubstitutionId].sort())
+
+  // No role template gives a teacher or a parent a substitution grant, so no
+  // plan exists for them at all.
+  await assert.rejects(
+    () => authz.scopeQuery(adultContext(), 'timetable.manage_substitutions', 'substitution'),
     (error: Error & { code?: string }) => error.code === 'ACCESS_DENIED',
   )
 })
