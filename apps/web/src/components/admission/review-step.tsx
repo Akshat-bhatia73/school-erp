@@ -1,86 +1,87 @@
-import { useQuery } from '@tanstack/react-query'
-import { Facts, Panel } from '@/components/shared/page'
-import { Tag, colorFor } from '@/components/shared/tag'
 import { UserAvatar } from '@/components/shared/avatar'
+import { Facts, Panel } from '@/components/shared/page'
+import { colorFor, Tag } from '@/components/shared/tag'
+import { useSectionOptions } from '@/components/students/use-section-options'
 import { Button } from '@/components/ui/button'
-import { api } from '@/api/client'
-import { qk } from '@/lib/query'
 import { formatDate, humanize } from '@/lib/utils'
 import type { AdmitDraft } from './admit-state'
 
 const dash = <span className="text-muted-foreground/60">—</span>
-const val = (s?: string) => (s && s.trim() ? s : dash)
+const val = (value?: string) => (value && value.trim() !== '' ? value : dash)
 
-export function ReviewStep({ draft, onEdit, yearId, yearName }: { draft: AdmitDraft; onEdit: (step: number) => void; yearId: string; yearName: string }) {
-  const { data: grades = [] } = useQuery({ queryKey: qk.grades, queryFn: () => api.grades.list() })
-  const { data: sections = [] } = useQuery({ queryKey: qk.sections({ academicYearId: yearId }), queryFn: () => api.sections.list({ academicYearId: yearId }), enabled: !!yearId })
-  const grade = grades.find((g) => g.id === draft.gradeId)
-  const section = sections.find((s) => s.id === draft.sectionId)
+export function ReviewStep({ draft, onEdit, academicYearId, yearName }: {
+  draft: AdmitDraft
+  onEdit: (step: number) => void
+  academicYearId: string | null
+  yearName: string
+}) {
+  const { options } = useSectionOptions(academicYearId)
+  const section = options.find((option) => option.value === draft.sectionId)
   const name = [draft.firstName, draft.lastName].filter(Boolean).join(' ') || 'New student'
-  const editBtn = (step: number) => <Button variant="ghost" size="sm" onClick={() => onEdit(step)}>Edit</Button>
+  const editButton = (step: number) => <Button variant="ghost" size="sm" onClick={() => onEdit(step)}>Edit</Button>
 
   return (
     <div className="space-y-4">
       <Panel>
         <div className="flex items-center gap-3">
-          <UserAvatar name={name} src={draft.photoUrl || undefined} size="lg" />
+          <UserAvatar name={name} size="lg" />
           <div className="min-w-0">
             <p className="text-[16px] font-semibold">{name}</p>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              {grade && section && <Tag color={colorFor(grade.name)}>{grade.name} · {section.name}</Tag>}
-              <Tag color="grey">{draft.admissionType === 'rte' ? 'RTE' : humanize(draft.admissionType)}</Tag>
-              {draft.usesTransport && <Tag color="teal">Transport</Tag>}
+              {section && <Tag color={colorFor(section.label)}>{section.label}</Tag>}
+              {draft.admissionType && <Tag color="grey">{humanize(draft.admissionType)}</Tag>}
             </div>
           </div>
         </div>
       </Panel>
 
-      <Panel title="Student details" actions={editBtn(0)}>
+      <Panel title="Student details" actions={editButton(0)}>
         <Facts
           items={[
             { label: 'Name', value: name },
             { label: 'Date of birth', value: draft.dateOfBirth ? formatDate(draft.dateOfBirth) : dash },
             { label: 'Gender', value: draft.gender ? humanize(draft.gender) : dash },
-            { label: 'Blood group', value: draft.bloodGroup === 'unknown' ? dash : draft.bloodGroup },
-            { label: 'Category', value: humanize(draft.category) },
-            { label: 'Religion', value: val(draft.religion) },
-            { label: 'Mother tongue', value: val(draft.motherTongue) },
-            { label: 'Aadhaar last 4', value: val(draft.aadhaarLast4) },
+            { label: 'Category', value: val(draft.category) },
           ]}
         />
       </Panel>
 
-      <Panel title="Parents and guardians" actions={editBtn(1)}>
+      <Panel title="Parents and guardians" actions={editButton(1)}>
         <div className="space-y-4">
-          {draft.guardians.map((g, i) => (
+          {draft.guardians.map((guardian, index) => (
             <Facts
-              key={i}
-              items={[
-                { label: humanize(g.relation), value: [g.firstName, g.lastName].filter(Boolean).join(' ') || dash },
-                { label: 'Phone', value: val(g.phone) },
-                { label: 'Email', value: val(g.email) },
-                { label: 'Occupation', value: val(g.occupation) },
-                { label: 'Primary contact', value: draft.primaryIndex === i ? 'Yes' : 'No' },
-                { label: 'Address', value: g.sameAddress ? 'Same as student' : dash },
-              ]}
+              key={index}
+              items={
+                guardian.mode === 'existing'
+                  ? [
+                      { label: humanize(guardian.relation), value: 'Guardian already on file' },
+                      { label: 'Guardian id', value: val(guardian.guardianId) },
+                      { label: 'Primary contact', value: draft.primaryIndex === index ? 'Yes' : 'No' },
+                      { label: 'Gets messages', value: guardian.receivesNotifications ? 'Yes' : 'No' },
+                    ]
+                  : [
+                      { label: humanize(guardian.relation), value: [guardian.firstName, guardian.lastName].filter(Boolean).join(' ') || dash },
+                      { label: 'Phone', value: val(guardian.phone) },
+                      { label: 'Occupation', value: val(guardian.occupation) },
+                      { label: 'Primary contact', value: draft.primaryIndex === index ? 'Yes' : 'No' },
+                      { label: 'Gets messages', value: guardian.receivesNotifications ? 'Yes' : 'No' },
+                    ]
+              }
             />
           ))}
         </div>
       </Panel>
 
-      <Panel title="Class and admission" actions={editBtn(2)}>
+      <Panel title="Class and admission" actions={editButton(2)}>
         <Facts
           items={[
             { label: 'Academic year', value: yearName },
-            { label: 'Class and section', value: grade && section ? `${grade.name} · ${section.name}` : dash },
+            { label: 'Class and section', value: section ? section.label : dash },
             { label: 'Roll number', value: val(draft.rollNumber) },
             { label: 'Admission number', value: val(draft.admissionNumber) },
             { label: 'Admission date', value: draft.admissionDate ? formatDate(draft.admissionDate) : dash },
-            { label: 'Admission type', value: draft.admissionType === 'rte' ? 'RTE' : humanize(draft.admissionType) },
-            { label: 'Previous school', value: val(draft.previousSchool) },
-            { label: 'Uses transport', value: draft.usesTransport ? 'Yes' : 'No' },
-            { label: 'Address', value: [draft.address.line1, draft.address.line2, draft.address.city, draft.address.state, draft.address.pincode].filter(Boolean).join(', ') || dash },
-            { label: 'Medical notes', value: val(draft.medicalNotes) },
+            { label: 'Admission type', value: draft.admissionType ? humanize(draft.admissionType) : dash },
+            { label: 'Address', value: val(draft.address) },
           ]}
         />
       </Panel>

@@ -6,6 +6,11 @@ Safe response families below are contract names for implementation ownership; th
 
 ## Status
 
+Task 7 is built. Every feature screen now calls the protected APIs, and `apps/web` has no mock
+client: `src/api/client.ts`, `seed.ts` and `store.ts` are deleted, so the operation rows below are
+a record of what each screen used to call and where it went. See
+[the feature screens](./WEB_SCREENS.md).
+
 Task 5 is built. Every operation below marked `Task 5` now has a real endpoint in `apps/api/src/modules`; see [protected school APIs](./PROTECTED_APIS.md) for the route tables, the read and write protocols, the projection rules and the known gaps. This inventory stays the statement of intent and is not rewritten to match the code. Where the two differ, the differences are these.
 
 Owner or permission changed:

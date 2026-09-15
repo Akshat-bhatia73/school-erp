@@ -3,12 +3,11 @@ import { Check, ChevronRight } from 'lucide-react'
 import { Panel } from '@/components/shared/page'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { DashboardSummary } from '@erp/shared'
 
-type Steps = DashboardSummary['setup']['steps']
+export interface SetupStep { key: string; label: string; to: string; done: boolean }
 
-/** "Finish setting up" list: done steps get a green tick, pending steps a dashed circle. */
-export function SetupChecklist({ steps, isLoading }: { steps?: Steps; isLoading?: boolean }) {
+/** "Finish setting up": every step is a read this person is allowed to make. */
+export function SetupChecklist({ steps, isLoading }: { steps?: SetupStep[]; isLoading?: boolean }) {
   const list = steps ?? []
   const done = list.filter((s) => s.done).length
 
@@ -16,8 +15,10 @@ export function SetupChecklist({ steps, isLoading }: { steps?: Steps; isLoading?
     <Panel title="Setup checklist" description="Finish these to get the most out of the app">
       {isLoading ? (
         <div className="flex flex-col gap-2.5">
-          {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}
+          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}
         </div>
+      ) : list.length === 0 ? (
+        <p className="text-[13px] text-muted-foreground">Nothing to set up from here.</p>
       ) : (
         <>
           <div className="flex items-center gap-3">
@@ -27,7 +28,7 @@ export function SetupChecklist({ steps, isLoading }: { steps?: Steps; isLoading?
           <ul className="mt-3 flex flex-col">
             {list.map((s) => (
               <li key={s.key}>
-                <Link to={s.href} className="group -mx-2 flex h-9 items-center gap-2.5 rounded-lg px-2 hover:bg-accent">
+                <Link to={s.to} className="group -mx-2 flex h-9 items-center gap-2.5 rounded-lg px-2 hover:bg-accent">
                   {s.done ? (
                     <span className="flex size-4.5 shrink-0 items-center justify-center rounded-full bg-tag-green/15 text-tag-green"><Check className="size-3" /></span>
                   ) : (

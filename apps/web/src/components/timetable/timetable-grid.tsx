@@ -1,23 +1,55 @@
 import { Plus } from 'lucide-react'
-import type { BellSchedule } from '@erp/shared'
-import { DAY_LABELS } from '@erp/shared'
-import type { TimetableCell } from '@/api/client'
+import type { BellScheduleRecord, TimetableCellRecord } from '@/lib/api/timetable'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Tag, colorFor } from '@/components/shared/tag'
-import { cn, fullName } from '@/lib/utils'
+import { DAY_LABELS } from '@/components/timetable/day-selector'
+import { cn } from '@/lib/utils'
 
 /** Diagonal stripes for slots that are outside the school day (e.g. a short Saturday). */
 export const hatched = 'bg-muted/40 bg-[image:repeating-linear-gradient(45deg,transparent,transparent_5px,var(--color-border)_5px,var(--color-border)_6px)]'
 
 export function periodLabel(p: { startTime: string; endTime: string }) {
-  return `${p.startTime}–${p.endTime}`
+  return p.startTime && p.endTime ? `${p.startTime}–${p.endTime}` : ''
+}
+
+/** The name a person reads for a slot, from the bell schedule when it is known. */
+export function periodNameFor(bell: BellScheduleRecord | undefined, periodIndex: number) {
+  return bell?.periods.find((p) => p.index === periodIndex)?.name ?? `Period ${periodIndex + 1}`
+}
+
+/**
+ * One grid for a person whose week spans grades: the server has no bell schedule
+ * "for this teacher", so merge every schedule of the year by period index and add a
+ * row for any index a cell uses but no schedule declares, so no cell is dropped.
+ */
+export function mergeBellSchedules(
+  schedules: BellScheduleRecord[],
+  cells: TimetableCellRecord[] = [],
+): BellScheduleRecord | undefined {
+  const first = schedules[0]
+  if (!first) return undefined
+  const byIndex = new Map<number, BellScheduleRecord['periods'][number]>()
+  for (const s of schedules) for (const p of s.periods) if (!byIndex.has(p.index)) byIndex.set(p.index, p)
+  for (const c of cells) {
+    if (byIndex.has(c.periodIndex)) continue
+    byIndex.set(c.periodIndex, { index: c.periodIndex, name: `Period ${c.periodIndex + 1}`, startTime: '', endTime: '', type: 'period' })
+  }
+  const periods = [...byIndex.values()].sort((a, b) => (a.startTime === b.startTime ? a.index - b.index : a.startTime < b.startTime ? -1 : 1))
+  const workingDays = [...new Set(schedules.flatMap((s) => s.workingDays))].sort((a, b) => a - b)
+  const satCounts = schedules.map((s) => s.saturdayPeriodCount).filter((n): n is number => n !== undefined && n !== null)
+  return {
+    ...first,
+    periods,
+    workingDays,
+    saturdayPeriodCount: satCounts.length === schedules.length && satCounts.length > 0 ? Math.max(...satCounts) : undefined,
+  }
 }
 
 export interface TimetableGridProps {
-  bell: BellSchedule
-  cells: TimetableCell[]
+  bell: BellScheduleRecord
+  cells: TimetableCellRecord[]
   mode: 'section' | 'staff'
-  onCellClick?: (dayOfWeek: number, periodIndex: number, existing?: TimetableCell) => void
+  onCellClick?: (dayOfWeek: number, periodIndex: number, existing?: TimetableCellRecord) => void
   /** In staff mode, mark empty teaching slots as "Free" */
   highlightFree?: boolean
   /** Show only this day */
@@ -29,7 +61,7 @@ export interface TimetableGridProps {
 /** The weekly grid: periods down the side, working days across the top. */
 export function TimetableGrid({ bell, cells, mode, onCellClick, highlightFree, dayFilter, editable, className }: TimetableGridProps) {
   const days = [...bell.workingDays].sort((a, b) => a - b).filter((d) => dayFilter === undefined || d === dayFilter)
-  const byKey = new Map<string, TimetableCell>()
+  const byKey = new Map<string, TimetableCellRecord>()
   for (const c of cells) byKey.set(`${c.dayOfWeek}|${c.periodIndex}`, c)
   const satCount = bell.saturdayPeriodCount
 
@@ -87,15 +119,15 @@ export function TimetableGrid({ bell, cells, mode, onCellClick, highlightFree, d
   )
 }
 
-function CellBody({ cell, mode, onClick }: { cell: TimetableCell; mode: 'section' | 'staff'; onClick?: () => void }) {
+function CellBody({ cell, mode, onClick }: { cell: TimetableCellRecord; mode: 'section' | 'staff'; onClick?: () => void }) {
   const top = mode === 'section'
-    ? <Tag color={colorFor(cell.subject?.code ?? cell.subjectId)}>{cell.subject?.name ?? 'Subject'}</Tag>
-    : <Tag color={colorFor(cell.sectionId)}>{cell.grade?.name} - {cell.section?.name}</Tag>
+    ? <Tag color={colorFor(cell.subject.id)}>{cell.subject.name}</Tag>
+    : <Tag color={colorFor(cell.section.id)}>{cell.section.name}</Tag>
   const bottom = mode === 'section'
-    ? (cell.staff
-        ? <span className="flex items-center gap-1.5 truncate"><UserAvatar name={fullName(cell.staff)} size="xs" />{fullName(cell.staff)}</span>
+    ? (cell.teacher
+        ? <span className="flex items-center gap-1.5 truncate"><UserAvatar name={cell.teacher.name} size="xs" />{cell.teacher.name}</span>
         : <span className="text-tag-orange">No teacher</span>)
-    : <span className="truncate">{cell.subject?.name ?? ''}</span>
+    : <span className="truncate">{cell.subject.name}</span>
   return (
     <button
       type="button"

@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query'
 import { Sparkles } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { authConfig } from '@/lib/auth-client'
-import { qk } from '@/lib/query'
 import { cn } from '@/lib/utils'
 
 /**
@@ -35,9 +34,12 @@ export function AuthLayout({ title, description, children, footer, wide }: {
   )
 }
 
+/** The auth config is public and school-free, so it keeps its own key rather than one in `qk`. */
+const authConfigKey = ['authConfig'] as const
+
 /** Says plainly that nothing is sent in a development build, so nobody waits for an SMS. */
 export function SandboxNotice() {
-  const { data } = useQuery({ queryKey: qk.authConfig, queryFn: authConfig, staleTime: 5 * 60_000 })
+  const { data } = useQuery({ queryKey: authConfigKey, queryFn: authConfig, staleTime: 5 * 60_000 })
   if (data?.deliveryMode !== 'sandbox') return null
   return (
     <p className="text-[12px] text-muted-foreground">Development build: nothing is sent, codes appear in the development outbox.</p>

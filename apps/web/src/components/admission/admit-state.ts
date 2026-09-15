@@ -1,133 +1,134 @@
-import { StudentInput, type AdmissionType, type BloodGroup, type Gender, type GuardianRelation, type SocialCategory, type StudentInput as StudentInputType } from '@erp/shared'
+/**
+ * The admission form's own state, and the one place it becomes a StudentsAdmitRequest.
+ *
+ * Nothing here decides anything: the contract is the only judge of whether a draft may be sent,
+ * so every check is a safeParse of the request the screen would post.
+ */
+import { StudentsAdmitRequest } from '@erp/contracts'
+import type { AdmitStudentInput } from '@/lib/api/students'
 import type { Errors } from './fields'
 
+export type GuardianRelation = 'father' | 'mother' | 'guardian' | 'grandparent' | 'sibling' | 'other'
+
 export interface GuardianDraft {
+  /** A brand new guardian record, or one this school already holds. */
+  mode: 'new' | 'existing'
+  guardianId: string
   relation: GuardianRelation
   firstName: string
   lastName: string
+  /** Ten digits as people write them; the request carries the +91 form. */
   phone: string
-  email: string
   occupation: string
-  /** Reuse the student's home address (entered in step 3) for this guardian */
-  sameAddress: boolean
+  address: string
+  receivesNotifications: boolean
 }
 
 export interface AdmitDraft {
   firstName: string
   lastName: string
   dateOfBirth: string
-  gender: Gender | ''
-  bloodGroup: BloodGroup
-  category: SocialCategory
-  religion: string
-  motherTongue: string
-  aadhaarLast4: string
-  photoUrl: string
-  guardians: GuardianDraft[]
-  primaryIndex: number
-  gradeId: string
-  sectionId: string
-  rollNumber: string
+  gender: 'male' | 'female' | 'other' | ''
+  category: string
   admissionNumber: string
   admissionDate: string
-  admissionType: AdmissionType
-  previousSchool: string
-  usesTransport: boolean
-  medicalNotes: string
-  address: { line1: string; line2: string; city: string; state: string; pincode: string }
+  admissionType: string
+  address: string
+  sectionId: string
+  rollNumber: string
+  guardians: GuardianDraft[]
+  primaryIndex: number
 }
 
 export const todayIso = () => new Date().toISOString().slice(0, 10)
 
 export function emptyGuardian(relation: GuardianRelation = 'father'): GuardianDraft {
-  return { relation, firstName: '', lastName: '', phone: '', email: '', occupation: '', sameAddress: true }
+  return { mode: 'new', guardianId: '', relation, firstName: '', lastName: '', phone: '', occupation: '', address: '', receivesNotifications: true }
 }
 
 export function emptyDraft(): AdmitDraft {
   return {
-    firstName: '', lastName: '', dateOfBirth: '', gender: '', bloodGroup: 'unknown', category: 'general',
-    religion: '', motherTongue: '', aadhaarLast4: '', photoUrl: '',
-    guardians: [emptyGuardian('father')], primaryIndex: 0,
-    gradeId: '', sectionId: '', rollNumber: '', admissionNumber: '', admissionDate: todayIso(),
-    admissionType: 'regular', previousSchool: '', usesTransport: false, medicalNotes: '',
-    address: { line1: '', line2: '', city: '', state: '', pincode: '' },
+    firstName: '', lastName: '', dateOfBirth: '', gender: '', category: '',
+    admissionNumber: '', admissionDate: todayIso(), admissionType: '', address: '',
+    sectionId: '', rollNumber: '', guardians: [emptyGuardian('father')], primaryIndex: 0,
   }
 }
 
-const clean = (s: string) => (s.trim() ? s.trim() : undefined)
+const clean = (value: string) => (value.trim() === '' ? undefined : value.trim())
 
-/** Shape the draft into the API input the mock expects */
-export function toStudentInput(d: AdmitDraft): StudentInputType {
+/** Ten digits become the E.164 number the contract expects. */
+export function toE164(tenDigits: string): string {
+  const digits = tenDigits.replace(/\D/g, '')
+  return digits === '' ? '' : `+91${digits}`
+}
+
+/** The request body this draft stands for, ready for StudentsAdmitRequest.safeParse. */
+export function toAdmitRequest(draft: AdmitDraft): AdmitStudentInput {
   return {
-    firstName: d.firstName.trim(),
-    lastName: clean(d.lastName),
-    dateOfBirth: d.dateOfBirth,
-    gender: (d.gender || 'male') as Gender,
-    bloodGroup: d.bloodGroup,
-    category: d.category,
-    religion: clean(d.religion),
-    motherTongue: clean(d.motherTongue),
-    nationality: 'Indian',
-    aadhaarLast4: clean(d.aadhaarLast4),
-    photoUrl: clean(d.photoUrl),
-    admissionNumber: d.admissionNumber.trim(),
-    admissionDate: d.admissionDate,
-    admissionType: d.admissionType,
-    previousSchool: clean(d.previousSchool),
-    status: 'active',
-    medicalNotes: clean(d.medicalNotes),
-    usesTransport: d.usesTransport,
-    address: {
-      line1: d.address.line1.trim(),
-      line2: clean(d.address.line2),
-      city: d.address.city.trim(),
-      state: d.address.state.trim(),
-      pincode: d.address.pincode.trim(),
-    },
-    sectionId: d.sectionId,
-    rollNumber: d.rollNumber ? Number(d.rollNumber) : undefined,
-    guardians: d.guardians.map((g, i) => ({
-      relation: g.relation,
-      isPrimary: i === d.primaryIndex,
-      guardian: {
-        firstName: g.firstName.trim(),
-        lastName: clean(g.lastName),
-        phone: g.phone.trim(),
-        email: clean(g.email),
-        occupation: clean(g.occupation),
-        address: g.sameAddress && d.address.line1.trim() && /^\d{6}$/.test(d.address.pincode.trim())
-          ? { line1: d.address.line1.trim(), line2: clean(d.address.line2), city: d.address.city.trim(), state: d.address.state.trim(), pincode: d.address.pincode.trim() }
-          : undefined,
-      },
+    firstName: draft.firstName.trim(),
+    lastName: clean(draft.lastName),
+    admissionNumber: draft.admissionNumber.trim(),
+    dateOfBirth: draft.dateOfBirth,
+    gender: (draft.gender || 'male') as 'male' | 'female' | 'other',
+    category: clean(draft.category),
+    admissionType: clean(draft.admissionType),
+    admissionDate: draft.admissionDate,
+    address: clean(draft.address),
+    sectionId: draft.sectionId,
+    rollNumber: draft.rollNumber.trim() === '' ? undefined : Number(draft.rollNumber),
+    guardians: draft.guardians.map((guardian, index) => ({
+      ...(guardian.mode === 'existing'
+        ? { guardianId: guardian.guardianId.trim() }
+        : {
+            guardian: {
+              firstName: guardian.firstName.trim(),
+              lastName: clean(guardian.lastName),
+              phone: toE164(guardian.phone),
+              occupation: clean(guardian.occupation),
+              address: clean(guardian.address),
+            },
+          }),
+      relation: guardian.relation,
+      isPrimary: index === draft.primaryIndex,
+      receivesNotifications: guardian.receivesNotifications,
     })),
-  } as StudentInputType
+  } as AdmitStudentInput
 }
 
-const STEP_KEYS: Record<number, Array<keyof StudentInputType>> = {
-  0: ['firstName', 'lastName', 'dateOfBirth', 'gender', 'bloodGroup', 'category', 'aadhaarLast4', 'photoUrl'],
+/** Which step owns which top-level field, so an error lands on the step that can fix it. */
+const STEP_FIELDS: Record<number, string[]> = {
+  0: ['firstName', 'lastName', 'dateOfBirth', 'gender', 'category'],
   1: ['guardians'],
-  2: ['sectionId', 'rollNumber', 'admissionNumber', 'admissionDate', 'admissionType', 'address'],
+  2: ['admissionNumber', 'admissionDate', 'admissionType', 'address', 'sectionId', 'rollNumber'],
 }
 
-/** Validate one step with the matching subset of the StudentInput schema. Returns field -> message. */
-export function validateStep(step: number, d: AdmitDraft): Errors {
-  const keys = STEP_KEYS[step]
-  if (!keys) return {}
-  const shape = Object.fromEntries(keys.map((k) => [k, true])) as Record<string, true>
-  const schema = StudentInput.pick(shape as never)
-  const input = toStudentInput(d) as Record<string, unknown>
-  const subset = Object.fromEntries(keys.map((k) => [k, input[k as string]]))
-  const parsed = schema.safeParse(subset)
+/** Every problem the contract found, keyed by dotted path. */
+export function validateDraft(draft: AdmitDraft): Errors {
+  const parsed = StudentsAdmitRequest.safeParse(toAdmitRequest(draft))
   const errors: Errors = {}
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
-      const path = issue.path.join('.')
+      const path = issue.path.map(String).join('.') || 'form'
       if (!errors[path]) errors[path] = issue.message
     }
   }
-  if (step === 0 && !d.gender) errors.gender = 'Pick a gender'
-  if (step === 2 && !d.sectionId) errors.sectionId = 'Pick a class and section'
+  if (!draft.gender) errors.gender = 'Pick a gender'
+  if (!draft.sectionId) errors.sectionId = 'Pick a class and section'
   return errors
+}
+
+/** The step a dotted error path belongs to, or 2 for anything unrecognised. */
+export function stepOfError(path: string): number {
+  const head = path.split('.')[0] ?? ''
+  for (const [step, fields] of Object.entries(STEP_FIELDS)) {
+    if (fields.includes(head)) return Number(step)
+  }
+  return 2
+}
+
+/** Only the problems this step can fix. */
+export function errorsForStep(step: number, errors: Errors): Errors {
+  return Object.fromEntries(Object.entries(errors).filter(([path]) => stepOfError(path) === step))
 }
 
 /** "SVM/2026/014" */

@@ -11,8 +11,7 @@ function session(over: Partial<Session>): Session {
   return {
     status: 'authenticated', user: null, session: null, memberships: [], activeMemberships: [],
     school: null, membership: null, roleKeys: [], capabilities: [], accessVersion: null,
-    context: 'ready', twoFactorEnabled: false, hasPermission: () => false, can: () => false,
-    scope: () => 'none', roles: [], selectSchool: () => {}, clearSchool: () => {},
+    context: 'ready', twoFactorEnabled: false, hasPermission: () => false, selectSchool: () => {}, clearSchool: () => {},
     signOut: async () => {}, refresh: async () => {}, generation: 0,
     ...over,
   } as Session

@@ -1,129 +1,67 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
-import { Copy, ShieldCheck, Trash2, UserCog } from 'lucide-react'
-import { toast } from 'sonner'
-import type { Role } from '@erp/shared'
-import { api } from '@/api/client'
-import { EmptyState, PageHeader } from '@/components/shared/page'
+import { ShieldCheck, UserCog } from 'lucide-react'
+import { ROLE_TEMPLATES, RoleKey } from '@erp/contracts'
+import { EmptyState, Facts, PageHeader, Panel } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
-import { MobilePicker } from '@/components/shared/mobile-picker'
-import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
-import { qk } from '@/lib/query'
-import { useSession } from '@/lib/session'
-import { cn } from '@/lib/utils'
+import { useSchoolContext } from '@/lib/session'
+import { assignableRolesFor, roleLabel } from '@/lib/permissions'
 import { roleColor, SettingsTabs } from '@/components/settings/settings-tabs'
-import { PermissionMatrix, RolesOverview } from '@/components/settings/permission-matrix'
+import { PermissionMatrix } from '@/components/settings/permission-matrix'
 
 export const Route = createFileRoute('/_app/settings/roles')({ component: Page })
 
+const ROLES = RoleKey.options.filter((key) => ROLE_TEMPLATES[key].enabled)
+
 function Page() {
-  const qc = useQueryClient()
-  const session = useSession()
-  const canEdit = session.can('users_roles', 'edit')
-  const canCreate = session.can('users_roles', 'create')
-  const canDelete = session.can('users_roles', 'delete')
+  const { roleKeys, hasPermission } = useSchoolContext()
+  const assignable = assignableRolesFor(roleKeys)
 
-  const [selectedId, setSelectedId] = useState<string>()
-  const { data: roles = [], isLoading } = useQuery({ queryKey: qk.roles, queryFn: () => api.roles.list() })
-  const { data: users = [] } = useQuery({ queryKey: qk.users, queryFn: () => api.users.list() })
-
-  useEffect(() => {
-    if (!isLoading && roles.length && !roles.some((r) => r.id === selectedId)) setSelectedId(roles[0]!.id)
-  }, [roles, isLoading, selectedId])
-
-  const selected = roles.find((r) => r.id === selectedId)
-  const userCount = (roleId: string) => users.filter((u) => u.roleIds.includes(roleId)).length
-
-  const duplicate = useMutation({
-    mutationFn: (r: Role) => api.roles.create({ key: 'custom', name: `${r.name} (copy)`, description: r.description, permissions: r.permissions }),
-    onSuccess: async (r) => {
-      await qc.invalidateQueries({ queryKey: qk.roles })
-      qc.invalidateQueries({ queryKey: qk.auditLogs() })
-      setSelectedId(r.id)
-      toast.success(`Created ${r.name}`)
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const remove = useMutation({
-    mutationFn: (id: string) => api.roles.remove(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: qk.roles })
-      qc.invalidateQueries({ queryKey: qk.auditLogs() })
-      setSelectedId(undefined)
-      toast.success('Role deleted')
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const roleList = (onPick?: () => void) => isLoading
-    ? <div className="space-y-2 p-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
-    : roles.map((r) => (
-        <button
-          key={r.id}
-          type="button"
-          onClick={() => { setSelectedId(r.id); onPick?.() }}
-          className={cn('w-full border-b px-3.5 py-3 text-left transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:-outline-offset-2', r.id === selectedId && 'bg-accent')}
-        >
-          <span className="flex items-center justify-between gap-2">
-            <span className="truncate text-[13.5px] font-medium">{r.name}</span>
-            {r.isSystem && <Tag color="grey">System</Tag>}
-          </span>
-          {r.description && <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">{r.description}</span>}
-          <span className="mt-1 block text-[12px] text-muted-foreground tabular-nums">{userCount(r.id)} users</span>
-        </button>
-      ))
-
-  return (
+  const header = (
     <>
       <PageHeader crumbs={[{ label: 'Settings', icon: <UserCog /> }, { label: 'Roles & permissions' }]} hideOnMobile />
       <SettingsTabs />
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <MobilePicker label="Role" value={selected?.name} title="Pick a role">
-          {(close) => roleList(close)}
-        </MobilePicker>
-        <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-r md:flex">
-          {roleList()}
-        </aside>
-        <div className="min-w-0 flex-1 overflow-y-auto bg-background p-3 md:p-5">
-          {isLoading && <div className="space-y-4"><Skeleton className="h-16 w-full" /><Skeleton className="h-80 w-full" /></div>}
-          {!isLoading && roles.length === 0 && (
-            <EmptyState icon={<ShieldCheck />} title="No roles yet" description="Roles decide what each person can see and change." />
-          )}
-          {selected && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border bg-card px-4 py-3.5">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="size-4 text-muted-foreground" />
-                    <h2 className="text-[15px] font-semibold">{selected.name}</h2>
-                    <Tag color={roleColor[selected.key]}>{selected.key}</Tag>
-                    {selected.isSystem && <Tag color="grey">System</Tag>}
-                  </div>
-                  <p className="mt-1 text-[12.5px] text-muted-foreground">
-                    {selected.description ?? 'No description.'} · {userCount(selected.id)} users
-                  </p>
-                </div>
+    </>
+  )
+
+  if (!hasPermission('roles.read')) {
+    return (
+      <>
+        {header}
+        <EmptyState icon={<ShieldCheck />} title="You cannot see what each role can do" description="Ask an owner or principal if you need this." />
+      </>
+    )
+  }
+
+  return (
+    <>
+      {header}
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-background p-3 md:p-5">
+        <Panel title="Roles in this build" description="These roles are fixed. New roles come in a later build.">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {ROLES.map((role) => (
+              <div key={role} className="rounded-xl border px-3 py-2.5">
                 <div className="flex items-center gap-2">
-                  {canCreate && (
-                    <Button variant="outline" size="sm" disabled={duplicate.isPending} onClick={() => duplicate.mutate(selected)}>
-                      <Copy className="size-4" />Duplicate as custom role
-                    </Button>
-                  )}
-                  {canDelete && !selected.isSystem && userCount(selected.id) === 0 && (
-                    <Button variant="outline" size="sm" disabled={remove.isPending} onClick={() => remove.mutate(selected.id)}>
-                      <Trash2 className="size-4" />Delete
-                    </Button>
-                  )}
+                  <Tag color={roleColor[role]}>{roleLabel(role)}</Tag>
+                  {ROLE_TEMPLATES[role].requiredMfa && <Tag color="orange">Needs a second step</Tag>}
                 </div>
+                <p className="mt-1.5 text-[12.5px] text-muted-foreground tabular-nums">{ROLE_TEMPLATES[role].grants.length} things this role can do</p>
               </div>
-              <PermissionMatrix role={selected} canEdit={canEdit} />
-              <RolesOverview roles={roles} selectedRoleId={selected.id} onSelectRole={setSelectedId} />
-            </div>
-          )}
-        </div>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel title="Roles you can assign" description="What you may hand out when you invite someone or change their roles.">
+          {assignable.length === 0
+            ? <p className="text-[13px] text-muted-foreground">You cannot give anyone a role.</p>
+            : (
+              <Facts
+                columns={1}
+                items={[{ label: 'You can assign', value: <span className="flex flex-wrap gap-1.5">{assignable.map((role) => <Tag key={role} color={roleColor[role]}>{roleLabel(role)}</Tag>)}</span> }]}
+              />
+            )}
+        </Panel>
+
+        <PermissionMatrix />
       </div>
     </>
   )

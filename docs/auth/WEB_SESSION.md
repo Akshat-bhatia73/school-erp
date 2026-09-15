@@ -2,7 +2,7 @@
 
 Task 6 puts the web app on the real API. The browser no longer picks who it is: `apps/web` signs in against [the Fastify service](./AUTHENTICATION.md), derives the whole session from `GET /api/me` and `GET /api/schools/:schoolId/context`, and renders nothing school-shaped until both have answered. It is defined in [the implementation plan](../AUTH_RBAC_IMPLEMENTATION_PLAN.md) (sections 4, 5 and 10, and the Task 6 checklist).
 
-It does not change any permission decision. The server decides; the web app only asks, and hides what it was told it cannot have. The feature screens still read the in-memory mock API — Task 7 moves them onto the protected APIs and `allowedActions`.
+It does not change any permission decision. The server decides; the web app only asks, and hides what it was told it cannot have. Task 7 moved the feature screens onto the protected APIs and `allowedActions` as well; see [the feature screens](./WEB_SCREENS.md).
 
 Source files: [src/lib/http.ts](../../apps/web/src/lib/http.ts), [src/lib/auth-client.ts](../../apps/web/src/lib/auth-client.ts), [src/lib/api-errors.ts](../../apps/web/src/lib/api-errors.ts), [src/lib/return-to.ts](../../apps/web/src/lib/return-to.ts), [src/lib/session.tsx](../../apps/web/src/lib/session.tsx), [src/lib/query.ts](../../apps/web/src/lib/query.ts), [src/components/auth](../../apps/web/src/components/auth), and the public routes under [src/routes](../../apps/web/src/routes).
 
@@ -95,13 +95,20 @@ Public routes render inside `AuthLayout`: a centred card on `md` and up, full-bl
 
 `returnTo` is sanitised by [`lib/return-to.ts`](../../apps/web/src/lib/return-to.ts): same-origin relative paths only, query string preserved, credential screens refused so signing in cannot loop. `/accept-invite` is deliberately allowed, because it is a destination rather than a sign-in step, so an invitee who has to sign in first lands back on their invitation.
 
-## The legacy mock bridge
+## The legacy mock bridge (removed)
 
-The feature screens still read the in-memory mock API in [`api/client.ts`](../../apps/web/src/api/client.ts) and still ask `can(module, action)` with the `@erp/shared` role model, which is a different vocabulary from the server's permission keys. Until Task 7, `lib/session.tsx` keeps both worlds alive, and says so at the top of the file: it resolves the mock roles whose key matches the server's `roleKeys` (the server's `principal` maps onto the mock `owner`), computes `can` and `scope` from them, and pushes the signed-in person into the mock client through `setApiContext`.
+Task 6 shipped a bridge so the mock feature screens kept working while the session became real:
+`can`, `scope` and `roles` on the session, resolved from the `@erp/shared` role model, and
+`setApiContext` pushing the signed-in person into the in-memory mock client.
 
-None of that is an authorization decision. The server decides, and the mock data is local dummy data. Task 7 deletes `can`, `scope`, `roles`, `mockSchoolId` and `setApiContext`, and the bridge block with them.
+Task 7 deleted all of it, along with `apps/web/src/api` and `legacyQk`. The screens read the
+protected APIs directly and gate on `hasPermission` and the record's own `allowedActions`. See
+[the feature screens](./WEB_SCREENS.md#the-bridge-is-gone) for what went and why nothing decides in
+the browser.
 
-Also gone in Task 6 and not coming back: the "viewing as" user switcher, the sidebar school-switcher dropdown and the "auth is off" notice. Switching school is now "Switch school" in the account menu and the command menu, both pointing at `/select-school`. `settings/users` still lists mock users and says plainly that invitations and logins are server-managed in a later build; Task 7 replaces it.
+Also gone in Task 6 and not coming back: the "viewing as" user switcher, the sidebar school-switcher
+dropdown and the "auth is off" notice. Switching school is "Switch school" in the account menu and
+the command menu, both pointing at `/select-school`.
 
 ## Deployment
 
@@ -109,7 +116,7 @@ Also gone in Task 6 and not coming back: the "viewing as" user switcher, the sid
 
 ## Tests
 
-`pnpm --filter @erp/web test -- --run` runs 88 tests in 13 files under vitest with jsdom and Testing Library. `lib/auth-client` is mocked everywhere; no test touches the network. `vitest` globals are off, so test files import `describe`, `it` and `expect` from `vitest`. The shared `src/test/setup.ts` stubs `matchMedia` and `ResizeObserver`, which jsdom lacks and the Radix primitives need.
+`pnpm --filter @erp/web test -- --run` runs 199 tests in 23 files under vitest with jsdom and Testing Library; 88 of them in 13 files cover the session and the auth screens described here, and the rest cover the feature screens ([WEB_SCREENS.md](./WEB_SCREENS.md#tests)). `lib/auth-client` is mocked everywhere; no test touches the network. `vitest` globals are off, so test files import `describe`, `it` and `expect` from `vitest`. The shared `src/test/setup.ts` stubs `matchMedia` and `ResizeObserver`, which jsdom lacks and the Radix primitives need.
 
 What they prove: the envelope parsing, `Retry-After` precedence and `STALE_RESPONSE` on a mid-flight generation bump in `http`; `returnTo` sanitising, including that an invitation link survives; the session provider going anonymous on 401, `blocked` on `FEATURE_DISABLED`, unavailable on a network failure, auto-selecting a single membership, `mfa_required` context, ignoring and deleting the old `localStorage` identity keys, and clearing on a `signed-out` broadcast; the gate rendering no shell while either the session or the context is loading; the login screens' generic refusals, throttle countdown, `returnTo` with a query string and the shared-device flag surviving a `twoFactorRedirect`; the OTP screen's auto-submit and resend; the reset screen treating a refused token as an expired link; the QR encoder against vectors from the reference `qrcode` package; the MFA verify panel saying a code was wrong rather than bouncing to sign-in, and only redirecting when the session really has gone; the enrolment step order with backup codes withheld until a code is accepted; account security's device list, revoke-by-id, password validation, turn-off freshness branch and backup-code regeneration; and the school chooser, invitation panel and access screens.
 

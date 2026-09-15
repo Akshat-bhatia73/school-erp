@@ -53,9 +53,6 @@ importers:
       '@erp/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@erp/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       '@hugeicons/core-free-icons':
         specifier: 4.3.2
         version: 4.3.2

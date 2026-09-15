@@ -1,23 +1,31 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { AcademicYearInput, AcademicYearStatus, type AcademicYear } from '@erp/shared'
-import { api } from '@/api/client'
-import { Field, validate, type FieldErrors } from '@/components/setup/field'
+import { AcademicYearInput, SetupAcademicYearUpdateRequest } from '@erp/contracts'
+import { Field, FORM_ERROR, validate, type FieldErrors } from '@/components/setup/field'
 import { FormSheet } from '@/components/setup/form-sheet'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { api } from '@/lib/api'
+import type { AcademicYearRecord } from '@/lib/api/setup'
+import { describeError } from '@/lib/api-errors'
 import { qk } from '@/lib/query'
+import { useSchoolContext } from '@/lib/session'
 import { humanize } from '@/lib/utils'
 
-function blank(): AcademicYearInput {
-  const y = new Date().getFullYear()
-  return { name: `${y}-${String((y + 1) % 100).padStart(2, '0')}`, startDate: `${y}-04-01`, endDate: `${y + 1}-03-31`, status: 'upcoming' }
+const STATUSES = ['upcoming', 'current', 'closed'] as const
+
+interface Form { name: string; startDate: string; endDate: string; status: (typeof STATUSES)[number] }
+
+function blank(): Form {
+  const year = new Date().getFullYear()
+  return { name: `${year}-${String((year + 1) % 100).padStart(2, '0')}`, startDate: `${year}-04-01`, endDate: `${year + 1}-03-31`, status: 'upcoming' }
 }
 
-export function AcademicYearSheet({ open, onOpenChange, year }: { open: boolean; onOpenChange: (v: boolean) => void; year?: AcademicYear }) {
-  const qc = useQueryClient()
-  const [form, setForm] = useState<AcademicYearInput>(blank)
+export function AcademicYearSheet({ open, onOpenChange, year }: { open: boolean; onOpenChange: (v: boolean) => void; year?: AcademicYearRecord }) {
+  const { schoolId } = useSchoolContext()
+  const queryClient = useQueryClient()
+  const [form, setForm] = useState<Form>(blank)
   const [errors, setErrors] = useState<FieldErrors>({})
 
   useEffect(() => {
@@ -27,23 +35,27 @@ export function AcademicYearSheet({ open, onOpenChange, year }: { open: boolean;
   }, [open, year])
 
   const save = useMutation({
-    mutationFn: (input: AcademicYearInput) => (year ? api.academicYears.update(year.id, input) : api.academicYears.create(input)),
-    onSuccess: (y) => {
-      qc.invalidateQueries({ queryKey: qk.academicYears })
-      toast.success(year ? `Saved ${y.name}` : `Added academic year ${y.name}`)
+    mutationFn: (input: Form & { expectedVersion?: number }) =>
+      year
+        ? api.setup.updateAcademicYear(schoolId, year.id, { ...input, expectedVersion: year.version })
+        : api.setup.createAcademicYear(schoolId, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: qk.academicYears(schoolId) })
+      toast.success('Saved changes')
       onOpenChange(false)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (failure) => toast.error(describeError(failure)),
   })
 
-  const set = <K extends keyof AcademicYearInput>(k: K, v: AcademicYearInput[K]) => setForm((f) => ({ ...f, [k]: v }))
+  const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }))
 
   function submit() {
-    const res = validate(AcademicYearInput, form)
-    if (!res.ok) return setErrors(res.errors)
-    if (res.data.endDate <= res.data.startDate) return setErrors({ endDate: 'End date must be after the start date' })
+    const checked = year
+      ? validate(SetupAcademicYearUpdateRequest, { ...form, expectedVersion: year.version })
+      : validate(AcademicYearInput, form)
+    if (!checked.ok) return setErrors(checked.errors)
     setErrors({})
-    save.mutate(res.data)
+    save.mutate(form)
   }
 
   return (
@@ -55,6 +67,7 @@ export function AcademicYearSheet({ open, onOpenChange, year }: { open: boolean;
       submitLabel={year ? 'Save changes' : 'Add year'}
       onSubmit={submit}
       busy={save.isPending}
+      formError={errors[FORM_ERROR]}
     >
       <Field label="Name" error={errors.name} hint="Like 2027-28">
         <Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="2027-28" />
@@ -64,9 +77,9 @@ export function AcademicYearSheet({ open, onOpenChange, year }: { open: boolean;
         <Field label="End date" error={errors.endDate}><Input type="date" value={form.endDate} onChange={(e) => set('endDate', e.target.value)} /></Field>
       </div>
       <Field label="Status" error={errors.status}>
-        <Select value={form.status} onValueChange={(v) => set('status', v as AcademicYearInput['status'])}>
+        <Select value={form.status} onValueChange={(v) => set('status', v as Form['status'])}>
           <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-          <SelectContent>{AcademicYearStatus.options.map((s) => <SelectItem key={s} value={s}>{humanize(s)}</SelectItem>)}</SelectContent>
+          <SelectContent>{STATUSES.map((s) => <SelectItem key={s} value={s}>{humanize(s)}</SelectItem>)}</SelectContent>
         </Select>
       </Field>
     </FormSheet>
