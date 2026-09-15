@@ -250,7 +250,13 @@ test('school context requires an active membership and the right assurance', asy
   assert.deepEqual(body.roleKeys, ['parent'])
   assert.equal(body.school.code, 'fixture-b')
   assert.equal(body.studentLoginEnabled, false)
-  assert.ok(body.capabilities.length > 0)
+  // Capabilities are now the policy service's answer: every permission this
+  // member could exercise somewhere in the school. This parent has an approved
+  // child, so the child-scoped reads appear and nothing else does.
+  assert.ok(body.capabilities.includes('students.read_basic'))
+  assert.ok(body.capabilities.includes('timetable.read'))
+  assert.ok(!body.capabilities.includes('students.read_sensitive'))
+  assert.ok(!body.capabilities.includes('school.update'))
 })
 
 async function backdateSessions(userId: string, hours: number): Promise<void> {

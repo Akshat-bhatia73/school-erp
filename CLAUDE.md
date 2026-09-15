@@ -4,6 +4,7 @@ Monorepo (pnpm). Phase 1 web app with dummy data. No backend yet: `apps/web/src/
 
 ## Layout
 - `packages/db` — backend-only PostgreSQL/Drizzle foundation. Use the trusted tenant transaction helper and separate runtime, auth and identity credentials. SQL migrations own constraints/RLS; do not use Drizzle push. See `docs/auth/DATABASE.md`.
+- `packages/authz` — backend-only permission policy service (`@erp/authz`). Decisions, relationship scope, list predicates and the access version locking protocol. Never re-implement a permission check; call `createAuthorizationService` and use `scopeQuery`/`planPredicate` for lists. See `docs/auth/AUTHORIZATION.md`.
 - `packages/contracts/src/*` — new auth/RBAC and HTTP boundary contracts. Use `@erp/contracts` for new backend/frontend integration; `@erp/shared/contracts` is an explicit compatibility bridge. Server-only interfaces are at `@erp/contracts/server`. Do not use the legacy mock `UserInput` or role resolver for backend authorization. See `docs/auth/CONTRACTS.md` and `PERMISSION_MATRIX.md`.
 - `packages/shared/src/*` — data models (Zod schemas + TS types). Source of truth. Extend here if a screen needs a field that is missing.
 - `apps/web/src/api/seed.ts` — deterministic dummy data for two Indian schools (SVM, LFPS).

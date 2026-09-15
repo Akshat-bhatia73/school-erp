@@ -1,20 +1,18 @@
 import type { FastifyInstance } from 'fastify'
-import {
-  Email,
-  MeResponse,
-  Phone,
-  ROLE_TEMPLATES,
-  SchoolContextResponse,
-  type PermissionKey,
-  type RoleKey,
-} from '@erp/contracts'
+import { Email, MeResponse, Phone, SchoolContextResponse } from '@erp/contracts'
+import type { SchoolAuthorizationService } from '@erp/authz'
 import { ApiFailure } from '../http/errors.ts'
 import { requireMembership, requireSession } from '../auth/guards.ts'
 import type { SessionDependencies } from '../auth/session.ts'
 
+export interface IdentityDependencies extends SessionDependencies {
+  /** The real policy service; capabilities are its answer, not a role union. */
+  readonly authz: SchoolAuthorizationService
+}
+
 export function registerIdentityRoutes(
   app: FastifyInstance,
-  deps: SessionDependencies,
+  deps: IdentityDependencies,
 ): void {
   app.get('/api/me', { preHandler: requireSession(deps) }, async (request) => {
     const verified = request.verified
@@ -59,20 +57,9 @@ export function registerIdentityRoutes(
         membershipId: membership.id,
         accessVersion: membership.accessVersion,
         roleKeys: membership.roleKeys,
-        capabilities: capabilitiesFor(membership.roleKeys),
+        capabilities: await deps.authz.capabilities(context),
         studentLoginEnabled: false,
       })
     },
   )
-}
-
-/**
- * Navigation hint only. Task 3 replaces this with the real policy service,
- * including denies, exceptions and relationship scope.
- */
-function capabilitiesFor(roleKeys: readonly RoleKey[]): PermissionKey[] {
-  const keys = new Set<PermissionKey>()
-  for (const role of roleKeys)
-    for (const grant of ROLE_TEMPLATES[role].grants) keys.add(grant.permission)
-  return [...keys]
 }
