@@ -40,6 +40,6 @@ export function SandboxNotice() {
   const { data } = useQuery({ queryKey: qk.authConfig, queryFn: authConfig, staleTime: 5 * 60_000 })
   if (data?.deliveryMode !== 'sandbox') return null
   return (
-    <p className="mb-4 text-[12px] text-muted-foreground">Development build: nothing is sent, codes appear in the development outbox.</p>
+    <p className="text-[12px] text-muted-foreground">Development build: nothing is sent, codes appear in the development outbox.</p>
   )
 }

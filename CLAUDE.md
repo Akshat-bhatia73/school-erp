@@ -36,5 +36,5 @@ Monorepo (pnpm). Phase 1 web app with dummy data. No backend yet: `apps/web/src/
 - Indian formats: `formatINR`, `formatDate` from `lib/utils.ts`. Phone is 10 digits. Academic year is April–March.
 - Dates: keep ISO strings in state, format only for display.
 - Copy: plain English, no jargon. "Fee dues" not "receivables". Buttons say what they do: "Admit student", "Save changes".
-- Icons: lucide-react only.
+- Icons: lucide-react only. The one exception is the login audience tabs, which use four Hugeicons (`@hugeicons/react` + `@hugeicons/core-free-icons`) chosen by design.
 - Routes must keep the same file paths and `createFileRoute` ids already present; add new routes only under your module's folder.

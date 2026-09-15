@@ -1,10 +1,12 @@
+import { ManWomanIcon, OfficeIcon, StudentsIcon, TeachingIcon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Lock } from 'lucide-react'
 import { useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { z } from 'zod'
-import { AuthLayout } from '@/components/auth/auth-layout'
+import { AuthLayout, SandboxNotice } from '@/components/auth/auth-layout'
 import { describeSignInError, throttleSeconds } from '@/components/auth/login/errors'
-import { AuthField, AuthInput, FormError, PasswordInput, SharedDeviceField, submitLabel, TALL_BUTTON } from '@/components/auth/login/parts'
+import { AuthField, AuthInput, FormError, HelpLine, PasswordInput, SharedDeviceField, submitLabel, TALL_BUTTON } from '@/components/auth/login/parts'
 import { useCountdown } from '@/components/auth/login/use-countdown'
 import { validate, type FieldErrors } from '@/components/setup/field'
 import { Button } from '@/components/ui/button'
@@ -15,15 +17,20 @@ import { announceSignIn, useSession } from '@/lib/session'
 
 export type Audience = 'administration' | 'teacher' | 'parent' | 'student'
 
-const TABS: { value: Audience; label: string }[] = [
-  { value: 'administration', label: 'School office' },
-  { value: 'teacher', label: 'Teacher' },
-  { value: 'parent', label: 'Parent' },
-  { value: 'student', label: 'Student' },
+const TABS: { value: Audience; label: string; icon: IconSvgElement }[] = [
+  { value: 'administration', label: 'School office', icon: OfficeIcon },
+  { value: 'teacher', label: 'Teacher', icon: TeachingIcon },
+  { value: 'parent', label: 'Parent', icon: ManWomanIcon },
+  { value: 'student', label: 'Student', icon: StudentsIcon },
 ]
 
-/** Evenly spaced pills; the active one is filled with the primary colour, like the submit button. */
-const TAB_TRIGGER = 'h-full min-w-0 px-1 text-[12.5px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-primary dark:data-[state=active]:text-primary-foreground'
+/**
+ * The active tab grows to show its name in the brand colour (the same fill as the submit button);
+ * the others collapse to an icon. Only `flex-grow` animates, so the basis stays put and the pills
+ * slide rather than jump.
+ */
+const TAB_TRIGGER = 'h-full min-w-0 gap-1.5 overflow-hidden px-0 flex-[0_1_2.75rem] transition-[flex-grow,background-color,color] duration-300 ease-out data-[state=active]:flex-[1_1_2.75rem] data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-none hover:text-foreground dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-brand dark:data-[state=active]:text-white'
+const TAB_LABEL = 'max-w-0 overflow-hidden whitespace-nowrap text-[12.5px] font-medium opacity-0 transition-[max-width,opacity] duration-300 ease-out group-data-[state=active]/tab:max-w-32 group-data-[state=active]/tab:opacity-100'
 
 /** A quiet secondary action under the submit button. */
 const SECONDARY_LINK = 'text-[12.5px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline'
@@ -40,23 +47,29 @@ const EmailSchema = z.object({
 export function LoginScreen({ returnTo, audience }: { returnTo: string; audience?: Audience }) {
   const [tab, setTab] = useState<Audience>(audience ?? 'administration')
   return (
-    <AuthLayout title="Sign in">
+    <AuthLayout title="Sign in" description="Use the email address or phone number your school has for you." footer={<HelpLine />}>
       <Tabs value={tab} onValueChange={(value) => setTab(value as Audience)}>
-        <TabsList className="grid w-full grid-cols-4 gap-1 p-1 group-data-[orientation=horizontal]/tabs:h-11 md:group-data-[orientation=horizontal]/tabs:h-9">
+        <TabsList className="flex w-full gap-1 p-1 group-data-[orientation=horizontal]/tabs:h-11 md:group-data-[orientation=horizontal]/tabs:h-9">
           {TABS.map((item) => (
-            <TabsTrigger key={item.value} value={item.value} className={TAB_TRIGGER}>{item.label}</TabsTrigger>
+            <TabsTrigger key={item.value} value={item.value} aria-label={item.label} title={item.label} className={`group/tab ${TAB_TRIGGER}`}>
+              <HugeiconsIcon icon={item.icon} className="size-[18px] shrink-0" strokeWidth={1.5} aria-hidden />
+              <span className={TAB_LABEL}>{item.label}</span>
+            </TabsTrigger>
           ))}
         </TabsList>
-        <TabsContent value="administration" className="mt-5">
-          <EmailPanel returnTo={returnTo} />
+        <TabsContent value="administration" className="mt-4">
+          <EmailPanel
+            returnTo={returnTo}
+            hint="For owners, principals, administrators and accountants. A second step with your authenticator app follows."
+          />
         </TabsContent>
-        <TabsContent value="teacher" className="mt-5">
+        <TabsContent value="teacher" className="mt-4">
           <TeacherPanel returnTo={returnTo} />
         </TabsContent>
-        <TabsContent value="parent" className="mt-5">
-          <PhonePanel returnTo={returnTo} />
+        <TabsContent value="parent" className="mt-4">
+          <PhonePanel returnTo={returnTo} hint="We send a 6 digit code to the mobile number your school has on record." />
         </TabsContent>
-        <TabsContent value="student" className="mt-5">
+        <TabsContent value="student" className="mt-4">
           <StudentPanel />
         </TabsContent>
       </Tabs>
@@ -71,6 +84,7 @@ function TeacherPanel({ returnTo }: { returnTo: string }) {
     return (
       <PhonePanel
         returnTo={returnTo}
+        hint="We send a 6 digit code to the mobile number your school has on record."
         switchLink={<button type="button" className={SECONDARY_LINK} onClick={() => setMethod('email')}>Use email instead</button>}
       />
     )
@@ -78,12 +92,13 @@ function TeacherPanel({ returnTo }: { returnTo: string }) {
   return (
     <EmailPanel
       returnTo={returnTo}
+      hint="Use the email address your school has on record for you."
       switchLink={<button type="button" className={SECONDARY_LINK} onClick={() => setMethod('phone')}>Use a phone code instead</button>}
     />
   )
 }
 
-function EmailPanel({ returnTo, switchLink }: { returnTo: string; switchLink?: ReactNode }) {
+function EmailPanel({ returnTo, hint, switchLink }: { returnTo: string; hint: string; switchLink?: ReactNode }) {
   const navigate = useNavigate()
   const session = useSession()
   const [email, setEmail] = useState('')
@@ -129,6 +144,7 @@ function EmailPanel({ returnTo, switchLink }: { returnTo: string; switchLink?: R
   const blocked = pending || throttle.secondsLeft > 0
   return (
     <form className="grid gap-4" onSubmit={onSubmit} noValidate>
+      <Hint text={hint} />
       <FormError message={failure} />
       <AuthField id="login-email" label="Email address" error={errors.email}>
         <AuthInput
@@ -158,7 +174,7 @@ function EmailPanel({ returnTo, switchLink }: { returnTo: string; switchLink?: R
   )
 }
 
-function PhonePanel({ returnTo, switchLink }: { returnTo: string; switchLink?: ReactNode }) {
+function PhonePanel({ returnTo, hint, switchLink }: { returnTo: string; hint: string; switchLink?: ReactNode }) {
   const navigate = useNavigate()
   const [phone, setPhone] = useState('')
   const [sharedDevice, setSharedDevice] = useState(false)
@@ -195,6 +211,7 @@ function PhonePanel({ returnTo, switchLink }: { returnTo: string; switchLink?: R
   const blocked = pending || throttle.secondsLeft > 0
   return (
     <form className="grid gap-4" onSubmit={onSubmit} noValidate>
+      <Hint text={hint} />
       <FormError message={failure} />
       <AuthField id="login-phone" label="Mobile number" error={fieldError}>
         <div className="flex items-stretch gap-2">
@@ -221,13 +238,25 @@ function PhonePanel({ returnTo, switchLink }: { returnTo: string; switchLink?: R
   )
 }
 
+/** One plain sentence under the tabs; the development notice, when there is one, sits with it. */
+function Hint({ text }: { text: string }) {
+  return (
+    <div className="grid gap-1">
+      <p className="text-[12.5px] text-muted-foreground">{text}</p>
+      <SandboxNotice />
+    </div>
+  )
+}
+
 /** Specified, and deliberately off. Nothing here ever sends a request. */
 function StudentPanel() {
   return (
     <div className="grid justify-items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center">
       <div className="flex size-9 items-center justify-center rounded-lg border bg-muted/50 text-muted-foreground"><Lock className="size-4" /></div>
       <p className="text-[13.5px] font-medium">Student sign-in is not open yet</p>
-      <p className="max-w-xs text-[12.5px] text-muted-foreground">Parents can sign in with the family mobile number.</p>
+      <p className="max-w-xs text-[12.5px] text-muted-foreground">
+        Students cannot sign in to this release. Ask your school office, or sign in as a parent with the family mobile number.
+      </p>
     </div>
   )
 }
