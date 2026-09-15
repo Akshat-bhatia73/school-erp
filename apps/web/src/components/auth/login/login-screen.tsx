@@ -2,13 +2,12 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { Lock } from 'lucide-react'
 import { useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { z } from 'zod'
-import { AuthLayout, SandboxNotice } from '@/components/auth/auth-layout'
+import { AuthLayout } from '@/components/auth/auth-layout'
 import { describeSignInError, throttleSeconds } from '@/components/auth/login/errors'
-import { AuthField, AuthInput, FormError, HelpLine, PasswordInput, SharedDeviceField, submitLabel, TALL_BUTTON } from '@/components/auth/login/parts'
+import { AuthField, AuthInput, FormError, PasswordInput, SharedDeviceField, submitLabel, TALL_BUTTON } from '@/components/auth/login/parts'
 import { useCountdown } from '@/components/auth/login/use-countdown'
 import { validate, type FieldErrors } from '@/components/setup/field'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { needsSecondFactor, normaliseIndianPhone, sendPhoneOtp, signInWithEmail } from '@/lib/auth-client'
 import { sanitiseReturnTo } from '@/lib/return-to'
@@ -23,6 +22,12 @@ const TABS: { value: Audience; label: string }[] = [
   { value: 'student', label: 'Student' },
 ]
 
+/** Evenly spaced pills; the active one is filled with the primary colour, like the submit button. */
+const TAB_TRIGGER = 'h-full min-w-0 px-1 text-[12.5px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-primary dark:data-[state=active]:text-primary-foreground'
+
+/** A quiet secondary action under the submit button. */
+const SECONDARY_LINK = 'text-[12.5px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline'
+
 const EmailSchema = z.object({
   email: z.email('Enter the email address your school has for you.'),
   password: z.string().min(1, 'Enter your password.'),
@@ -35,30 +40,23 @@ const EmailSchema = z.object({
 export function LoginScreen({ returnTo, audience }: { returnTo: string; audience?: Audience }) {
   const [tab, setTab] = useState<Audience>(audience ?? 'administration')
   return (
-    <AuthLayout
-      title="Sign in"
-      description="Use the email address or phone number your school has for you."
-      footer={<HelpLine />}
-    >
+    <AuthLayout title="Sign in">
       <Tabs value={tab} onValueChange={(value) => setTab(value as Audience)}>
-        <TabsList className="grid w-full grid-cols-4 group-data-[orientation=horizontal]/tabs:h-12 md:group-data-[orientation=horizontal]/tabs:h-9">
+        <TabsList className="grid w-full grid-cols-4 gap-1 p-1 group-data-[orientation=horizontal]/tabs:h-11 md:group-data-[orientation=horizontal]/tabs:h-9">
           {TABS.map((item) => (
-            <TabsTrigger key={item.value} value={item.value} className="h-full px-1 text-[12px] md:text-[12.5px]">{item.label}</TabsTrigger>
+            <TabsTrigger key={item.value} value={item.value} className={TAB_TRIGGER}>{item.label}</TabsTrigger>
           ))}
         </TabsList>
-        <TabsContent value="administration" className="mt-4">
-          <EmailPanel
-            returnTo={returnTo}
-            help="Owners, principals, administrators and accountants sign in with email. A second step with your authenticator app follows."
-          />
+        <TabsContent value="administration" className="mt-5">
+          <EmailPanel returnTo={returnTo} />
         </TabsContent>
-        <TabsContent value="teacher" className="mt-4">
+        <TabsContent value="teacher" className="mt-5">
           <TeacherPanel returnTo={returnTo} />
         </TabsContent>
-        <TabsContent value="parent" className="mt-4">
-          <PhonePanel returnTo={returnTo} help="Parents sign in with the mobile number the school has on record. We send a 6 digit code to it." />
+        <TabsContent value="parent" className="mt-5">
+          <PhonePanel returnTo={returnTo} />
         </TabsContent>
-        <TabsContent value="student" className="mt-4">
+        <TabsContent value="student" className="mt-5">
           <StudentPanel />
         </TabsContent>
       </Tabs>
@@ -73,21 +71,19 @@ function TeacherPanel({ returnTo }: { returnTo: string }) {
     return (
       <PhonePanel
         returnTo={returnTo}
-        help="We send a 6 digit code to the mobile number your school has on record."
-        switchLink={<button type="button" className="text-[12.5px] underline underline-offset-2" onClick={() => setMethod('email')}>Sign in with email instead</button>}
+        switchLink={<button type="button" className={SECONDARY_LINK} onClick={() => setMethod('email')}>Use email instead</button>}
       />
     )
   }
   return (
     <EmailPanel
       returnTo={returnTo}
-      help="Teachers sign in with the email address the school has on record."
-      switchLink={<button type="button" className="text-[12.5px] underline underline-offset-2" onClick={() => setMethod('phone')}>Sign in with a phone code instead</button>}
+      switchLink={<button type="button" className={SECONDARY_LINK} onClick={() => setMethod('phone')}>Use a phone code instead</button>}
     />
   )
 }
 
-function EmailPanel({ returnTo, help, switchLink }: { returnTo: string; help: string; switchLink?: ReactNode }) {
+function EmailPanel({ returnTo, switchLink }: { returnTo: string; switchLink?: ReactNode }) {
   const navigate = useNavigate()
   const session = useSession()
   const [email, setEmail] = useState('')
@@ -133,8 +129,6 @@ function EmailPanel({ returnTo, help, switchLink }: { returnTo: string; help: st
   const blocked = pending || throttle.secondsLeft > 0
   return (
     <form className="grid gap-4" onSubmit={onSubmit} noValidate>
-      <p className="text-[12.5px] text-muted-foreground">{help}</p>
-      <SandboxNotice />
       <FormError message={failure} />
       <AuthField id="login-email" label="Email address" error={errors.email}>
         <AuthInput
@@ -150,22 +144,21 @@ function EmailPanel({ returnTo, help, switchLink }: { returnTo: string; help: st
           onChange={(event) => setEmail(event.target.value)}
         />
       </AuthField>
-      <div className="grid gap-1.5">
-        <div className="flex items-center justify-between gap-2">
-          <Label htmlFor="login-password" className="text-[12.5px] text-muted-foreground">Password</Label>
-          <Link to="/forgot-password" className="text-[12.5px] underline underline-offset-2">Forgot password?</Link>
-        </div>
+      <AuthField id="login-password" label="Password" error={errors.password}>
         <PasswordInput id="login-password" value={password} onChange={setPassword} disabled={pending} autoComplete="current-password" invalid={Boolean(errors.password)} />
-        {errors.password && <p id="login-password-error" role="alert" className="text-[12px] text-tag-red">{errors.password}</p>}
-      </div>
+      </AuthField>
       <SharedDeviceField id="login-shared" checked={sharedDevice} onChange={setSharedDevice} disabled={pending} />
       <Button type="submit" className={TALL_BUTTON} disabled={blocked}>{submitLabel('Sign in', 'Signing in…', pending, throttle.secondsLeft)}</Button>
-      {switchLink && <div className="text-center">{switchLink}</div>}
+      <div className="flex items-center justify-center gap-3 text-center">
+        <Link to="/forgot-password" className={SECONDARY_LINK}>Forgot password?</Link>
+        {switchLink && <span aria-hidden className="text-muted-foreground/60">·</span>}
+        {switchLink}
+      </div>
     </form>
   )
 }
 
-function PhonePanel({ returnTo, help, switchLink }: { returnTo: string; help: string; switchLink?: ReactNode }) {
+function PhonePanel({ returnTo, switchLink }: { returnTo: string; switchLink?: ReactNode }) {
   const navigate = useNavigate()
   const [phone, setPhone] = useState('')
   const [sharedDevice, setSharedDevice] = useState(false)
@@ -202,8 +195,6 @@ function PhonePanel({ returnTo, help, switchLink }: { returnTo: string; help: st
   const blocked = pending || throttle.secondsLeft > 0
   return (
     <form className="grid gap-4" onSubmit={onSubmit} noValidate>
-      <p className="text-[12.5px] text-muted-foreground">{help}</p>
-      <SandboxNotice />
       <FormError message={failure} />
       <AuthField id="login-phone" label="Mobile number" error={fieldError}>
         <div className="flex items-stretch gap-2">
@@ -236,9 +227,7 @@ function StudentPanel() {
     <div className="grid justify-items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center">
       <div className="flex size-9 items-center justify-center rounded-lg border bg-muted/50 text-muted-foreground"><Lock className="size-4" /></div>
       <p className="text-[13.5px] font-medium">Student sign-in is not open yet</p>
-      <p className="max-w-xs text-[12.5px] text-muted-foreground">
-        Students cannot sign in to this release. Ask your school office, or sign in as a parent with the family mobile number.
-      </p>
+      <p className="max-w-xs text-[12.5px] text-muted-foreground">Parents can sign in with the family mobile number.</p>
     </div>
   )
 }

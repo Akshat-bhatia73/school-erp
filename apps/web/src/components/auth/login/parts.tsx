@@ -61,7 +61,7 @@ export function PasswordInput({ id, value, onChange, disabled, autoComplete, inv
   )
 }
 
-/** Shorter session, nothing remembered. Offered on every sign-in form. */
+/** Shorter session, nothing remembered. Offered on every sign-in form; the label alone says enough. */
 export function SharedDeviceField({ id, checked, onChange, disabled }: {
   id: string
   checked: boolean
@@ -69,12 +69,9 @@ export function SharedDeviceField({ id, checked, onChange, disabled }: {
   disabled?: boolean
 }) {
   return (
-    <div className="flex items-start gap-2.5">
-      <Checkbox id={id} checked={checked} disabled={disabled} className="mt-0.5 size-5 md:size-4" onCheckedChange={(next) => onChange(next === true)} />
-      <div className="grid gap-0.5">
-        <Label htmlFor={id} className="text-[13px] font-normal">This is a shared device</Label>
-        <p className="text-[12px] text-muted-foreground">We sign you out sooner and remember nothing on this device.</p>
-      </div>
+    <div className="flex items-center gap-2.5">
+      <Checkbox id={id} checked={checked} disabled={disabled} className="size-5 md:size-4" onCheckedChange={(next) => onChange(next === true)} />
+      <Label htmlFor={id} className="text-[13px] font-normal" title="Signs you out sooner and remembers nothing on this device.">This is a shared device</Label>
     </div>
   )
 }
