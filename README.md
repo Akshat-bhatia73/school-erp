@@ -24,6 +24,7 @@ Import the GitHub repo in Vercel. `vercel.json` at the repo root already sets th
 ## Layout
 
 - `apps/web` — React 19 + Vite + TanStack Router/Query + Tailwind v4 + shadcn/ui
+- `packages/db` — PostgreSQL schema, tenant isolation and database tests; see [database setup](docs/auth/DATABASE.md)
 - `packages/contracts` — auth/RBAC permission catalogue, fixed roles, strict API schemas and server interfaces
 - `packages/shared` — data models (Zod schemas and TypeScript types), shared by web, the future backend and the mobile app
 - `apps/web/src/api` — in-memory mock API and seeded dummy data for two schools. Same function shapes the real backend will expose.
