@@ -3,6 +3,7 @@
 Monorepo (pnpm). Phase 1 web app with dummy data. No backend yet: `apps/web/src/api/client.ts` is an in-memory mock with the same shape the real API will have.
 
 ## Layout
+- `packages/contracts/src/*` — new auth/RBAC and HTTP boundary contracts. Use `@erp/contracts` for new backend/frontend integration; `@erp/shared/contracts` is an explicit compatibility bridge. Server-only interfaces are at `@erp/contracts/server`. Do not use the legacy mock `UserInput` or role resolver for backend authorization. See `docs/auth/CONTRACTS.md` and `PERMISSION_MATRIX.md`.
 - `packages/shared/src/*` — data models (Zod schemas + TS types). Source of truth. Extend here if a screen needs a field that is missing.
 - `apps/web/src/api/seed.ts` — deterministic dummy data for two Indian schools (SVM, LFPS).
 - `apps/web/src/api/client.ts` — mock API: `api.students.list(...)`, `api.staff.get(id)`, etc. All async. Mutations write audit rows.
