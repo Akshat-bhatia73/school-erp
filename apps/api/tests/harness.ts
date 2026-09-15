@@ -209,3 +209,98 @@ export function clientFor(server: TestServer) {
     },
   }
 }
+
+let adminPoolInstance: pg.Pool | undefined
+
+/** The migrator connection, for fixture setup only. Never used by the app. */
+export function adminPool(): pg.Pool {
+  adminPoolInstance ??= new pg.Pool({ connectionString: MIGRATOR_URL })
+  return adminPoolInstance
+}
+
+export async function closeAdminPool(): Promise<void> {
+  await adminPoolInstance?.end()
+  adminPoolInstance = undefined
+}
+
+type TestClient = ReturnType<typeof clientFor>
+
+export async function signInWithPassword(
+  server: TestServer,
+  email: string,
+  password: string,
+): Promise<TestClient> {
+  const client = clientFor(server)
+  const response = await client.signIn(email, password)
+  if (response.status !== 200) {
+    throw new Error(`sign-in failed with status ${response.status}`)
+  }
+  return client
+}
+
+/** The provider's own TOTP generator, given the secret it just published. */
+function secretFromTotpUri(totpURI: string): string {
+  const secret = new URL(totpURI).searchParams.get('secret')
+  if (!secret) throw new Error('the enrolment response carried no TOTP secret')
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+  let bits = 0
+  let value = 0
+  let out = ''
+  for (const char of secret.replace(/=+$/, '').toUpperCase()) {
+    const index = alphabet.indexOf(char)
+    if (index < 0) continue
+    value = (value << 5) | index
+    bits += 5
+    if (bits >= 8) {
+      out += String.fromCharCode((value >>> (bits - 8)) & 0xff)
+      bits -= 8
+    }
+  }
+  return out
+}
+
+/**
+ * A session that has actually completed the second factor, which is what an
+ * owner, principal, admin or accountant needs to enter a school route. The
+ * enrolment is always fresh, so a run after an earlier test still works.
+ */
+export async function signInWithMfa(
+  server: TestServer,
+  opts: { userId: string; email: string; password: string },
+): Promise<TestClient> {
+  const pool = adminPool()
+  await pool.query('DELETE FROM auth_two_factor WHERE user_id = $1', [
+    opts.userId,
+  ])
+  await pool.query(
+    'UPDATE auth_user SET two_factor_enabled = false WHERE id = $1',
+    [opts.userId],
+  )
+  await setFixturePassword(server, opts.userId, opts.password)
+
+  const client = await signInWithPassword(server, opts.email, opts.password)
+
+  await resetRateLimits()
+  const enable = await client.fetch('/api/auth/two-factor/enable', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ password: opts.password }),
+  })
+  if (enable.status !== 200) {
+    throw new Error(`two-factor enrolment failed with status ${enable.status}`)
+  }
+  const body = (await enable.json()) as { totpURI: string }
+  const secret = secretFromTotpUri(body.totpURI)
+
+  await resetRateLimits()
+  const generated = await server.auth.api.generateTOTP({ body: { secret } })
+  const verify = await client.fetch('/api/auth/two-factor/verify-totp', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ code: generated.code }),
+  })
+  if (verify.status !== 200) {
+    throw new Error(`two-factor verification failed with status ${verify.status}`)
+  }
+  return client
+}
