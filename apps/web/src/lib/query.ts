@@ -1,13 +1,26 @@
 import { QueryClient } from '@tanstack/react-query'
 
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { staleTime: 10_000, retry: 0, refetchOnWindowFocus: false },
-  },
-})
+/**
+ * One client per context generation. `SessionProvider` builds a fresh one whenever the identity
+ * or the active school changes, so no answer from the previous context can survive the switch.
+ */
+export function createQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 10_000,
+        // Never retry: a 4xx will not change on its own, and a refused request must surface
+        // straight away so the gate can send the person to sign in.
+        retry: false,
+        refetchOnWindowFocus: false,
+      },
+    },
+  })
+}
 
 /** Central query keys so pages invalidate consistently */
 export const qk = {
+  authConfig: ['authConfig'] as const,
   schools: ['schools'] as const,
   academicYears: ['academicYears'] as const,
   grades: ['grades'] as const,

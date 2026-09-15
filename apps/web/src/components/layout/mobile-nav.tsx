@@ -15,6 +15,7 @@ import type { Module } from '@erp/shared'
  */
 export function MobileTopBar({ onOpenNav, onOpenQuickActions }: { onOpenNav: () => void; onOpenQuickActions: () => void }) {
   const { school, user } = useSession()
+  const name = user?.displayName ?? 'Account'
   const { data: dash } = useQuery({ queryKey: qk.dashboard, queryFn: api.dashboard.summary })
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-card px-2 md:hidden">
@@ -22,14 +23,14 @@ export function MobileTopBar({ onOpenNav, onOpenQuickActions }: { onOpenNav: () 
         <Menu className="size-5" />
       </button>
       <div className="min-w-0 flex-1">
-        <span className="block truncate text-[14px] font-semibold leading-tight">{school.shortName}</span>
-        <span className="block truncate text-[11px] leading-tight text-muted-foreground">{dash?.academicYearName ?? ''} · {school.board.toUpperCase()}</span>
+        <span className="block truncate text-[14px] font-semibold leading-tight">{school?.name ?? 'School ERP'}</span>
+        <span className="block truncate text-[11px] leading-tight text-muted-foreground">{dash?.academicYearName ?? ''}{school?.code ? ` · ${school.code}` : ''}</span>
       </div>
       <button type="button" onClick={onOpenQuickActions} aria-label="Search and quick actions" className="flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
         <Search className="size-5" />
       </button>
-      <button type="button" onClick={onOpenNav} aria-label={`Viewing as ${user.name}. Open navigation menu`} className="flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-        <UserAvatar name={user.name} src={user.avatarUrl} size="md" />
+      <button type="button" onClick={onOpenNav} aria-label={`Signed in as ${name}. Open navigation menu`} className="flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+        <UserAvatar name={name} size="md" />
       </button>
     </header>
   )

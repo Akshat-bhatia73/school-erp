@@ -9,7 +9,7 @@ export function Field({ label, error, hint, children, className }: { label: stri
     <div className={cn('grid gap-1.5', className)}>
       <Label className="text-[12.5px] text-muted-foreground">{label}</Label>
       {children}
-      {error ? <p className="text-[12px] text-tag-red">{error}</p> : hint ? <p className="text-[12px] text-muted-foreground">{hint}</p> : null}
+      {error ? <p role="alert" className="text-[12px] text-tag-red">{error}</p> : hint ? <p className="text-[12px] text-muted-foreground">{hint}</p> : null}
     </div>
   )
 }

@@ -1,15 +1,16 @@
 import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { Staff, StaffInput } from '@erp/shared'
 import { api } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { SectionLabel } from '@/components/shared/page'
-import { qk, queryClient } from '@/lib/query'
+import { qk } from '@/lib/query'
 import { AddressFields, EmploymentFields, PayFields, PersonalFields, StatusFields, draftFromStaff, validateDraft, type FieldErrors, type StaffDraft } from './form'
 
 export function StaffEditSheet({ staff, open, onOpenChange, showPay }: { staff: Staff; open: boolean; onOpenChange: (v: boolean) => void; showPay: boolean }) {
+  const qc = useQueryClient()
   const [draft, setDraft] = useState<StaffDraft>(() => draftFromStaff(staff))
   const [errors, setErrors] = useState<FieldErrors>({})
   const set = (p: Partial<StaffDraft>) => setDraft((d) => ({ ...d, ...p }))
@@ -18,8 +19,8 @@ export function StaffEditSheet({ staff, open, onOpenChange, showPay }: { staff: 
   const save = useMutation({
     mutationFn: (input: StaffInput) => api.staff.update(staff.id, input),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: qk.staffMember(staff.id) })
-      queryClient.invalidateQueries({ queryKey: ['staff'] })
+      qc.invalidateQueries({ queryKey: qk.staffMember(staff.id) })
+      qc.invalidateQueries({ queryKey: ['staff'] })
       toast.success('Saved changes')
       onOpenChange(false)
     },

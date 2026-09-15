@@ -37,8 +37,8 @@ function Page() {
   useEffect(() => {
     if (!studentPage || suggested.current) return
     suggested.current = true
-    setDraft((d) => (d.admissionNumber ? d : { ...d, admissionNumber: suggestAdmissionNumber(school.shortName, studentPage.total + 1) }))
-  }, [studentPage, school.shortName])
+    setDraft((d) => (d.admissionNumber ? d : { ...d, admissionNumber: suggestAdmissionNumber(school?.code ?? 'SCH', studentPage.total + 1) }))
+  }, [studentPage, school?.code])
 
   const create = useMutation({
     mutationFn: () => api.students.create(toStudentInput(draft)),

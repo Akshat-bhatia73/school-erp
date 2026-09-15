@@ -9,6 +9,7 @@ import type { DocumentStorage } from './files/storage.ts'
 import { AuthorizationError, createAuthorizationService } from '@erp/authz'
 import { isAllowedAuthRoute } from './auth/provider-routes.ts'
 import { registerIdentityRoutes } from './routes/identity.ts'
+import { registerDevRoutes } from './routes/dev.ts'
 import {
   GENERIC_SEND_RESPONSE,
   consumeSendAllowance,
@@ -167,6 +168,7 @@ export function buildApp({
   // transaction on the runtime pool.
   const authz = createAuthorizationService({ pool: pools.runtime })
 
+  registerDevRoutes(app, { config, delivery })
   registerIdentityRoutes(app, { auth, pools, authz })
   registerSessionRoutes(app, { auth, pools })
   registerMembershipRoutes(app, { auth, pools, authz, delivery })
