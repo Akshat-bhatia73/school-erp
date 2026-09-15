@@ -13,7 +13,9 @@ pnpm typecheck
 pnpm build
 ```
 
-Requires Node 20+ and pnpm 10.
+Requires Node 24.15+ (24.x) and pnpm 10 for the full workspace, including native TypeScript contract tests.
+
+Auth/RBAC Task 0 is defined in [the contract handover](docs/auth/CONTRACTS.md). Run `pnpm test:contracts` to check schemas, role defaults, and operation coverage. These contracts do not yet protect the mock application.
 
 ## Deploy on Vercel
 
@@ -22,6 +24,7 @@ Import the GitHub repo in Vercel. `vercel.json` at the repo root already sets th
 ## Layout
 
 - `apps/web` — React 19 + Vite + TanStack Router/Query + Tailwind v4 + shadcn/ui
+- `packages/contracts` — auth/RBAC permission catalogue, fixed roles, strict API schemas and server interfaces
 - `packages/shared` — data models (Zod schemas and TypeScript types), shared by web, the future backend and the mobile app
 - `apps/web/src/api` — in-memory mock API and seeded dummy data for two schools. Same function shapes the real backend will expose.
 

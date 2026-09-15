@@ -7,6 +7,7 @@
     "build": "pnpm --filter @erp/web build && rm -rf dist && cp -R apps/web/dist dist",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
+    "test:contracts": "pnpm --filter @erp/contracts test",
     "build:web": "pnpm --filter @erp/web build"
   },
   "packageManager": "pnpm@10.34.4"
