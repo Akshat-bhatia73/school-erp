@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus, CalendarClock } from 'lucide-react'
+import { BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, LogOut, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus, CalendarClock } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { api } from '@/api/client'
 import { UserAvatar } from '@/components/shared/avatar'
@@ -39,7 +39,7 @@ const actions: Entry[] = [
 
 export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const navigate = useNavigate()
-  const { can, users, user, setUserId } = useSession()
+  const { can, activeMemberships, signOut } = useSession()
   const { theme, toggle } = useTheme()
   const [query, setQuery] = useState('')
 
@@ -63,7 +63,6 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
 
   const visibleGoTo = goTo.filter((e) => !e.module || can(e.module))
   const visibleActions = actions.filter((e) => !e.module || can(e.module, e.action ?? 'create'))
-  const switchable = users.filter((u) => u.id !== user.id).slice(0, 8)
 
   return (
     <CommandDialog
@@ -137,20 +136,23 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
           </>
         )}
 
-        {switchable.length > 0 && (
-          <>
-            <CommandSeparator className="my-1" />
-            <CommandGroup heading="Switch user">
-              {switchable.map((u) => (
-                <CommandItem key={u.id} value={`switch user ${u.name}`} onSelect={() => run(() => setUserId(u.id))} className="gap-2.5 px-2 py-1.5 text-[13.5px]">
-                  <UserAvatar name={u.name} src={u.avatarUrl} size="sm" />
-                  <span className="min-w-0 flex-1 truncate">View as {u.name}</span>
-                  {u.email && <span className="text-[11.5px] text-muted-foreground">{u.email}</span>}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </>
-        )}
+        <CommandSeparator className="my-1" />
+        <CommandGroup heading="Account">
+          {activeMemberships.length > 1 && (
+            <CommandItem value="switch school" onSelect={() => go('/select-school')} className="gap-2.5 px-2 py-2 text-[13.5px]">
+              <span className="flex size-5 items-center justify-center text-muted-foreground [&>svg]:size-4"><Building2 /></span>
+              Switch school
+            </CommandItem>
+          )}
+          <CommandItem value="account security password two factor" onSelect={() => go('/account/security')} className="gap-2.5 px-2 py-2 text-[13.5px]">
+            <span className="flex size-5 items-center justify-center text-muted-foreground [&>svg]:size-4"><ShieldCheck /></span>
+            Account security
+          </CommandItem>
+          <CommandItem value="sign out log out" onSelect={() => run(() => { void signOut().then(() => navigate({ to: '/login' })) })} className="gap-2.5 px-2 py-2 text-[13.5px]">
+            <span className="flex size-5 items-center justify-center text-muted-foreground [&>svg]:size-4"><LogOut /></span>
+            Sign out
+          </CommandItem>
+        </CommandGroup>
 
         <CommandSeparator className="my-1" />
         <CommandGroup heading="Theme">

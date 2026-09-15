@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { KeyRound } from 'lucide-react'
 import type { Staff } from '@erp/shared'
@@ -8,11 +8,12 @@ import { EmptyState, Facts, Panel } from '@/components/shared/page'
 import { Tag, colorFor } from '@/components/shared/tag'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { qk, queryClient } from '@/lib/query'
+import { qk } from '@/lib/query'
 import { humanize, timeAgo } from '@/lib/utils'
 import { createStaffLogin } from './create-login'
 
 export function LoginTab({ staff, canCreate }: { staff: Staff; canCreate: boolean }) {
+  const qc = useQueryClient()
   const { data: user, isLoading } = useQuery({
     queryKey: qk.user(staff.userId ?? 'none'),
     queryFn: () => api.users.get(staff.userId!),
@@ -22,8 +23,8 @@ export function LoginTab({ staff, canCreate }: { staff: Staff; canCreate: boolea
   const create = useMutation({
     mutationFn: () => createStaffLogin(staff),
     onSuccess: (u) => {
-      queryClient.invalidateQueries({ queryKey: qk.staffMember(staff.id) })
-      queryClient.invalidateQueries({ queryKey: qk.users })
+      qc.invalidateQueries({ queryKey: qk.staffMember(staff.id) })
+      qc.invalidateQueries({ queryKey: qk.users })
       toast.success(`Login created for ${u.name}`)
     },
     onError: (e: Error) => toast.error(e.message),

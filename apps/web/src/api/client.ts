@@ -16,13 +16,29 @@ import { delay, getStore, newId, nowIso } from './store'
 // ---------- context (who is acting, which school) ----------
 let currentSchoolId = ''
 let currentUserId = ''
-export function setApiContext(ctx: { schoolId: string; userId: string }) {
-  currentSchoolId = ctx.schoolId
+let currentDisplayName = ''
+let currentRoleKeys: string[] = []
+
+/**
+ * The signed-in person now comes from the server, whose ids never match this mock store. The
+ * school is picked by position and the roles by key so the dummy data keeps behaving sensibly
+ * until Task 7 moves these screens onto the real API.
+ */
+export function setApiContext(ctx: { schoolId: string; userId: string; displayName?: string; roleKeys?: string[]; membershipIndex?: number }) {
+  const store = getStore()
+  const mockSchool = store.schools[ctx.membershipIndex ?? 0] ?? store.schools[0]
+  currentSchoolId = mockSchool?.id ?? ctx.schoolId
   currentUserId = ctx.userId
+  currentDisplayName = ctx.displayName ?? ''
+  currentRoleKeys = ctx.roleKeys ?? []
+}
+/** LEGACY BRIDGE: the mock school this dummy store is currently acting in. Removed with Task 7. */
+export function mockSchoolId() {
+  return currentSchoolId
 }
 function actor() {
   const u = getStore().users.find((x) => x.id === currentUserId)
-  return { id: u?.id ?? 'system', name: u?.name ?? 'System' }
+  return { id: u?.id ?? currentUserId ?? 'system', name: u?.name ?? currentDisplayName ?? 'System' }
 }
 function audit(input: Omit<AuditLog, 'id' | 'createdAt' | 'updatedAt' | 'schoolId' | 'actorUserId' | 'actorName' | 'via'> & { via?: AuditLog['via'] }) {
   const a = actor()
@@ -50,8 +66,10 @@ function actorUser(): User | undefined {
 }
 function actorRoles(): Role[] {
   const u = actorUser()
-  if (!u) return []
-  return scoped(getStore().roles).filter((r) => u.roleIds.includes(r.id))
+  if (u) return scoped(getStore().roles).filter((r) => u.roleIds.includes(r.id))
+  // Server identity: resolve the mock roles by key instead of by user id.
+  const keys = new Set(currentRoleKeys.map((k) => (k === 'principal' ? 'owner' : k)))
+  return scoped(getStore().roles).filter((r) => keys.has(r.key))
 }
 function scopeOf(module: Module, action: Action = 'view'): Scope {
   return resolvePermission(actorRoles(), module, action)

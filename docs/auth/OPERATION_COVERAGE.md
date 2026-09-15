@@ -29,6 +29,16 @@ Owner or permission changed:
 | Current route | Entry permission and scope | Safe response family | Future owner |
 |---|---|---|---|
 | `/` | public redirect only | none | Task 6 |
+| `/login` | public; no session required | none | Task 6 |
+| `/verify-otp` | public; phone one-time code exchange | none | Task 6 |
+| `/forgot-password` | public; always answers generically | none | Task 6 |
+| `/reset-password` | public; reset token in the link only | none | Task 6 |
+| `/mfa/verify` | pending or active session; second factor challenge | `SessionSummary` | Task 6 |
+| `/mfa/setup` | authenticated session; authenticator enrolment | `SessionSummary` | Task 6 |
+| `/select-school` | authenticated session; lists own memberships only | `MeResponse` | Task 6 |
+| `/accept-invite` | authenticated session; invitation token in the link only | `MemberSummary` | Task 6 |
+| `/account/security` | authenticated session; no school context needed | `MeResponse`, `SessionSummary` | Task 6 |
+| `/access-unavailable` | authenticated or public failure state | none | Task 6 |
 | `/_app` shell | authenticated active membership | `AuthenticatedContext` | Task 6 |
 | `/dashboard` | `dashboard.read` / matched template scope | `DashboardByAudience` | Tasks 5, 7 |
 | `/settings/audit-log` | `audit.read` / school or finance | `AuditEventPage` | Tasks 5, 7 |

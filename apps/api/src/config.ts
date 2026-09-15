@@ -12,6 +12,15 @@ const EnvSchema = z.object({
     .default('false')
     .transform((value) => value === 'true'),
   DELIVERY_MODE: z.enum(['sandbox', 'provider']).default('sandbox'),
+  /**
+   * Development only. Publishes GET /api/dev/outbox, which hands out the
+   * one-time codes and reset tokens the sandbox "delivered". Never true
+   * anywhere but a developer machine.
+   */
+  DEV_SANDBOX_OUTBOX: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
   /** Where private student documents live. Only server.ts reads it. */
   DOCUMENT_STORAGE_DIR: z.string().min(1).default('.documents'),
   PORT: z.coerce.number().int().min(0).max(65_535).default(3001),
@@ -36,6 +45,11 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (parsed.data.DELIVERY_MODE === 'provider') {
     throw new ConfigurationError(
       'DELIVERY_MODE=provider is not supported yet: no email or SMS provider is configured.',
+    )
+  }
+  if (parsed.data.DEV_SANDBOX_OUTBOX && parsed.data.NODE_ENV === 'production') {
+    throw new ConfigurationError(
+      'DEV_SANDBOX_OUTBOX=true exposes one-time codes and is refused when NODE_ENV=production.',
     )
   }
   return Object.freeze(parsed.data)

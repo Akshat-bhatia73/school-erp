@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Users } from 'lucide-react'
 import type { StaffInput } from '@erp/shared'
@@ -9,7 +9,7 @@ import { EmptyState, PageHeader, Panel } from '@/components/shared/page'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
-import { qk, queryClient } from '@/lib/query'
+import { qk } from '@/lib/query'
 import { useSession } from '@/lib/session'
 import { AddressFields, EmploymentFields, PayFields, PersonalFields, emptyDraft, validateDraft, type FieldErrors, type StaffDraft } from '@/components/staff/form'
 import { canSeePay } from '@/components/staff/shared'
@@ -18,6 +18,7 @@ import { createStaffLogin } from '@/components/staff/create-login'
 export const Route = createFileRoute('/_app/staff/new')({ component: Page })
 
 function Page() {
+  const qc = useQueryClient()
   const navigate = useNavigate()
   const { can, roles, school } = useSession()
   const canCreate = can('staff', 'create')
@@ -28,7 +29,7 @@ function Page() {
   const { data: existing } = useQuery({ queryKey: qk.staff(listParams), queryFn: () => api.staff.list(listParams) })
 
   const suggestedCode = useMemo(() => {
-    const prefix = `${school.shortName.toUpperCase()}-E`
+    const prefix = `${(school?.code ?? 'SCH').toUpperCase()}-E`
     const highest = (existing?.items ?? []).reduce((max, s) => {
       const n = Number(s.employeeCode.match(/(\d+)$/)?.[1] ?? 0)
       return n > max ? n : max
@@ -50,9 +51,9 @@ function Page() {
       return created
     },
     onSuccess: (created) => {
-      queryClient.invalidateQueries({ queryKey: ['staff'] })
-      queryClient.invalidateQueries({ queryKey: qk.departments })
-      queryClient.invalidateQueries({ queryKey: qk.users })
+      qc.invalidateQueries({ queryKey: ['staff'] })
+      qc.invalidateQueries({ queryKey: qk.departments })
+      qc.invalidateQueries({ queryKey: qk.users })
       toast.success(`Added ${created.firstName} to staff`)
       navigate({ to: '/staff/$staffId', params: { staffId: created.id } })
     },

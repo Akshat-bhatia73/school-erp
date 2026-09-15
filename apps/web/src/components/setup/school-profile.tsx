@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { Board, SchoolInput, type School } from '@erp/shared'
-import { api } from '@/api/client'
+import { api, mockSchoolId } from '@/api/client'
 import { Panel } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
 import { Field, validate, type FieldErrors } from '@/components/setup/field'
@@ -26,14 +26,15 @@ function toInput(s: School): SchoolInput {
 export function useSchoolProfile() {
   const { school } = useSession()
   const qc = useQueryClient()
-  const { data, isLoading } = useQuery({ queryKey: [...qk.schools, school.id], queryFn: () => api.schools.get(school.id) })
+  // LEGACY BRIDGE: the cache is keyed on the real school, the dummy record is read by its mock id.
+  const { data, isLoading } = useQuery({ queryKey: [...qk.schools, school?.id ?? 'none'], queryFn: () => api.schools.get(mockSchoolId()) })
   const [form, setForm] = useState<SchoolInput | null>(null)
   const [errors, setErrors] = useState<FieldErrors>({})
 
   useEffect(() => { if (data) setForm(toInput(data)) }, [data])
 
   const save = useMutation({
-    mutationFn: (input: SchoolInput) => api.schools.update(school.id, input),
+    mutationFn: (input: SchoolInput) => api.schools.update(mockSchoolId(), input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.schools })
       toast.success('School profile saved')

@@ -12,8 +12,9 @@ Monorepo (pnpm). Phase 1 web app with dummy data. No backend yet: `apps/web/src/
 - `packages/shared/src/*` — data models (Zod schemas + TS types). Source of truth. Extend here if a screen needs a field that is missing.
 - `apps/web/src/api/seed.ts` — deterministic dummy data for two Indian schools (SVM, LFPS).
 - `apps/web/src/api/client.ts` — mock API: `api.students.list(...)`, `api.staff.get(id)`, etc. All async. Mutations write audit rows.
-- `apps/web/src/lib/query.ts` — `queryClient` and `qk` query keys. Always use `qk.*` keys and invalidate them after mutations.
-- `apps/web/src/lib/session.tsx` — `useSession()` gives `{ school, user, roles, can(module, action), scope(module) }`. Auth is skipped; a "viewing as" switcher picks the user.
+- `apps/web/src/lib/query.ts` — `createQueryClient()` and `qk` query keys. The provider owns the client, so read it with `useQueryClient()`. Always use `qk.*` keys and invalidate them after mutations.
+- `apps/web/src/components/auth/*`, `lib/session.tsx`, `lib/http.ts`, `lib/auth-client.ts` — the real login and application session: public auth routes, the same-origin `/api` client and the server-derived session. See `docs/auth/WEB_SESSION.md`.
+- `apps/web/src/lib/session.tsx` — `useSession()` gives the server-derived session: `{ status, user, memberships, school, capabilities, hasPermission, context, selectSchool, signOut }`. Identity comes from `/api/me` and `/api/schools/:id/context`, never from the browser. `can`/`scope`/`roles` are a legacy bridge to the mock screens and go away in Task 7.
 - `apps/web/src/components/ui/*` — shadcn primitives (button, input, select, dialog, sheet, dropdown-menu, tabs, table, tooltip, checkbox, switch, textarea, command, popover, skeleton, badge, alert, alert-dialog, progress, radio-group, scroll-area, separator, avatar, label, sonner).
 - `apps/web/src/components/shared/*` — app-level building blocks. USE THESE, do not reinvent:
   - `page.tsx`: `PageHeader` (breadcrumb + actions), `Toolbar` (filter row), `PageTabs`, `Panel`, `Facts` (label/value grid), `EmptyState`, `SectionLabel`
@@ -35,5 +36,5 @@ Monorepo (pnpm). Phase 1 web app with dummy data. No backend yet: `apps/web/src/
 - Indian formats: `formatINR`, `formatDate` from `lib/utils.ts`. Phone is 10 digits. Academic year is April–March.
 - Dates: keep ISO strings in state, format only for display.
 - Copy: plain English, no jargon. "Fee dues" not "receivables". Buttons say what they do: "Admit student", "Save changes".
-- Icons: lucide-react only.
+- Icons: lucide-react only. The one exception is the login audience tabs, which use four Hugeicons (`@hugeicons/react` + `@hugeicons/core-free-icons`) chosen by design.
 - Routes must keep the same file paths and `createFileRoute` ids already present; add new routes only under your module's folder.

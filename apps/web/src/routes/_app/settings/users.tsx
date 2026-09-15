@@ -13,7 +13,7 @@ import { EmptyState, PageHeader, Toolbar } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { qk } from '@/lib/query'
 import { useSession } from '@/lib/session'
@@ -119,18 +119,12 @@ function Page() {
                   {u.status === 'disabled' ? 'Enable' : 'Disable'}
                 </DropdownMenuItem>
               )}
-              {canEdit && <DropdownMenuSeparator />}
-              <DropdownMenuItem
-                onClick={() => { session.setUserId(u.id); toast.success(`Now viewing as ${u.name}`) }}
-              >
-                Switch to this user
-              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )
       },
     },
-  ], [canEdit, session, setStatusMut])
+  ], [canEdit, setStatusMut])
 
   return (
     <>
@@ -144,7 +138,7 @@ function Page() {
         <Alert>
           <Info className="size-4" />
           <AlertDescription>
-            Logins are by phone number and OTP. Auth is turned off in this preview; use "Switch to this user" to test what each role sees.
+            This list still comes from the sample data. Invitations, logins and role changes are handled by the server in a later build.
           </AlertDescription>
         </Alert>
       </div>

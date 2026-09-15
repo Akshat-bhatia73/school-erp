@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { CircleSlash, MoreHorizontal, PauseCircle, PlayCircle, Users , Pencil} from 'lucide-react'
 import type { StaffStatus } from '@erp/shared'
@@ -15,7 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
-import { qk, queryClient } from '@/lib/query'
+import { qk } from '@/lib/query'
 import { useSession } from '@/lib/session'
 import { formatDate, formatINR, fullName, humanize } from '@/lib/utils'
 import { StaffEditSheet } from '@/components/staff/edit-sheet'
@@ -26,6 +26,7 @@ import { StaffStatusTag, StaffTypeTag, canSeePay, employmentLabel } from '@/comp
 export const Route = createFileRoute('/_app/staff/$staffId')({ component: Page })
 
 function Page() {
+  const qc = useQueryClient()
   const { staffId } = Route.useParams()
   const { can, roles } = useSession()
   const showPay = canSeePay(roles)
@@ -40,8 +41,8 @@ function Page() {
   const setStatus = useMutation({
     mutationFn: (patch: { status: StaffStatus; leavingDate?: string }) => api.staff.update(staffId, patch),
     onSuccess: (s) => {
-      queryClient.invalidateQueries({ queryKey: qk.staffMember(staffId) })
-      queryClient.invalidateQueries({ queryKey: ['staff'] })
+      qc.invalidateQueries({ queryKey: qk.staffMember(staffId) })
+      qc.invalidateQueries({ queryKey: ['staff'] })
       toast.success(`${fullName(s)} is now ${humanize(s.status).toLowerCase()}`)
       setResigning(false)
     },
