@@ -5,6 +5,7 @@ import type { ApiConfig } from './config.ts'
 import type { AuthInstance } from './auth/better-auth.ts'
 import type { DeliveryAdapter } from './delivery/index.ts'
 import type { ApiPools } from './db.ts'
+import { createAuthorizationService } from '@erp/authz'
 import { isAllowedAuthRoute } from './auth/provider-routes.ts'
 import { registerIdentityRoutes } from './routes/identity.ts'
 import {
@@ -152,7 +153,11 @@ export function buildApp({
     studentLoginEnabled: false,
   }))
 
-  registerIdentityRoutes(app, { auth, pools })
+  // One policy service for the process; each call opens its own tenant
+  // transaction on the runtime pool.
+  const authz = createAuthorizationService({ pool: pools.runtime })
+
+  registerIdentityRoutes(app, { auth, pools, authz })
   registerSessionRoutes(app, { auth, pools })
 
   app.route({

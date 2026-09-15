@@ -48,7 +48,7 @@ The service opens three pools and never shares one across boundaries.
 | `GET /api/health` | Liveness only. |
 | `GET /api/auth-config` | Delivery mode and `studentLoginEnabled: false`. Schoolless, no user directory. |
 | `GET /api/me` | `MeResponse`, parsed against the contract before sending. A generated `@phone-only.invalid` identifier is never returned as an email. |
-| `GET /api/schools/:schoolId/context` | `SchoolContextResponse`. Its `capabilities` list is the union of the role templates and is a navigation hint; Task 3 replaces it with the real policy service. |
+| `GET /api/schools/:schoolId/context` | `SchoolContextResponse`. Its `capabilities` list is a navigation hint. Task 3 replaced the role template union with `capabilities(context)` from [the policy service](./AUTHORIZATION.md): the set of permissions the member could exercise somewhere in the school. |
 | `/api/auth/*` | Only the routes allowlisted in [src/auth/provider-routes.ts](../../apps/api/src/auth/provider-routes.ts). |
 
 `GET /api/sessions` and `POST /api/sessions/:sessionId/revoke` are the application's own device list and revoke pair. They speak in opaque `auth_session` ids scoped to the signed-in identity; the provider's `list-sessions` and `revoke-session` routes are blocked because they return and accept raw session tokens.
@@ -87,7 +87,7 @@ The second factor is an authenticator app: TOTP, 6 digits, 30 second period, iss
 
 `requireMembership()` re-reads the membership on every request, answers `SCHOOL_ACCESS_UNAVAILABLE` when there is no active membership for the school in the path, and `MFA_REQUIRED` when the membership is privileged and the session is not stamped. Better Auth counts second-factor failures only on the sign-in path, so a session that already exists could otherwise guess codes for ever. `src/auth/mfa.ts` adds our own budget: five failed `verify-totp` or `verify-backup-code` attempts per person (keyed by the verified user id, or by a hashed client address when there is no session yet) inside a rolling 15 minutes answer `RATE_LIMITED`, and a success clears the counter. Because the key is the verified identity and not the cookie header, a decoy cookie or a second stolen cookie for the same account cannot open a fresh budget.
 
-`isFreshMfa` in `src/auth/assurance.ts` is the shared five-minute freshness check; it currently guards `two-factor/disable`, which returns `FRESH_AUTHENTICATION_REQUIRED` before the provider sees the request, and Task 3 reuses it for ownership transfer and role escalation.
+`isFreshMfa` in `src/auth/assurance.ts` is the shared five-minute freshness check; it currently guards `two-factor/disable`, which returns `FRESH_AUTHENTICATION_REQUIRED` before the provider sees the request, and it is the check ownership transfer and role escalation must reuse; see [authorization and access scope](./AUTHORIZATION.md).
 
 Enrolment (`two-factor/enable`) requires the current password and returns the `otpauth://` URI and backup codes once. `skipVerificationOnEnable` is false, so the second factor activates only after a code is accepted. Trusted devices are off: the API strips `trustDevice` from the verify bodies and removes any `*trust_device` cookie from every `/api/auth/*` request.
 
