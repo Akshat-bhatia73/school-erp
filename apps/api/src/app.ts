@@ -5,7 +5,7 @@ import type { ApiConfig } from './config.ts'
 import type { AuthInstance } from './auth/better-auth.ts'
 import type { DeliveryAdapter } from './delivery/index.ts'
 import type { ApiPools } from './db.ts'
-import { createAuthorizationService } from '@erp/authz'
+import { AuthorizationError, createAuthorizationService } from '@erp/authz'
 import { isAllowedAuthRoute } from './auth/provider-routes.ts'
 import { registerIdentityRoutes } from './routes/identity.ts'
 import {
@@ -20,6 +20,8 @@ import {
 import { isFreshMfa } from './auth/assurance.ts'
 import { enforceSessionPolicy, resolveSession } from './auth/session.ts'
 import { registerSessionRoutes } from './routes/sessions.ts'
+import { registerMembershipRoutes } from './memberships/routes.ts'
+import { registerInvitationRoutes } from './invitations/routes.ts'
 import {
   MFA_ATTEMPT_LIMIT,
   MFA_ATTEMPT_WINDOW_SECONDS,
@@ -123,10 +125,13 @@ export function buildApp({
       typeof error === 'object' && error !== null && 'statusCode' in error
         ? (error as { statusCode?: number }).statusCode
         : undefined
+    // A policy denial already carries a contract code; keep it.
     const failure =
       error instanceof ApiFailure
         ? error
-        : new ApiFailure(frameworkErrorCode(statusCode))
+        : error instanceof AuthorizationError
+          ? new ApiFailure(error.code)
+          : new ApiFailure(frameworkErrorCode(statusCode))
     // Log our own summary only. The provider message never reaches the client.
     request.log.warn(
       { requestId: request.id, code: failure.code },
@@ -159,6 +164,8 @@ export function buildApp({
 
   registerIdentityRoutes(app, { auth, pools, authz })
   registerSessionRoutes(app, { auth, pools })
+  registerMembershipRoutes(app, { auth, pools, authz, delivery })
+  registerInvitationRoutes(app, { auth, pools, authz, delivery })
 
   app.route({
     method: ['GET', 'POST'],

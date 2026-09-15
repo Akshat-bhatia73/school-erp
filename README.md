@@ -29,7 +29,7 @@ pnpm dev:api      # http://127.0.0.1:3001
 pnpm test:api
 ```
 
-Environment variables, credential boundaries, endpoints, session limits, MFA rules and rate limits are documented in [authentication and sessions](docs/auth/AUTHENTICATION.md). What a signed-in member may then read or write is decided by `packages/authz` and documented in [authorization and access scope](docs/auth/AUTHORIZATION.md).
+Environment variables, credential boundaries, endpoints, session limits, MFA rules and rate limits are documented in [authentication and sessions](docs/auth/AUTHENTICATION.md). What a signed-in member may then read or write is decided by `packages/authz` and documented in [authorization and access scope](docs/auth/AUTHORIZATION.md). Members, invitations, role changes and ownership transfer are documented in [access management](docs/auth/ACCESS_MANAGEMENT.md).
 
 ## Deploy on Vercel
 
@@ -38,7 +38,7 @@ Import the GitHub repo in Vercel. `vercel.json` at the repo root already sets th
 ## Layout
 
 - `apps/web` — React 19 + Vite + TanStack Router/Query + Tailwind v4 + shadcn/ui
-- `apps/api` — authentication and session service; see [authentication and sessions](docs/auth/AUTHENTICATION.md)
+- `apps/api` — authentication and session service; see [authentication and sessions](docs/auth/AUTHENTICATION.md) and [access management](docs/auth/ACCESS_MANAGEMENT.md)
 - `packages/db` — PostgreSQL schema, tenant isolation and database tests; see [database setup](docs/auth/DATABASE.md)
 - `packages/authz` — permission policy service: decisions, relationship scope, list predicates and the access version protocol; see [authorization and access scope](docs/auth/AUTHORIZATION.md)
 - `packages/contracts` — auth/RBAC permission catalogue, fixed roles, strict API schemas and server interfaces
