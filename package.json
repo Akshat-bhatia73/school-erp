@@ -11,7 +11,9 @@
     "build:web": "pnpm --filter @erp/web build",
     "db:migrate": "pnpm --filter @erp/db migrate",
     "db:fixtures": "pnpm --filter @erp/db fixtures",
-    "test:db": "pnpm --filter @erp/db test"
+    "test:db": "pnpm --filter @erp/db test",
+    "test:api": "pnpm --filter @erp/api test",
+    "dev:api": "pnpm --filter @erp/api dev"
   },
   "packageManager": "pnpm@10.34.4"
 }
