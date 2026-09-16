@@ -344,8 +344,10 @@ Screen gaps — known and deliberate for now.
   come from `students/count` and `staff/count` under the module prefixes.
 - The roster search sends one request per keystroke, clamped to 100 characters. A shared debounce
   hook in `lib/` would be better.
-- No browser run. Every check above is curl plus jsdom tests; nothing was driven by hand at
-  `localhost:5173`.
+- The browser pass covered the owner only: dashboard, navigation, roster, student record (all
+  tabs, add guardian), members directory, staff record (assignment editor) at 1280px and 390px.
+  The teacher and parent sessions, the timetable and the settings sheets were checked with curl
+  and jsdom tests, not driven by hand at `localhost:5173`.
 - Fixture drift worth knowing: the year marked `current` in fixture school A has no sections, so
   screens that resolve a year from the year list find nothing to show there while the data sits in
   an older year.
