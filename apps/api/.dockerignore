@@ -1,0 +1,8 @@
+# Unused: the image is built from the repository root, so the root
+# .dockerignore is the one Docker reads. Kept so a build run from apps/api
+# still excludes the same things.
+node_modules
+.env
+.dev
+.documents
+tests

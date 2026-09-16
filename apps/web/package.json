@@ -29,7 +29,7 @@
     "react-dom": "^19.2.8",
     "sonner": "^2",
     "tailwind-merge": "^3",
-    "xlsx": "0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4"
   },
   "devDependencies": {

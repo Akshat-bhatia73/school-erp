@@ -12,7 +12,7 @@ const auth = createAuth(config, pools.auth, delivery, pools.identity)
 const documents = createLocalDocumentStorage(config.DOCUMENT_STORAGE_DIR)
 const app = buildApp({ config, auth, delivery, pools, documents })
 
-await app.listen({ port: config.PORT, host: '127.0.0.1' })
+await app.listen({ port: config.PORT, host: config.HOST })
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {

@@ -6,6 +6,10 @@
   "framework": null,
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": "https://api.REPLACE-WITH-YOUR-DOMAIN/api/$1"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
