@@ -103,7 +103,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2 scrollbar-thin">
         {/* Quick actions */}
         {!isParent && (
-        <button type="button" onClick={() => { onNavigate?.(); onOpenQuickActions() }} className={cn('mt-3 flex h-10 items-center gap-2 rounded-xl border bg-card px-3 text-[14px] text-muted-foreground shadow-xs hover:bg-accent', collapsed && 'justify-center px-0')} title="Quick actions">
+        <button type="button" onClick={() => { onNavigate?.(); onOpenQuickActions() }} className={cn('mt-3 flex h-9 shrink-0 items-center gap-2.5 rounded-lg border bg-card px-2 text-[14px] text-muted-foreground shadow-xs hover:bg-accent', collapsed && 'justify-center px-0')} title="Quick actions">
           <Search className="size-4" />
           {!collapsed && (<><span className="flex-1 text-left">Quick actions</span>{!drawer && <span className="kbd">⌘K</span>}</>)}
         </button>
