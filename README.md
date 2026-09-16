@@ -26,8 +26,13 @@ docker compose -f compose.db.yml up -d --wait
 MIGRATION_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp pnpm db:migrate
 cp apps/api/.env.example apps/api/.env
 pnpm dev:api      # http://127.0.0.1:3001
+
+# The tests use their own disposable database, never the development one.
+TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp_test pnpm db:test:prepare
 pnpm test:api
 ```
+
+The `erp` database is for `pnpm dev:api`, `pnpm db:fixtures` and `pnpm --filter @erp/api dev:logins` only. Every test suite reads `TEST_DATABASE_URL` and must point at a disposable database such as `erp_test`; the API harness refuses to run against `erp`. Set `ERP_TEST_DB` to run one module's file against a private migrated copy.
 
 Environment variables, credential boundaries, endpoints, session limits, MFA rules and rate limits are documented in [authentication and sessions](docs/auth/AUTHENTICATION.md). What a signed-in member may then read or write is decided by `packages/authz` and documented in [authorization and access scope](docs/auth/AUTHORIZATION.md). Members, invitations, role changes and ownership transfer are documented in [access management](docs/auth/ACCESS_MANAGEMENT.md). The school APIs a signed-in member then calls — setup, students, staff, timetable, dashboard, search, audit and document download — are documented in [protected school APIs](docs/auth/PROTECTED_APIS.md).
 

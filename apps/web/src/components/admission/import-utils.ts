@@ -7,7 +7,7 @@ export const IMPORT_HEADERS = [
 ]
 
 export const COLUMN_HELP: Array<{ name: string; required: boolean; help: string }> = [
-  { name: 'Admission Number', required: true, help: 'The school’s own number. It must be filled in and must not already be in use.' },
+  { name: 'Admission Number', required: false, help: 'Only for numbers your school already gave. Leave it blank and one is assigned when you import.' },
   { name: 'First Name', required: true, help: 'The student’s given name.' },
   { name: 'Last Name', required: false, help: 'Surname, if the family uses one.' },
   { name: 'Date of Birth', required: true, help: 'Use DD-MM-YYYY or an Excel date cell.' },
@@ -24,8 +24,8 @@ export const COLUMN_HELP: Array<{ name: string; required: boolean; help: string 
 ]
 
 const EXAMPLE_ROWS = [
-  ['SVM/2026/101', 'Aarav', 'Sharma', '14-05-2015', 'Male', 'Class 6', 'A', 1, 'Rakesh Sharma', 'Neha Sharma', '9876543210', 'rakesh.sharma@example.com', 'Jaipur', 'Rajasthan', '302001', 'General', 'New'],
-  ['SVM/2026/102', 'Diya', 'Verma', '02-11-2015', 'Female', 'Class 6', 'B', 2, 'Anil Verma', 'Pooja Verma', '9812345678', '', 'Jaipur', 'Rajasthan', '302012', 'OBC', 'Transfer'],
+  ['', 'Aarav', 'Sharma', '14-05-2015', 'Male', 'Class 6', 'A', 1, 'Rakesh Sharma', 'Neha Sharma', '9876543210', 'rakesh.sharma@example.com', 'Jaipur', 'Rajasthan', '302001', 'General', 'New'],
+  ['SVM/2025-26/102', 'Diya', 'Verma', '02-11-2015', 'Female', 'Class 6', 'B', 2, 'Anil Verma', 'Pooja Verma', '9812345678', '', 'Jaipur', 'Rajasthan', '302012', 'OBC', 'Transfer'],
 ]
 
 /** Build and download the blank .xlsx template */
@@ -131,11 +131,12 @@ const LAST = ['Sharma', 'Verma', 'Gupta', 'Nair', 'Iyer', 'Singh', 'Patel', 'Jos
 
 /** 12 in-memory rows so the screen can be tried without a file. Some rows are deliberately broken. */
 export function sampleRows(className: string, sectionName: string): Record<string, unknown>[] {
-  // Admission numbers must be new, so the sample stamps each run with the clock.
+  // Most rows leave the number blank so the server assigns it; the stamped ones stand for a
+  // school carrying its old register across, and must not clash with a number already in use.
   const stamp = String(Date.now()).slice(-6)
   return FIRST.map((first, i) => {
     const row: Record<string, unknown> = {
-      'Admission Number': `SMP/${stamp}/${String(i + 1).padStart(2, '0')}`,
+      'Admission Number': i % 3 === 0 ? `SMP/${stamp}/${String(i + 1).padStart(2, '0')}` : '',
       'First Name': first,
       'Last Name': LAST[i] ?? 'Kumar',
       'Date of Birth': `${String((i % 27) + 1).padStart(2, '0')}-0${(i % 9) + 1}-2015`,

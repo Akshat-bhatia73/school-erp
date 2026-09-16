@@ -100,7 +100,7 @@ describe('Sidebar', () => {
 describe('CommandMenu', () => {
   it('lists only the actions the person may take and searches people', async () => {
     searchRun.mockResolvedValue({
-      students: [{ id: 'st-1', schoolId: SCHOOL, version: 1, firstName: 'Student A2', admissionNumber: 'FIX-A2', status: 'active', enrollment: { id: 'e1', academicYear: { id: 'y', name: '2026-27' }, section: { id: 's', name: 'A' }, grade: { id: 'g', name: 'Six' }, outcome: 'ongoing' } }],
+      students: [{ id: 'st-1', schoolId: SCHOOL, version: 1, firstName: 'Student A2', admissionNumber: 'A/2026-27/002', status: 'active', enrollment: { id: 'e1', academicYear: { id: 'y', name: '2026-27' }, section: { id: 's', name: 'A' }, grade: { id: 'g', name: 'Six' }, outcome: 'ongoing' } }],
       staff: [{ id: 'sf-1', schoolId: SCHOOL, version: 1, displayName: 'Invited Teacher', designation: 'Teacher' }],
     })
     const { CommandMenu } = await import('./command-menu')

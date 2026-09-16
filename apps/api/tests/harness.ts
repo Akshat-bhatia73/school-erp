@@ -17,16 +17,42 @@ import { buildApp } from '../src/app.ts'
 import type { ModuleDependencies } from '../src/modules/shared/route.ts'
 
 /**
- * The disposable database name. Parallel test runs (one per module while the
- * suites are being written) each point at their own migrated copy so fixture
- * rewrites in one run cannot break sign-in in another.
+ * Every pool in the tests points at the database named by TEST_DATABASE_URL,
+ * which must be a disposable copy: the suite seeds fixtures and rewrites rows.
+ * ERP_TEST_DB is a convenience that swaps only the database name, so one module
+ * can be run against a private migrated copy without a second URL.
  */
-const DB_NAME = process.env.ERP_TEST_DB ?? 'erp'
-export const MIGRATOR_URL = `postgres://erp_migrator:erp_migrator@127.0.0.1:54329/${DB_NAME}`
+const migratorUrl = process.env.TEST_DATABASE_URL
+if (!migratorUrl)
+  throw new Error(
+    'TEST_DATABASE_URL must name a disposable PostgreSQL database (for example ' +
+      'postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp_test). ' +
+      'Create it with: pnpm db:test:prepare',
+  )
+
+const parsed = new URL(migratorUrl)
+if (process.env.ERP_TEST_DB) parsed.pathname = `/${process.env.ERP_TEST_DB}`
+const DB_NAME = decodeURIComponent(parsed.pathname.replace(/^\//, ''))
+if (DB_NAME === 'erp')
+  throw new Error(
+    'The API tests refuse to run against "erp", the development database. ' +
+      'Point TEST_DATABASE_URL at a disposable database such as erp_test ' +
+      '(pnpm db:test:prepare), or set ERP_TEST_DB to a private copy.',
+  )
+
+/** Builds the same host and port with a different login and database. */
+function urlFor(login: string): string {
+  const url = new URL(parsed.toString())
+  url.username = login
+  url.password = login
+  return url.toString()
+}
+
+export const MIGRATOR_URL = parsed.toString()
 export const DB_URLS = {
-  AUTH_DATABASE_URL: `postgres://erp_auth:erp_auth@127.0.0.1:54329/${DB_NAME}`,
-  IDENTITY_DATABASE_URL: `postgres://erp_identity:erp_identity@127.0.0.1:54329/${DB_NAME}`,
-  DATABASE_URL: `postgres://erp_runtime:erp_runtime@127.0.0.1:54329/${DB_NAME}`,
+  AUTH_DATABASE_URL: urlFor('erp_auth'),
+  IDENTITY_DATABASE_URL: urlFor('erp_identity'),
+  DATABASE_URL: urlFor('erp_runtime'),
 }
 
 export async function freePort(): Promise<number> {

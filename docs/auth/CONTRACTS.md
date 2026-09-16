@@ -48,6 +48,8 @@ Filter in the database before pagination, counts, search and aggregates. Apply t
 
 Basic student updates cannot change medical, guardian, enrollment, login or permission fields. Restricted edits require `students.update_sensitive`; medical writes additionally require `students.read_medical`. Apply that additional check to medical fields in admission and import too. An administrator without medical access cannot submit those fields indirectly.
 
+`StudentsAdmitRequest` has no `admissionNumber` and `StaffCreateRequest` has no `employeeCode`: both are strict objects, so a client that sends one is refused with `INVALID_REQUEST`, and the server assigns the value from the school's counter. Both identifiers stay in every response and in search, and no update request carries either. `StudentsBulkImportRow` keeps an optional `admissionNumber` so a school can migrate its old register; `StudentImportPreview` answers with a `rows` list of the rows that passed, each with its sheet row number, name and the admission number it keeps, and a row without one is assigned its number at commit.
+
 Document listing and download require their respective document permissions. A medical document also requires medical access; an identity document requires sensitive-record access. Filter metadata as well as content. Never return storage keys or permanent public URLs. A timetable may contain minimal teacher attribution without granting directory access.
 
 Salary is available by default only to owner and accountant. Private contact and bank projections must be limited to the needs of the matched audience. Audit events must not expose raw before/after objects, credentials, medical data or salary to an audience without the corresponding access.

@@ -57,8 +57,13 @@ function uniqueInviteEmail(): string {
   return `invitee-${randomUUID()}@example.test`
 }
 
+// Every staff row this file inserts, so the after hook can remove them: the
+// suite shares one database between runs, and a free-teacher list is capped.
+const createdStaff: string[] = []
+
 async function createStaff(schoolId: string): Promise<string> {
   const id = randomUUID()
+  createdStaff.push(id)
   await adminPool().query(
     `INSERT INTO staff (id, school_id, employee_code, first_name, last_name, staff_type, designation, status)
      VALUES ($1, $2, $3, 'Invited', 'Teacher', 'teaching', 'Teacher', 'active')`,
@@ -185,6 +190,9 @@ after(async () => {
     'UPDATE auth_user SET two_factor_enabled = false WHERE id = ANY($1::uuid[])',
     [[ownerUserId, principalUserId]],
   )
+  await pool.query('DELETE FROM school_invitations WHERE staff_id = ANY($1::uuid[])', [createdStaff])
+  await pool.query('DELETE FROM membership_staff_links WHERE staff_id = ANY($1::uuid[])', [createdStaff])
+  await pool.query('DELETE FROM staff WHERE id = ANY($1::uuid[])', [createdStaff])
   await server.close()
   await closeAdminPool()
 })

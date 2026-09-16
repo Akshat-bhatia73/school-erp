@@ -245,7 +245,7 @@ test('another school\'s student is simply not there', async () => {
   assert.equal(response.status, 404)
   const text = await response.text()
   assert.equal(JSON.parse(text).error.code, 'RESOURCE_NOT_FOUND')
-  assert.equal(text.includes('FIX-B1'), false)
+  assert.equal(text.includes('B/2026-27/001'), false)
 })
 
 test('a teacher reads the class she teaches and nothing beside it', async () => {
@@ -350,7 +350,6 @@ async function admit(extra: Record<string, unknown> = {}): Promise<Response> {
     body: JSON.stringify({
       firstName: 'New',
       lastName: 'Child',
-      admissionNumber: `ADM-${randomUUID().slice(0, 8)}`,
       dateOfBirth: '2015-06-01',
       gender: 'female',
       admissionDate: '2026-04-01',
@@ -371,7 +370,15 @@ async function admit(extra: Record<string, unknown> = {}): Promise<Response> {
 test('admission rejects a body that reaches past its permission', async () => {
   const pool = adminPool()
   const before = await pool.query('SELECT count(*)::int AS total FROM students WHERE school_id = $1', [schoolA])
-  for (const forbidden of [{ schoolId: schoolB }, { monthlySalary: 90000 }, { status: 'alumni' }, { roleKeys: ['owner'] }]) {
+  // The admission number is server-assigned, so a client that sends one is
+  // refused exactly like a client that sends pay or a school.
+  for (const forbidden of [
+    { schoolId: schoolB },
+    { monthlySalary: 90000 },
+    { status: 'alumni' },
+    { roleKeys: ['owner'] },
+    { admissionNumber: 'A/2026-27/900' },
+  ]) {
     const response = await admit(forbidden)
     assert.equal(response.status, 400, JSON.stringify(forbidden))
     assert.equal(await codeOf(response), 'INVALID_REQUEST')
@@ -387,6 +394,8 @@ test('admission writes the student, the enrolment, the guardian and one audit ro
   assert.equal(created.schoolId, schoolA)
   assert.equal(created.enrollment?.section.id, sectionA)
   assert.equal(created.enrollment?.rollNumber, 12)
+  // Assigned by the server from the counter of the section's academic year.
+  assert.match(created.admissionNumber, /^A\/2026-27\/\d{3,}$/)
   assert.deepEqual(Object.keys(created).sort(), [
     'admissionNumber', 'enrollment', 'firstName', 'id', 'lastName', 'schoolId', 'status', 'version',
   ])
@@ -605,6 +614,8 @@ test('a leave before the enrolment began is a bad request, not a broken service'
 test('a move without a roll number keeps the one the student has', async () => {
   const created = await body<Basic>(await admit())
   assert.equal(created.enrollment?.rollNumber, 12)
+  // Assigned by the server from the counter of the section's academic year.
+  assert.match(created.admissionNumber, /^A\/2026-27\/\d{3,}$/)
   const moved = await owner.fetch(`/api/schools/${schoolA}/students/${created.id}/move`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -681,13 +692,15 @@ test('a student has at most one primary guardian', async () => {
 
 test('admission may not attach an existing guardian without the guardian key', async () => {
   const pool = adminPool()
-  const admissionNumber = `ADM-${randomUUID().slice(0, 8)}`
+  const before = await pool.query(
+    `SELECT count(*)::int AS total FROM students WHERE school_id = $1 AND first_name = 'Side'`,
+    [schoolA],
+  )
   const response = await admin.fetch(`/api/schools/${schoolA}/students`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       firstName: 'Side',
-      admissionNumber,
       dateOfBirth: '2015-06-01',
       gender: 'male',
       admissionDate: '2026-04-01',
@@ -697,9 +710,50 @@ test('admission may not attach an existing guardian without the guardian key', a
   })
   assert.equal(response.status, 403)
   assert.equal(await codeOf(response), 'ACCESS_DENIED')
-  const stored = await pool.query('SELECT id FROM students WHERE school_id = $1 AND admission_number = $2', [
-    schoolA,
-    admissionNumber,
-  ])
-  assert.equal(stored.rowCount, 0)
+  const after = await pool.query(
+    `SELECT count(*)::int AS total FROM students WHERE school_id = $1 AND first_name = 'Side'`,
+    [schoolA],
+  )
+  assert.equal(after.rows[0].total, before.rows[0].total)
+})
+
+/** The counter inside an admission number, for order and gap assertions. */
+function counterOf(admissionNumber: string): number {
+  const counter = admissionNumber.split('/').at(-1)
+  assert.ok(counter, admissionNumber)
+  return Number(counter)
+}
+
+test('two admissions committed at once take consecutive numbers, with no gap or repeat', async () => {
+  const [first, second] = await Promise.all([admit(), admit()])
+  assert.equal(first.status, 201)
+  assert.equal(second.status, 201)
+  const numbers = [await body<Basic>(first), await body<Basic>(second)].map(
+    (student) => student.admissionNumber,
+  )
+  assert.equal(new Set(numbers).size, 2)
+  for (const number of numbers) assert.match(number, /^A\/2026-27\/\d{3,}$/)
+  const counters = numbers.map(counterOf).sort((a, b) => a - b)
+  assert.equal(counters[1], (counters[0] ?? 0) + 1)
+})
+
+test('the first admission into another academic year starts at 001', async () => {
+  const pool = adminPool()
+  // A year of this file's own, so the counter for it has never been used.
+  const yearName = `29${String(Date.now()).slice(-2)}-${randomUUID().slice(0, 4)}`
+  const freshYear = randomUUID()
+  const freshSection = randomUUID()
+  await pool.query(
+    `INSERT INTO academic_years(id,school_id,name,start_date,end_date,status)
+     VALUES ($1,$2,$3,'2099-04-01','2100-03-31','upcoming')`,
+    [freshYear, schoolA, yearName],
+  )
+  await pool.query(
+    `INSERT INTO sections(id,school_id,academic_year_id,grade_id,name) VALUES ($1,$2,$3,$4,'A')`,
+    [freshSection, schoolA, freshYear, gradeA],
+  )
+  const created = await body<Basic>(await admit({ sectionId: freshSection }))
+  assert.equal(created.admissionNumber, `A/${yearName}/001`)
+  const next = await body<Basic>(await admit({ sectionId: freshSection }))
+  assert.equal(next.admissionNumber, `A/${yearName}/002`)
 })

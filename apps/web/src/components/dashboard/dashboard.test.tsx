@@ -110,8 +110,8 @@ describe('dashboard by audience', () => {
     dashboardGet.mockResolvedValue({
       audience: 'parent',
       children: [
-        { id: 'st-1', schoolId: SCHOOL, version: 1, firstName: 'Student A2', admissionNumber: 'FIX-A2', status: 'active', enrollment: { id: 'e1', academicYear: { id: YEAR.id, name: '2026-27' }, section: { id: 'sec-1', name: 'A' }, grade: { id: 'grade-1', name: 'Six' }, outcome: 'ongoing' } },
-        { id: 'st-2', schoolId: SCHOOL, version: 1, firstName: 'Student B', admissionNumber: 'FIX-B', status: 'active' },
+        { id: 'st-1', schoolId: SCHOOL, version: 1, firstName: 'Student A2', admissionNumber: 'A/2026-27/002', status: 'active', enrollment: { id: 'e1', academicYear: { id: YEAR.id, name: '2026-27' }, section: { id: 'sec-1', name: 'A' }, grade: { id: 'grade-1', name: 'Six' }, outcome: 'ongoing' } },
+        { id: 'st-2', schoolId: SCHOOL, version: 1, firstName: 'Student B', admissionNumber: 'B/2026-27/001', status: 'active' },
       ],
     })
     await renderDashboard({ roleKeys: ['parent'], capabilities: ['dashboard.read', 'timetable.read', 'students.read_basic', 'students.read_enrollments', 'sections.read'] })
@@ -126,7 +126,7 @@ describe('dashboard by audience', () => {
   it('does not claim a child has no class when enrollments are not readable', async () => {
     dashboardGet.mockResolvedValue({
       audience: 'parent',
-      children: [{ id: 'st-2', schoolId: SCHOOL, version: 1, firstName: 'Student B', admissionNumber: 'FIX-B', status: 'active' }],
+      children: [{ id: 'st-2', schoolId: SCHOOL, version: 1, firstName: 'Student B', admissionNumber: 'B/2026-27/001', status: 'active' }],
     })
     await renderDashboard({ roleKeys: ['parent'], capabilities: ['dashboard.read', 'timetable.read', 'students.read_basic'] })
 

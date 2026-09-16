@@ -96,7 +96,7 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `GET /students/:studentId/siblings` | `students.read_siblings` | every sibling re-checked under `students.read_basic` | 200 | `RESOURCE_NOT_FOUND` |
 | `GET /students/:studentId/documents` | `students.read_documents` | document plan; `allowedActions` per row | 200 | `RESOURCE_NOT_FOUND` |
 | `GET /students/:studentId/enrollments` | `students.read_enrollments` | enrolment plan | 200 | `RESOURCE_NOT_FOUND` |
-| `POST /students` | `students.create` | section in this school; an existing guardian also needs `students.manage_guardians` | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /students` | `students.create` | section in this school; the admission number is assigned by the server for that section's academic year and may not be sent; an existing guardian also needs `students.manage_guardians` | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `PUT /students/:studentId` | `students.update_basic` | `expectedVersion` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `PUT /students/:studentId/sensitive` | `students.update_sensitive` | medical fields also need `students.read_medical` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `POST /students/:studentId/move` | `students.manage_enrollment` | target section in this school and this year; roll number kept when omitted | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
@@ -108,7 +108,7 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 
 | Method and path | Permission | Extra checks | Success | Error codes |
 |---|---|---|---|---|
-| `POST /students/import/preview` | `students.import` | every row validated server-side; only valid rows are staged, for one hour | 201 | `INVALID_REQUEST` |
+| `POST /students/import/preview` | `students.import` | every row validated server-side; only valid rows are staged, for one hour; a supplied admission number is checked for uniqueness and a blank one is left to be assigned | 201 | `INVALID_REQUEST` |
 | `POST /students/import/commit` | `students.import` | preview pending, unexpired, this school, same author, `expectedVersion`; every row re-validated before the first insert | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `GET /students/promote/preview` | `students.promote` | roster bounded by the `students.read_basic` plan | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `POST /students/promote` | `students.promote` | every named pupil distinct and currently seated in that class, with no open enrolment next year | 200 | `INVALID_REQUEST` |
@@ -127,7 +127,7 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `GET /sections/:sectionId/assignments` | `sections.read` | that section decided, denial reported as not found | 200 | `RESOURCE_NOT_FOUND` |
 | `PUT /staff/:staffId/assignments` | `staff.manage_assignments` | staff, year, subject and section-in-year all in this school; `expectedVersion` on the staff row | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `DELETE /staff/:staffId/assignments/:assignmentId` | `staff.manage_assignments` | the assignment must belong to that staff member | 204 | `RESOURCE_NOT_FOUND` |
-| `POST /staff` | `staff.create` | employee code free, school locked first | 201 | `INVALID_REQUEST` |
+| `POST /staff` | `staff.create` | school locked first, then the employee code is assigned from the school counter; it may not be sent | 201 | `INVALID_REQUEST` |
 | `PUT /staff/:staffId/employment` | `staff.update_employment` | leaving date not before the stored joining date; `expectedVersion` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `PUT /staff/:staffId/private` | `staff.update_private` | that record decided, so the self scope works | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `PUT /staff/:staffId/pay` | `staff.update_pay` | audit row carries the reason and never the amount | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
@@ -184,9 +184,17 @@ A stored value the contract cannot carry drops its block rather than failing the
 
 ## Jobs: import preview and export
 
-An import preview validates the sheet server-side, stages only the rows that passed together with the errors for the rest, and expires in an hour. The client cannot mark a row valid; there is no such field in the contract. The commit locks the school, takes `FOR UPDATE` on the preview, checks it is pending, unexpired, in this school, created by this membership and at the stated version, re-validates every stored row, and only then inserts. A row that has become impossible since the preview, usually an admission number taken meanwhile, rejects the whole commit with nothing written.
+An import preview validates the sheet server-side, stages only the rows that passed together with the errors for the rest, and expires in an hour. The client cannot mark a row valid; there is no such field in the contract. An admission number in the sheet is optional: a school migrating its old register keeps the number it typed, which must still be free in this school and unique within the sheet, and a blank one is assigned at commit. The preview answers with a `rows` list of the rows that passed, each with its sheet row number, name and the admission number it keeps, so a row without one reads as "will be assigned" rather than as a number that might change. The commit locks the school, takes `FOR UPDATE` on the preview, checks it is pending, unexpired, in this school, created by this membership and at the stated version, re-validates every stored row, allocates a number for each row that has none in row order, and only then inserts. A row that has become impossible since the preview, usually an admission number taken meanwhile, rejects the whole commit with nothing written. Promotion never renumbers a student.
 
 An export endpoint records a job and no file. It counts the requested ids through the export plan in SQL and refuses the whole set if any one is unreachable, then writes an `export_jobs` row carrying the permission it was authorized under, the caller's access version, the criteria, a row count and an expiry. `GET /exports/:jobId` re-decides that recorded permission on every poll and answers `expired`, persisting it, when the job has aged out, when the caller's access version has moved, when the recorded permission is no longer known or when the caller may no longer do that thing. A job of another membership is `RESOURCE_NOT_FOUND`; its existence is never revealed.
+
+## Server-assigned numbers
+
+The office never types an admission number or an employee code. An admission number is `<school short name>/<academic year name>/<counter>`, for example `SVM/2026-27/014`, and the counter restarts at 1 in each academic year; the year is the year of the section the student is admitted into, so the number and the enrolment always agree. An employee code is `<school short name>-E<counter>`, for example `SVM-E007`, from one school-wide counter that never restarts. The short name is upper cased and trimmed, and the counter is padded to three digits and widened past 999 rather than truncated.
+
+The counters live in `number_sequences`, keyed by `(school_id, kind, period)`, where `kind` is `admission` or `employee` and `period` is the academic year id for admissions and empty for employee codes. A row is created on first use. Every allocation happens inside the same `withTenantTransaction` as the insert it numbers, after that write has taken the school lock, in one `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` statement, so two admissions committed at once queue on the same row and take consecutive numbers with no gap and no repeat.
+
+`UNIQUE (school_id, admission_number)` and `UNIQUE (school_id, employee_code)` remain the last line of defence. A violation there means the allocator is wrong, not that the caller asked for something invalid, so it surfaces as `SERVICE_UNAVAILABLE`. Neither value can be set or changed through any endpoint: both create requests are strict objects without the field, and no update request carries it.
 
 ## Document download
 
@@ -237,12 +245,14 @@ The API tests need the same local PostgreSQL database as `packages/db`.
 
 ```sh
 docker compose -f compose.db.yml up -d --wait
-MIGRATION_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp pnpm db:migrate
+TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp_test pnpm db:test:prepare
 
 pnpm --filter @erp/api typecheck
 pnpm --filter @erp/contracts typecheck
 pnpm test:api
 ```
+
+The tests run against the database named by `TEST_DATABASE_URL`, which `apps/api/.env` sets to `erp_test`. The harness derives the `erp_auth`, `erp_identity` and `erp_runtime` URLs from it by swapping the login, and refuses to start when the name is `erp`: that is the development database, for `pnpm dev:api`, `pnpm db:fixtures` and `pnpm --filter @erp/api dev:logins` only. `pnpm db:test:prepare` creates the disposable database, grants schema usage to the three logins and migrates it.
 
 `pnpm test:api` runs every file one at a time against one database, so the files share fixtures. A file that asserts an exact roster, count or empty table clears the rows it owns in its `before` hook and puts back anything it widened in its `after` hook; a file that seeds into a fixture class uses a name of its own, because a section name is unique within a class and a year.
 
@@ -252,13 +262,13 @@ One module's file can be run on its own against a private migrated copy, which i
 ERP_TEST_DB=erp_m_students pnpm --filter @erp/api exec tsx --test tests/modules-students.test.ts
 ```
 
-`ERP_TEST_DB` names the database the harness points every pool at; it defaults to `erp`. A private copy has to be created and migrated first, with `MIGRATION_DATABASE_URL` naming it.
+`ERP_TEST_DB` overrides only the database name in `TEST_DATABASE_URL`, so one module can use a private copy without a second URL. Create that copy first with `TEST_DATABASE_URL=...54329/erp_m_students pnpm db:test:prepare`.
 
 The other suites:
 
 ```sh
-TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp pnpm test:db
-TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp pnpm test:authz
+TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp_test pnpm test:db
+TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp_test pnpm test:authz
 pnpm test:contracts
 ```
 
@@ -266,7 +276,7 @@ Reset the schema before `test:db` and `test:authz`: the API suite leaves the fix
 
 ## What the tests prove
 
-`pnpm test:api` is 248 tests across 19 files. Task 5 adds 159 of them, in ten files: 20 setup, 22 students, 18 students-bulk, 23 staff, 20 timetable, 9 dashboard, 11 search, 10 audit, 21 files and 5 foundation. The other 89 are the Task 2 authentication tests and the Task 4 access tests.
+`pnpm test:api` is 262 tests across 20 files. Task 5 added 159 of them, in ten files: 20 setup, 22 students, 18 students-bulk, 23 staff, 20 timetable, 9 dashboard, 11 search, 10 audit, 21 files and 5 foundation. Task 8 adds 14: five in `sequences.test.ts` (the formatters, and two transactions allocating from one counter at once), and the numbering cases in students (two admissions at once take consecutive numbers; the first admission into another year is 001; a sent number is refused), staff (a sent code is refused; the code comes from the school counter whoever creates the record) and students-bulk (a kept number beside a blank one; a kept number in the school format lifts the counter; a kept number too long for any counter is ignored by it). The other 89 are the Task 2 authentication tests and the Task 4 access tests.
 
 Every module file asserts the same seven shapes for at least its main list and its main detail read, wherever the shape has a meaning for that module: an anonymous caller is refused, a member of one school using the other school's id in the path is refused with `SCHOOL_ACCESS_UNAVAILABLE`, another school's record id through this school's path is not found and leaks nothing, a same-school caller with the wrong relationship gets not found and finds the row absent from the list, a permitted read returns exactly the contract fields, a write body carrying a forbidden field is refused with the database unchanged, and a bulk request with one bad id is rejected whole with nothing written.
 

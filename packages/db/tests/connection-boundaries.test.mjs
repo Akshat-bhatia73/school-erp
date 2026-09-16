@@ -11,6 +11,8 @@ import {
 
 const url = process.env.TEST_DATABASE_URL
 if (!url) throw new Error('TEST_DATABASE_URL is required')
+if (new URL(url).pathname === '/erp')
+  throw new Error('The db tests refuse to run against "erp", the development database; use erp_test (pnpm db:test:prepare)')
 const admin = new pg.Pool({ connectionString: url })
 
 function roleUrl(role) {

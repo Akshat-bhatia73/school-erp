@@ -1,4 +1,7 @@
-/** Add a staff member. Creation never makes a login and never sets pay; the contract says so. */
+/**
+ * Add a staff member. Creation never makes a login and never sets pay; the contract says so.
+ * The employee code is not typed here either: the server assigns it from the school's counter.
+ */
 import { useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -32,10 +35,11 @@ function Page() {
   })
 
   const save = useMutation({
+    // The create response carries the code the server assigned, so the toast always names it.
     mutationFn: (input: CreateStaffInput) => api.staff.create(schoolId, input),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: [schoolId, 'staff'] })
-      toast.success(`Added ${created.displayName} to staff`)
+      toast.success(`Added ${created.displayName} as ${created.employeeCode}`)
       void navigate({ to: '/staff/$staffId', params: { staffId: created.id } })
     },
     onError: (error) => toast.error(describeError(error)),
@@ -78,7 +82,7 @@ function Page() {
             <PersonalFields d={draft} set={set} errors={errors} />
           </Panel>
 
-          <Panel title="Employment" description="Role in the school and joining details.">
+          <Panel title="Employment" description="Role in the school and joining details. The employee code is assigned when you save.">
             <EmploymentFields d={draft} set={set} errors={errors} departments={departmentsQuery.data ?? []} />
           </Panel>
 

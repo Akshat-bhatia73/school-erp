@@ -1,7 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Lock } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { ClassStep } from '@/components/admission/class-step'
 import { GuardiansStep } from '@/components/admission/guardians-step'
@@ -9,7 +9,7 @@ import { ReviewStep } from '@/components/admission/review-step'
 import { StepProgress, StepRail } from '@/components/admission/step-rail'
 import { StudentStep } from '@/components/admission/student-step'
 import {
-  emptyDraft, errorsForStep, stepOfError, suggestAdmissionNumber, toAdmitRequest, validateDraft,
+  emptyDraft, errorsForStep, stepOfError, toAdmitRequest, validateDraft,
   type AdmitDraft,
 } from '@/components/admission/admit-state'
 import type { Errors } from '@/components/admission/fields'
@@ -17,7 +17,6 @@ import { EmptyState, PageHeader } from '@/components/shared/page'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { describeError } from '@/lib/api-errors'
-import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
 import { useAcademicYear } from '@/lib/use-academic-year'
 
@@ -26,35 +25,22 @@ export const Route = createFileRoute('/_app/students/new')({ component: Page })
 const STEPS = ['Student details', 'Parents / guardians', 'Class & admission', 'Review']
 
 function Page() {
-  const { schoolId, school, hasPermission } = useSchoolContext()
+  const { schoolId, hasPermission } = useSchoolContext()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { current, currentYearId } = useAcademicYear()
   const [step, setStep] = useState(0)
   const [draft, setDraft] = useState<AdmitDraft>(emptyDraft)
   const [errors, setErrors] = useState<Errors>({})
-  const suggested = useRef(false)
 
   const canCreate = hasPermission('students.create')
-
-  const countQuery = useQuery({
-    queryKey: qk.studentCount(schoolId, {}),
-    queryFn: () => api.students.count(schoolId),
-    enabled: canCreate,
-  })
-
-  // Suggest an admission number once we know how many students the school holds.
-  useEffect(() => {
-    if (!countQuery.data || suggested.current) return
-    suggested.current = true
-    setDraft((old) => (old.admissionNumber ? old : { ...old, admissionNumber: suggestAdmissionNumber(school.code, countQuery.data.count + 1) }))
-  }, [countQuery.data, school.code])
 
   const admit = useMutation({
     mutationFn: () => api.students.create(schoolId, toAdmitRequest(draft)),
     onSuccess: (student) => {
       void queryClient.invalidateQueries({ queryKey: [schoolId, 'students'] })
-      toast.success('Student admitted')
+      // The number comes back on the created record; the office never types it.
+      toast.success(`Student admitted as ${student.admissionNumber}`)
       void navigate({ to: '/students/$studentId', params: { studentId: student.id } })
     },
     onError: (error) => toast.error(describeError(error)),

@@ -11,6 +11,7 @@
     "build:web": "pnpm --filter @erp/web build",
     "db:migrate": "pnpm --filter @erp/db migrate",
     "db:fixtures": "pnpm --filter @erp/db fixtures",
+    "db:test:prepare": "pnpm --filter @erp/db test:prepare",
     "test:db": "pnpm --filter @erp/db test",
     "test:authz": "pnpm --filter @erp/authz test",
     "test:api": "pnpm --filter @erp/api test",

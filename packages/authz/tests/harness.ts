@@ -12,6 +12,11 @@ const connectionString = process.env.TEST_DATABASE_URL
 if (!connectionString) {
   throw new Error('TEST_DATABASE_URL must name a disposable PostgreSQL database')
 }
+if (new URL(connectionString).pathname === '/erp') {
+  throw new Error(
+    'The authz tests refuse to run against "erp", the development database; use erp_test (pnpm db:test:prepare)',
+  )
+}
 
 /** Superuser pool. Used only to seed fixtures and insert extra test rows. */
 export const migrator = new pg.Pool({ connectionString, max: 4 })

@@ -13,6 +13,7 @@
     "migrate": "node scripts/migrate.mjs",
     "migrate:check": "node scripts/migrate.mjs --check",
     "fixtures": "tsx scripts/fixtures.mjs",
+    "test:prepare": "node scripts/prepare-test-db.mjs",
     "test": "tsx --test tests/*.test.mjs"
   },
   "dependencies": {

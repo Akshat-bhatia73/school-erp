@@ -133,10 +133,11 @@ docker compose -f compose.db.yml up -d --wait
 MIGRATION_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp pnpm db:migrate
 
 pnpm --filter @erp/authz typecheck
-TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp pnpm test:authz
+TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp_test pnpm db:test:prepare
+TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp_test pnpm test:authz
 ```
 
-`TEST_DATABASE_URL` is the migrator URL. `tests/harness.ts` uses it to seed the `@erp/db` fixtures and to insert the extra rows the fixtures do not contain (enrollments, subjects, teaching assignments, staff and memberships), and derives the runtime URL from it by swapping the login, so the service under test always connects as `erp_runtime`. Extra rows use fresh UUIDs, so a repeated run does not collide. Files run one at a time because they share the database.
+`TEST_DATABASE_URL` is the migrator URL, and it must name a disposable database such as `erp_test`; `erp` is the development database, reserved for `pnpm dev:api`, `pnpm db:fixtures` and `dev:logins`. `pnpm db:test:prepare` creates and migrates the named database. `tests/harness.ts` uses it to seed the `@erp/db` fixtures and to insert the extra rows the fixtures do not contain (enrollments, subjects, teaching assignments, staff and memberships), and derives the runtime URL from it by swapping the login, so the service under test always connects as `erp_runtime`. Extra rows use fresh UUIDs, so a repeated run does not collide. Files run one at a time because they share the database.
 
 ## What the tests prove
 

@@ -805,6 +805,20 @@ export const exportJobs = pgTable(
   ],
 )
 
+export const numberSequences = pgTable(
+  'number_sequences',
+  {
+    schoolId: tenant(),
+    /** 'admission' or 'employee'. */
+    kind: text('kind').notNull(),
+    /** The academic year id for admissions, empty for employee codes. */
+    period: text('period').notNull().default(''),
+    nextValue: integer('next_value').notNull().default(1),
+    ...timestamps(),
+  },
+  (t) => [primaryKey({ columns: [t.schoolId, t.kind, t.period] })],
+)
+
 export const schoolTables = [
   schoolMemberships,
   roles,
@@ -837,4 +851,5 @@ export const schoolTables = [
   deliveryOutbox,
   studentImportPreviews,
   exportJobs,
+  numberSequences,
 ] as const

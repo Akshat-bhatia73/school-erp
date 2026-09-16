@@ -6,6 +6,9 @@ import userEvent from '@testing-library/user-event'
 import { renderWithSession } from '@/test/session'
 import { ApiRequestError } from '@/lib/http'
 
+const toastSuccess = vi.fn()
+vi.mock('sonner', () => ({ toast: { success: (...args: unknown[]) => toastSuccess(...args), error: vi.fn() } }))
+
 const navigate = vi.fn()
 
 vi.mock('@tanstack/react-router', async (importOriginal) => {
@@ -43,6 +46,7 @@ const { Route: DirectoryRoute } = await import('@/routes/_app/staff/index')
 const { TeachingTab } = await import('./teaching-tab')
 const { StaffEmploymentSheet } = await import('./edit-sheet')
 const { Route: RecordRoute } = await import('@/routes/_app/staff/$staffId')
+const { Route: AddStaffRoute } = await import('@/routes/_app/staff/new')
 
 const SCHOOL_ID = '10000000-0000-4000-8000-000000000001'
 
@@ -53,6 +57,7 @@ function directoryPage() {
 }
 
 const Directory = DirectoryRoute.options.component as () => ReactNode
+const AddStaff = AddStaffRoute.options.component as () => ReactNode
 const StaffRecord = RecordRoute.options.component as () => ReactNode
 // The route object reads its own params; the test renders the component outside a router.
 ;(RecordRoute as unknown as { useParams: () => unknown }).useParams = () => ({ staffId: 'staff-1' })
@@ -175,5 +180,35 @@ describe('employment sheet leaving date', () => {
 
     await waitFor(() => expect(api.staff.updateEmployment).toHaveBeenCalled())
     expect(vi.mocked(api.staff.updateEmployment).mock.calls[0]?.[2]).not.toHaveProperty('leavingDate')
+  })
+})
+
+describe('add staff', () => {
+  it('offers no employee code field and sends none, because the server assigns it', async () => {
+    // The create response itself carries the assigned code, so the toast can
+    // always name it without a second read that permissions might refuse.
+    vi.mocked(api.staff.create).mockResolvedValue({
+      ...anita,
+      id: 'staff-9',
+      version: 1,
+      displayName: 'Ravi Kumar',
+      employeeCode: 'SVM-E007',
+    })
+
+    renderWithSession(<AddStaff />, { capabilities: ['staff.read_directory', 'staff.create'] })
+
+    expect(await screen.findByText('Employment')).toBeInTheDocument()
+    expect(screen.queryByText('Employee code')).not.toBeInTheDocument()
+
+    await userEvent.type(screen.getByPlaceholderText('Anita'), 'Ravi')
+    await userEvent.type(screen.getByPlaceholderText('PRT English'), 'TGT Science')
+    await userEvent.type(screen.getByPlaceholderText('+919876543210'), '+919876543210')
+    await userEvent.click(screen.getAllByRole('button', { name: /save staff member/i })[0]!)
+
+    await waitFor(() => expect(api.staff.create).toHaveBeenCalled())
+    const body = vi.mocked(api.staff.create).mock.calls[0]?.[1]
+    expect(body).toMatchObject({ firstName: 'Ravi', designation: 'TGT Science', phone: '+919876543210' })
+    expect(body).not.toHaveProperty('employeeCode')
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Added Ravi Kumar as SVM-E007'))
   })
 })
