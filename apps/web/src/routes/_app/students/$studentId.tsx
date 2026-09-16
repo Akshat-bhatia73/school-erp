@@ -24,7 +24,7 @@ export const Route = createFileRoute('/_app/students/$studentId')({ component: P
 
 function Page() {
   const { studentId } = Route.useParams()
-  const { schoolId } = useSchoolContext()
+  const { schoolId, hasPermission } = useSchoolContext()
   const [editBasic, setEditBasic] = useState(false)
   const [editSensitive, setEditSensitive] = useState(false)
   const [move, setMove] = useState(false)
@@ -63,12 +63,14 @@ function Page() {
   const canEditSensitive = allows(allowedActions, 'students.update_sensitive')
   // Both enrolment writes resolve the current enrolment on the server, so a student without one
   // can only be told 'not found'. The controls stay hidden until there is an enrolment to change.
-  const canManageEnrollment = allows(allowedActions, 'students.manage_enrollment') && Boolean(student.enrollment)
-  const canReadGuardians = allows(allowedActions, 'students.read_guardians')
-  const canManageGuardians = allows(allowedActions, 'students.manage_guardians')
+  // Guardian, document and enrolment keys belong to other resource types, so the server never lists
+  // them in a student's allowedActions. They are school-level grants, read from the session.
+  const canManageEnrollment = hasPermission('students.manage_enrollment') && Boolean(student.enrollment)
+  const canReadGuardians = hasPermission('students.read_guardians')
+  const canManageGuardians = hasPermission('students.manage_guardians')
   const canReadSiblings = allows(allowedActions, 'students.read_siblings')
-  const canReadDocuments = allows(allowedActions, 'students.read_documents')
-  const canReadEnrollments = allows(allowedActions, 'students.read_enrollments')
+  const canReadDocuments = hasPermission('students.read_documents')
+  const canReadEnrollments = hasPermission('students.read_enrollments')
   const hasActions = canEditBasic || canEditSensitive || canManageEnrollment
 
   const menuItems = (

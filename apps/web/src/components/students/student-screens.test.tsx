@@ -136,11 +136,11 @@ describe('Student record', () => {
         dateOfBirth: '2015-05-14', gender: 'male', admissionDate: '2026-04-01',
         category: 'general', admissionType: 'new', address: '12 Ring Road',
       },
-      allowedActions: ['students.read_basic', 'students.read_enrollments'],
+      allowedActions: ['students.read_basic'],
     })
     const { Route } = await import('@/routes/_app/students/$studentId')
     const Screen = componentOf(Route)
-    renderWithSession(<Screen />, { capabilities: ['students.read_basic'] })
+    renderWithSession(<Screen />, { capabilities: ['students.read_basic', 'students.read_enrollments'] })
 
     expect(await screen.findByRole('heading', { name: 'Aarav Sharma' })).toBeInTheDocument()
     expect(screen.getByText('12 Ring Road')).toBeInTheDocument()

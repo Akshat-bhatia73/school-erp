@@ -72,6 +72,13 @@ const { hasPermission } = useSchoolContext()
 `capabilities` is the floor: it says the permission exists somewhere in the school for this person.
 `allowedActions` on the record is the answer for that record. When both exist, use the record.
 
+One catch: the server only lists keys whose catalogue `resourceType` matches the record. A student
+record therefore never carries `students.read_guardians`, `students.read_documents`,
+`students.read_enrollments`, `students.manage_enrollment` or `students.manage_guardians` (they belong
+to the guardian, document and enrollment types), and a staff record never carries
+`staff.manage_assignments`. Those blocks are gated on `hasPermission` from the session, and the
+child rows (a document, say) carry their own `allowedActions` for their own controls.
+
 ## The rules
 
 - **School id first.** Every function in `api.*` takes `schoolId` as its first argument, and every

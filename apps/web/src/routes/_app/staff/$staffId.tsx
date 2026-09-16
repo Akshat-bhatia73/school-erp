@@ -165,7 +165,7 @@ function Page() {
               <TeachingTab
                 staffId={staff.id}
                 staffVersion={staff.version}
-                canManage={allows(detail.allowedActions, 'staff.manage_assignments')}
+                canManage={hasPermission('staff.manage_assignments')}
               />
             </TabsContent>
           )}
