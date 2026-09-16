@@ -63,7 +63,7 @@ Fixed role grants are read-only to the runtime connection. Audit rows cannot be 
 
 The deterministic development fixtures include two populated schools, unrelated families, one adult who is both teacher and parent, approved guardian-child access, a suspended member, a disabled student identity, and current/expired resource rules. Role fixtures come from the shared templates. Repeating the fixture command does not create duplicate grants or people.
 
-Tests use real PostgreSQL logins and the production transaction helper. They cover missing tenant context, wrong-school references, pooled connection reuse, rollback, auth/identity credential separation, forced-RLS coverage, database/Drizzle schema parity, provider field compatibility and relationship/state constraints. These database tests complement the Task 0 contract tests; live API and browser authorization tests remain Task 8 work.
+Tests use real PostgreSQL logins and the production transaction helper. They cover missing tenant context, wrong-school references, pooled connection reuse, rollback, auth/identity credential separation, forced-RLS coverage, database/Drizzle schema parity, provider field compatibility and relationship/state constraints. These database tests complement the Task 0 contract tests; live API and browser authorization tests remain Task 9 work.
 
 Provider fields are checked against the pinned Better Auth 1.7.4 core, phone and MFA schemas. Task 2 must configure UUID ID generation and map the exported auth tables into its Drizzle adapter. Provider field compatibility does not prove password, OTP, MFA, session or proxy behavior; those require Task 2 integration tests.
 
