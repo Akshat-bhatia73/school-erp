@@ -6,7 +6,7 @@ import { z } from 'zod'
 import type { ColumnDef } from '@tanstack/react-table'
 import { MembershipStatus, RoleKey } from '@erp/contracts'
 import { api } from '@/lib/api'
-import type { Invitation, Member } from '@/lib/api/members'
+import type { Member } from '@/lib/api/members'
 import { UserAvatar } from '@/components/shared/avatar'
 import { DataTable, EntityCell } from '@/components/shared/data-table'
 import { FilterChip } from '@/components/shared/filter-chip'
@@ -35,6 +35,8 @@ export const Route = createFileRoute('/_app/settings/users')({
 })
 
 const PAGE_SIZE = 25
+/** Pending invitations are a short working list, so one page is enough. */
+const INVITATION_PARAMS = { status: 'pending', pageSize: 100 } as const
 
 function Page() {
   const { schoolId, roleKeys, hasPermission } = useSchoolContext()
@@ -45,7 +47,6 @@ function Page() {
   const [role, setRole] = useState<string>()
   const [status, setStatus] = useState<string>()
   const [inviteOpen, setInviteOpen] = useState(!!searchParams.invite)
-  const [invitations, setInvitations] = useState<Invitation[]>([])
   const [selected, setSelected] = useState<Member | null>(null)
 
   const params = useMemo(() => ({ page, pageSize: PAGE_SIZE }), [page])
@@ -54,6 +55,15 @@ function Page() {
     queryFn: () => api.members.list(schoolId, params),
     enabled: hasPermission('members.read'),
   })
+
+  // The school's pending invitations, so resend and revoke still work after a reload.
+  const { data: invitations } = useQuery({
+    queryKey: qk.invitations(schoolId, INVITATION_PARAMS),
+    queryFn: () => api.members.listInvitations(schoolId, INVITATION_PARAMS),
+    enabled: hasPermission('members.invite'),
+  })
+  const pending = invitations?.items ?? []
+  const pendingTotal = invitations?.total ?? 0
 
   const canInvite = hasPermission('members.invite') && hasPermission('roles.assign') && assignableRolesFor(roleKeys).length > 0
 
@@ -193,16 +203,17 @@ function Page() {
         footer={<span>{rows.length} members on this page</span>}
         pagination={{ page, pageSize: PAGE_SIZE, total: data?.total ?? 0, onPageChange: setPage }}
       />
-      {invitations.length > 0 && (
+      {hasPermission('members.invite') && pending.length > 0 && (
         <div className="shrink-0 border-t bg-background px-3 pb-4 md:px-5">
-          <SectionLabel>Sent this session</SectionLabel>
+          <SectionLabel>Pending invitations ({pendingTotal})</SectionLabel>
+          {pendingTotal > pending.length && (
+            <p className="mb-2 text-muted-foreground">
+              Showing the {pending.length} most recent of {pendingTotal}.
+            </p>
+          )}
           <div className="grid gap-3">
-            {invitations.map((invitation) => (
-              <InvitationPanel
-                key={invitation.id}
-                invitation={invitation}
-                onChanged={(next) => setInvitations((current) => current.map((item) => item.id === next.id ? next : item))}
-              />
+            {pending.map((invitation) => (
+              <InvitationPanel key={invitation.id} invitation={invitation} />
             ))}
           </div>
         </div>
@@ -212,7 +223,6 @@ function Page() {
           open={inviteOpen}
           onOpenChange={setInviteOpen}
           prefill={{ staffId: searchParams.invite, displayName: searchParams.name }}
-          onInvited={(invitation) => setInvitations((current) => [invitation, ...current])}
         />
       )}
       <MemberSheet member={selected} onOpenChange={(open) => { if (!open) setSelected(null) }} onUpdated={setSelected} />

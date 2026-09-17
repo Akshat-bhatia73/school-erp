@@ -9,6 +9,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import test, { after, before } from 'node:test'
+import { isFinanceAuditAction } from '@erp/contracts'
 import { fixtureIds } from '@erp/db/fixtures'
 import {
   adminPool,
@@ -208,13 +209,28 @@ test('[audit-leak] no audit row carries a hidden value, for any reader', async (
     }
   }
 
-  // The finance scope currently reads the whole log: recorded as today's
-  // behaviour so that narrowing it later shows up as a failing test here.
+  // The finance scope is narrow: an accountant reads the money actions and
+  // nothing else, while the owner reads the same log in full.
   const asAccountant = await accountantClient.fetch(
     `/api/schools/${schoolA}/audit-events?pageSize=100`,
   )
   assert.equal(asAccountant.status, 200)
-  assert.ok((await body<Page<AuditRow>>(asAccountant)).total > 0)
+  const financePage = await body<Page<AuditRow>>(asAccountant)
+  assert.ok(financePage.total > 0, 'the accountant still reads its own audience')
+  for (const row of financePage.items) {
+    assert.ok(
+      isFinanceAuditAction(row.action),
+      `the finance reader must not see ${row.action}`,
+    )
+  }
+  const asOwner = await body<Page<AuditRow>>(
+    await ownerClient.fetch(`/api/schools/${schoolA}/audit-events?pageSize=100`),
+  )
+  assert.ok(
+    asOwner.items.some((row) => !isFinanceAuditAction(row.action)),
+    'the owner reads actions outside the finance audience',
+  )
+  assert.ok(asOwner.total > financePage.total)
 
   const exported = await ownerClient.fetch(
     `/api/schools/${schoolA}/audit-events/export`,

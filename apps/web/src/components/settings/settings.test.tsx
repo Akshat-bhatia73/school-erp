@@ -18,12 +18,13 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 })
 
 const membersList = vi.hoisted(() => vi.fn())
+const listInvitations = vi.hoisted(() => vi.fn())
 const changeRoles = vi.hoisted(() => vi.fn())
 const auditList = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/api', () => ({
   api: {
-    members: { list: membersList, changeRoles, suspend: vi.fn(), remove: vi.fn(), restore: vi.fn(), startRecovery: vi.fn(), accessExplanation: vi.fn(), invite: vi.fn(), resendInvitation: vi.fn(), revokeInvitation: vi.fn() },
+    members: { list: membersList, listInvitations, changeRoles, suspend: vi.fn(), remove: vi.fn(), restore: vi.fn(), startRecovery: vi.fn(), accessExplanation: vi.fn(), invite: vi.fn(), resendInvitation: vi.fn(), revokeInvitation: vi.fn() },
     audit: { list: auditList, export: vi.fn() },
     staff: { search: vi.fn() },
     files: { exportJob: vi.fn() },
@@ -42,8 +43,21 @@ const MEMBER = {
   accessVersion: 4,
 }
 
-function page() {
+const INVITATION = {
+  id: 'invitation-1',
+  schoolId: SCHOOL_ID,
+  displayName: 'Asha Rao',
+  maskedDestination: 'a***@example.test',
+  roleKeys: ['teacher' as const],
+  status: 'pending' as const,
+  deliveryStatus: 'sent' as const,
+  expiresAt: '2026-03-03T10:00:00.000Z',
+  version: 1,
+}
+
+function page(invitations: (typeof INVITATION)[] = []) {
   membersList.mockResolvedValue({ items: [MEMBER], total: 1, page: 1, pageSize: 25 })
+  listInvitations.mockResolvedValue({ items: invitations, total: invitations.length, page: 1, pageSize: 25 })
 }
 
 describe('Users & logins', () => {
@@ -63,6 +77,27 @@ describe('Users & logins', () => {
     renderWithSession(<Page />, { capabilities: ['members.read'], roleKeys: ['principal'] })
     await waitFor(() => expect(screen.getByText('Priya Nair')).toBeInTheDocument())
     expect(screen.queryByRole('button', { name: /invite/i })).not.toBeInTheDocument()
+  })
+
+  it('shows the school\'s pending invitations to somebody who may invite', async () => {
+    page([INVITATION])
+    const { Route } = await import('@/routes/_app/settings/users')
+    const Page = (Route as unknown as { component: () => ReactNode }).component
+    renderWithSession(<Page />, { capabilities: ['members.read', 'members.invite', 'roles.assign'], roleKeys: ['principal'] })
+    await waitFor(() => expect(screen.getByText(/Pending invitations/)).toBeInTheDocument())
+    expect(screen.getByText('Asha Rao')).toBeInTheDocument()
+    expect(screen.getByText('Sent to a***@example.test')).toBeInTheDocument()
+    expect(listInvitations).toHaveBeenCalledWith(SCHOOL_ID, { status: 'pending', pageSize: 100 })
+  })
+
+  it('does not ask for invitations when the person cannot invite', async () => {
+    page([INVITATION])
+    const { Route } = await import('@/routes/_app/settings/users')
+    const Page = (Route as unknown as { component: () => ReactNode }).component
+    renderWithSession(<Page />, { capabilities: ['members.read'], roleKeys: ['principal'] })
+    await waitFor(() => expect(screen.getByText('Priya Nair')).toBeInTheDocument())
+    expect(listInvitations).not.toHaveBeenCalled()
+    expect(screen.queryByText(/Pending invitations/)).not.toBeInTheDocument()
   })
 
   it('says one sentence when the person cannot read the directory', async () => {

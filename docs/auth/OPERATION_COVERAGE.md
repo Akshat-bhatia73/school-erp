@@ -24,7 +24,7 @@ Owner or permission changed:
 - Attaching an existing guardian during admission needs `students.manage_guardians` as well as `students.create`.
 - `subjects.setGradeSubjects` answers `GradeSubjectList`, not `Subject` or `EmptySuccess`.
 - Export job status polling (`GET /api/schools/:schoolId/exports/:jobId`) is an endpoint this inventory does not list. It requires one of `students.export`, `staff.export` or `audit.export` and then re-decides the permission the job itself recorded.
-- `auditLogs.list` redaction by audience is not implemented: `audit.read` at the `finance` scope still reaches every row, because the scope term maps to TRUE.
+- `auditLogs.list` redaction by audience is the scope term: `audit.read` and `audit.export` at the `finance` scope select only rows whose action is in `FINANCE_AUDIT_ACTIONS`, so an accountant's list, count and export never exceed the money trail.
 - `timetable.bellSchedules` and `timetable.bellFor` are school-wide rather than matched scope: `timetable.read` is a permission over timetable entries, so no read plan can be built for a bell schedule.
 - Search merges the student and staff search rows into one command-menu endpoint, returns at most ten hits of each kind with no count, and answers `staff: []` rather than a refusal for a caller who holds no staff key.
 - `dashboard.summary` has no `clerk` audience, because there is no `clerk` role key in this build; the office audience is owner, principal and admin.
