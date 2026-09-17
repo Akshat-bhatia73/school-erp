@@ -8,6 +8,25 @@ Two things run: the **site** (the built single-page app on Vercel) and the
 site's own address. Everything under `/api` is forwarded by Vercel to the API,
 so the session cookie stays on one origin and no cross-origin rules apply.
 
+## 0. Hosting decisions
+
+Decided on 17 September 2026 for the MVP, where every service must be free
+and the users are internal testers.
+
+| Need | Decision | Consequence |
+|---|---|---|
+| Site | Vercel (Hobby) | Unchanged. |
+| API | Vercel Functions in the same project as the site | `/api` is same-origin, so the rewrite to another host, `API_TRUST_PROXY` and the cross-host cookie questions in sections 1 and 3 fall away once the Vercel entry ships. The Dockerfile and the rewrite stay in the repository as the documented path for a real container later. Hobby is for non-commercial use: the first paying school means the Pro plan. |
+| PostgreSQL | Neon, through the Vercel Marketplace | Free tier; the four logins are created with plain SQL; row-level security works; a database branch is the disposable test database. Compute suspends when idle, so the first request after a quiet spell is slow. |
+| Email | Resend (free tier) with a domain the project controls; Brevo if there is no domain yet | One delivery adapter behind `DELIVERY_MODE=provider`. |
+| SMS | **Stays sandboxed.** Parent phone codes are read from the sandbox outbox by testers | Indian transactional SMS needs DLT registration under a company entity and approved templates, so there is no free, legitimate route to arbitrary numbers. Twilio's trial can reach numbers each tester verifies if real phones become necessary. MSG91 with DLT when a real school signs. Until then checklist item 6 is accepted for testing, never for a real school. |
+| Private documents | Vercel Blob, private access | One storage adapter behind the existing `DocumentStorage` interface. |
+| Secrets | Vercel environment variables | |
+| Backups | Neon's restore window plus a weekly `pg_dump` from a GitHub Actions cron kept as an artifact | Satisfies item 9 once the first restore has been rehearsed. |
+| Errors and uptime | Sentry (free) for errors and the denied-access alert; Better Stack (free) for uptime | Vercel log drains are a paid feature, so the API ships its own signals. |
+
+Sections 1 to 3 below describe the container path and stay correct for it.
+
 ## 1. How the two halves are joined
 
 `vercel.json` holds two rewrites, in this order:
@@ -191,7 +210,7 @@ Tick every line. "Verified by" is a person, not a team.
 | 3 | The API's own address is not reachable from the internet | Request `https://api.<domain>/api/health` from outside; it must fail or be restricted to Vercel | Infrastructure owner |
 | 4 | The runtime uses least-privilege logins | `DATABASE_URL`, `AUTH_DATABASE_URL`, `IDENTITY_DATABASE_URL` use `erp_runtime`, `erp_auth`, `erp_identity`; startup refuses `erp_migrator` | Infrastructure owner |
 | 5 | `AUTH_SECRET` is fresh and from the secret store | Not the `.env.example` value, 32+ characters; startup refuses otherwise | Infrastructure owner |
-| 6 | Sandbox delivery is off, or consciously accepted for staging | `ALLOW_SANDBOX_DELIVERY` unset in production; nobody is told "sent" when nothing was sent | Product owner |
+| 6 | Sandbox delivery is off, or consciously accepted for staging | `ALLOW_SANDBOX_DELIVERY` unset in production; nobody is told "sent" when nothing was sent. During the MVP, SMS stays sandboxed by decision (section 0); email must be real before any outside tester is invited | Product owner |
 | 7 | `DEV_SANDBOX_OUTBOX` is unset | Startup refuses it under `NODE_ENV=production`; `GET /api/dev/outbox` returns 404 on the live site | Release manager |
 | 8 | Migrations applied | `pnpm db:migrate` then `pnpm --filter @erp/db migrate:check` reports nothing pending | Release manager |
 | 9 | Backup and a real restore | Restore date and duration written down in the operations log | Infrastructure owner |

@@ -1,0 +1,187 @@
+# Data protection assessment
+
+An honest account, as of 17 September 2026, of which laws and standards apply to this system, what personal data it holds, how well that data is protected today, and what must change before a real school's children are in it.
+
+This is an engineering assessment, not legal advice. The Digital Personal Data Protection Rules were notified in November 2025 with a phased commencement, and the details of exemptions and timelines should be confirmed with counsel before a school signs a contract.
+
+Companion documents: [release runbook](../auth/RELEASE.md), [access review](../auth/ACCESS_REVIEW.md), [authentication](../auth/AUTHENTICATION.md), [authorization](../auth/AUTHORIZATION.md), [database](../auth/DATABASE.md).
+
+## 1. Summary
+
+The access-control core is strong and unusually well evidenced: forced row-level security on every school table, a transaction-local tenant context, a permission gate on every route, per-record projections, append-only audit rows and an adversarial test suite that runs against real PostgreSQL. Nothing in this assessment found a way for one school or one role to read data it should not.
+
+The gaps are in the **data lifecycle**, not in access control. The system has no way to record consent, no way to delete or anonymise a person, no sweeper for tables that accumulate children's data and credentials, no record of who *read* a child's record, and no breach-response procedure. A free-text "reason" field flows unfiltered into permanent audit rows. One government identifier for children (APAAR) is stored in full where every other identifier is truncated.
+
+None of these gaps leak data today. All of them would be findings in a DPDP audit, and several would make a breach worse than it needs to be. Section 6 turns them into three tasks.
+
+## 2. What applies
+
+### 2.1 Digital Personal Data Protection Act, 2023 and Rules, 2025
+
+The Act is India's data protection law. The Rules were notified in November 2025 and commence in phases: the Data Protection Board immediately, consent-manager registration after twelve months, and the substantive obligations on fiduciaries after eighteen months, so around May 2027. A school going live before then is still under the IT Act regime below, but building for the DPDP Act now is the only sensible course.
+
+**Roles.** The school is the **data fiduciary**: it decides why and how a child's data is processed. This company, running the platform on the school's behalf, is a **data processor**. That matters in two ways. The school carries the legal duties (notice, consent, rights, breach notification to the Board), but it can only meet them if the platform gives it the means, and the Rules require the fiduciary to bind its processors by contract to reasonable security safeguards. For the shared login identity that spans schools (`auth_user` and its sessions), and for any analytics or product telemetry, this company is itself a fiduciary.
+
+**Obligations the platform must make possible.**
+
+| Requirement | Where it comes from | What the platform must provide |
+|---|---|---|
+| Notice and consent, in plain language, for each purpose | Sections 5 and 6 | A place to record that consent was given, by whom, for what, when, and that it can be withdrawn |
+| Verifiable parental consent before processing a child's data | Section 9 and Rule 10 | The same record, with the guardian identified and the verification method noted. See the exemption note below |
+| No tracking, behavioural monitoring or targeted advertising of children | Section 9(3) | Nothing of the kind exists today; keep it that way and say so in the notice |
+| Purpose limitation and data minimisation | Section 4 and 6 | Collect only what the school needs; do not store fields no screen uses |
+| Accuracy and the right to correction | Sections 8 and 12 | Edit paths exist for most fields |
+| Erasure when the purpose is served or consent is withdrawn | Section 8(7) and 12 | A deletion or anonymisation path per data subject, and sweepers for transient tables |
+| Right of access | Section 11 | A way to assemble everything held about one student or guardian |
+| Reasonable security safeguards | Section 8(5) and Rule 6 | Encryption or masking, access control, logs and monitoring able to detect unauthorised access, retention of those logs and the related data for one year, backups, and processor contracts |
+| Breach notification | Section 8(6) and Rule 7 | Tell affected persons without delay; tell the Board without delay and file a full report within 72 hours. The platform must be able to say what was accessed and whose |
+| Grievance redressal and a named contact | Sections 10 and 13 | A published contact and response time in the notice |
+
+**Children and the education exemption.** The Rules' Fourth Schedule exempts educational institutions from the verifiable-consent and tracking restrictions to the extent processing is necessary for educational activities, the child's safety, and transport tracking. Read narrowly, a school does not need a fresh parental consent to keep an admission register. Read honestly, that exemption does not obviously cover photographs, health notes beyond immediate safety, caste category, guardian income, or sharing with third-party services. The safe design is to record parental consent at admission anyway, per purpose, and to rely on the exemption only as a fallback. It is cheap to do and expensive to retrofit.
+
+**Cross-border transfer.** The Act allows transfer to any country the central government has not restricted. No restriction had been notified at the time of writing. Even so, the hosting decision in the runbook should pin an Indian region where the provider offers one, and the sub-processor list should state the region of each.
+
+### 2.2 Information Technology Act, 2000 and the SPDI Rules, 2011
+
+Until the DPDP sections commence, section 43A and the Sensitive Personal Data or Information Rules are the law in force. They define sensitive data as passwords, financial information, health condition, medical records, sexual orientation and biometrics; require a privacy policy, consent for collecting sensitive data, no retention beyond need, and "reasonable security practices", for which ISO 27001 is the named example. Everything in section 2.1 satisfies this regime too.
+
+### 2.3 CERT-In directions of April 2022
+
+These apply to every service provider and body corporate in India and are often forgotten. Three obligations bite here: report a cyber security incident to CERT-In within **six hours** of noticing it; keep system logs for **180 days within India**; synchronise clocks to NTP. The runbook's alerting section and the incident plan proposed below must carry the six-hour clock, and log retention must be a deliberate choice of provider and region, not a default.
+
+### 2.4 Identifiers with their own rules
+
+- **Aadhaar.** The Aadhaar Act and UIDAI circulars restrict storing Aadhaar numbers. The schema keeps only the last four digits, which is the accepted masking pattern. Keep it that way; never add a full-number column.
+- **APAAR.** The Automated Permanent Academic Account Registry number is a lifelong identifier for a child issued through DigiLocker. It is not regulated like Aadhaar, but it is a persistent child identifier that unlocks academic records elsewhere. The schema stores it in full and returns it in full. Treat it like Aadhaar: masked by default, revealed only under the sensitive read, encrypted at rest at the application level.
+- **PAN and bank account.** Last four digits only, correctly. Salary and guardian income are stored in full and are behind their own permissions.
+
+### 2.5 SOC 2 and ISO 27001
+
+SOC 2 is not a law and not something a system "complies with". It is an audit report, against the AICPA Trust Services Criteria, that an independent CPA firm issues about an organisation's controls: Type I on a date, Type II over a period of six to twelve months. Security is the mandatory criterion; Availability, Confidentiality, Processing Integrity and Privacy are optional. The audit costs money, typically several thousand dollars at the low end, plus the tooling to collect evidence, and it examines the organisation as much as the code: policies, onboarding and offboarding, vendor reviews, risk assessments, incident records.
+
+For an MVP with no revenue, the right goal is **SOC 2-aligned controls with evidence kept from day one**, so that a Type I report is a matter of paying for the audit rather than rebuilding. Indian schools are unlikely to ask for SOC 2; they are likely to ask for a DPDP posture, a privacy notice and a signed processing agreement. ISO 27001 is the standard Indian buyers recognise more readily and is named in the SPDI Rules; its control set overlaps SOC 2 heavily. Section 5 maps the common criteria to what exists.
+
+### 2.6 What does not apply
+
+GDPR applies only if the platform offers services to people in the EU or monitors them. COPPA and FERPA are United States laws. None of them binds an Indian school with Indian pupils. Their design principles (parental consent, purpose limitation, access rights) are the same ones the DPDP Act adopts, so following the DPDP path covers them in spirit.
+
+## 3. What the system holds
+
+The full column-level inventory was produced by reading every migration, contract and projection. The condensed view:
+
+| Data subject | Identifiers and contact | Sensitive | Credentials and behaviour |
+|---|---|---|---|
+| **Student (a child)** | name, admission number, roll number, address, admission history, previous school | date of birth, gender, blood group, caste category, religion, mother tongue, nationality, Aadhaar last four, **APAAR in full**, medical notes (free text), reason for leaving (free text), document types (a caste certificate is itself sensitive), photo URL column (unused), custody and guardian-access links | none: student login is disabled by design |
+| **Guardian** | name, phone, alternate phone, email, address | occupation, qualification, **annual income**, relation to the child, photo URL column (unused) | login identity below, if they have one |
+| **Staff** | employee code, name, phone, email, address, designation, employment dates | gender, date of birth, blood group, **monthly salary**, PAN last four, bank account last four, absence and substitution records with free-text reasons | login identity below |
+| **Login identity** (any adult) | name, email, phone | | password hash (scrypt, library default), TOTP secret and backup codes (stored as the library writes them), session tokens in clear, IP address and user agent per session, OTP and reset tokens in `auth_verification`, throttle keys that contain raw phone numbers and one raw IP |
+
+Three tables hold copies of the above outside their home rows and have no sweeper: `student_import_previews.rows` (a full copy of an uploaded admission sheet, up to 500 children with guardian phone and email), `school_invitations.identifier_normalized` (the invitee's raw email or phone, kept after acceptance), and `audit_events.safe_changes` (which carries whatever an office user typed into a "reason" box).
+
+Where it flows: API responses are projected per permission and never spread a storage row; audit summaries are static sentences; delivery messages carry the real address and the raw code but are held in memory by the sandbox and never sent; the outbox stores a masked destination and no token; search matches names and codes only; no export file is ever produced today; the server writes no per-request log line; the browser keeps only a school id, a theme and a sidebar state, with query results in memory for the life of the tab.
+
+## 4. What is already right
+
+Stated positively because it is evidenced, not assumed.
+
+- **Tenant isolation is enforced in the database.** Row-level security is enabled and forced on every school table with a `school_id = current_setting('app.school_id')` policy in both directions. The tenant helper sets that value transaction-locally and refuses to run on any connection that is not the least-privileged runtime role. A pooled connection cannot carry one school into the next request. Proved by `packages/db/tests` and by the anonymous sweep in `tests/security`, which reads the live route table so it cannot go stale.
+- **Every route has a declared permission, or it cannot be registered.** The gate decides against the school before the handler, lists are narrowed by the same predicate a single read would use, and every response is parsed through its contract so a projection bug becomes a 503 rather than a leak.
+- **Four database logins with one job each.** The migrator is refused at production startup; the runtime cannot read auth tables; the auth login cannot read school tables; the identity login can only execute two functions.
+- **Audit rows are append-only twice over**: the runtime holds `SELECT, INSERT` only, and a trigger refuses `UPDATE` and `DELETE` even from the owner. Actor and request id come from the verified context, never from the body, and the row commits with the change or not at all.
+- **Privileged roles must complete a second factor**, the trust-device shortcut is stripped on both legs, sessions have absolute and idle limits per role, password change and reset revoke other sessions, and replacing or removing the authenticator now clears every earlier MFA stamp.
+- **Logs are quiet by design.** No request line is written; the error handler logs a request id and an error code; cookies, tokens, codes and passwords are on the redaction list; provider messages never reach a log or a response.
+- **Invitation tokens are never stored**, only their SHA-256 digest, and resend replaces the digest.
+- **Production refuses unsafe configuration** at startup: the example secret, a short secret, plain HTTP, sandbox delivery without an explicit override, the migrator login.
+
+## 5. Findings
+
+Ranked by what would matter most in a breach or an audit. Each has a file to touch.
+
+### 5.1 Blocking before any real school
+
+| # | Finding | Why it matters | Remedy |
+|---|---|---|---|
+| F1 | **No consent record.** Nothing records that a parent agreed to anything, for what purpose, or that they can withdraw. | The single most visible DPDP requirement for children's data, and the one auditors check first. The education exemption is narrow. | A `guardian_consents` table (guardian, student, purpose, given or withdrawn, method of verification, timestamps, evidence reference) under tenant RLS with append-only history; a contract; a capture step in admission and on the parent's own screen. `packages/db/migrations`, `packages/contracts`, `apps/api/src/modules/students`. |
+| F2 | **No deletion or anonymisation of any person.** A student who leaves keeps name, birth date, Aadhaar fragment, APAAR, medical notes and address forever. Guardians cannot be unlinked or removed. Staff keep salary and identifier fragments after leaving. A removed member keeps their password hash, TOTP secret, backup codes and live sessions. | Erasure is a right under the Act and a duty once the purpose is served. State education rules require admission registers to be kept, so the answer is anonymisation of the sensitive fields on a schedule, not deletion of the register row. | A retention policy per data class (section 7), an `anonymise student` workflow that clears sensitive columns and documents after the retention period while keeping the register fields, guardian unlink and delete, staff anonymisation after leaving, and membership removal that revokes sessions and, when the identity has no other school, deletes the credential rows. |
+| F3 | **Free text flows into permanent audit rows.** Every "reason" field (pay change, assignment, move, leaving, role change, suspension, recovery, ownership) is written verbatim into `audit_events.safe_changes`, which can never be edited or deleted. | The audit contract promises "no names, addresses, phone numbers"; the reason box breaks it. "Raised Priya's salary to 85000 after her diabetes leave" becomes a permanent, unerasable record readable by anyone with database access and by a future export. | Store the reason in a separate `audit_event_notes` table without the append-only trigger, readable only under `audit.read` at school scope, so it can be redacted on request; keep `safe_changes` structural. Nine call sites in `apps/api/src/modules/staff/writes.ts`, `students/writes.ts`, `memberships/*.ts`. |
+| F4 | **APAAR stored and returned in full.** Every other identifier is truncated to four digits. | A lifelong child identifier that opens academic records elsewhere. | Encrypt at the application level with a key from the secret store (pgcrypto or Node's `crypto` with AES-GCM), return masked (`XXXX-XXXX-1234`) by default, reveal in full only under `students.read_sensitive` and audit the reveal. `packages/contracts/src/responses.ts`, `apps/api/src/modules/students/project.ts`. |
+| F5 | **Unswept copies of children's data.** `student_import_previews.rows` keeps every uploaded admission sheet indefinitely; `auth_verification` keeps used OTPs and reset tokens; `auth_session` rows for abandoned sessions keep IP and user agent forever; `school_invitations` keeps the raw email or phone after acceptance; `auth_throttle` keeps raw phone numbers and an IP with no expiry; `delivery_outbox` is never purged. | Every one is a shadow copy that a breach would expose and that a retention policy cannot account for. | One scheduled sweeper (a Vercel cron route or a GitHub Actions cron calling a protected maintenance endpoint) that deletes expired previews, verifications, sessions, throttle rows and old outbox rows, and blanks the invitation identifier once the row is terminal. Hash the phone in throttle keys as the MFA code already hashes the IP. `apps/api/src/auth/phone-otp.ts`, new `apps/api/src/maintenance`. |
+| F6 | **No record of who read a child's record.** Only writes and bulk exports leave an audit row. | "Who looked at this child's file" is the first question after a complaint and the platform cannot answer it. The DPDP Rules require logs able to detect unauthorised access. | An `auditRead` flag on the route definition that writes an `allowed` row for detail reads of students, guardians, staff private and pay blocks, and documents, inside the handler's transaction. `apps/api/src/modules/shared/route.ts`. |
+| F7 | **Denials are not recorded and barely logged.** A refusal at the gate throws before any row; the log line carries a request id and a code but no actor, route or address. | The runbook's alert can detect a burst but cannot say who probed what. Breach reporting needs that. | One structured line per request from an `onResponse` hook (method, route, status, code, user id, membership id, school id, hashed IP, duration) and a `denied` audit row for gate refusals written on a separate connection so the rollback does not swallow it. `apps/api/src/app.ts`, `apps/api/src/modules/shared/route.ts`. |
+| F8 | **No breach-response procedure.** No severity levels, no named roles, no notification timeline, no alert sink configured. | The DPDP Rules want the Board told within 72 hours with a full report; CERT-In wants notice within six hours. Nobody can meet either clock without a plan. | `docs/compliance/INCIDENT_RESPONSE.md` with the two clocks, containment steps (rotate `AUTH_SECRET`, revoke sessions, suspend memberships), evidence collection, and a named owner; wire the error handler and the denial threshold to Sentry. |
+
+### 5.2 Important, fix in the same pass
+
+| # | Finding | Remedy |
+|---|---|---|
+| F9 | **Roster query over-fetches.** The student list selects date of birth, Aadhaar fragment, APAAR, blood group, medical notes and address for every row even for a caller who holds only `students.read_basic`; the projection drops them before the response. One bug away from disclosure of a hundred children's medical notes. | Select the sensitive columns only when the plan grants the matching field group. `apps/api/src/modules/students/reads.ts`. |
+| F10 | **No account lockout and no way to disable an identity.** Rate limits are per address, so a distributed password spray has no per-account ceiling; there is no `auth_user.disabled_at`. | A durable per-user failure counter with a temporary lock, and a `disabled_at` column checked when a session is resolved. `apps/api/src/auth/throttle.ts`, `session.ts`, a migration. |
+| F11 | **Dev credentials file is world-readable.** `apps/api/.dev/sunrise-logins.csv` holds plaintext passwords and TOTP seeds at mode 0644. | Write with mode 0600 and create the directory with 0700. `apps/api/scripts/dev-seed.ts`. Also: `chmod 600` the file that exists now. |
+| F12 | **No subject-access export.** A parent asking for everything held about their child cannot be served without direct database access, which the runbook forbids. | A `subject.export` permission and a route that assembles one student's full record through the existing read plans, audited. |
+| F13 | **The runtime login can `DELETE` from every child table.** Application code never does, but nothing in SQL stops it. | Revoke `DELETE` on `students`, `guardians`, `staff`, `student_documents` and `audit_events` from the runtime; make removal a status change plus the anonymisation workflow above. A migration. |
+| F14 | **Dormant photo columns.** `photo_url` exists on students, guardians and staff with no upload path, no projection and no access rule. | Drop the columns until a photo feature exists with its own permission and consent purpose. |
+| F15 | **A student export claims to be ready with nothing behind it.** Harmless today because no download exists; a hole the moment one is added. | Insert `queued` like the other two exports. `apps/api/src/modules/students-bulk/routes.ts`. |
+
+### 5.3 Governance and repository
+
+| # | Finding | Remedy |
+|---|---|---|
+| F16 | **The repository is public** and holds the complete data model for children's records plus development credentials. Nothing secret is in it, but it maps the target for anyone. No branch protection, no CODEOWNERS, no secret scanning, no Dependabot; the advisory step in CI does not gate. | Make the repository private; add a ruleset on `main` requiring the CI checks and one review; add `CODEOWNERS`, Dependabot and secret scanning; remove `continue-on-error` from the advisory step with a documented exceptions file. |
+| F17 | **Backups are prose.** No backup job exists, and the plan to keep a `pg_dump` as a GitHub Actions artifact would put a full copy of children's records in a third-party artifact store with 90-day default retention. | Dump to an encrypted, access-controlled bucket in an Indian region, or rely on the database provider's own snapshots and rehearse a restore quarterly. Never an Actions artifact. |
+| F18 | **No processor agreement, sub-processor list, privacy notice or region statement.** A school cannot lawfully use the platform without them. | Templates in `docs/compliance/`: a data processing agreement for schools, a sub-processor list with regions, a privacy notice the school can publish to parents, and a retention schedule. |
+| F19 | **Log retention is undefined**, and CERT-In requires 180 days within India. | Choose the log sink and region deliberately and write the retention into the runbook. |
+
+## 6. Proposed tasks
+
+Three stacked tasks after the hosting work, in this order.
+
+**Task 12: data lifecycle and consent.** F1, F2, F3, F4, F5, F9, F13, F14, F15. Backend and contracts, one migration series, sweeper endpoint, anonymisation workflows, consent capture in admission and on the parent screen, APAAR encryption and masking, roster projection fix. Exit check: a parent's consent is recorded and withdrawable; a student who left three years ago has no sensitive fields left and the register row remains; a used OTP, an expired preview and an abandoned session are gone within a day; the reason text of a pay change is not in `audit_events`; the roster query never selects medical notes for a basic reader; APAAR never appears unmasked without the sensitive read.
+
+**Task 13: observability and incident readiness.** F6, F7, F8, F10, F11, F12, F19. Read auditing, structured access log, denial rows, account lockout and disable, subject-access export, the incident runbook with both notification clocks, Sentry wiring, log retention decision. Exit check: for any student, the system can list who read the record in the last year; a denial burst from one membership raises an alert naming the membership; an identity can be locked and disabled; a subject-access export for one student is produced and audited.
+
+**Task 14: governance.** F16, F17, F18. Private repository with protection rules, backup job to an encrypted Indian-region store with a restore rehearsal, the four documents schools need before signing.
+
+Two things to do this week without waiting for a task: make the repository private, and `chmod 600 apps/api/.dev/sunrise-logins.csv`.
+
+## 7. Retention schedule (proposed)
+
+To be adopted in Task 12 and published to schools. Periods start when the purpose ends, not when the row is created.
+
+| Data | Keep while | Then |
+|---|---|---|
+| Student register fields (name, admission number, dates, class history, outcome) | Permanently, as state education rules require an admission register | Nothing; these are the register |
+| Student sensitive fields (birth date, Aadhaar fragment, APAAR, category, religion, medical notes, address, documents) | Enrolled, plus 3 years after leaving | Anonymise: clear the fields, delete the documents |
+| Guardian records | While any linked student is within the period above | Delete when the last link ends |
+| Staff records (salary, identifier fragments, private contact) | Employed, plus 8 years after leaving for statutory payroll records | Anonymise contact and identifiers; keep employment dates and designation |
+| Login identity and credentials | While the person holds any active membership | Delete credentials 30 days after the last membership ends; keep `auth_user.id` and name for audit attribution |
+| Sessions, OTPs, reset tokens, throttle rows | Until expiry | Sweep daily |
+| Import previews | 24 hours | Sweep daily |
+| Invitations | Until terminal | Blank the identifier at that point; delete the row after 90 days |
+| Delivery outbox | 90 days | Sweep |
+| Audit events | 7 years, covering a child's time at the school plus the DPDP one-year log requirement | Archive whole years to cold storage; never edit |
+| Access logs | 180 days within India (CERT-In), 1 year preferred (DPDP Rules) | Provider retention setting |
+
+## 8. SOC 2 readiness map
+
+Common Criteria of the Trust Services Criteria against what exists. "Evidenced" means a test or configuration in the repository proves it; "documented" means a runbook says it; "absent" means neither.
+
+| Criterion | State | Evidence or gap |
+|---|---|---|
+| CC1 Control environment (policies, roles) | Absent | No security policy, no named roles outside the release checklist. Task 14. |
+| CC2 Communication (notices, contracts) | Absent | No privacy notice, no processor agreement. Task 14. |
+| CC3 Risk assessment | Partial | This document is the first. Repeat it yearly and after each major change. |
+| CC4 Monitoring of controls | Partial | CI runs every suite on every change; no periodic access review, no alerting. Task 13. |
+| CC5 Control activities | Evidenced | Permission gate, RLS, contracts, tests. |
+| CC6 Logical and physical access | Mostly evidenced | MFA, sessions, least-privilege logins, RLS. Missing: account lockout, offboarding that revokes sessions and deletes credentials, periodic access review. Tasks 12 and 13. |
+| CC7 System operations (detection, incidents) | Absent | No access log, no alerting, no incident plan. Task 13. |
+| CC8 Change management | Partial | CI gates and stacked PRs; no branch protection, no required review, advisory check does not gate. Task 14. |
+| CC9 Risk mitigation (vendors) | Absent | No sub-processor list or vendor review. Task 14. |
+| Availability | Partial | Liveness check only; rollback documented; no backup job. Tasks 13 and 14. |
+| Confidentiality | Mostly evidenced | Projections, RLS, private documents. Missing: APAAR masking, reason-text sink, over-fetch. Task 12. |
+| Privacy | Absent | Consent, retention, erasure, access rights all missing. Task 12. |
+
+When the three tasks are done, the remaining distance to a SOC 2 Type I is organisational: written policies, an evidence-collection habit, and the audit fee.
+
+## 9. What was checked
+
+The inventory was built by reading every migration in `packages/db/migrations`, every contract in `packages/contracts/src`, every read projection and write path in `apps/api/src/modules`, the delivery and invitation services, the audit helper and all fifty-six audit call sites, the request logger and error handler, the development seed scripts, and the browser session and HTTP client. The controls map was built from the auth handover documents, the CI workflow, the auth service, the tenant helper, the grants and triggers in the migrations, the security suite, and the GitHub repository settings readable to the author. The eight sharpest claims were re-verified line by line before this document was written.
