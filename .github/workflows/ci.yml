@@ -1,0 +1,182 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Matches packages/db/docker-init and compose.db.yml. These are throwaway
+  # credentials for a service container that only exists for this run.
+  MIGRATOR_URL: postgres://erp_migrator:erp_migrator@127.0.0.1:5432
+  # The repository has no domain yet, so vercel.json still holds the
+  # placeholder API origin. Replacing it is the first release checklist item.
+  ALLOW_PLACEHOLDER_API_ORIGIN: 'true'
+
+jobs:
+  checks:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      # Every job reports, so one failure does not hide the others.
+      fail-fast: false
+      matrix:
+        include:
+          - name: static
+            needs_db: 'false'
+          - name: database
+            needs_db: 'true'
+          - name: api
+            needs_db: 'true'
+          - name: web
+            needs_db: 'false'
+          - name: security
+            needs_db: 'true'
+          - name: browser
+            needs_db: 'true'
+          - name: release
+            needs_db: 'false'
+
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_USER: erp_migrator
+          POSTGRES_PASSWORD: erp_migrator
+          POSTGRES_DB: erp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U erp_migrator -d erp"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # A service container cannot mount packages/db/docker-init, so run the
+      # same SQL against the running service instead.
+      - name: Create the runtime database roles
+        if: matrix.needs_db == 'true'
+        run: psql "$MIGRATOR_URL/erp" -v ON_ERROR_STOP=1 -f packages/db/docker-init/00-roles.sql
+
+      - name: Prepare the test database
+        if: matrix.needs_db == 'true'
+        env:
+          TEST_DATABASE_URL: postgres://erp_migrator:erp_migrator@127.0.0.1:5432/erp_test
+        run: pnpm db:test:prepare
+
+      # ---- static -----------------------------------------------------
+      - name: Typecheck
+        if: matrix.name == 'static'
+        run: pnpm typecheck
+
+      - name: Lint
+        if: matrix.name == 'static'
+        run: pnpm --filter @erp/web lint
+
+      - name: Contract tests
+        if: matrix.name == 'static'
+        run: pnpm test:contracts
+
+      # ---- database and policy ----------------------------------------
+      - name: Database tests
+        if: matrix.name == 'database'
+        env:
+          TEST_DATABASE_URL: postgres://erp_migrator:erp_migrator@127.0.0.1:5432/erp_test
+        run: pnpm test:db
+
+      - name: Authorization tests
+        if: matrix.name == 'database'
+        env:
+          TEST_DATABASE_URL: postgres://erp_migrator:erp_migrator@127.0.0.1:5432/erp_test
+        run: pnpm test:authz
+
+      # ---- api --------------------------------------------------------
+      # The API harness derives the runtime, auth and identity logins from
+      # TEST_DATABASE_URL, so this one variable is the whole database setup.
+      - name: API tests
+        if: matrix.name == 'api'
+        env:
+          TEST_DATABASE_URL: postgres://erp_migrator:erp_migrator@127.0.0.1:5432/erp_test
+        run: pnpm test:api
+
+      # ---- web --------------------------------------------------------
+      - name: Web tests
+        if: matrix.name == 'web'
+        run: pnpm test:web
+
+      # ---- security ---------------------------------------------------
+      - name: Security tests
+        if: matrix.name == 'security'
+        env:
+          TEST_DATABASE_URL: postgres://erp_migrator:erp_migrator@127.0.0.1:5432/erp_test
+        run: pnpm test:security
+
+      # ---- browser ----------------------------------------------------
+      # The browser suite gets its own database so a failed run cannot leave
+      # rows behind for the API suite.
+      - name: Prepare the browser database
+        if: matrix.name == 'browser'
+        env:
+          TEST_DATABASE_URL: postgres://erp_migrator:erp_migrator@127.0.0.1:5432/erp_browser
+        run: pnpm db:test:prepare
+
+      - name: Install Chromium
+        if: matrix.name == 'browser'
+        run: pnpm --filter @erp/browser-tests exec playwright install --with-deps chromium
+
+      # tests/browser/env.ts is the only place that knows where this suite
+      # lives: it builds its own database URLs from BROWSER_DB_HOST and
+      # BROWSER_DB_NAME, picks its ports from BROWSER_API_PORT/BROWSER_WEB_PORT
+      # and sets the API's own environment (AUTH_SECRET, APP_ORIGIN,
+      # DELIVERY_MODE, DEV_SANDBOX_OUTBOX, NODE_ENV=test) internally. Only the
+      # database host differs on CI, where the service listens on 5432.
+      - name: Browser tests
+        if: matrix.name == 'browser'
+        env:
+          BROWSER_DB_HOST: 127.0.0.1:5432
+          BROWSER_DB_NAME: erp_browser
+        run: pnpm test:browser
+
+      - name: Upload the Playwright report
+        if: matrix.name == 'browser' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: tests/browser/playwright-report
+          if-no-files-found: ignore
+
+      # ---- release ----------------------------------------------------
+      - name: Build the site
+        if: matrix.name == 'release'
+        run: pnpm build
+
+      - name: Check the production assets and the deployment config
+        if: matrix.name == 'release'
+        run: pnpm check:assets
+
+      # Advisories are published independently of this change, and the step
+      # talks to the registry, so it reports rather than blocks the pull
+      # request. Checklist item 14 in docs/auth/RELEASE.md is the gate.
+      - name: Dependency advisories
+        if: matrix.name == 'release'
+        continue-on-error: true
+        run: pnpm audit:deps

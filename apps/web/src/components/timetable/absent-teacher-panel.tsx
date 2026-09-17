@@ -2,33 +2,46 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
-import type { BellSchedule, Staff } from '@erp/shared'
-import { api, type TimetableCell } from '@/api/client'
+import { TimetableSubstitutionRequest } from '@erp/contracts'
+import { api } from '@/lib/api'
+import type { BellScheduleRecord, SubstitutionRecord, TimetableCellRecord } from '@/lib/api/timetable'
+import { describeError } from '@/lib/api-errors'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Panel } from '@/components/shared/page'
 import { Tag, colorFor } from '@/components/shared/tag'
+import { periodNameFor } from '@/components/timetable/timetable-grid'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import { qk } from '@/lib/query'
-import { cn, fullName } from '@/lib/utils'
+import { useSchoolContext } from '@/lib/session'
+import { cn } from '@/lib/utils'
 
-/** One absent teacher: their card row plus every period that needs an arrangement today. */
-export function AbsentTeacherPanel({ staff, date, dayOfWeek, bell, reason, onReasonChange, onRemove, canEdit }: {
-  staff: Staff
+export interface AbsentTeacherPanelProps {
+  staffId: string
+  staffName: string
   date: string
+  /** 1–6; 0 when the date is a Sunday, in which case nothing is taught. */
   dayOfWeek: number
-  bell?: BellSchedule
+  academicYearId: string
+  bell?: BellScheduleRecord
+  /** Today's arrangements for this teacher, from the day query. */
+  substitutions: SubstitutionRecord[]
   reason: string
   onReasonChange: (v: string) => void
   onRemove: () => void
   canEdit: boolean
-}) {
-  const params = { staffId: staff.id, date }
+}
+
+/** One absent teacher: their card row plus every period that needs an arrangement today. */
+export function AbsentTeacherPanel({ staffId, staffName, date, dayOfWeek, academicYearId, bell, substitutions, reason, onReasonChange, onRemove, canEdit }: AbsentTeacherPanelProps) {
+  const { schoolId } = useSchoolContext()
+  const params = { staffId, date }
   const { data: periods = [], isLoading } = useQuery({
-    queryKey: qk.absentTeacherPeriods(params),
-    queryFn: () => api.timetable.absentTeacherPeriods(params),
+    queryKey: qk.absentPeriods(schoolId, params),
+    queryFn: () => api.timetable.absentPeriods(schoolId, params),
+    enabled: canEdit,
   })
 
   return (
@@ -36,14 +49,14 @@ export function AbsentTeacherPanel({ staff, date, dayOfWeek, bell, reason, onRea
       className="mb-3"
       title={
         <span className="flex items-center gap-2.5">
-          <UserAvatar name={fullName(staff)} size="sm" />
-          <span>{fullName(staff)}</span>
+          <UserAvatar name={staffName} size="sm" />
+          <span>{staffName}</span>
           <span className="text-[12.5px] font-normal text-muted-foreground">{periods.length} periods today</span>
         </span>
       }
       actions={
         <span className="flex items-center gap-2">
-          <Input value={reason} onChange={(e) => onReasonChange(e.target.value)} placeholder="Reason" className="h-7 w-40 text-[12.5px]" disabled={!canEdit} />
+          <Input value={reason} onChange={(e) => onReasonChange(e.target.value)} placeholder="Reason" aria-label={`Reason for ${staffName}`} className="h-7 w-40 text-[12.5px]" />
           <Button variant="ghost" size="icon-sm" onClick={onRemove} aria-label="Remove teacher"><X /></Button>
         </span>
       }
@@ -66,16 +79,25 @@ export function AbsentTeacherPanel({ staff, date, dayOfWeek, bell, reason, onRea
           <tbody>
             {periods.map((p) => {
               const period = bell?.periods.find((x) => x.index === p.periodIndex)
+              const existing = substitutions.find((s) => s.section.id === p.section.id && s.periodIndex === p.periodIndex)
               return (
-                <tr key={p.id}>
+                <tr key={`${p.section.id}|${p.periodIndex}`}>
                   <td className="h-12 border-b px-4">
-                    <div className="font-medium">{period?.name ?? `Period ${p.periodIndex + 1}`}</div>
+                    <div className="font-medium">{periodNameFor(bell, p.periodIndex)}</div>
                     {period && <div className="text-[12px] tabular-nums text-muted-foreground">{period.startTime}–{period.endTime}</div>}
                   </td>
-                  <td className="h-12 border-b border-l px-3"><Tag color={colorFor(p.sectionId)}>{p.grade?.name} - {p.section?.name}</Tag></td>
-                  <td className="h-12 border-b border-l px-3"><Tag color={colorFor(p.subject?.code ?? p.subjectId)}>{p.subject?.name ?? 'Subject'}</Tag></td>
+                  <td className="h-12 border-b border-l px-3"><Tag color={colorFor(p.section.id)}>{p.section.name}</Tag></td>
+                  <td className="h-12 border-b border-l px-3"><Tag color={colorFor(p.subject.id)}>{p.subject.name}</Tag></td>
                   <td className="h-12 border-b border-l px-3">
-                    <ArrangementCell row={p} date={date} dayOfWeek={dayOfWeek} absentStaffId={staff.id} reason={reason} canEdit={canEdit} />
+                    <ArrangementCell
+                      cell={p}
+                      existing={existing}
+                      date={date}
+                      dayOfWeek={dayOfWeek}
+                      academicYearId={academicYearId}
+                      absentStaffId={staffId}
+                      reason={reason}
+                    />
                   </td>
                 </tr>
               )
@@ -87,56 +109,68 @@ export function AbsentTeacherPanel({ staff, date, dayOfWeek, bell, reason, onRea
   )
 }
 
-function ArrangementCell({ row, date, dayOfWeek, absentStaffId, reason, canEdit }: {
-  row: TimetableCell & { substitution?: { id: string; substituteStaffId?: string; notified: boolean } }
+function ArrangementCell({ cell, existing, date, dayOfWeek, academicYearId, absentStaffId, reason }: {
+  cell: TimetableCellRecord
+  existing?: SubstitutionRecord
   date: string
   dayOfWeek: number
+  academicYearId: string
   absentStaffId: string
   reason: string
-  canEdit: boolean
 }) {
-  const qc = useQueryClient()
+  const { schoolId } = useSchoolContext()
+  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
-  const sub = row.substitution
 
   const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['timetable'] })
-    qc.invalidateQueries({ queryKey: qk.substitutions(date) })
+    void queryClient.invalidateQueries({ queryKey: [schoolId, 'timetable'] })
   }
 
   const remove = useMutation({
-    mutationFn: (id: string) => api.timetable.removeSubstitution(id),
-    onSuccess: () => { invalidate(); toast.success('Arrangement removed') },
-    onError: (e: Error) => toast.error(e.message),
+    mutationFn: (id: string) => api.timetable.deleteSubstitution(schoolId, id),
+    onSuccess: () => { invalidate(); toast.success('Removed the arrangement') },
+    onError: (error) => toast.error(describeError(error)),
   })
 
   const add = useMutation({
-    mutationFn: (substituteStaffId?: string) => api.timetable.addSubstitution({
-      date, sectionId: row.sectionId, periodIndex: row.periodIndex, subjectId: row.subjectId,
-      absentStaffId, substituteStaffId, reason: reason || undefined, notified: false,
-    }),
-    onSuccess: () => { invalidate(); setOpen(false); toast.success('Arrangement saved') },
-    onError: (e: Error) => toast.error(e.message),
+    mutationFn: (substituteStaffId?: string) => {
+      const parsed = TimetableSubstitutionRequest.safeParse({
+        date,
+        sectionId: cell.section.id,
+        periodIndex: cell.periodIndex,
+        subjectId: cell.subject.id,
+        absentStaffId,
+        ...(substituteStaffId ? { substituteStaffId } : {}),
+        ...(reason.trim() ? { reason: reason.trim() } : {}),
+      })
+      if (!parsed.success) return Promise.reject(new Error('invalid'))
+      // One arrangement per class and period on a day, so changing the substitute
+      // means dropping the current one first; the server refuses a second insert.
+      const create = () => api.timetable.createSubstitution(schoolId, parsed.data)
+      return existing ? api.timetable.deleteSubstitution(schoolId, existing.id).then(create) : create()
+    },
+    onSuccess: () => { invalidate(); setOpen(false); toast.success('Saved the arrangement') },
+    onError: (error) => toast.error(describeError(error)),
   })
 
   const picker = (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        {sub
-          ? <Button variant="ghost" size="xs" disabled={!canEdit}>Change</Button>
+        {existing
+          ? <Button variant="ghost" size="xs">Change</Button>
           : (
-            <button type="button" disabled={!canEdit} className="inline-flex h-7 items-center gap-1.5 rounded-md border border-dashed px-2 text-[12.5px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50">
+            <button type="button" className="inline-flex h-7 items-center gap-1.5 rounded-md border border-dashed px-2 text-[12.5px] text-muted-foreground hover:bg-accent hover:text-foreground">
               <Plus className="size-3.5" /> Arrange
             </button>
           )}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-0">
         <FreeTeacherList
+          academicYearId={academicYearId}
           dayOfWeek={dayOfWeek}
-          periodIndex={row.periodIndex}
-          subjectId={row.subjectId}
-          subjectName={row.subject?.name ?? 'this subject'}
-          date={date}
+          periodIndex={cell.periodIndex}
+          subjectId={cell.subject.id}
+          subjectName={cell.subject.name}
           onPick={(id) => add.mutate(id)}
           pending={add.isPending}
         />
@@ -144,38 +178,37 @@ function ArrangementCell({ row, date, dayOfWeek, absentStaffId, reason, canEdit 
     </Popover>
   )
 
-  if (!sub) return picker
+  if (!existing) return picker
 
   return (
     <span className="flex items-center gap-2">
-      <span className={cn('size-1.5 shrink-0 rounded-full', sub.notified ? 'bg-tag-green' : 'bg-tag-orange')} title={sub.notified ? 'Notified' : 'Pending'} />
-      {sub.substituteStaffId
-        ? <SubstituteName staffId={sub.substituteStaffId} />
+      <span className={cn('size-1.5 shrink-0 rounded-full', existing.notified ? 'bg-tag-green' : 'bg-tag-orange')} title={existing.notified ? 'Notified' : 'Pending'} />
+      {existing.substituteTeacher
+        ? <span className="flex items-center gap-1.5 whitespace-nowrap"><UserAvatar name={existing.substituteTeacher.name} size="xs" />{existing.substituteTeacher.name}</span>
         : <Tag>Free period</Tag>}
       {picker}
-      {canEdit && <Button variant="ghost" size="icon-xs" onClick={() => remove.mutate(sub.id)} aria-label="Remove arrangement"><X /></Button>}
+      <Button variant="ghost" size="icon-xs" onClick={() => remove.mutate(existing.id)} aria-label="Remove arrangement"><X /></Button>
     </span>
   )
 }
 
-function SubstituteName({ staffId }: { staffId: string }) {
-  const { data } = useQuery({ queryKey: qk.staffMember(staffId), queryFn: () => api.staff.get(staffId) })
-  if (!data) return <span className="text-muted-foreground">…</span>
-  return <span className="flex items-center gap-1.5 whitespace-nowrap"><UserAvatar name={fullName(data)} size="xs" />{fullName(data)}</span>
-}
-
 /** Free teachers for a slot, subject teachers first, plus "leave as free period". */
-export function FreeTeacherList({ dayOfWeek, periodIndex, subjectId, subjectName, date, onPick, pending }: {
+export function FreeTeacherList({ academicYearId, dayOfWeek, periodIndex, subjectId, subjectName, onPick, pending }: {
+  academicYearId: string
   dayOfWeek: number
   periodIndex: number
   subjectId: string
   subjectName: string
-  date: string
   onPick: (staffId?: string) => void
   pending?: boolean
 }) {
-  const params = { dayOfWeek, periodIndex, subjectId, date }
-  const { data = [], isLoading } = useQuery({ queryKey: qk.freeTeachers(params), queryFn: () => api.timetable.freeTeachers(params) })
+  const { schoolId } = useSchoolContext()
+  const params = { academicYearId, dayOfWeek, periodIndex, subjectId }
+  const { data = [], isLoading } = useQuery({
+    queryKey: qk.freeTeachers(schoolId, params),
+    queryFn: () => api.timetable.freeTeachers(schoolId, params),
+    enabled: dayOfWeek >= 1 && dayOfWeek <= 6 && !!academicYearId,
+  })
   const teaches = data.filter((t) => t.teachesSubject)
   const others = data.filter((t) => !t.teachesSubject)
 
@@ -199,14 +232,19 @@ export function FreeTeacherList({ dayOfWeek, periodIndex, subjectId, subjectName
   )
 }
 
-function Group({ label, rows, onPick, pending }: { label: string; rows: Array<Staff & { periodsPerWeek: number }>; onPick: (id: string) => void; pending?: boolean }) {
+function Group({ label, rows, onPick, pending }: {
+  label: string
+  rows: Array<{ teacher: { id: string; name: string }; periodsPerWeek: number }>
+  onPick: (id: string) => void
+  pending?: boolean
+}) {
   return (
     <div>
       <div className="px-3 py-1.5 text-[11.5px] font-medium tracking-wide text-muted-foreground">{label}</div>
       {rows.map((t) => (
-        <button key={t.id} type="button" disabled={pending} onClick={() => onPick(t.id)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-accent disabled:opacity-50">
-          <UserAvatar name={fullName(t)} size="xs" />
-          <span className="min-w-0 flex-1 truncate">{fullName(t)}</span>
+        <button key={t.teacher.id} type="button" disabled={pending} onClick={() => onPick(t.teacher.id)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-accent disabled:opacity-50">
+          <UserAvatar name={t.teacher.name} size="xs" />
+          <span className="min-w-0 flex-1 truncate">{t.teacher.name}</span>
           <span className="text-[11.5px] tabular-nums text-muted-foreground">{t.periodsPerWeek}/week</span>
         </button>
       ))}

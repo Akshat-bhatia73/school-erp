@@ -1,139 +1,164 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { api } from '@/api/client'
+import { EndEnrollmentRequest, MoveStudentRequest } from '@erp/contracts'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { qk } from '@/lib/query'
+import { api } from '@/lib/api'
+import { describeError } from '@/lib/api-errors'
+import { useSchoolContext } from '@/lib/session'
+import { useSectionOptions } from './use-section-options'
 
-function useCurrentYear() {
-  return useQuery({ queryKey: [...qk.academicYears, 'current'], queryFn: () => api.academicYears.current() })
+type FieldErrors = Record<string, string>
+
+function issuesOf(error: { issues: Array<{ path: PropertyKey[]; message: string }> }): FieldErrors {
+  const found: FieldErrors = {}
+  for (const issue of error.issues) {
+    const key = issue.path.map(String).join('.') || 'form'
+    if (!found[key]) found[key] = issue.message
+  }
+  return found
 }
 
-/** Move one or many students into another section */
-export function MoveSectionDialog({ open, onOpenChange, studentIds, onDone }: { open: boolean; onOpenChange: (v: boolean) => void; studentIds: string[]; onDone?: () => void }) {
-  const qc = useQueryClient()
-  const { data: year } = useCurrentYear()
-  const { data: grades = [] } = useQuery({ queryKey: qk.grades, queryFn: () => api.grades.list() })
-  const [gradeId, setGradeId] = useState<string>('')
-  const [sectionId, setSectionId] = useState<string>('')
+/** Move one student into another section of the year they are enrolled in. */
+export function MoveSectionDialog({ open, onOpenChange, studentId, expectedVersion, academicYearId }: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  studentId: string
+  expectedVersion: number
+  academicYearId: string | null
+}) {
+  const { schoolId } = useSchoolContext()
+  const queryClient = useQueryClient()
+  const { options, isLoading: sectionsLoading } = useSectionOptions(academicYearId)
+  const [sectionId, setSectionId] = useState('')
   const [rollNumber, setRollNumber] = useState('')
-  const [error, setError] = useState<string>()
-  const { data: sections = [] } = useQuery({
-    queryKey: qk.sections({ academicYearId: year?.id, gradeId }),
-    queryFn: () => api.sections.list({ academicYearId: year?.id, gradeId }),
-    enabled: !!gradeId,
-  })
+  const [reason, setReason] = useState('')
+  const [errors, setErrors] = useState<FieldErrors>({})
 
   const move = useMutation({
-    mutationFn: async () => {
-      for (const id of studentIds) await api.students.move(id, { sectionId, rollNumber: studentIds.length === 1 && rollNumber ? Number(rollNumber) : undefined })
-    },
+    mutationFn: (body: Parameters<typeof api.students.move>[2]) => api.students.move(schoolId, studentId, body),
     onSuccess: () => {
-      toast.success(studentIds.length === 1 ? 'Student moved' : `${studentIds.length} students moved`)
-      qc.invalidateQueries()
+      void queryClient.invalidateQueries({ queryKey: [schoolId, 'students'] })
+      toast.success('Moved to the new section')
       onOpenChange(false)
-      onDone?.()
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (error) => toast.error(describeError(error)),
   })
+
+  const submit = () => {
+    const parsed = MoveStudentRequest.safeParse({
+      expectedVersion,
+      sectionId,
+      rollNumber: rollNumber.trim() === '' ? undefined : Number(rollNumber),
+      reason: reason.trim(),
+    })
+    if (!parsed.success) {
+      setErrors(issuesOf(parsed.error))
+      return
+    }
+    setErrors({})
+    move.mutate(parsed.data)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Move section</DialogTitle>
-          <DialogDescription>{studentIds.length === 1 ? 'Pick the class and section to move this student into.' : `Moving ${studentIds.length} students into one section.`}</DialogDescription>
+          <DialogTitle>Move to another section</DialogTitle>
+          <DialogDescription>Pick the section this student joins. The old enrolment is kept for history.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <div className="grid gap-1.5">
-            <Label>Class</Label>
-            <Select value={gradeId} onValueChange={(v) => { setGradeId(v); setSectionId('') }}>
-              <SelectTrigger className="w-full"><SelectValue placeholder="Pick a class" /></SelectTrigger>
-              <SelectContent>{grades.map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
+            <Label>Section</Label>
+            <Select value={sectionId} onValueChange={setSectionId}>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Pick a section" /></SelectTrigger>
+              <SelectContent>{options.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
             </Select>
+            {!sectionsLoading && options.length === 0 && (
+              <p className="text-[12px] text-muted-foreground">No other section is set up for this year, so there is nowhere to move this student yet.</p>
+            )}
+            {errors.sectionId && <p className="text-[12px] text-destructive">{errors.sectionId}</p>}
           </div>
           <div className="grid gap-1.5">
-            <Label>Section</Label>
-            <Select value={sectionId} onValueChange={setSectionId} disabled={!gradeId}>
-              <SelectTrigger className="w-full"><SelectValue placeholder={gradeId ? 'Pick a section' : 'Pick a class first'} /></SelectTrigger>
-              <SelectContent>{sections.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
-            </Select>
+            <Label>Roll number</Label>
+            <Input value={rollNumber} inputMode="numeric" placeholder="Optional" onChange={(e) => setRollNumber(e.target.value)} />
+            {errors.rollNumber && <p className="text-[12px] text-destructive">{errors.rollNumber}</p>}
           </div>
-          {studentIds.length === 1 && (
-            <div className="grid gap-1.5">
-              <Label>Roll number</Label>
-              <Input value={rollNumber} onChange={(e) => setRollNumber(e.target.value)} inputMode="numeric" placeholder="Optional" />
-            </div>
-          )}
-          {error && <p className="text-[12.5px] text-destructive">{error}</p>}
+          <div className="grid gap-1.5">
+            <Label>Reason</Label>
+            <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is this student moving?" />
+            {errors.reason && <p className="text-[12px] text-destructive">{errors.reason}</p>}
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button disabled={!sectionId || move.isPending} onClick={() => { setError(undefined); move.mutate() }}>Move</Button>
+          <Button disabled={move.isPending} onClick={submit}>{move.isPending ? 'Moving…' : 'Move student'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
 
-const REASONS = ['Transferred to another school', 'Shifted city', 'Completed schooling', 'Long absence', 'Other']
-
-/** Mark one or many students as left, with a date and a reason */
-export function MarkLeftDialog({ open, onOpenChange, studentIds, onDone }: { open: boolean; onOpenChange: (v: boolean) => void; studentIds: string[]; onDone?: () => void }) {
-  const qc = useQueryClient()
+/** End the current enrolment: the student stops showing in the active roster. */
+export function MarkLeftDialog({ open, onOpenChange, studentId, expectedVersion }: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  studentId: string
+  expectedVersion: number
+}) {
+  const { schoolId } = useSchoolContext()
+  const queryClient = useQueryClient()
   const [leftOn, setLeftOn] = useState(() => new Date().toISOString().slice(0, 10))
-  const [reason, setReason] = useState(REASONS[0]!)
-  const [notes, setNotes] = useState('')
-  const [error, setError] = useState<string>()
+  const [reason, setReason] = useState('')
+  const [errors, setErrors] = useState<FieldErrors>({})
 
   const markLeft = useMutation({
-    mutationFn: async () => {
-      const text = reason === 'Other' ? notes.trim() : notes.trim() ? `${reason} — ${notes.trim()}` : reason
-      if (!text) throw new Error('Write a reason')
-      for (const id of studentIds) await api.students.markLeft(id, { leftOn, reason: text })
-    },
+    mutationFn: (body: Parameters<typeof api.students.leave>[2]) => api.students.leave(schoolId, studentId, body),
     onSuccess: () => {
-      toast.success(studentIds.length === 1 ? 'Marked as left' : `${studentIds.length} students marked as left`)
-      qc.invalidateQueries()
+      void queryClient.invalidateQueries({ queryKey: [schoolId, 'students'] })
+      toast.success('Marked as left')
       onOpenChange(false)
-      onDone?.()
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (error) => toast.error(describeError(error)),
   })
+
+  const submit = () => {
+    const parsed = EndEnrollmentRequest.safeParse({ expectedVersion, leftOn, reason: reason.trim() })
+    if (!parsed.success) {
+      setErrors(issuesOf(parsed.error))
+      return
+    }
+    setErrors({})
+    markLeft.mutate(parsed.data)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Mark as left</DialogTitle>
-          <DialogDescription>{studentIds.length === 1 ? 'The student stops showing in the active list.' : `${studentIds.length} students will stop showing in the active list.`}</DialogDescription>
+          <DialogDescription>The student stops showing in the active list. The record stays for history.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <div className="grid gap-1.5">
             <Label>Last day</Label>
             <Input type="date" value={leftOn} onChange={(e) => setLeftOn(e.target.value)} />
+            {errors.leftOn && <p className="text-[12px] text-destructive">{errors.leftOn}</p>}
           </div>
           <div className="grid gap-1.5">
             <Label>Reason</Label>
-            <Select value={reason} onValueChange={setReason}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>{REASONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
-            </Select>
+            <Textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Transferred to another school" />
+            {errors.reason && <p className="text-[12px] text-destructive">{errors.reason}</p>}
           </div>
-          <div className="grid gap-1.5">
-            <Label>Notes</Label>
-            <Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={reason === 'Other' ? 'Write the reason' : 'Optional'} />
-          </div>
-          {error && <p className="text-[12.5px] text-destructive">{error}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button variant="destructive" disabled={markLeft.isPending} onClick={() => { setError(undefined); markLeft.mutate() }}>Mark as left</Button>
+          <Button variant="destructive" disabled={markLeft.isPending} onClick={submit}>{markLeft.isPending ? 'Saving…' : 'Mark as left'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
