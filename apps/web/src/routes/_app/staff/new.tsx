@@ -1,66 +1,52 @@
-import { useMemo, useState } from 'react'
+/**
+ * Add a staff member. Creation never makes a login and never sets pay; the contract says so.
+ * The employee code is not typed here either: the server assigns it from the school's counter.
+ */
+import { useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Users } from 'lucide-react'
-import type { StaffInput } from '@erp/shared'
-import { api } from '@/api/client'
+import { api } from '@/lib/api'
+import type { CreateStaffInput } from '@/lib/api/staff'
 import { EmptyState, PageHeader, Panel } from '@/components/shared/page'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
-import { qk, queryClient } from '@/lib/query'
-import { useSession } from '@/lib/session'
-import { AddressFields, EmploymentFields, PayFields, PersonalFields, emptyDraft, validateDraft, type FieldErrors, type StaffDraft } from '@/components/staff/form'
-import { canSeePay } from '@/components/staff/shared'
-import { createStaffLogin } from '@/components/staff/create-login'
+import { describeError } from '@/lib/api-errors'
+import { qk } from '@/lib/query'
+import { useSchoolContext } from '@/lib/session'
+import { EmploymentFields, PersonalFields, emptyDraft, validateDraft, type FieldErrors, type StaffDraft } from '@/components/staff/form'
 
 export const Route = createFileRoute('/_app/staff/new')({ component: Page })
 
 function Page() {
   const navigate = useNavigate()
-  const { can, roles, school } = useSession()
-  const canCreate = can('staff', 'create')
-  const showPay = canSeePay(roles)
-
-  const { data: departments = [] } = useQuery({ queryKey: qk.departments, queryFn: () => api.staff.departments() })
-  const listParams = { status: 'all' as const, pageSize: 500 }
-  const { data: existing } = useQuery({ queryKey: qk.staff(listParams), queryFn: () => api.staff.list(listParams) })
-
-  const suggestedCode = useMemo(() => {
-    const prefix = `${school.shortName.toUpperCase()}-E`
-    const highest = (existing?.items ?? []).reduce((max, s) => {
-      const n = Number(s.employeeCode.match(/(\d+)$/)?.[1] ?? 0)
-      return n > max ? n : max
-    }, 0)
-    return `${prefix}${String(highest + 1).padStart(3, '0')}`
-  }, [school, existing])
+  const queryClient = useQueryClient()
+  const { schoolId, hasPermission } = useSchoolContext()
+  const canCreate = hasPermission('staff.create')
 
   const [draft, setDraft] = useState<StaffDraft>(emptyDraft)
   const [errors, setErrors] = useState<FieldErrors>({})
-  const [createLogin, setCreateLogin] = useState(false)
-  const set = (p: Partial<StaffDraft>) => setDraft((d) => ({ ...d, ...p }))
+  const set = (patch: Partial<StaffDraft>) => setDraft((current) => ({ ...current, ...patch }))
 
-  const code = draft.employeeCode || suggestedCode
+  const departmentsQuery = useQuery({
+    queryKey: qk.departments(schoolId),
+    queryFn: () => api.staff.departments(schoolId),
+    enabled: canCreate,
+  })
 
   const save = useMutation({
-    mutationFn: async (input: StaffInput) => {
-      const created = await api.staff.create(input)
-      if (createLogin) await createStaffLogin(created)
-      return created
-    },
+    // The create response carries the code the server assigned, so the toast always names it.
+    mutationFn: (input: CreateStaffInput) => api.staff.create(schoolId, input),
     onSuccess: (created) => {
-      queryClient.invalidateQueries({ queryKey: ['staff'] })
-      queryClient.invalidateQueries({ queryKey: qk.departments })
-      queryClient.invalidateQueries({ queryKey: qk.users })
-      toast.success(`Added ${created.firstName} to staff`)
-      navigate({ to: '/staff/$staffId', params: { staffId: created.id } })
+      void queryClient.invalidateQueries({ queryKey: [schoolId, 'staff'] })
+      toast.success(`Added ${created.displayName} as ${created.employeeCode}`)
+      void navigate({ to: '/staff/$staffId', params: { staffId: created.id } })
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (error) => toast.error(describeError(error)),
   })
 
   function onSubmit() {
-    const result = validateDraft({ ...draft, employeeCode: code })
+    const result = validateDraft(draft)
     if (!result.ok) {
       setErrors(result.errors)
       toast.error('Check the highlighted fields')
@@ -91,42 +77,18 @@ function Page() {
         }
       />
       <div className="min-h-0 flex-1 overflow-auto scrollbar-thin">
-        <div className="mx-auto max-w-3xl space-y-4 px-5 py-6">
+        <div className="mx-auto max-w-3xl space-y-4 px-3 py-4 md:px-5 md:py-6">
           <Panel title="Personal" description="Who this person is and how to reach them.">
             <PersonalFields d={draft} set={set} errors={errors} />
           </Panel>
 
-          <Panel title="Employment" description="Role in the school and joining details.">
-            <EmploymentFields
-              d={{ ...draft, employeeCode: code }}
-              set={set}
-              errors={errors}
-              departments={departments}
-              codeHint={draft.employeeCode ? undefined : `Suggested: ${suggestedCode}`}
-            />
+          <Panel title="Employment" description="Role in the school and joining details. The employee code is assigned when you save.">
+            <EmploymentFields d={draft} set={set} errors={errors} departments={departmentsQuery.data ?? []} />
           </Panel>
 
-          {showPay && (
-            <Panel title="Pay & bank" description="Only the owner and the accountant can see this.">
-              <PayFields d={draft} set={set} errors={errors} />
-            </Panel>
-          )}
-
-          <Panel title="Address">
-            <AddressFields d={draft} set={set} errors={errors} />
-          </Panel>
-
-          <Panel>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <Label className="text-[13.5px] font-medium">Create a login for this person</Label>
-                <p className="mt-0.5 text-[12.5px] text-muted-foreground">
-                  {draft.staffType === 'teaching' ? 'They get the Teacher role' : 'They get the Admin role'} and sign in with {draft.phone || 'their phone number'}.
-                </p>
-              </div>
-              <Switch checked={createLogin} onCheckedChange={setCreateLogin} />
-            </div>
-          </Panel>
+          <p className="text-[12.5px] text-muted-foreground">
+            Pay and a login are set later, from the staff record.
+          </p>
         </div>
       </div>
     </>

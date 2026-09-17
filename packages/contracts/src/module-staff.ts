@@ -11,10 +11,10 @@ export const StaffGender = z.enum(['male', 'female', 'other'])
 /**
  * Creating a staff record never creates a login, never sets pay and never sets
  * bank or identity numbers, so those keys are simply not part of the request.
- * A strict object turns an attempt to send them into INVALID_REQUEST.
+ * A strict object turns an attempt to send them into INVALID_REQUEST. The
+ * employee code is absent too: the server assigns it from the school counter.
  */
 export const StaffCreateRequest = z.strictObject({
-  employeeCode: z.string().trim().min(1).max(100),
   firstName: DisplayName,
   lastName: DisplayName.optional(),
   staffType: StaffType,

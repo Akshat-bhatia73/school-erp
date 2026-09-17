@@ -1,6 +1,6 @@
 # School ERP — repo guide
 
-Monorepo (pnpm). Phase 1 web app with dummy data. No backend yet: `apps/web/src/api/client.ts` is an in-memory mock with the same shape the real API will have.
+Monorepo (pnpm). The web app runs on the real backend: `apps/api` serves the protected school APIs and every screen calls them through `apps/web/src/lib/api`.
 
 ## Layout
 - `packages/db` — backend-only PostgreSQL/Drizzle foundation. Use the trusted tenant transaction helper and separate runtime, auth and identity credentials. SQL migrations own constraints/RLS; do not use Drizzle push. See `docs/auth/DATABASE.md`.
@@ -8,12 +8,15 @@ Monorepo (pnpm). Phase 1 web app with dummy data. No backend yet: `apps/web/src/
 - `apps/api/src/memberships` — backend-only member directory, role changes, suspend/remove/restore, ownership transfer, credential recovery and the access explanation route. Every write locks the school, authorizes through `@erp/authz`, checks delegation and writes one audit row in the same transaction. Never change a membership outside these helpers. See `docs/auth/ACCESS_MANAGEMENT.md`.
 - `apps/api/src/invitations` — backend-only invitation workflows: create, resend, revoke and accept. Tokens are `schoolId.secret`, stored as a digest only, valid 48 hours, and delivered through the outbox after commit. Never return or log a raw token. See `docs/auth/ACCESS_MANAGEMENT.md`.
 - `apps/api/src/modules` — backend-only protected school APIs: setup, students, bulk admission and promotion, staff, timetable, dashboard, search, audit and file download. Register every route through `protectedRoute` from `modules/shared`; it decides the declared permission against the whole school before the handler and parses the response through its contract. Inside one `withTenantTransaction`, AND `planPredicate(readPlan(...), scopedTableFor(...))` into every read so a list contains a row only when its detail read would; never fetch the school and filter in JavaScript. Writes lock the school, re-decide the record, validate every referenced record is in this school, use `bumpVersion` and write exactly one audit row. See `docs/auth/PROTECTED_APIS.md`.
+- `api/index.js`, `apps/api/src/vercel.ts`, `apps/api/src/runtime.ts` — the API as one Vercel Function in the same project as the site. `runtime.ts` is the only place the app is assembled; `pnpm build` bundles it. Delivery (`delivery/resend.ts`, held text messages for test builds), private documents (`files/blob.ts`) and error reporting (`observability.ts`) are chosen by configuration. See `docs/auth/RELEASE.md` section 0.1.
 - `packages/contracts/src/*` — new auth/RBAC and HTTP boundary contracts. Use `@erp/contracts` for new backend/frontend integration; `@erp/shared/contracts` is an explicit compatibility bridge. Server-only interfaces are at `@erp/contracts/server`. Do not use the legacy mock `UserInput` or role resolver for backend authorization. See `docs/auth/CONTRACTS.md` and `PERMISSION_MATRIX.md`.
-- `packages/shared/src/*` — data models (Zod schemas + TS types). Source of truth. Extend here if a screen needs a field that is missing.
-- `apps/web/src/api/seed.ts` — deterministic dummy data for two Indian schools (SVM, LFPS).
-- `apps/web/src/api/client.ts` — mock API: `api.students.list(...)`, `api.staff.get(id)`, etc. All async. Mutations write audit rows.
-- `apps/web/src/lib/query.ts` — `queryClient` and `qk` query keys. Always use `qk.*` keys and invalidate them after mutations.
-- `apps/web/src/lib/session.tsx` — `useSession()` gives `{ school, user, roles, can(module, action), scope(module) }`. Auth is skipped; a "viewing as" switcher picks the user.
+- `packages/shared/src/*` — the older data models (Zod schemas + TS types), used by `apps/api` and the contracts bridge. `apps/web` no longer depends on it; a screen that needs a missing field needs it added to `@erp/contracts` and to the endpoint that sends it.
+- `apps/web/src/lib/api/*` — the HTTP client for the protected APIs, one file per backend module plus the single `api` object. Every function takes `schoolId` first: `api.students.list(schoolId, params)`, `api.staff.get(schoolId, id)`. All async, all parsed through the `@erp/contracts` schemas.
+- `apps/web/src/lib/permissions.ts` — pure readers of what the server already decided: `allows(allowedActions, key)`, `assignableRolesFor`, `canManageTarget`, `diffRoleChange`, `audienceFor`, `roleLabel`. Nothing here is an authorization decision.
+- `apps/web/src/lib/use-academic-year.ts` — `useAcademicYear()`, the one place that works out which academic year a screen is in (the year list for office roles, the visible sections for a teacher or parent).
+- `apps/web/src/lib/query.ts` — `createQueryClient()` and the `qk` query keys. Every key starts with the school id and nests under a module prefix. The provider owns the client, so read it with `useQueryClient()`. Always use `qk.*` keys and invalidate the prefix after mutations.
+- `apps/web/src/components/auth/*`, `lib/session.tsx`, `lib/http.ts`, `lib/auth-client.ts` — the real login and application session: public auth routes, the same-origin `/api` client and the server-derived session. See `docs/auth/WEB_SESSION.md`.
+- `apps/web/src/lib/session.tsx` — `useSession()` gives the server-derived session: `{ status, user, memberships, school, roleKeys, capabilities, hasPermission, context, selectSchool, signOut }`. Identity comes from `/api/me` and `/api/schools/:id/context`, never from the browser. Inside `_app`, use `useSchoolContext()` for `{ schoolId, membershipId, school, roleKeys, capabilities, hasPermission }` — it is only callable once the context is ready, so nothing is null.
 - `apps/web/src/components/ui/*` — shadcn primitives (button, input, select, dialog, sheet, dropdown-menu, tabs, table, tooltip, checkbox, switch, textarea, command, popover, skeleton, badge, alert, alert-dialog, progress, radio-group, scroll-area, separator, avatar, label, sonner).
 - `apps/web/src/components/shared/*` — app-level building blocks. USE THESE, do not reinvent:
   - `page.tsx`: `PageHeader` (breadcrumb + actions), `Toolbar` (filter row), `PageTabs`, `Panel`, `Facts` (label/value grid), `EmptyState`, `SectionLabel`
@@ -30,10 +33,10 @@ Monorepo (pnpm). Phase 1 web app with dummy data. No backend yet: `apps/web/src/
 - Every list screen: `PageHeader` → `Toolbar` with `FilterChip`s + search `Input` → `DataTable` with `footer` ("N students in view") → row click navigates to detail.
 - Every detail screen: `PageHeader` with breadcrumb back to list; header block with avatar/name/tags; `PageTabs` or `Panel`s with `Facts`.
 - Forms: `Sheet` (side panel) for quick add/edit, full page for long forms (admit student). Validate with the Zod schemas from `@erp/shared`. Show errors inline. `toast.success(...)` from `sonner` on save. Invalidate queries.
-- Data fetching: `useQuery({ queryKey: qk.x(...), queryFn: () => api.x.list(...) })`. `useMutation` + `queryClient.invalidateQueries`.
-- Permissions: hide/disable actions with `useSession().can('students', 'edit')`. Salary fields only when `can('staff','edit')` and role is owner/accountant.
+- Data fetching: `useQuery({ queryKey: qk.x(schoolId, params), queryFn: () => api.x.list(schoolId, params) })`. `useMutation` sends `expectedVersion` where the contract has one, invalidates the module prefix (`[schoolId, 'students']`) and reports failures with `describeError` from `@/lib/api-errors`.
+- Permissions: a control the person cannot use is not rendered. `hasPermission('students.create')` from `useSchoolContext()` for a screen-level control; `allows(record.allowedActions, 'students.update_basic')` from `@/lib/permissions` for a control on one record. When both exist, the record wins. Permission is never a reason to disable a control.
 - Indian formats: `formatINR`, `formatDate` from `lib/utils.ts`. Phone is 10 digits. Academic year is April–March.
 - Dates: keep ISO strings in state, format only for display.
 - Copy: plain English, no jargon. "Fee dues" not "receivables". Buttons say what they do: "Admit student", "Save changes".
-- Icons: lucide-react only.
+- Icons: lucide-react only. The one exception is the login audience tabs, which use four Hugeicons (`@hugeicons/react` + `@hugeicons/core-free-icons`) chosen by design.
 - Routes must keep the same file paths and `createFileRoute` ids already present; add new routes only under your module's folder.

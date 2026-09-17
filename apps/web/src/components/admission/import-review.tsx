@@ -1,13 +1,13 @@
+import { useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
-import type { ImportPreview, ImportRowError, StudentImportRow } from '@erp/shared'
-import { DataTable, EntityCell } from '@/components/shared/data-table'
+import { CheckCircle2, Users } from 'lucide-react'
+import { DataTable } from '@/components/shared/data-table'
 import { EmptyState, Panel } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
-import { UserAvatar } from '@/components/shared/avatar'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { CheckCircle2 } from 'lucide-react'
-import { formatDate, humanize } from '@/lib/utils'
+import type { ImportPreview } from '@/lib/api/students'
+import { humanize } from '@/lib/utils'
+import type { SheetProblem } from './import-utils'
 
 function Tile({ label, value, tone }: { label: string; value: number; tone?: 'good' | 'bad' }) {
   return (
@@ -18,68 +18,92 @@ function Tile({ label, value, tone }: { label: string; value: number; tone?: 'go
   )
 }
 
-const validColumns: ColumnDef<StudentImportRow, unknown>[] = [
-  { id: 'row', header: 'Row #', size: 70, cell: ({ row }) => <span className="tabular-nums text-muted-foreground">{row.original.rowNumber}</span> },
-  { id: 'name', header: 'Name', cell: ({ row }) => {
-    const name = [row.original.firstName, row.original.lastName].filter(Boolean).join(' ')
-    return <EntityCell avatar={<UserAvatar name={name} size="sm" />} name={name} sub={row.original.admissionNumber || undefined} />
-  } },
-  { id: 'dob', header: 'Date of birth', cell: ({ row }) => formatDate(row.original.dateOfBirth) },
-  { id: 'gender', header: 'Gender', cell: ({ row }) => humanize(row.original.gender) },
-  { id: 'class', header: 'Class', cell: ({ row }) => <Tag color="blue">{row.original.grade} · {row.original.section}</Tag> },
-  { id: 'roll', header: 'Roll', size: 70, cell: ({ row }) => <span className="tabular-nums">{row.original.rollNumber ?? '—'}</span> },
-  { id: 'phone', header: 'Guardian phone', cell: ({ row }) => <span className="tabular-nums">{row.original.guardianPhone}</span> },
-]
+const READY_PAGE_SIZE = 50
 
-const errorColumns: ColumnDef<ImportRowError, unknown>[] = [
-  { id: 'row', header: 'Row #', size: 70, cell: ({ row }) => <span className="tabular-nums text-muted-foreground">{row.original.rowNumber}</span> },
+type ProblemRow = { row: number; field: string; message: string }
+
+const problemColumns: ColumnDef<ProblemRow, unknown>[] = [
+  { id: 'row', header: 'Row #', size: 70, cell: ({ row }) => <span className="tabular-nums text-muted-foreground">{row.original.row}</span> },
   { id: 'field', header: 'Field', size: 180, cell: ({ row }) => <Tag color="grey">{row.original.field ? humanize(row.original.field.replace(/([A-Z])/g, ' $1').toLowerCase()) : 'Row'}</Tag> },
   { id: 'problem', header: 'Problem', cell: ({ row }) => row.original.message },
 ]
 
-export function ImportReview({ preview, onBack, onImport, isImporting }: { preview: ImportPreview; onBack: () => void; onImport: () => void; isImporting: boolean }) {
-  const ready = preview.validRows.length
-  const broken = preview.errors.length
+type ReadyRow = ImportPreview['rows'][number]
+
+/** The number the row keeps, or a plain note that the server will give it one. */
+const readyColumns: ColumnDef<ReadyRow, unknown>[] = [
+  { id: 'row', header: 'Row #', size: 70, cell: ({ row }) => <span className="tabular-nums text-muted-foreground">{row.original.rowNumber}</span> },
+  { id: 'name', header: 'Student', cell: ({ row }) => [row.original.firstName, row.original.lastName].filter(Boolean).join(' ') },
+  {
+    id: 'admissionNumber',
+    header: 'Admission number',
+    size: 220,
+    cell: ({ row }) => (row.original.admissionNumber
+      ? <span className="font-mono text-[12.5px]">{row.original.admissionNumber}</span>
+      : <Tag color="grey">Will be assigned</Tag>),
+  },
+]
+
+/**
+ * What the server made of the uploaded sheet. The counts and the per-row problems are the
+ * server's: this screen never decides that a row can be imported.
+ */
+export function ImportReview({ preview, problems, onBack, onImport, isImporting }: {
+  preview: ImportPreview | null
+  /** Rows this app could not even send, because the file did not describe them.  */
+  problems: SheetProblem[]
+  onBack: () => void
+  onImport: () => void
+  isImporting: boolean
+}) {
+  const serverProblems: ProblemRow[] = (preview?.errors ?? []).map((error) => ({ row: error.row, field: error.field, message: error.message }))
+  const allProblems = [...problems, ...serverProblems].sort((a, b) => a.row - b.row)
+  const totalRows = (preview?.totalRows ?? 0) + problems.length
+  const validRows = preview?.validRows ?? 0
+
+  // A sheet can carry hundreds of rows, so the preview pages like every other list screen.
+  const readyRows = preview?.rows ?? []
+  const [page, setPage] = useState(1)
+  // A fresh upload can be shorter than the last one, so never sit past the last page.
+  const safePage = Math.min(page, Math.max(1, Math.ceil(readyRows.length / READY_PAGE_SIZE)))
+  const pageRows = useMemo(() => readyRows.slice((safePage - 1) * READY_PAGE_SIZE, safePage * READY_PAGE_SIZE), [readyRows, safePage])
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
-        <Tile label="Rows in the file" value={preview.totalRows} />
-        <Tile label="Ready to import" value={ready} tone="good" />
-        <Tile label="Need fixing" value={broken} tone="bad" />
+        <Tile label="Rows in the file" value={totalRows} />
+        <Tile label="Ready to import" value={validRows} tone="good" />
+        <Tile label="Need fixing" value={allProblems.length} tone="bad" />
       </div>
 
-      <Tabs defaultValue={ready ? 'ready' : 'errors'}>
-        <TabsList>
-          <TabsTrigger value="ready">Ready ({ready})</TabsTrigger>
-          <TabsTrigger value="errors">Errors ({broken})</TabsTrigger>
-        </TabsList>
-        <TabsContent value="ready">
-          <Panel bodyClassName="p-0 pb-0">
-            <DataTable
-              dense
-              columns={validColumns}
-              data={preview.validRows}
-              footer={<span>{ready} students ready</span>}
-              emptyState={<EmptyState icon={<CheckCircle2 />} title="No rows are ready yet" description="Fix the problems in the Errors tab and upload the file again." />}
-            />
-          </Panel>
-        </TabsContent>
-        <TabsContent value="errors">
-          <Panel bodyClassName="p-0 pb-0">
-            <DataTable
-              dense
-              columns={errorColumns}
-              data={preview.errors}
-              footer={<span>Fix these in your Excel and upload again, or import the ready rows now.</span>}
-              emptyState={<EmptyState icon={<CheckCircle2 />} title="No problems found" description="Every row in the file can be imported." />}
-            />
-          </Panel>
-        </TabsContent>
-      </Tabs>
+      <Panel title="Rows ready to import" description="A blank number is given by the school's counter when you import." bodyClassName="p-0 pb-0">
+        <DataTable
+          dense
+          columns={readyColumns}
+          data={pageRows}
+          getRowId={(row) => String(row.rowNumber)}
+          footer={<span>{readyRows.length} students in view</span>}
+          pagination={{ page: safePage, pageSize: READY_PAGE_SIZE, total: readyRows.length, onPageChange: setPage }}
+          emptyState={<EmptyState icon={<Users />} title="No rows are ready yet" description="Fix the problems below and upload the file again." />}
+        />
+      </Panel>
+
+      <Panel title="Problems to fix" bodyClassName="p-0 pb-0">
+        <DataTable
+          dense
+          columns={problemColumns}
+          data={allProblems}
+          getRowId={(row) => `${row.row}:${row.field}`}
+          footer={<span>Fix these in your Excel and upload again, or import the rows that passed.</span>}
+          emptyState={<EmptyState icon={<CheckCircle2 />} title="No problems found" description="Every row in the file can be imported." />}
+        />
+      </Panel>
 
       <div className="flex items-center justify-between border-t pt-4">
         <Button variant="outline" onClick={onBack}>Back</Button>
-        <Button onClick={onImport} disabled={!ready || isImporting}>{isImporting ? 'Importing…' : `Import ${ready} students`}</Button>
+        <Button onClick={onImport} disabled={validRows === 0 || isImporting}>
+          {isImporting ? 'Importing…' : `Import ${validRows} students`}
+        </Button>
       </div>
     </div>
   )

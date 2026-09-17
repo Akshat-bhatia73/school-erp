@@ -17,7 +17,9 @@ import type { ApiConfig } from '../config.ts'
 import type { DeliveryAdapter } from '../delivery/index.ts'
 import { CLIENT_IP_HEADER } from '../app.ts'
 import {
+  MFA_ENROLMENT_PATHS,
   MFA_VERIFY_PATHS,
+  clearUserMfaVerification,
   stampSessionMfaVerified,
 } from './mfa.ts'
 import {
@@ -175,9 +177,16 @@ export function createAuth(
        * step-up on an existing session keeps its own token.
        */
       after: createAuthMiddleware(async (ctx) => {
-        if (!MFA_VERIFY_PATHS.includes(ctx.path)) return
         const returned = (ctx.context as { returned?: unknown }).returned
         if (returned instanceof Error) return
+        if (MFA_ENROLMENT_PATHS.includes(ctx.path)) {
+          // The authenticator changed, so no earlier proof of it stands.
+          const userId = ctx.context.session?.user.id
+          if (typeof userId === 'string' && userId.length > 0)
+            await clearUserMfaVerification(authPool, userId)
+          return
+        }
+        if (!MFA_VERIFY_PATHS.includes(ctx.path)) return
         const token =
           ctx.context.newSession?.session.token ??
           (typeof returned === 'object' && returned !== null

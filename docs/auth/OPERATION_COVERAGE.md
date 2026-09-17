@@ -6,6 +6,11 @@ Safe response families below are contract names for implementation ownership; th
 
 ## Status
 
+Task 7 is built. Every feature screen now calls the protected APIs, and `apps/web` has no mock
+client: `src/api/client.ts`, `seed.ts` and `store.ts` are deleted, so the operation rows below are
+a record of what each screen used to call and where it went. See
+[the feature screens](./WEB_SCREENS.md).
+
 Task 5 is built. Every operation below marked `Task 5` now has a real endpoint in `apps/api/src/modules`; see [protected school APIs](./PROTECTED_APIS.md) for the route tables, the read and write protocols, the projection rules and the known gaps. This inventory stays the statement of intent and is not rewritten to match the code. Where the two differ, the differences are these.
 
 Owner or permission changed:
@@ -19,7 +24,7 @@ Owner or permission changed:
 - Attaching an existing guardian during admission needs `students.manage_guardians` as well as `students.create`.
 - `subjects.setGradeSubjects` answers `GradeSubjectList`, not `Subject` or `EmptySuccess`.
 - Export job status polling (`GET /api/schools/:schoolId/exports/:jobId`) is an endpoint this inventory does not list. It requires one of `students.export`, `staff.export` or `audit.export` and then re-decides the permission the job itself recorded.
-- `auditLogs.list` redaction by audience is not implemented: `audit.read` at the `finance` scope still reaches every row, because the scope term maps to TRUE.
+- `auditLogs.list` redaction by audience is the scope term: `audit.read` and `audit.export` at the `finance` scope select only rows whose action is in `FINANCE_AUDIT_ACTIONS`, so an accountant's list, count and export never exceed the money trail.
 - `timetable.bellSchedules` and `timetable.bellFor` are school-wide rather than matched scope: `timetable.read` is a permission over timetable entries, so no read plan can be built for a bell schedule.
 - Search merges the student and staff search rows into one command-menu endpoint, returns at most ten hits of each kind with no count, and answers `staff: []` rather than a refusal for a caller who holds no staff key.
 - `dashboard.summary` has no `clerk` audience, because there is no `clerk` role key in this build; the office audience is owner, principal and admin.
@@ -29,6 +34,17 @@ Owner or permission changed:
 | Current route | Entry permission and scope | Safe response family | Future owner |
 |---|---|---|---|
 | `/` | public redirect only | none | Task 6 |
+| `/login` | public; no session required | none | Task 6 |
+| `/verify-otp` | public; phone one-time code exchange | none | Task 6 |
+| `/forgot-password` | public; always answers generically | none | Task 6 |
+| `/reset-password` | public; reset token in the link only | none | Task 6 |
+| `/test-codes` | public page; test builds only. Held text messages are read with the `HELD_SMS_TOKEN` access code, and the route behind it is absent without that setting | none | Task 11 |
+| `/mfa/verify` | pending or active session; second factor challenge | `SessionSummary` | Task 6 |
+| `/mfa/setup` | authenticated session; authenticator enrolment | `SessionSummary` | Task 6 |
+| `/select-school` | authenticated session; lists own memberships only | `MeResponse` | Task 6 |
+| `/accept-invite` | authenticated session; invitation token in the link only | `MemberSummary` | Task 6 |
+| `/account/security` | authenticated session; no school context needed | `MeResponse`, `SessionSummary` | Task 6 |
+| `/access-unavailable` | authenticated or public failure state | none | Task 6 |
 | `/_app` shell | authenticated active membership | `AuthenticatedContext` | Task 6 |
 | `/dashboard` | `dashboard.read` / matched template scope | `DashboardByAudience` | Tasks 5, 7 |
 | `/settings/audit-log` | `audit.read` / school or finance | `AuditEventPage` | Tasks 5, 7 |

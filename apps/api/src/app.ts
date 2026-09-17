@@ -9,6 +9,8 @@ import type { DocumentStorage } from './files/storage.ts'
 import { AuthorizationError, createAuthorizationService } from '@erp/authz'
 import { isAllowedAuthRoute } from './auth/provider-routes.ts'
 import { registerIdentityRoutes } from './routes/identity.ts'
+import { registerDevRoutes, registerHeldSmsRoute } from './routes/dev.ts'
+import { reportDenial, reportError } from './observability.ts'
 import {
   GENERIC_SEND_RESPONSE,
   consumeSendAllowance,
@@ -142,6 +144,10 @@ export function buildApp({
       { requestId: request.id, code: failure.code },
       'request failed',
     )
+    const where = { requestId: request.id, route: request.routeOptions.url }
+    if (failure.code === 'ACCESS_DENIED') reportDenial(failure.code, where)
+    else if (!(error instanceof ApiFailure) && (statusCode ?? 500) >= 500)
+      reportError(error, where)
     const { status, body } = apiError(
       failure.code,
       request.id,
@@ -161,12 +167,16 @@ export function buildApp({
   app.get('/api/auth-config', async () => ({
     deliveryMode: delivery.mode,
     studentLoginEnabled: false,
+    // A test build holds text messages for a tester instead of sending them.
+    textMessagesHeld: config.HELD_SMS_TOKEN !== undefined,
   }))
 
   // One policy service for the process; each call opens its own tenant
   // transaction on the runtime pool.
   const authz = createAuthorizationService({ pool: pools.runtime })
 
+  registerDevRoutes(app, { config, delivery, authPool: pools.auth })
+  registerHeldSmsRoute(app, { config, delivery, authPool: pools.auth })
   registerIdentityRoutes(app, { auth, pools, authz })
   registerSessionRoutes(app, { auth, pools })
   registerMembershipRoutes(app, { auth, pools, authz, delivery })

@@ -88,19 +88,11 @@ test('published exact matrix matches the executable constants', () => {
   assert.equal(readFileSync(outputPath, 'utf8'), renderMatrix())
 })
 
-test('operation inventory covers every exported mock operation and current page route', () => {
+test('operation inventory covers every current page route', () => {
+  // The in-memory mock client was deleted with Task 7, so the inventory's operation rows are now
+  // a record of what each screen used to call and where it went. The page routes are still live.
   const root = new URL('../../../', import.meta.url)
-  const source = readFileSync(new URL('apps/web/src/api/client.ts', root), 'utf8')
   const inventory = readFileSync(new URL('docs/auth/OPERATION_COVERAGE.md', root), 'utf8')
-  let count = 0
-  for (const group of source.matchAll(/export const (\w+) = \{([\s\S]*?)\n\}/g)) {
-    for (const method of group[2].matchAll(/^  async (\w+)\(/gm)) {
-      const key = `${group[1]}.${method[1]}`
-      assert.equal(inventory.includes('`' + key + '`'), true, `unmapped operation ${key}`)
-      count++
-    }
-  }
-  assert.ok(count >= 77, 'parser must cover the full mock client')
   const files = readdirSync(new URL('apps/web/src/routes/', root), { recursive: true })
   for (const file of files.filter((f) => f.endsWith('.tsx') && f !== '__root.tsx')) {
     const route = file === '_app.tsx' ? '/_app' : '/' + file.replace(/^_app\//, '').replace(/(?:^|\/)index\.tsx$/, '').replace(/\.tsx$/, '').replace(/\$(\w+)/g, ':$1').replace(/\/$/, '')

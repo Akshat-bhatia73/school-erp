@@ -1,22 +1,30 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { HolidayInput, HolidayType, type Holiday } from '@erp/shared'
-import { api } from '@/api/client'
-import { Field, validate, type FieldErrors } from '@/components/setup/field'
+import { HolidayInput, SetupHolidayUpdateRequest } from '@erp/contracts'
+import { Field, FORM_ERROR, validate, type FieldErrors } from '@/components/setup/field'
 import { FormSheet } from '@/components/setup/form-sheet'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { api } from '@/lib/api'
+import type { HolidayRecord } from '@/lib/api/setup'
+import { describeError } from '@/lib/api-errors'
+import { useSchoolContext } from '@/lib/session'
 import { humanize } from '@/lib/utils'
+
+export const HOLIDAY_TYPES = ['national', 'festival', 'school', 'vacation'] as const
+
+interface Form { academicYearId: string; name: string; startDate: string; endDate: string; type: (typeof HOLIDAY_TYPES)[number] }
 
 export function HolidaySheet({ open, onOpenChange, holiday, academicYearId }: {
   open: boolean
   onOpenChange: (v: boolean) => void
-  holiday?: Holiday
+  holiday?: HolidayRecord
   academicYearId: string
 }) {
-  const qc = useQueryClient()
-  const [form, setForm] = useState<HolidayInput>({ academicYearId, name: '', startDate: '', endDate: '', type: 'festival' })
+  const { schoolId } = useSchoolContext()
+  const queryClient = useQueryClient()
+  const [form, setForm] = useState<Form>({ academicYearId, name: '', startDate: '', endDate: '', type: 'festival' })
   const [errors, setErrors] = useState<FieldErrors>({})
 
   useEffect(() => {
@@ -28,33 +36,49 @@ export function HolidaySheet({ open, onOpenChange, holiday, academicYearId }: {
   }, [open, holiday, academicYearId])
 
   const save = useMutation({
-    mutationFn: (input: HolidayInput) => (holiday ? api.holidays.update(holiday.id, input) : api.holidays.create(input)),
-    onSuccess: (h) => { qc.invalidateQueries({ queryKey: ['holidays'] }); toast.success(holiday ? `Saved ${h.name}` : `Added ${h.name}`); onOpenChange(false) },
-    onError: (e: Error) => toast.error(e.message),
+    mutationFn: (input: Form) =>
+      holiday
+        ? api.setup.updateHoliday(schoolId, holiday.id, { ...input, expectedVersion: holiday.version })
+        : api.setup.createHoliday(schoolId, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [schoolId, 'holidays'] })
+      toast.success('Saved changes')
+      onOpenChange(false)
+    },
+    onError: (failure) => toast.error(describeError(failure)),
   })
 
-  const set = <K extends keyof HolidayInput>(k: K, v: HolidayInput[K]) => setForm((f) => ({ ...f, [k]: v }))
+  const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }))
 
   function submit() {
     const next = { ...form, endDate: form.endDate || form.startDate }
-    const res = validate(HolidayInput, next)
-    if (!res.ok) return setErrors(res.errors)
-    if (res.data.endDate < res.data.startDate) return setErrors({ endDate: 'End date cannot be before the start date' })
+    const checked = holiday
+      ? validate(SetupHolidayUpdateRequest, { ...next, expectedVersion: holiday.version })
+      : validate(HolidayInput, next)
+    if (!checked.ok) return setErrors(checked.errors)
     setErrors({})
-    save.mutate(res.data)
+    save.mutate(next)
   }
 
   return (
-    <FormSheet open={open} onOpenChange={onOpenChange} title={holiday ? `Edit ${holiday.name}` : 'Add holiday'} submitLabel={holiday ? 'Save changes' : 'Add holiday'} onSubmit={submit} busy={save.isPending}>
+    <FormSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={holiday ? `Edit ${holiday.name}` : 'Add holiday'}
+      submitLabel={holiday ? 'Save changes' : 'Add holiday'}
+      onSubmit={submit}
+      busy={save.isPending}
+      formError={errors[FORM_ERROR]}
+    >
       <Field label="Holiday name" error={errors.name}><Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Diwali" /></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Start date" error={errors.startDate}><Input type="date" value={form.startDate} onChange={(e) => set('startDate', e.target.value)} /></Field>
         <Field label="End date" error={errors.endDate} hint="Same as start for a single day"><Input type="date" value={form.endDate} onChange={(e) => set('endDate', e.target.value)} /></Field>
       </div>
       <Field label="Type" error={errors.type}>
-        <Select value={form.type} onValueChange={(v) => set('type', v as HolidayInput['type'])}>
+        <Select value={form.type} onValueChange={(v) => set('type', v as Form['type'])}>
           <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-          <SelectContent>{HolidayType.options.map((t) => <SelectItem key={t} value={t}>{humanize(t)}</SelectItem>)}</SelectContent>
+          <SelectContent>{HOLIDAY_TYPES.map((t) => <SelectItem key={t} value={t}>{humanize(t)}</SelectItem>)}</SelectContent>
         </Select>
       </Field>
     </FormSheet>

@@ -1,97 +1,73 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import type { StudentRow } from '@/api/client'
-import { EntityCell } from '@/components/shared/data-table'
 import { UserAvatar } from '@/components/shared/avatar'
-import { colorFor, StatusDot, Tag } from '@/components/shared/tag'
-import { ageFromDob, formatDate, fullName } from '@/lib/utils'
+import { EntityCell } from '@/components/shared/data-table'
+import { colorFor, Tag } from '@/components/shared/tag'
+import type { StudentSummary } from '@/lib/api/students'
+import { fullName } from '@/lib/utils'
 
-const ADMISSION_TAG: Record<string, { label: string; color: 'orange' | 'purple' | 'teal' } | undefined> = {
-  rte: { label: 'RTE', color: 'orange' },
-  staff_ward: { label: 'Staff ward', color: 'purple' },
-  scholarship: { label: 'Scholarship', color: 'teal' },
+/** "6 - A" from the enrollment the server sent, or nothing when there is no enrollment. */
+export function classLabel(student: StudentSummary): string | undefined {
+  const enrollment = student.enrollment
+  if (!enrollment) return undefined
+  return `${enrollment.grade.name} - ${enrollment.section.name}`
 }
 
-export function classLabel(row: StudentRow) {
-  if (!row.grade) return undefined
-  return `${row.grade.shortName} - ${row.section?.name ?? '—'}`
+const STATUS_COLOR: Record<StudentSummary['status'], 'green' | 'grey' | 'orange'> = {
+  active: 'green',
+  left: 'grey',
+  alumni: 'grey',
+  suspended: 'orange',
 }
 
-export const studentColumns: ColumnDef<StudentRow, any>[] = [
+export function StudentStatusTag({ status }: { status: StudentSummary['status'] }) {
+  return <Tag className="capitalize" color={STATUS_COLOR[status]} dot>{status}</Tag>
+}
+
+/**
+ * The roster columns. Everything here comes from the bounded list the server sent: the class is
+ * rendered only when the row carries an enrollment, because a person who may not read enrollments
+ * gets the row without one.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const studentColumns: ColumnDef<StudentSummary, any>[] = [
   {
     id: 'student',
     header: 'Student',
-    size: 260,
+    size: 280,
     cell: ({ row }) => (
       <EntityCell
-        avatar={<UserAvatar name={fullName(row.original)} src={row.original.photoUrl} size="sm" />}
+        avatar={<UserAvatar name={fullName(row.original)} size="sm" />}
         name={fullName(row.original)}
         sub={row.original.admissionNumber}
       />
     ),
   },
   {
+    id: 'admissionNumber',
+    header: 'Admission no',
+    size: 150,
+    cell: ({ row }) => <span className="font-mono text-[12.5px]">{row.original.admissionNumber}</span>,
+  },
+  {
     id: 'class',
     header: 'Class',
-    size: 110,
+    size: 120,
     cell: ({ row }) => {
       const label = classLabel(row.original)
-      return label ? <Tag color={colorFor(row.original.grade!.name)}>{label}</Tag> : <span className="text-muted-foreground/60">—</span>
+      if (!label) return <span className="text-muted-foreground/60">—</span>
+      return <Tag color={colorFor(row.original.enrollment!.grade.name)}>{label}</Tag>
     },
   },
-  { id: 'roll', header: 'Roll', size: 70, cell: ({ row }) => <span className="tabular-nums">{row.original.enrollment?.rollNumber ?? '—'}</span> },
-  { id: 'gender', header: 'Gender', size: 76, cell: ({ row }) => <span>{row.original.gender === 'male' ? 'M' : row.original.gender === 'female' ? 'F' : 'O'}</span> },
-  { id: 'age', header: 'Age', size: 64, cell: ({ row }) => <span className="tabular-nums">{ageFromDob(row.original.dateOfBirth)}</span> },
   {
-    id: 'parent',
-    header: 'Parent',
-    size: 200,
-    cell: ({ row }) => {
-      const g = row.original.primaryGuardian
-      if (!g) return <span className="text-muted-foreground/60">—</span>
-      return (
-        <div className="min-w-0">
-          <div className="truncate">{fullName(g)}</div>
-          <div className="truncate font-mono text-[12px] text-muted-foreground">{g.phone}</div>
-        </div>
-      )
-    },
-  },
-  { id: 'category', header: 'Category', size: 96, cell: ({ row }) => <Tag className="uppercase">{row.original.category}</Tag> },
-  {
-    id: 'admissionType',
-    header: 'Admission type',
-    size: 130,
-    cell: ({ row }) => {
-      const t = ADMISSION_TAG[row.original.admissionType]
-      return t ? <Tag color={t.color}>{t.label}</Tag> : <span className="text-muted-foreground/60">—</span>
-    },
+    id: 'roll',
+    header: 'Roll',
+    size: 70,
+    cell: ({ row }) => <span className="tabular-nums">{row.original.enrollment?.rollNumber ?? '—'}</span>,
   },
   {
     id: 'status',
     header: 'Status',
-    size: 92,
-    cell: ({ row }) => (
-      <span className="flex items-center gap-2">
-        <StatusDot state={row.original.status === 'active' ? 'done' : 'warn'} title={row.original.status} />
-        <span className="capitalize text-muted-foreground">{row.original.status}</span>
-      </span>
-    ),
+    size: 110,
+    cell: ({ row }) => <StudentStatusTag status={row.original.status} />,
   },
-  { id: 'admitted', header: 'Admitted', size: 116, cell: ({ row }) => <span className="text-muted-foreground">{formatDate(row.original.admissionDate)}</span> },
 ]
-
-/** Download the given students as a CSV, used by the bulk bar */
-export function exportStudentsCsv(rows: StudentRow[]) {
-  const head = ['Admission number', 'Name', 'Class', 'Roll', 'Gender', 'Date of birth', 'Parent', 'Parent phone', 'Category', 'Admission type', 'Status']
-  const body = rows.map((r) => [
-    r.admissionNumber, fullName(r), classLabel(r) ?? '', r.enrollment?.rollNumber ?? '', r.gender, r.dateOfBirth,
-    r.primaryGuardian ? fullName(r.primaryGuardian) : '', r.primaryGuardian?.phone ?? '', r.category, r.admissionType, r.status,
-  ])
-  const csv = [head, ...body].map((line) => line.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `students-${new Date().toISOString().slice(0, 10)}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
-}

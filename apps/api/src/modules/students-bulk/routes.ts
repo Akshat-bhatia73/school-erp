@@ -20,6 +20,7 @@ import { protectedRoute } from '../shared/route.ts'
 import { ApiFailure } from '../shared/errors.ts'
 import { authorizeSchoolAction, readPlan } from '../shared/authorize.ts'
 import { lockSchool, writeAudit } from '../shared/audit.ts'
+import { allocateAdmissionNumber, syncAdmissionSequence } from '../shared/sequences.ts'
 import { assertVersion, bumpVersion } from '../shared/version.ts'
 import {
   insertStudent,
@@ -108,6 +109,14 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
           expiresAt: preview.expires_at.toISOString(),
           totalRows: body.rows.length,
           validRows: outcome.validRows.length,
+          // One entry per row that passed, so the screen can say which number
+          // the sheet keeps and which one is assigned when the sheet commits.
+          rows: outcome.validRows.map((row) => ({
+            rowNumber: row.rowNumber,
+            firstName: row.firstName,
+            ...(row.lastName === undefined ? {} : { lastName: row.lastName }),
+            ...(row.admissionNumber === undefined ? {} : { admissionNumber: row.admissionNumber }),
+          })),
           errors: outcome.errors.map((error) => ({ ...error })),
         }
       }),
@@ -130,8 +139,30 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
         const rows: readonly StoredImportRow[] = preview.rows
         await revalidate(conn.client, context.schoolId, preview.academic_year_id, rows)
 
+        // A kept number is one the school already uses, so the counter has to
+        // clear it before anything is allocated: otherwise a generated number
+        // would collide with a kept one and the whole commit would roll back.
+        await syncAdmissionSequence(
+          conn,
+          context.schoolId,
+          preview.academic_year_id,
+          rows.map((row) => row.admissionNumber).filter((value): value is string => value !== undefined),
+        )
+        // Row order decides the counter, so a sheet reads in the same order it
+        // was written. A row that carried its own number keeps it.
         for (const row of rows) {
-          await insertStudent(conn.client, context.schoolId, preview.academic_year_id, row)
+          const admissionNumber =
+            row.admissionNumber ??
+            (await allocateAdmissionNumber(conn, context.schoolId, preview.academic_year_id, {
+              synced: true,
+            }))
+          await insertStudent(
+            conn.client,
+            context.schoolId,
+            preview.academic_year_id,
+            row,
+            admissionNumber,
+          )
         }
         await bumpVersion(conn, 'student_import_previews', {
           schoolId: context.schoolId,

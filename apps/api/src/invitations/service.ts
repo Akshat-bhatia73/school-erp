@@ -68,6 +68,11 @@ interface InvitationRow {
 const INVITATION_COLUMNS = `id, school_id, display_name, identifier_type, identifier_normalized,
   destination_masked, proposed_role_keys, staff_id, inviter_membership_id, status, expires_at, version`
 
+/** The same columns, qualified for the list query's join. */
+const ALIASED_INVITATION_COLUMNS = INVITATION_COLUMNS.split(',')
+  .map((column) => `i.${column.trim()}`)
+  .join(', ')
+
 function channelFor(kind: 'email' | 'phone'): DeliveryChannel {
   return kind === 'email' ? 'email' : 'sms'
 }
@@ -100,6 +105,52 @@ function toSummary(row: InvitationRow, deliveryStatus: DeliveryState): Summary {
     deliveryStatus,
     expiresAt: new Date(row.expires_at).toISOString(),
     version: Number(row.version),
+  })
+}
+
+/**
+ * The school's invitations, newest first. A pending row past its expiry reads
+ * as expired in both the filter and the response without being written, so a
+ * read never changes a row. No audit row: this is a read.
+ */
+export async function listInvitations(
+  deps: AccessDependencies,
+  context: RequestContext,
+  query: { status: Summary['status']; page: number; pageSize: number },
+): Promise<{ items: Summary[]; total: number }> {
+  // One expression decides the reported status, so WHERE and SELECT agree.
+  const effective = `CASE WHEN i.status = 'pending' AND i.expires_at <= now()
+                          THEN 'expired' ELSE i.status::text END`
+  return withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+    await authorizeSchoolAction(conn, context, 'members.invite')
+    const total = await conn.client.query<{ total: string }>(
+      `SELECT count(*)::text AS total FROM school_invitations i
+        WHERE i.school_id = $1 AND ${effective} = $2::text`,
+      [context.schoolId, query.status],
+    )
+    const result = await conn.client.query<InvitationRow & { delivery_status: string | null }>(
+      `SELECT ${ALIASED_INVITATION_COLUMNS},
+              d.status AS delivery_status
+         FROM school_invitations i
+         LEFT JOIN LATERAL (
+           SELECT o.status FROM delivery_outbox o
+            WHERE o.school_id = i.school_id AND o.event_type = 'invitation'
+              AND o.payload->>'invitationId' = i.id::text
+            ORDER BY o.created_at DESC LIMIT 1
+         ) d ON true
+        WHERE i.school_id = $1 AND ${effective} = $2::text
+        ORDER BY i.created_at DESC, i.id DESC
+        LIMIT $3 OFFSET $4`,
+      [context.schoolId, query.status, query.pageSize, (query.page - 1) * query.pageSize],
+    )
+    const items = result.rows.map((row) => {
+      const state: DeliveryState =
+        row.delivery_status === 'sent' || row.delivery_status === 'failed'
+          ? row.delivery_status
+          : 'queued'
+      return toSummary(row, state)
+    })
+    return { items, total: Number(total.rows[0]?.total ?? '0') }
   })
 }
 

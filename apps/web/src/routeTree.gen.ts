@@ -11,7 +11,18 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
+import { Route as AccessUnavailableRouteImport } from './routes/access-unavailable'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as SelectSchoolRouteImport } from './routes/select-school'
+import { Route as TestCodesRouteImport } from './routes/test-codes'
+import { Route as VerifyOtpRouteImport } from './routes/verify-otp'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AccountSecurityRouteImport } from './routes/account/security'
+import { Route as MfaSetupRouteImport } from './routes/mfa/setup'
+import { Route as MfaVerifyRouteImport } from './routes/mfa/verify'
 import { Route as AppSettingsAuditLogRouteImport } from './routes/_app/settings/audit-log'
 import { Route as AppSettingsRolesRouteImport } from './routes/_app/settings/roles'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
@@ -42,10 +53,65 @@ const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AcceptInviteRoute = AcceptInviteRouteImport.update({
+  id: '/accept-invite',
+  path: '/accept-invite',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccessUnavailableRoute = AccessUnavailableRouteImport.update({
+  id: '/access-unavailable',
+  path: '/access-unavailable',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SelectSchoolRoute = SelectSchoolRouteImport.update({
+  id: '/select-school',
+  path: '/select-school',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TestCodesRoute = TestCodesRouteImport.update({
+  id: '/test-codes',
+  path: '/test-codes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VerifyOtpRoute = VerifyOtpRouteImport.update({
+  id: '/verify-otp',
+  path: '/verify-otp',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
   getParentRoute: () => AppRoute,
+} as any)
+const AccountSecurityRoute = AccountSecurityRouteImport.update({
+  id: '/account/security',
+  path: '/account/security',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MfaSetupRoute = MfaSetupRouteImport.update({
+  id: '/mfa/setup',
+  path: '/mfa/setup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MfaVerifyRoute = MfaVerifyRouteImport.update({
+  id: '/mfa/verify',
+  path: '/mfa/verify',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppSettingsAuditLogRoute = AppSettingsAuditLogRouteImport.update({
   id: '/settings/audit-log',
@@ -151,7 +217,18 @@ const AppTimetableTeachersRoute = AppTimetableTeachersRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/accept-invite': typeof AcceptInviteRoute
+  '/access-unavailable': typeof AccessUnavailableRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/login': typeof LoginRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/select-school': typeof SelectSchoolRoute
+  '/test-codes': typeof TestCodesRoute
+  '/verify-otp': typeof VerifyOtpRoute
   '/dashboard': typeof AppDashboardRoute
+  '/account/security': typeof AccountSecurityRoute
+  '/mfa/setup': typeof MfaSetupRoute
+  '/mfa/verify': typeof MfaVerifyRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/settings/roles': typeof AppSettingsRolesRoute
   '/settings/users': typeof AppSettingsUsersRoute
@@ -175,7 +252,18 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/accept-invite': typeof AcceptInviteRoute
+  '/access-unavailable': typeof AccessUnavailableRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/login': typeof LoginRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/select-school': typeof SelectSchoolRoute
+  '/test-codes': typeof TestCodesRoute
+  '/verify-otp': typeof VerifyOtpRoute
   '/dashboard': typeof AppDashboardRoute
+  '/account/security': typeof AccountSecurityRoute
+  '/mfa/setup': typeof MfaSetupRoute
+  '/mfa/verify': typeof MfaVerifyRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/settings/roles': typeof AppSettingsRolesRoute
   '/settings/users': typeof AppSettingsUsersRoute
@@ -201,7 +289,18 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
+  '/accept-invite': typeof AcceptInviteRoute
+  '/access-unavailable': typeof AccessUnavailableRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/login': typeof LoginRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/select-school': typeof SelectSchoolRoute
+  '/test-codes': typeof TestCodesRoute
+  '/verify-otp': typeof VerifyOtpRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/account/security': typeof AccountSecurityRoute
+  '/mfa/setup': typeof MfaSetupRoute
+  '/mfa/verify': typeof MfaVerifyRoute
   '/_app/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/_app/settings/roles': typeof AppSettingsRolesRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
@@ -227,7 +326,18 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/accept-invite'
+    | '/access-unavailable'
+    | '/forgot-password'
+    | '/login'
+    | '/reset-password'
+    | '/select-school'
+    | '/test-codes'
+    | '/verify-otp'
     | '/dashboard'
+    | '/account/security'
+    | '/mfa/setup'
+    | '/mfa/verify'
     | '/settings/audit-log'
     | '/settings/roles'
     | '/settings/users'
@@ -251,7 +361,18 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/accept-invite'
+    | '/access-unavailable'
+    | '/forgot-password'
+    | '/login'
+    | '/reset-password'
+    | '/select-school'
+    | '/test-codes'
+    | '/verify-otp'
     | '/dashboard'
+    | '/account/security'
+    | '/mfa/setup'
+    | '/mfa/verify'
     | '/settings/audit-log'
     | '/settings/roles'
     | '/settings/users'
@@ -276,7 +397,18 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_app'
+    | '/accept-invite'
+    | '/access-unavailable'
+    | '/forgot-password'
+    | '/login'
+    | '/reset-password'
+    | '/select-school'
+    | '/test-codes'
+    | '/verify-otp'
     | '/_app/dashboard'
+    | '/account/security'
+    | '/mfa/setup'
+    | '/mfa/verify'
     | '/_app/settings/audit-log'
     | '/_app/settings/roles'
     | '/_app/settings/users'
@@ -302,6 +434,17 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
+  AcceptInviteRoute: typeof AcceptInviteRoute
+  AccessUnavailableRoute: typeof AccessUnavailableRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
+  LoginRoute: typeof LoginRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
+  SelectSchoolRoute: typeof SelectSchoolRoute
+  TestCodesRoute: typeof TestCodesRoute
+  VerifyOtpRoute: typeof VerifyOtpRoute
+  AccountSecurityRoute: typeof AccountSecurityRoute
+  MfaSetupRoute: typeof MfaSetupRoute
+  MfaVerifyRoute: typeof MfaVerifyRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -320,12 +463,89 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/accept-invite': {
+      id: '/accept-invite'
+      path: '/accept-invite'
+      fullPath: '/accept-invite'
+      preLoaderRoute: typeof AcceptInviteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/access-unavailable': {
+      id: '/access-unavailable'
+      path: '/access-unavailable'
+      fullPath: '/access-unavailable'
+      preLoaderRoute: typeof AccessUnavailableRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/select-school': {
+      id: '/select-school'
+      path: '/select-school'
+      fullPath: '/select-school'
+      preLoaderRoute: typeof SelectSchoolRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/test-codes': {
+      id: '/test-codes'
+      path: '/test-codes'
+      fullPath: '/test-codes'
+      preLoaderRoute: typeof TestCodesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/verify-otp': {
+      id: '/verify-otp'
+      path: '/verify-otp'
+      fullPath: '/verify-otp'
+      preLoaderRoute: typeof VerifyOtpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/dashboard': {
       id: '/_app/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/account/security': {
+      id: '/account/security'
+      path: '/account/security'
+      fullPath: '/account/security'
+      preLoaderRoute: typeof AccountSecurityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mfa/setup': {
+      id: '/mfa/setup'
+      path: '/mfa/setup'
+      fullPath: '/mfa/setup'
+      preLoaderRoute: typeof MfaSetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mfa/verify': {
+      id: '/mfa/verify'
+      path: '/mfa/verify'
+      fullPath: '/mfa/verify'
+      preLoaderRoute: typeof MfaVerifyRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/settings/audit-log': {
       id: '/_app/settings/audit-log'
@@ -523,6 +743,17 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
+  AcceptInviteRoute: AcceptInviteRoute,
+  AccessUnavailableRoute: AccessUnavailableRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
+  LoginRoute: LoginRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
+  SelectSchoolRoute: SelectSchoolRoute,
+  TestCodesRoute: TestCodesRoute,
+  VerifyOtpRoute: VerifyOtpRoute,
+  AccountSecurityRoute: AccountSecurityRoute,
+  MfaSetupRoute: MfaSetupRoute,
+  MfaVerifyRoute: MfaVerifyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

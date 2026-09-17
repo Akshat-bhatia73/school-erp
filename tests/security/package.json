@@ -1,0 +1,22 @@
+{
+  "name": "@erp/security-tests",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --env-file-if-exists=../../apps/api/.env --test --test-concurrency=1 *.test.ts"
+  },
+  "dependencies": {
+    "@erp/authz": "workspace:*",
+    "@erp/contracts": "workspace:*",
+    "@erp/db": "workspace:*",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@types/pg": "8.23.1",
+    "tsx": "4.23.13",
+    "typescript": "6.0.3"
+  }
+}

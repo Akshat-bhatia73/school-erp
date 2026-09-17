@@ -21,7 +21,11 @@ export const FixedRoleSummaryList = z.array(z.strictObject({
   key: RoleKey, name: z.string().max(160), enabled: z.boolean(), requiredMfa: z.boolean(),
 }))
 export const StaffDirectoryPage = StaffListResponse
-export const StaffEmploymentCreated = StaffDirectory
+// The office never types the employee code, so the create response carries the
+// assigned one: the screen shows it without a second read.
+export const StaffEmploymentCreated = StaffDirectory.extend({
+  employeeCode: z.string().max(100),
+})
 export const StaffDetailByAudience = StaffDetailResponse
 export const StudentRosterPage = StudentListResponse
 export const StudentCreated = StudentBasic
@@ -44,9 +48,17 @@ export const EmptySuccess = z.null()
 export const BulkCommitResult = z.strictObject({ created: z.number().int().nonnegative() })
 export const PromotionResult = z.strictObject({ promoted: z.number().int().nonnegative(), detained: z.number().int().nonnegative() })
 export const PromotionPreview = z.strictObject({ students: z.array(StudentBasic), targetSection: NamedReference })
+/** One row that passed. A missing admissionNumber is assigned at commit. */
+export const StudentImportPreviewRow = z.strictObject({
+  rowNumber: z.number().int().positive(),
+  firstName: z.string().max(160),
+  lastName: z.string().max(160).optional(),
+  admissionNumber: z.string().max(100).optional(),
+})
 export const StudentImportPreview = z.strictObject({
   id: Id, version: z.number().int().positive(), expiresAt: Timestamp,
   totalRows: z.number().int().nonnegative(), validRows: z.number().int().nonnegative(),
+  rows: z.array(StudentImportPreviewRow),
   errors: z.array(z.strictObject({ row: z.number().int().positive(), field: z.string().max(100), message: z.string().max(500) })),
 })
 export const AuthorizedCount = z.strictObject({ count: z.number().int().nonnegative() })

@@ -78,7 +78,7 @@ export async function seedFixtures(pool) {
       [i.ownerA, i.schoolA, i.ownerAUser, i.ownerB, i.schoolB, i.ownerBUser],
     )
     await c.query(
-      `INSERT INTO staff(id,school_id,employee_code,first_name,staff_type,designation,status) VALUES ($1,$2,'FIX-A','Fixture','teaching','Teacher','active') ON CONFLICT (school_id,employee_code) DO NOTHING`,
+      `INSERT INTO staff(id,school_id,employee_code,first_name,staff_type,designation,status) VALUES ($1,$2,'A-E001','Fixture','teaching','Teacher','active') ON CONFLICT (id) DO UPDATE SET employee_code = EXCLUDED.employee_code`,
       [i.staffA, i.schoolA],
     )
     await c.query(
@@ -86,12 +86,21 @@ export async function seedFixtures(pool) {
       [i.guardianA, i.schoolA, i.guardianA2, i.guardianB, i.schoolB],
     )
     await c.query(
-      `INSERT INTO students(id,school_id,admission_number,first_name,status) VALUES ($1,$2,'FIX-A1','Student A','active'),($3,$2,'FIX-A2','Student A2','active'),($4,$5,'FIX-B1','Student B','active') ON CONFLICT (school_id,admission_number) DO NOTHING`,
+      `INSERT INTO students(id,school_id,admission_number,first_name,status) VALUES ($1,$2,'A/2026-27/001','Student A','active'),($3,$2,'A/2026-27/002','Student A2','active'),($4,$5,'B/2026-27/001','Student B','active') ON CONFLICT (id) DO UPDATE SET admission_number = EXCLUDED.admission_number`,
       [i.studentA, i.schoolA, i.studentA2, i.studentB, i.schoolB],
     )
     await c.query(
       `INSERT INTO academic_years(id,school_id,name,start_date,end_date,status) VALUES ($1,$2,'2026-27','2026-04-01','2027-03-31','current') ON CONFLICT (school_id,name) DO NOTHING`,
       [i.yearA, i.schoolA],
+    )
+    // The counters continue after the seeded numbers: school A has two
+    // admissions in its fixture year and one employee. School B has no
+    // fixture academic year, so it has no admission counter to seed; the
+    // allocator lifts a counter above the numbers already in use on first
+    // use, so seeded rows can never be handed out twice.
+    await c.query(
+      `INSERT INTO number_sequences(school_id,kind,period,next_value) VALUES ($1,'admission',$2,3),($1,'employee','',2) ON CONFLICT (school_id,kind,period) DO NOTHING`,
+      [i.schoolA, i.yearA],
     )
     await c.query(
       `INSERT INTO grades(id,school_id,name,short_name,sort_order) VALUES ($1,$2,'Six','6',6) ON CONFLICT (school_id,name) DO NOTHING`,

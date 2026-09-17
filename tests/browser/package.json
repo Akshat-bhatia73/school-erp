@@ -1,0 +1,22 @@
+{
+  "name": "@erp/browser-tests",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "@erp/contracts": "workspace:*",
+    "@erp/db": "workspace:*",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.13.3",
+    "@types/pg": "8.23.1",
+    "tsx": "4.23.13",
+    "typescript": "6.0.3"
+  }
+}
