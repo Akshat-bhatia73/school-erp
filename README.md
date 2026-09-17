@@ -62,7 +62,7 @@ Environment variables, credential boundaries, endpoints, session limits, MFA rul
 
 ## Deploy
 
-The site is a static build on Vercel; the API is a container built from `apps/api/Dockerfile`. `vercel.json` rewrites `/api/*` to the API before the single-page catch-all, so the session cookie stays same-origin. Replace `REPLACE-WITH-YOUR-DOMAIN` in that file with the real API host. The runbook, environment variables and release checklist are in [release](docs/auth/RELEASE.md).
+The site is a static build on Vercel; the API is a container built from `apps/api/Dockerfile`. `vercel.json` rewrites `/api/*` to the API before the single-page catch-all, so the session cookie stays same-origin. Replace `REPLACE-WITH-YOUR-DOMAIN` in that file with the real API host. The runbook, environment variables, hosting decisions and release checklist are in [release](docs/auth/RELEASE.md). Which laws apply to the personal data held, what is protected today and what must change before a real school is onboarded is in the [data protection assessment](docs/compliance/DATA_PROTECTION.md).
 
 ## Layout
 

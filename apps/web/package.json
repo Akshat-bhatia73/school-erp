@@ -15,6 +15,7 @@
     "@erp/contracts": "workspace:*",
     "@hugeicons/core-free-icons": "4.3.2",
     "@hugeicons/react": "1.1.10",
+    "@sentry/react": "10.74.0",
     "@tanstack/react-query": "^5",
     "@tanstack/react-router": "^1",
     "@tanstack/react-table": "^8",

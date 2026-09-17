@@ -60,6 +60,9 @@ function uniqueInviteEmail(): string {
 // Every staff row this file inserts, so the after hook can remove them: the
 // suite shares one database between runs, and a free-teacher list is capped.
 const createdStaff: string[] = []
+// Logins and memberships this file creates, removed by the after hook.
+const createdUsers: string[] = []
+const createdMemberships: string[] = []
 
 async function createStaff(schoolId: string): Promise<string> {
   const id = randomUUID()
@@ -191,6 +194,10 @@ after(async () => {
     [[ownerUserId, principalUserId]],
   )
   await pool.query('DELETE FROM school_invitations WHERE staff_id = ANY($1::uuid[])', [createdStaff])
+  await pool.query('DELETE FROM auth_two_factor WHERE user_id = ANY($1::uuid[])', [createdUsers])
+  await pool.query('DELETE FROM membership_roles WHERE membership_id = ANY($1::uuid[])', [createdMemberships])
+  await pool.query('DELETE FROM school_memberships WHERE id = ANY($1::uuid[])', [createdMemberships])
+  await pool.query('DELETE FROM auth_user WHERE id = ANY($1::uuid[])', [createdUsers])
   await pool.query('DELETE FROM membership_staff_links WHERE staff_id = ANY($1::uuid[])', [createdStaff])
   await pool.query('DELETE FROM staff WHERE id = ANY($1::uuid[])', [createdStaff])
   await server.close()
@@ -599,4 +606,187 @@ test('an anonymous caller cannot accept an invitation', async () => {
     body: JSON.stringify({ token: `${schoolA}.${'a'.repeat(43)}` }),
   })
   assert.equal(response.status, 401)
+})
+
+interface InvitationList {
+  items: Invitation[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+/** A second member of any school, so the fixture identities stay untouched. */
+async function createRoleMember(
+  schoolId: string,
+  key: string,
+  /**
+   * A member that writes (invites) leaves an audit row behind, and audit
+   * history is append-only, so its identity cannot be cleaned up afterwards.
+   */
+  retain = false,
+): Promise<{ email: string; userId: string }> {
+  const userId = randomUUID()
+  const membershipId = randomUUID()
+  const email = `invite-${key}-${randomUUID()}@example.test`
+  if (!retain) {
+    createdUsers.push(userId)
+    createdMemberships.push(membershipId)
+  }
+  const pool = adminPool()
+  await pool.query(
+    `INSERT INTO auth_user (id, name, email) VALUES ($1, 'List Member', $2)`,
+    [userId, email],
+  )
+  await pool.query(
+    `INSERT INTO school_memberships (id, school_id, user_id, kind, status)
+     VALUES ($1, $2, $3, 'adult', 'active')`,
+    [membershipId, schoolId, userId],
+  )
+  await pool.query(
+    `INSERT INTO membership_roles (school_id, membership_id, role_id) VALUES ($1, $2, $3)`,
+    [schoolId, membershipId, await roleId(schoolId, key)],
+  )
+  await setFixturePassword(server, userId, PASSWORD)
+  return { email, userId }
+}
+
+async function listInvitations(
+  client: Client,
+  schoolId: string,
+  query = '',
+): Promise<{ response: Response; text: string; body: InvitationList }> {
+  const response = await client.fetch(`/api/schools/${schoolId}/invitations${query}`)
+  const text = await response.text()
+  return { response, text, body: JSON.parse(text) as InvitationList }
+}
+
+test('the invitation list shows pending invitations and never a token', async () => {
+  const invited = await inviteTeacher()
+  const listed = await listInvitations(owner, schoolA, '?pageSize=100')
+  assert.equal(listed.response.status, 200)
+  assert.equal(listed.body.page, 1)
+  assert.equal(listed.body.pageSize, 100)
+  assert.ok(listed.body.total >= 1)
+  assert.ok(listed.body.items.length <= listed.body.total)
+
+  const row = listed.body.items.find((item) => item.id === invited.invitation.id)
+  assert.ok(row, 'the new invitation is missing from the default list')
+  assert.equal(row.status, 'pending')
+  assert.deepEqual(row.roleKeys, ['teacher'])
+  assert.equal(row.maskedDestination, invited.invitation.maskedDestination)
+  assert.ok(!listed.text.includes(invited.token))
+  const digest = await adminPool().query<{ token_digest: string }>(
+    'SELECT token_digest FROM school_invitations WHERE id = $1',
+    [invited.invitation.id],
+  )
+  const stored = digest.rows[0]?.token_digest
+  assert.ok(stored)
+  assert.ok(!listed.text.includes(stored))
+  assert.ok(!listed.text.includes('digest'))
+})
+
+test('a page of invitations agrees with its total', async () => {
+  await inviteTeacher()
+  await inviteTeacher()
+  const first = await listInvitations(owner, schoolA, '?page=1&pageSize=1')
+  assert.equal(first.body.items.length, 1)
+  assert.equal(first.body.pageSize, 1)
+  assert.ok(first.body.total >= 2)
+  const second = await listInvitations(owner, schoolA, '?page=2&pageSize=1')
+  assert.equal(second.body.items.length, 1)
+  assert.equal(second.body.total, first.body.total)
+  assert.notEqual(second.body.items[0]?.id, first.body.items[0]?.id)
+})
+
+test('an expired pending row leaves the pending list without being written', async () => {
+  const invited = await inviteTeacher()
+  await adminPool().query(
+    `UPDATE school_invitations
+        SET created_at = now() - interval '3 hours', expires_at = now() - interval '1 hour'
+      WHERE id = $1`,
+    [invited.invitation.id],
+  )
+  const pending = await listInvitations(owner, schoolA, '?pageSize=100')
+  assert.equal(
+    pending.body.items.some((item) => item.id === invited.invitation.id),
+    false,
+  )
+  const expired = await listInvitations(owner, schoolA, '?status=expired&pageSize=100')
+  const row = expired.body.items.find((item) => item.id === invited.invitation.id)
+  assert.ok(row, 'the expired invitation is missing from the expired list')
+  assert.equal(row.status, 'expired')
+  // Reading reports the expiry; it does not write it.
+  const stored = await adminPool().query<{ status: string }>(
+    'SELECT status FROM school_invitations WHERE id = $1',
+    [invited.invitation.id],
+  )
+  assert.equal(stored.rows[0]?.status, 'pending')
+})
+
+test('a revoked invitation appears only under the revoked status', async () => {
+  const invited = await inviteTeacher()
+  const revoked = await post(
+    owner,
+    `/api/schools/${schoolA}/invitations/${invited.invitation.id}/revoke`,
+    { expectedVersion: invited.invitation.version },
+  )
+  assert.equal(revoked.status, 200)
+  const pending = await listInvitations(owner, schoolA, '?pageSize=100')
+  assert.equal(
+    pending.body.items.some((item) => item.id === invited.invitation.id),
+    false,
+  )
+  const list = await listInvitations(owner, schoolA, '?status=revoked&pageSize=100')
+  const row = list.body.items.find((item) => item.id === invited.invitation.id)
+  assert.ok(row)
+  assert.equal(row.status, 'revoked')
+})
+
+test('the invitation list is refused without invite authority or the right school', async () => {
+  const invited = await inviteTeacher()
+  const teacher = await createRoleMember(schoolA, 'teacher')
+  const teacherClient = await signInWithPassword(server, teacher.email, PASSWORD)
+  const refused = await teacherClient.fetch(`/api/schools/${schoolA}/invitations`)
+  assert.equal(refused.status, 403)
+  assert.equal(((await refused.json()) as ErrorBody).error.code, 'ACCESS_DENIED')
+
+  const principalB = await createRoleMember(schoolB, 'principal', true)
+  const clientB = await signInWithMfa(server, {
+    userId: principalB.userId,
+    email: principalB.email,
+    password: PASSWORD,
+  })
+  const crossSchool = await clientB.fetch(`/api/schools/${schoolA}/invitations`)
+  assert.equal(crossSchool.status, 403)
+
+  // A real pending row in school B, so the school filter is tested in both
+  // directions: school B sees its own row and never school A's.
+  const createdInB = await post(clientB, `/api/schools/${schoolB}/invitations`, {
+    displayName: 'Other School Teacher',
+    identifier: { kind: 'email', value: uniqueInviteEmail() },
+    roleKeys: ['teacher'],
+    staffId: await createStaff(schoolB),
+  })
+  assert.equal(createdInB.status, 201)
+  const invitationB = (await createdInB.json()) as Invitation
+
+  const own = await listInvitations(clientB, schoolB, '?pageSize=100')
+  assert.equal(own.response.status, 200)
+  assert.ok(
+    own.body.items.some((item) => item.id === invitationB.id),
+    "school B's own invitation is missing from its list",
+  )
+  assert.equal(
+    own.body.items.some((item) => item.id === invited.invitation.id),
+    false,
+  )
+  assert.ok(own.body.items.every((item) => item.schoolId === schoolB))
+
+  const pendingInB = await adminPool().query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM school_invitations
+      WHERE school_id = $1 AND status = 'pending' AND expires_at > now()`,
+    [schoolB],
+  )
+  assert.equal(own.body.total, Number(pendingInB.rows[0]?.count))
+  assert.equal(own.body.items.length, own.body.total)
 })

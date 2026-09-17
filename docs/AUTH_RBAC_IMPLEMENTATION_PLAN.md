@@ -465,6 +465,16 @@ Implement the acceptance matrix below using direct API clients, a real PostgreSQ
 
 Exit check: all release checks pass, the runtime has least-privilege database credentials, an independent reviewer has assessed access boundaries, and the deployment cannot fall back to the unsecured demo.
 
+### Task 10: Finance-scoped audit reads and the invitation list
+
+Owner: domain backend agent for `packages/authz/src/scope.ts`, `apps/api/src/modules/audit`, `apps/api/src/invitations` and the contract additions in `packages/contracts`; the application frontend agent adjusts the members screen. Depends on Tasks 4, 5, 7 and 9. Added on 17 September 2026 to close two gaps every earlier handover carried forward.
+
+Finance audience. `audit.read` and `audit.export` at the `finance` scope currently map to TRUE, so an accountant reads every audit row of the school. The scope term for the `audit_event` resource must select only rows whose `action` is in a fixed list of finance actions declared in `@erp/contracts` (pay changes, staff and audit exports, and the reserved fee actions when they land). Lists, counts and exports narrow through the same predicate, so a finance reader's total never exceeds the rows it may page over. The `finance` scope on every other resource keeps its current meaning: a projection audience over the whole school, not a row filter.
+
+Invitation list. Add `GET /api/schools/:schoolId/invitations` behind `members.invite`, paged like the member directory, filtered by status with `pending` as the default and newest first. A pending row whose `expires_at` has passed is reported as `expired` without being written. Response rows are the existing `InvitationSummary`: no token, no digest, masked destination only. The members screen replaces its "Sent this session" list with this query, so resend and revoke work after a reload, and invalidates it after each invitation action.
+
+Exit check: an accountant's audit list, count and export contain only finance actions while an owner's contain every row; the previous security test that pinned the whole-log breadth now asserts the narrowing; a principal sees the school's pending invitations after a reload and can resend or revoke them; a caller without `members.invite` is refused the list; the list never returns a token or digest.
+
 ### Suggested execution order
 
 | Wave | Work |
@@ -474,6 +484,7 @@ Exit check: all release checks pass, the runtime has least-privilege database cr
 | 3 | Tasks 4 and 5 build backend workflows; Task 6 builds auth/session UI against contracts |
 | 4 | Task 7 connects all permission-driven screens |
 | 5 | Task 8 makes admission numbers and employee codes server-assigned and resets the development database; Task 9 runs full adversarial/browser tests |
+| 5b | Task 10 narrows finance audit reads and adds the invitation list |
 | 6 | Integration owner completes deployment checks, review and production cutover |
 
 These are work packages, not a promise that all require separate permanent agents. With fewer agents, combine consecutive tasks while preserving ownership and review. Database migrations and shared contracts have one owner at a time.

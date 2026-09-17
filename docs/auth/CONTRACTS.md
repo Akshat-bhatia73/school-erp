@@ -36,7 +36,9 @@ Scopes are independent predicates, never a hierarchy:
 | `assigned_subjects` | An effective assignment matches both the section and subject, within the same academic year. Teaching a subject elsewhere does not qualify. |
 | `own_children` | An approved, active guardian link connects this member to the child in this school. It does not reveal other guardians' private details or unlinked siblings. |
 | `own_record` | Resource belongs to this student's linked record. Reserved for later student activation. |
-| `finance` | Resource is in this school and the requested projection is approved for the finance workflow. This is not school-wide access to all fields. |
+| `finance` | Resource is in this school and the requested projection is approved for the finance workflow. This is not school-wide access to all fields. On the audit trail it is also a row filter: `audit.read` and `audit.export` select only the actions in `FINANCE_AUDIT_ACTIONS`. |
+
+`FINANCE_AUDIT_ACTIONS` is exported from `@erp/contracts` (with the `FinanceAuditAction` type and the `isFinanceAuditAction` guard). It lists the audit actions a finance audience may read: `staff.update_pay`, `staff.export` and `audit.export` today, with the fee actions joining it when the fees module lands. Membership, role, invitation, student and setup actions are deliberately absent. Change the list here and the scope term, the API and the tests follow.
 
 For teachers, historical enrollment rows are limited to the authorized assignment period; a current assignment must not reveal a child's unrelated historical sections. Parent enrollment summaries remain limited to their linked children. Subject and class labels may be returned only where needed by the authorized view.
 

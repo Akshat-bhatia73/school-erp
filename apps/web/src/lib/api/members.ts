@@ -7,6 +7,8 @@ import {
   AccessExplanationQuery,
   ChangeRolesRequest,
   InvitationActionRequest,
+  InvitationListRequest,
+  InvitationPage,
   InvitationSummary,
   InviteMemberRequest,
   MemberSummary,
@@ -25,6 +27,8 @@ export type Invitation = z.infer<typeof InvitationSummary>
 export type MemberListParams = { page?: number; pageSize?: number }
 export type InviteInput = z.input<typeof InviteMemberRequest>
 export type InvitationActionInput = z.input<typeof InvitationActionRequest>
+export type InvitationPage = z.infer<typeof InvitationPage>
+export type InvitationListParams = z.input<typeof InvitationListRequest>
 export type ChangeRolesInput = z.input<typeof ChangeRolesRequest>
 export type MemberActionInput = z.input<typeof MembershipActionRequest>
 export type RestoreInput = z.input<typeof RestoreMembershipRequest>
@@ -49,6 +53,11 @@ export function accessExplanation(schoolId: string, membershipId: string, params
 }
 
 // ---------- invitations ----------
+
+/** The school's invitations, pending by default. Summaries only: no token, no digest. */
+export function listInvitations(schoolId: string, params: InvitationListParams = {}) {
+  return request(withQuery(invitations(schoolId), { ...params }), { schema: InvitationPage })
+}
 
 export function invite(schoolId: string, body: InviteInput) {
   return request(invitations(schoolId), { method: 'POST', body, schema: InvitationSummary })
