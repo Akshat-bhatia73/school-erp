@@ -17,6 +17,7 @@ import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SelectSchoolRouteImport } from './routes/select-school'
+import { Route as TestCodesRouteImport } from './routes/test-codes'
 import { Route as VerifyOtpRouteImport } from './routes/verify-otp'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AccountSecurityRouteImport } from './routes/account/security'
@@ -80,6 +81,11 @@ const ResetPasswordRoute = ResetPasswordRouteImport.update({
 const SelectSchoolRoute = SelectSchoolRouteImport.update({
   id: '/select-school',
   path: '/select-school',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TestCodesRoute = TestCodesRouteImport.update({
+  id: '/test-codes',
+  path: '/test-codes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const VerifyOtpRoute = VerifyOtpRouteImport.update({
@@ -217,6 +223,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/select-school': typeof SelectSchoolRoute
+  '/test-codes': typeof TestCodesRoute
   '/verify-otp': typeof VerifyOtpRoute
   '/dashboard': typeof AppDashboardRoute
   '/account/security': typeof AccountSecurityRoute
@@ -251,6 +258,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/select-school': typeof SelectSchoolRoute
+  '/test-codes': typeof TestCodesRoute
   '/verify-otp': typeof VerifyOtpRoute
   '/dashboard': typeof AppDashboardRoute
   '/account/security': typeof AccountSecurityRoute
@@ -287,6 +295,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/select-school': typeof SelectSchoolRoute
+  '/test-codes': typeof TestCodesRoute
   '/verify-otp': typeof VerifyOtpRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/account/security': typeof AccountSecurityRoute
@@ -323,6 +332,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/select-school'
+    | '/test-codes'
     | '/verify-otp'
     | '/dashboard'
     | '/account/security'
@@ -357,6 +367,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/select-school'
+    | '/test-codes'
     | '/verify-otp'
     | '/dashboard'
     | '/account/security'
@@ -392,6 +403,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/select-school'
+    | '/test-codes'
     | '/verify-otp'
     | '/_app/dashboard'
     | '/account/security'
@@ -428,6 +440,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   SelectSchoolRoute: typeof SelectSchoolRoute
+  TestCodesRoute: typeof TestCodesRoute
   VerifyOtpRoute: typeof VerifyOtpRoute
   AccountSecurityRoute: typeof AccountSecurityRoute
   MfaSetupRoute: typeof MfaSetupRoute
@@ -490,6 +503,13 @@ declare module '@tanstack/react-router' {
       path: '/select-school'
       fullPath: '/select-school'
       preLoaderRoute: typeof SelectSchoolRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/test-codes': {
+      id: '/test-codes'
+      path: '/test-codes'
+      fullPath: '/test-codes'
+      preLoaderRoute: typeof TestCodesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/verify-otp': {
@@ -729,6 +749,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   SelectSchoolRoute: SelectSchoolRoute,
+  TestCodesRoute: TestCodesRoute,
   VerifyOtpRoute: VerifyOtpRoute,
   AccountSecurityRoute: AccountSecurityRoute,
   MfaSetupRoute: MfaSetupRoute,

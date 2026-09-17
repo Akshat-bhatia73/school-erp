@@ -38,6 +38,7 @@ Owner or permission changed:
 | `/verify-otp` | public; phone one-time code exchange | none | Task 6 |
 | `/forgot-password` | public; always answers generically | none | Task 6 |
 | `/reset-password` | public; reset token in the link only | none | Task 6 |
+| `/test-codes` | public page; test builds only. Held text messages are read with the `HELD_SMS_TOKEN` access code, and the route behind it is absent without that setting | none | Task 11 |
 | `/mfa/verify` | pending or active session; second factor challenge | `SessionSummary` | Task 6 |
 | `/mfa/setup` | authenticated session; authenticator enrolment | `SessionSummary` | Task 6 |
 | `/select-school` | authenticated session; lists own memberships only | `MeResponse` | Task 6 |

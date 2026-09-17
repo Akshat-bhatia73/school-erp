@@ -6,17 +6,19 @@
  * rewrite must exist and must come before the single-page catch-all, or every
  * API call would be answered with index.html.
  *
- * The repository ships a placeholder destination because vercel.json cannot
- * read environment variables. Replacing it is the first item of the release
- * checklist. Set ALLOW_PLACEHOLDER_API_ORIGIN=true to accept the placeholder
- * (CI does, because the repository has no domain yet).
+ * The backend is either the function in this project (destination "/api",
+ * served by api/index.js) or a container on another host (an https origin).
+ * For the container path the repository used to ship a placeholder host;
+ * ALLOW_PLACEHOLDER_API_ORIGIN=true still accepts one.
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const PLACEHOLDER_API_ORIGIN = 'REPLACE-WITH-YOUR-DOMAIN'
+/** The function in this project, served by api/index.js. */
+export const FUNCTION_DESTINATION = '/api'
 
 export function checkDeployConfig({
   file = path.join(root, 'vercel.json'),
@@ -55,9 +57,14 @@ export function checkDeployConfig({
     )
 
   const destination = String(rewrites[apiIndex]?.destination ?? '')
-  if (apiIndex !== -1 && !destination.startsWith('https://'))
+  if (destination === FUNCTION_DESTINATION) {
+    if (!existsSync(path.join(path.dirname(file), 'api', 'index.js')))
+      problems.push(
+        'the /api rewrite points at the function in this project, but api/index.js is missing.',
+      )
+  } else if (apiIndex !== -1 && !destination.startsWith('https://'))
     problems.push(
-      `the /api rewrite must point at an https backend origin (got "${destination}").`,
+      `the /api rewrite must point at "${FUNCTION_DESTINATION}" or an https backend origin (got "${destination}").`,
     )
 
   if (raw.includes(PLACEHOLDER_API_ORIGIN) && !allowPlaceholder)

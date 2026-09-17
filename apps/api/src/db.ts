@@ -21,6 +21,11 @@ export async function createPools(config: ApiConfig): Promise<ApiPools> {
     connectionString: config.IDENTITY_DATABASE_URL,
   })
   const runtime = createPool({ connectionString: config.DATABASE_URL })
+  // A hosted database drops idle connections when it suspends. pg reports
+  // that on the pool, and an unhandled 'error' event would end the process;
+  // the pool has already discarded the client, so there is nothing to do.
+  // Never log the error: its message can carry the connection string.
+  for (const pool of [auth, identity, runtime]) pool.on('error', () => {})
   await assertRuntimeRole(runtime)
   return {
     auth,

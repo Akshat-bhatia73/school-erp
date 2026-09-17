@@ -101,6 +101,15 @@ export const authThrottle = pgTable('auth_throttle', {
   lastRequest: bigint('last_request', { mode: 'number' }).notNull().default(0),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 })
+/** Text messages a test build holds instead of sending. See migration 0008. */
+export const heldSms = pgTable('held_sms', {
+  id: id(),
+  recipient: text('recipient').notNull(),
+  purpose: text('purpose').notNull(),
+  secret: text('secret').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+})
 export const authAccounts = pgTable(
   'auth_account',
   {

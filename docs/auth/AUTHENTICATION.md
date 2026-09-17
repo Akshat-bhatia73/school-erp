@@ -23,7 +23,7 @@ pnpm --filter @erp/api typecheck
 
 `pnpm dev:api` loads `apps/api/.env` with `node --env-file-if-exists`; there is no dotenv dependency. [apps/api/.env.example](../../apps/api/.env.example) holds development values only: the local container passwords and a throwaway `AUTH_SECRET`. Deployments must supply real values from their secret store.
 
-Variables: `AUTH_DATABASE_URL`, `IDENTITY_DATABASE_URL`, `DATABASE_URL`, `AUTH_SECRET` (32 characters or more), `APP_ORIGIN` (the single browser origin), `API_TRUST_PROXY` (default `false`), `DELIVERY_MODE` (`sandbox` or `provider`), `ALLOW_SANDBOX_DELIVERY` (default `false`), `DEV_SANDBOX_OUTBOX` (default `false`), `DOCUMENT_STORAGE_DIR` (default `.documents`), `PORT`, `HOST` (default `127.0.0.1`), `NODE_ENV`. They are read once in `src/config.ts` with Zod. An invalid value stops the process and the message names the fields, never their values.
+Variables: `AUTH_DATABASE_URL`, `IDENTITY_DATABASE_URL`, `DATABASE_URL`, `AUTH_SECRET` (32 characters or more), `APP_ORIGIN` (the single browser origin), `API_TRUST_PROXY` (default `false`), `DELIVERY_MODE` (`sandbox` or `provider`), `ALLOW_SANDBOX_DELIVERY` (default `false`), `DEV_SANDBOX_OUTBOX` (default `false`), `DOCUMENT_STORAGE_DIR` (default `.documents`), `DOCUMENT_STORAGE` (`local` or `blob`), `BLOB_READ_WRITE_TOKEN`, `RESEND_API_KEY`, `EMAIL_FROM`, `HELD_SMS_TOKEN`, `SENTRY_DSN`, `PORT`, `HOST` (default `127.0.0.1`), `NODE_ENV`. They are read once in `src/config.ts` with Zod. An invalid value stops the process and the message names the fields, never their values.
 
 | Variable | Default | What it does |
 |---|---|---|
@@ -33,7 +33,10 @@ Variables: `AUTH_DATABASE_URL`, `IDENTITY_DATABASE_URL`, `DATABASE_URL`, `AUTH_S
 | `AUTH_SECRET` | none | Signs sessions. 32 characters or more. |
 | `APP_ORIGIN` | none | The one browser origin allowed to call the API. |
 | `API_TRUST_PROXY` | `false` | Honour `X-Forwarded-*`. Set `true` only behind a proxy you control. |
-| `DELIVERY_MODE` | `sandbox` | `sandbox` keeps messages in memory; `provider` stops startup until a provider exists. |
+| `DELIVERY_MODE` | `sandbox` | `sandbox` keeps messages in memory; `provider` sends email through Resend and needs `RESEND_API_KEY` and `EMAIL_FROM`, or startup stops. |
+| `HELD_SMS_TOKEN` | unset | Test builds only, provider mode only. There is no SMS provider: with this unset a text message fails; with it set the message is held for ten minutes and the token reads it at `GET /api/held-codes`. Never set for a real school. |
+| `DOCUMENT_STORAGE` | `local` | `blob` reads private documents from a Vercel Blob store and needs `BLOB_READ_WRITE_TOKEN`. |
+| `SENTRY_DSN` | unset | Error reporting. Reports carry no body, cookie, header, query string or user. |
 | `ALLOW_SANDBOX_DELIVERY` | `false` | Sandbox delivery logs codes instead of sending them; never in real use. With `NODE_ENV=production`, startup is refused on `DELIVERY_MODE=sandbox` unless this is `true`. |
 | `DEV_SANDBOX_OUTBOX` | `false` | Publishes `GET /api/dev/outbox`. Refused when `NODE_ENV=production`. |
 | `DOCUMENT_STORAGE_DIR` | `.documents` | Where private student documents are written. |
@@ -45,7 +48,7 @@ With `NODE_ENV=production` the server also refuses to start when `AUTH_SECRET` i
 
 ### Messages in development
 
-`DELIVERY_MODE=sandbox` is the only supported mode. The sandbox adapter keeps messages in memory, logs one line prefixed `[SANDBOX DELIVERY]` that states nothing was sent and omits the code or token, and exposes the list to tests. Nothing leaves the process, so a one-time code or reset link is read from that in-memory outbox in a test, or from the sandbox adapter in a REPL — not from a mailbox or a phone. `GET /api/auth-config` reports the delivery mode so a future sign-in screen can say plainly that no message was sent. `DELIVERY_MODE=provider` fails startup, because no email or SMS provider exists yet and the service must never imply a real delivery.
+`DELIVERY_MODE=sandbox` is the development and test mode. The sandbox adapter keeps messages in memory, logs one line prefixed `[SANDBOX DELIVERY]` that states nothing was sent and omits the code or token, and exposes the list to tests. Nothing leaves the process, so a one-time code or reset link is read from that in-memory outbox in a test, or from the sandbox adapter in a REPL — not from a mailbox or a phone. `GET /api/auth-config` reports the delivery mode so a future sign-in screen can say plainly that no message was sent. `DELIVERY_MODE=provider` sends email through Resend (`src/delivery/resend.ts`): links point at `APP_ORIGIN` and the adapter logs nothing. It has no SMS provider, so a text message fails rather than implying a delivery, unless a test build holds it (`HELD_SMS_TOKEN`, see the release runbook section 0.1).
 
 ## Credential boundaries
 

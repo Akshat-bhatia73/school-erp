@@ -30,8 +30,25 @@ const EnvSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
-  /** Where private student documents live. Only server.ts reads it. */
+  /** Provider mode sends email through Resend. Both are required with it. */
+  RESEND_API_KEY: z.string().min(1).optional(),
+  /** A bare address on a domain verified with the provider. */
+  EMAIL_FROM: z.email().optional(),
+  /**
+   * Test environments only. There is no SMS provider yet, so in provider mode
+   * a text message is held in the database instead of being sent, and whoever
+   * presents this token may read the held codes at GET /api/held-codes. With
+   * it unset an SMS fails, which is the honest answer. Never set it for a
+   * real school: the token reads every parent's one-time code.
+   */
+  HELD_SMS_TOKEN: z.string().min(32).optional(),
+  /** Where private student documents live when DOCUMENT_STORAGE=local. */
   DOCUMENT_STORAGE_DIR: z.string().min(1).default('.documents'),
+  /** `blob` reads from a private Vercel Blob store; a function has no disk. */
+  DOCUMENT_STORAGE: z.enum(['local', 'blob']).default('local'),
+  BLOB_READ_WRITE_TOKEN: z.string().min(1).optional(),
+  /** Error reporting. Absent means nothing leaves the process. */
+  SENTRY_DSN: z.url().optional(),
   PORT: z.coerce.number().int().min(0).max(65_535).default(3001),
   /**
    * The interface to listen on. Loopback by default so a developer machine
@@ -110,10 +127,21 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): ApiConfig {
       .join(', ')
     throw new ConfigurationError(`Invalid API configuration: ${fields}`)
   }
-  if (parsed.data.DELIVERY_MODE === 'provider') {
+  if (
+    parsed.data.DELIVERY_MODE === 'provider' &&
+    (!parsed.data.RESEND_API_KEY || !parsed.data.EMAIL_FROM)
+  ) {
     throw new ConfigurationError(
-      'DELIVERY_MODE=provider is not supported yet: no email or SMS provider is configured.',
+      'DELIVERY_MODE=provider needs RESEND_API_KEY and EMAIL_FROM.',
     )
+  }
+  if (parsed.data.HELD_SMS_TOKEN && parsed.data.DELIVERY_MODE !== 'provider') {
+    throw new ConfigurationError(
+      'HELD_SMS_TOKEN only applies to DELIVERY_MODE=provider; sandbox delivery sends nothing at all.',
+    )
+  }
+  if (parsed.data.DOCUMENT_STORAGE === 'blob' && !parsed.data.BLOB_READ_WRITE_TOKEN) {
+    throw new ConfigurationError('DOCUMENT_STORAGE=blob needs BLOB_READ_WRITE_TOKEN.')
   }
   if (parsed.data.DEV_SANDBOX_OUTBOX && parsed.data.NODE_ENV === 'production') {
     throw new ConfigurationError(

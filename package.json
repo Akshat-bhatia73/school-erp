@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "pnpm --filter @erp/web dev",
-    "build": "pnpm --filter @erp/web build && rm -rf dist && cp -R apps/web/dist dist",
+    "build": "pnpm --filter @erp/web build && rm -rf dist && cp -R apps/web/dist dist && pnpm --filter @erp/api build:vercel",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "test:contracts": "pnpm --filter @erp/contracts test",
