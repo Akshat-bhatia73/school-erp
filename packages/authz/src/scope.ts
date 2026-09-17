@@ -19,7 +19,7 @@ import {
   teachingAssignments,
   timetableEntries,
 } from '@erp/db/schema'
-import { PERMISSION_CATALOGUE, PermissionKey, ROLE_TEMPLATES } from '@erp/contracts'
+import { FINANCE_AUDIT_ACTIONS, PERMISSION_CATALOGUE, PermissionKey, ROLE_TEMPLATES } from '@erp/contracts'
 import type { AccessScope, ResourceAccessRule, ResourceType, RoleKey } from '@erp/contracts'
 import type { AuthorizedReadPlan, PolicySnapshot, RequestContext } from '@erp/contracts/server'
 
@@ -67,6 +67,8 @@ export interface ScopedTable {
   readonly subjectId?: PgColumn
   /** The staff member a row belongs to, for the self scope. */
   readonly staffId?: PgColumn
+  /** The audited action of a row, for the finance scope over the audit trail. */
+  readonly action?: PgColumn
 }
 
 const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
@@ -133,7 +135,12 @@ const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
     id: bellSchedules.id,
     academicYearId: bellSchedules.academicYearId,
   },
-  audit_event: { table: auditEvents, schoolId: auditEvents.schoolId, id: auditEvents.id },
+  audit_event: {
+    table: auditEvents,
+    schoolId: auditEvents.schoolId,
+    id: auditEvents.id,
+    action: auditEvents.action,
+  },
 }
 
 /** The table a plan of this resource type lists, or null when there is none. */
@@ -394,11 +401,28 @@ function enrollmentExistsForChildren(restriction: SQL, table: ScopedTable, child
         AND e.student_id IN (${childList}) AND ${restriction})`
 }
 
+/**
+ * The finance audience over the audit trail. Every other resource keeps the
+ * whole school as its row set, because `finance` there is a projection
+ * audience narrowed by field groups, not a row filter. The audit trail is the
+ * one place where the rows themselves carry the audience, so an accountant
+ * sees the money actions and nothing else.
+ */
+function financeTerm(plan: AuthorizedReadPlan, table: ScopedTable): SQL {
+  if (plan.resourceType !== 'audit_event') return TRUE
+  if (table.action === undefined) return FALSE
+  return sql`${table.action} IN (${sql.join(
+    FINANCE_AUDIT_ACTIONS.map((action) => sql`${action}`),
+    sql`, `,
+  )})`
+}
+
 function scopeTerm(plan: AuthorizedReadPlan, table: ScopedTable, scope: AccessScope, parts: PlanInternals): SQL {
   switch (scope) {
     case 'school':
-    case 'finance':
       return TRUE
+    case 'finance':
+      return financeTerm(plan, table)
     case 'self':
       return selfTerm(plan, table, parts.selfStaffId)
     case 'assigned_sections':

@@ -1,0 +1,13 @@
+# The API image is built from the repository root, so pnpm can see the
+# lockfile and the workspace packages. Everything the workspace needs to
+# resolve the lockfile stays in; only build output, secrets and local data go.
+**/node_modules
+**/dist
+dist
+.git
+.github
+**/.env
+**/.env.*
+!**/.env.example
+apps/api/.dev
+apps/api/.documents

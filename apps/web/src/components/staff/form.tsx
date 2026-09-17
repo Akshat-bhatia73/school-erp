@@ -21,7 +21,6 @@ export interface StaffDraft {
   dateOfBirth: string
   phone: string
   email: string
-  employeeCode: string
   staffType: StaffTypeValue
   designation: string
   department: string
@@ -39,7 +38,7 @@ export const designationSuggestions = [
 export function emptyDraft(): StaffDraft {
   return {
     firstName: '', lastName: '', gender: '', dateOfBirth: '', phone: '', email: '',
-    employeeCode: '', staffType: 'teaching', designation: '', department: '',
+    staffType: 'teaching', designation: '', department: '',
     employmentType: 'permanent', joiningDate: new Date().toISOString().slice(0, 10), qualification: '',
   }
 }
@@ -48,7 +47,6 @@ const opt = (value: string) => (value.trim() === '' ? undefined : value.trim())
 
 export function draftToCreateRequest(d: StaffDraft): unknown {
   return {
-    employeeCode: d.employeeCode.trim(),
     firstName: d.firstName.trim(),
     lastName: opt(d.lastName),
     staffType: d.staffType,
@@ -160,10 +158,9 @@ export function PersonalFields({ d, set, errors }: { d: StaffDraft; set: (p: Par
   )
 }
 
-export function EmploymentFields({ d, set, errors, departments, codeHint }: { d: StaffDraft; set: (p: Partial<StaffDraft>) => void; errors: FieldErrors; departments: string[]; codeHint?: string }) {
+export function EmploymentFields({ d, set, errors, departments }: { d: StaffDraft; set: (p: Partial<StaffDraft>) => void; errors: FieldErrors; departments: string[] }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <TextField label="Employee code" value={d.employeeCode} onChange={(v) => set({ employeeCode: v })} error={errors.employeeCode} hint={codeHint} placeholder="SVM-E001" />
       <SelectField label="Staff type" value={d.staffType} onChange={(v) => set({ staffType: v })} options={staffTypeOptions} error={errors.staffType} />
       <Field label="Designation" error={errors.designation}>
         <Input value={d.designation} onChange={(e) => set({ designation: e.target.value })} list="staff-designations" placeholder="PRT English" aria-invalid={!!errors.designation} />

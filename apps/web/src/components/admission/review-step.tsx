@@ -78,7 +78,7 @@ export function ReviewStep({ draft, onEdit, academicYearId, yearName }: {
             { label: 'Academic year', value: yearName },
             { label: 'Class and section', value: section ? section.label : dash },
             { label: 'Roll number', value: val(draft.rollNumber) },
-            { label: 'Admission number', value: val(draft.admissionNumber) },
+            { label: 'Admission number', value: <span className="text-muted-foreground">Assigned when you save</span> },
             { label: 'Admission date', value: draft.admissionDate ? formatDate(draft.admissionDate) : dash },
             { label: 'Admission type', value: draft.admissionType ? humanize(draft.admissionType) : dash },
             { label: 'Address', value: val(draft.address) },

@@ -136,8 +136,8 @@ where the row says so.
 |---|---|---|---|
 | `/students` | `students` (page, search, sectionId, status, sort), `sections`, `grades`, `students/export` + `exports/:id` | Office: the roster, the class chip, search, and Admit / Import / Promote / Export as their permissions allow. Teacher: their own pupils, no write action. Parent: their own children | No gender or admission-type filter, no "N boys / N girls" footer, no bulk move or leave, and the roster deliberately sends no `academicYearId` (the server matches it against the current enrolment, which hid every past pupil) |
 | `/students/:id` | `students/:id`, `/guardians`, `/siblings`, `/documents`, `/enrollments`, `files/student-document`, plus `updateBasic`, `updateSensitive`, `move`, `leave`, `addGuardian`, `updateGuardian` | Each block and tab appears only because the server sent it and listed the action: edit name, edit details, move section, mark as left, guardians, siblings, documents, class history | Correcting a guardian already on file (the contract has no guardian version), photo, house, transport, structured address, document upload |
-| `/students/new` | `students/count`, `sections`, `grades`, `students` (create) | Needs `students.create`; attaching an existing guardian also needs `students.manage_guardians` | Medical fields, religion, mother tongue, nationality, Aadhaar, APAAR, previous school, transport and the structured address; attaching an existing guardian is an id field, not a picker |
-| `/students/import` | `students/import/preview`, `students/import/commit`, `sections`, `grades` | Needs `students.import`; the counts and the row errors are the server's, never the browser's | The admission number must be supplied; the school does not generate one |
+| `/students/new` | `sections`, `grades`, `students` (create) | Needs `students.create`; attaching an existing guardian also needs `students.manage_guardians`; the admission number is never typed here, the server assigns it on save and the toast reads it back | Medical fields, religion, mother tongue, nationality, Aadhaar, APAAR, previous school, transport and the structured address; attaching an existing guardian is an id field, not a picker |
+| `/students/import` | `students/import/preview`, `students/import/commit`, `sections`, `grades` | Needs `students.import`; the counts, the row list and the row errors are the server's, never the browser's; the Admission Number column is optional and the review shows the kept number or "Will be assigned" per row | Editing a row in the browser: a wrong row is fixed in the file and uploaded again |
 | `/students/promote` | `academic-years`, `sections`, `grades`, `students/promote/preview`, `students/promote` | Needs `students.promote`; a reason is required | 100 students per run (`IdList`), no capacity warning, no attendance column |
 
 ### Staff
@@ -146,7 +146,7 @@ where the row says so.
 |---|---|---|---|
 | `/staff` | `staff` (page, search, sort), `staff/departments`, `staff/export` + `exports/:id` | Office: the directory with Add staff and Export. Teacher: the staff they may see, no write action. Parent: refused, and the destination is not in the navigation | No staff-type, status, employment or department filter on the server; the department chip narrows the loaded page only. No photo, phone, employee code or subject count in the list |
 | `/staff/:id` | `staff/:id`, `staff/:id/assignments`, `assign`, `unassign`, `updateEmployment`, `updatePrivate`, `updatePay`, plus `members` for the Login tab and `sections`/`grades`/`subjects` for the assignment pickers | Employment, Contact and Pay panels appear only when the server sent that block; each Edit only when the record allows it. The Login tab needs `members.read`; the Timetable tab needs `timetable.read` | The employment sheet cannot clear a leaving date, because the detail response never carries one. No "class teacher of", no room number, no separate status actions |
-| `/staff/new` | `staff/departments`, `staff` (create) | Needs `staff.create` | Pay, address, experience, blood group and the old "create a login" switch: creation never makes a login, an invitation does |
+| `/staff/new` | `staff/departments`, `staff` (create) | Needs `staff.create`; the employee code is never typed here, the server assigns it on save and the create response carries it for the toast | Pay, address, experience, blood group and the old "create a login" switch: creation never makes a login, an invitation does |
 
 ### School setup
 
@@ -171,7 +171,7 @@ where the row says so.
 
 | Screen | Endpoints | What each role sees | Not yet |
 |---|---|---|---|
-| `/settings/users` | `members` (page), `changeRoles`, `suspend`, `remove`, `restore`, `startRecovery`, `access-explanation`, `invitations` create/resend/revoke, `staff/search` | `members.read` sees the directory. Invite needs `members.invite` and `roles.assign` and at least one assignable role. Each lifecycle button needs its own key and the transition. The sheet also respects the delegation rules: self, an owner target and an unmanageable target each get a sentence instead of a form | No invitation list endpoint, no server-side member search or role/status filter, no ownership transfer, no "last active", no bulk selection |
+| `/settings/users` | `members` (page), `changeRoles`, `suspend`, `remove`, `restore`, `startRecovery`, `access-explanation`, `invitations` list/create/resend/revoke, `staff/search` | `members.read` sees the directory. Invite needs `members.invite` and `roles.assign` and at least one assignable role. Each lifecycle button needs its own key and the transition. The sheet also respects the delegation rules: self, an owner target and an unmanageable target each get a sentence instead of a form. Below the table, a "Pending invitations" panel lists the school's pending invitations with the masked destination, the roles and the expiry, and a Resend and a Revoke button. It is only asked for and only rendered when the person has `members.invite`, and it is hidden when nothing is pending. Invite, resend and revoke all invalidate the `[schoolId, 'members']` prefix, so the panel is right after a reload as well as after an action | No server-side member search or role/status filter, no ownership transfer, no "last active", no bulk selection |
 | `/settings/roles` | none | `roles.read` sees the frozen role templates and a read-only matrix of roles against active permission keys | Roles are not editable: `roles.manage` is reserved |
 | `/settings/audit-log` | `audit-events` (page, action, from, to), `audit-events/export` + `exports/:id` | `audit.read` sees the list; `audit.export` sees the Export button | The action filter is an exact match, there is no entity or free-text filter and no "who" picker, and the export queues a job with no download |
 
@@ -279,8 +279,6 @@ The app must be opened at `http://localhost:5173`; the API refuses any other ori
 
 Server gaps — a screen cannot do this until an endpoint or a contract field exists.
 
-- No invitation list endpoint. Invitations created in one browser session are held in component
-  state under "Sent this session" and disappear on reload; resend and revoke only work on those.
 - No lookup of a membership by staff id. The staff Login tab pages the member directory 100 at a
   time until it finds the person, because `GET /members` has no `staffId` filter.
 - No school access version is readable, so ownership transfer (which needs

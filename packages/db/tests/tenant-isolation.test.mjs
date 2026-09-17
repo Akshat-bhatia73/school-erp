@@ -11,6 +11,8 @@ if (!connectionString)
   throw new Error(
     'TEST_DATABASE_URL must name a disposable PostgreSQL database',
   )
+if (new URL(connectionString).pathname === '/erp')
+  throw new Error('The db tests refuse to run against "erp", the development database; use erp_test (pnpm db:test:prepare)')
 const admin = new pg.Pool({ connectionString, max: 2 })
 const runtimeUrl = new URL(connectionString)
 runtimeUrl.username = 'erp_runtime'

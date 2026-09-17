@@ -9,6 +9,8 @@ import {
 import { fixtureIds as i, seedFixtures } from '../scripts/fixtures.mjs'
 const connectionString = process.env.TEST_DATABASE_URL
 if (!connectionString) throw new Error('TEST_DATABASE_URL is required')
+if (new URL(connectionString).pathname === '/erp')
+  throw new Error('The db tests refuse to run against "erp", the development database; use erp_test (pnpm db:test:prepare)')
 const pool = new pg.Pool({ connectionString })
 async function rejected(c, sql, values, code) {
   await c.query('SAVEPOINT rejected_write')

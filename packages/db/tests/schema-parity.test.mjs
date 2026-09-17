@@ -10,6 +10,8 @@ if (!connectionString)
   throw new Error(
     'TEST_DATABASE_URL must name the migrated disposable PostgreSQL database',
   )
+if (new URL(connectionString).pathname === '/erp')
+  throw new Error('The db tests refuse to run against "erp", the development database; use erp_test (pnpm db:test:prepare)')
 const pool = new pg.Pool({ connectionString })
 
 const exportedTables = Object.entries(schema)

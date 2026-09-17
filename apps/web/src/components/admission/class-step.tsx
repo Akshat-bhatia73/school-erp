@@ -32,8 +32,7 @@ export function ClassStep({ draft, set, errors, academicYearId, yearName }: {
             onChange={(v) => set({ sectionId: v })}
             options={options.map((option) => ({ value: option.value, label: option.label }))}
           />
-          <TextField label="Roll number" type="number" value={draft.rollNumber} onChange={(v) => set({ rollNumber: v })} error={errors.rollNumber} />
-          <TextField label="Admission number" required value={draft.admissionNumber} onChange={(v) => set({ admissionNumber: v })} error={errors.admissionNumber} hint="Suggested for you. Change it if your school numbers differently." />
+          <TextField label="Roll number" type="number" value={draft.rollNumber} onChange={(v) => set({ rollNumber: v })} error={errors.rollNumber} hint="Optional." />
           <TextField label="Admission date" required type="date" value={draft.admissionDate} onChange={(v) => set({ admissionDate: v })} error={errors.admissionDate} />
           <SelectField
             label="Admission type" value={draft.admissionType} onChange={(v) => set({ admissionType: v })} error={errors.admissionType}

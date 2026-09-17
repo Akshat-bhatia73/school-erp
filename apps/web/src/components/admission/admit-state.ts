@@ -30,7 +30,6 @@ export interface AdmitDraft {
   dateOfBirth: string
   gender: 'male' | 'female' | 'other' | ''
   category: string
-  admissionNumber: string
   admissionDate: string
   admissionType: string
   address: string
@@ -49,7 +48,7 @@ export function emptyGuardian(relation: GuardianRelation = 'father'): GuardianDr
 export function emptyDraft(): AdmitDraft {
   return {
     firstName: '', lastName: '', dateOfBirth: '', gender: '', category: '',
-    admissionNumber: '', admissionDate: todayIso(), admissionType: '', address: '',
+    admissionDate: todayIso(), admissionType: '', address: '',
     sectionId: '', rollNumber: '', guardians: [emptyGuardian('father')], primaryIndex: 0,
   }
 }
@@ -67,7 +66,6 @@ export function toAdmitRequest(draft: AdmitDraft): AdmitStudentInput {
   return {
     firstName: draft.firstName.trim(),
     lastName: clean(draft.lastName),
-    admissionNumber: draft.admissionNumber.trim(),
     dateOfBirth: draft.dateOfBirth,
     gender: (draft.gender || 'male') as 'male' | 'female' | 'other',
     category: clean(draft.category),
@@ -99,7 +97,7 @@ export function toAdmitRequest(draft: AdmitDraft): AdmitStudentInput {
 const STEP_FIELDS: Record<number, string[]> = {
   0: ['firstName', 'lastName', 'dateOfBirth', 'gender', 'category'],
   1: ['guardians'],
-  2: ['admissionNumber', 'admissionDate', 'admissionType', 'address', 'sectionId', 'rollNumber'],
+  2: ['admissionDate', 'admissionType', 'address', 'sectionId', 'rollNumber'],
 }
 
 /** Every problem the contract found, keyed by dotted path. */
@@ -129,9 +127,4 @@ export function stepOfError(path: string): number {
 /** Only the problems this step can fix. */
 export function errorsForStep(step: number, errors: Errors): Errors {
   return Object.fromEntries(Object.entries(errors).filter(([path]) => stepOfError(path) === step))
-}
-
-/** "SVM/2026/014" */
-export function suggestAdmissionNumber(shortName: string, seq: number) {
-  return `${shortName.toUpperCase()}/${new Date().getFullYear()}/${String(seq).padStart(3, '0')}`
 }

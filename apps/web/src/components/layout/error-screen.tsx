@@ -1,10 +1,14 @@
 import { Link, type ErrorComponentProps } from '@tanstack/react-router'
 import { AlertTriangle, RotateCcw } from 'lucide-react'
+import { useEffect } from 'react'
 import { Button } from '@/components/ui/button'
+import { reportError } from '@/lib/observability'
 
 /** Shown by the router when a screen throws. Gives the user a way out and shows the message for bug reports. */
 export function ErrorScreen({ error, reset }: ErrorComponentProps) {
   const message = error instanceof Error ? error.message : String(error)
+  // The router caught it, so it never reaches the window's error handler.
+  useEffect(() => reportError(error), [error])
   return (
     <div className="flex h-full flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
       <div className="flex size-10 items-center justify-center rounded-xl border bg-muted/50 text-tag-orange"><AlertTriangle className="size-5" /></div>

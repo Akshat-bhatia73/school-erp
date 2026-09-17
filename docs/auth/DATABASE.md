@@ -13,7 +13,9 @@ pnpm install --frozen-lockfile
 docker compose -f compose.db.yml up -d --wait
 
 MIGRATION_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp pnpm db:migrate
-TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp pnpm test:db
+# One disposable database for every test suite: created, granted and migrated.
+TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp_test pnpm db:test:prepare
+TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp_test pnpm test:db
 
 # Optional: populate the same development fixtures outside the test run.
 FIXTURE_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp pnpm db:fixtures
@@ -21,7 +23,7 @@ FIXTURE_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp pn
 MIGRATION_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp pnpm --filter @erp/db migrate:check
 ```
 
-The test suite writes fixtures and test rows. Point `TEST_DATABASE_URL` only at a disposable test database. To remove this container and its local data, run `docker compose -f compose.db.yml down -v`.
+The test suite writes fixtures and test rows, so point `TEST_DATABASE_URL` only at a disposable test database such as `erp_test`. The `erp` database is the development one: it is for `pnpm dev:api`, `pnpm db:fixtures` and `pnpm --filter @erp/api dev:logins` only, and no test suite may be pointed at it. To remove this container and its local data, run `docker compose -f compose.db.yml down -v`.
 
 The migration runner requires `MIGRATION_DATABASE_URL`; it never falls back to the runtime `DATABASE_URL`. It records SHA-256 checksums and rejects changes to applied migration files. Apply new numbered migrations once this branch is merged or used beyond disposable databases. The initial migrations create database roles, so provision them with an appropriately privileged operator account before using a restricted deployment migrator on managed PostgreSQL.
 
@@ -62,6 +64,8 @@ Fixed role grants are read-only to the runtime connection. Audit rows cannot be 
 ## Fixtures and checks
 
 The deterministic development fixtures include two populated schools, unrelated families, one adult who is both teacher and parent, approved guardian-child access, a suspended member, a disabled student identity, and current/expired resource rules. Role fixtures come from the shared templates. Repeating the fixture command does not create duplicate grants or people.
+
+Migration `0007_number_sequences.sql` (Task 8) adds `number_sequences`, the per-school counters behind server-assigned admission numbers and employee codes, keyed by `(school_id, kind, period)` under the same tenant RLS policy; `erp_runtime` may read, insert and update it and never delete it. The fixtures seed students `A/2026-27/001`, `A/2026-27/002` and `B/2026-27/001`, staff `A-E001`, and the school A counters that continue after them. How the API allocates from the table is documented in [protected school APIs](PROTECTED_APIS.md#server-assigned-numbers).
 
 Tests use real PostgreSQL logins and the production transaction helper. They cover missing tenant context, wrong-school references, pooled connection reuse, rollback, auth/identity credential separation, forced-RLS coverage, database/Drizzle schema parity, provider field compatibility and relationship/state constraints. These database tests complement the Task 0 contract tests; live API and browser authorization tests remain Task 9 work.
 

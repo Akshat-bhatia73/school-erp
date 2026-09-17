@@ -42,11 +42,12 @@ export const StudentsAdmitGuardian = z
  * Everything admission may set. Fields the permission does not cover (school,
  * status, version, medical notes) are absent on purpose: a strict object turns
  * an attempt to send them into a rejected request rather than a silent write.
+ * The admission number is absent for the same reason: the server assigns it
+ * from the school's counter for the academic year of the chosen section.
  */
 export const StudentsAdmitRequest = z.strictObject({
   firstName: DisplayName,
   lastName: DisplayName.optional(),
-  admissionNumber: z.string().trim().min(1).max(100),
   dateOfBirth: CalendarDate,
   gender: z.enum(['male', 'female', 'other']),
   category: z.string().trim().max(50).optional(),

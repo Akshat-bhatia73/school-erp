@@ -18,6 +18,7 @@ FIXTURE_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp pn
 cp apps/api/.env.example apps/api/.env      # then set DEV_SANDBOX_OUTBOX=true
 pnpm dev:api                                # http://127.0.0.1:3001
 pnpm --filter @erp/api dev:logins           # the sign-in accounts below
+pnpm --filter @erp/api dev:seed             # a full school to click through
 pnpm --filter @erp/web dev                  # http://localhost:5173
 ```
 
@@ -36,6 +37,28 @@ The web app must be opened at `http://localhost:5173` and nowhere else: that ori
 | Student | Fixture A | student | email + password | `fixture-student@example.test` | Always refused: student sign-in is specified and disabled |
 | Parent A2 | Fixture A | parent | phone code | `9876543210` | `send-otp` always answers `{"status":"sent"}`; read the code from the outbox |
 | Parent B | Fixture B | parent | phone code | `9876543211` | A second school, for switching |
+
+### A realistic school for manual testing
+
+The fixture schools are deliberately tiny: two or three students, one staff member, one section. To open the feature screens against something that looks like a real school, seed Sunrise Public School.
+
+```sh
+pnpm --filter @erp/api dev:seed
+```
+
+It builds one CBSE school in the development database (`erp`): Nursery to Class 10 with two sections up to Class 8, ten subjects, about 330 students with guardians and siblings, 31 staff, last year's and this year's enrolments, teaching assignments for both years, a `Regular` bell schedule, a clash-free Monday to Saturday timetable for this year and six holidays. Admission numbers and employee codes are in the server's own format (`SPS/2026-27/001`, `SPS-E001`), and the `number_sequences` counters continue after them, so an admission made through the UI takes the next free number.
+
+Like `dev:logins`, it refuses to run when `NODE_ENV=production` or `DELIVERY_MODE` is not `sandbox`. It is idempotent: it finds its own school by the login code `sunrise`, deletes it with everything under it, and rebuilds in one transaction. **Fixture A and Fixture B, and the people who sign in to them, are never touched** — the script only ever deletes rows belonging to the school it owns.
+
+The accounts it creates are written to `apps/api/.dev/sunrise-logins.csv` (git-ignored) and printed as a table, along with the new school id: two owners, a principal, two office administrators, an accountant, five teachers (one of them also a parent, one suspended, one with a phone as well as an email), five parents (one with two children, one whose child has left, one whose access has not been approved) and one student account to show that student sign-in is refused. The password for every email login is `sunrise-password-1`; the parents sign in with a one-time code only.
+
+Every account whose role requires a second factor (owner, principal, admin, accountant) is enrolled during the seed, so there is no enrolment walk before using the screens. The CSV carries the base32 `totp_secret` and the `otpauth_uri`: paste the URI into an authenticator app, or ask for the current code on the command line.
+
+```sh
+pnpm --filter @erp/api dev:totp JBSWY3DPEHPK3PXP   # prints 6 digits
+```
+
+The code comes from the same generator the API verifies with, so it is always the one the sign-in challenge expects. Parent one-time codes are read from `GET /api/dev/outbox`, exactly as the fixture parents' are.
 
 ### Reading codes and tokens
 
@@ -129,6 +152,7 @@ The API side is covered by `pnpm test:api` (250 tests), including the dev outbox
 - A real invitation token could not be minted (it needs an MFA-enrolled owner), so only the failure codes of `POST /api/invitations/accept` were exercised against the live API.
 - `two-factor/disable` from a session that never completed a second factor is refused as `AUTHENTICATION_REQUIRED`, not `FRESH_AUTHENTICATION_REQUIRED`. The turn-off dialog treats both the same way and offers the authenticator.
 - The provider sign-in body still carries the fixture parents' non-provider email. The UI takes display identity from `/api/me`, never from the provider body.
-- `dev:logins` does not enrol a second factor, so exercising the MFA screens still means walking the enrolment flow.
+- `dev:logins` does not enrol a second factor, so exercising the MFA screens still means walking the enrolment flow. `dev:seed` does enrol one for every account that needs it.
+- `dev:seed` cannot create a guardian whose access is still waiting for approval: `guardian_student_access` only has `approved` and `revoked`, so the parent who is meant to be waiting simply has no access row.
 - The device list uses a local query key `['account','sessions']` rather than one in `lib/query.ts`.
 - Phone sign-in is offered on the Teacher and Parent tabs because the server gives no per-identity signal about which method an identity may use; `LOGIN_METHODS` is not enforced in the browser.
