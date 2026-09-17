@@ -171,7 +171,7 @@ where the row says so.
 
 | Screen | Endpoints | What each role sees | Not yet |
 |---|---|---|---|
-| `/settings/users` | `members` (page), `changeRoles`, `suspend`, `remove`, `restore`, `startRecovery`, `access-explanation`, `invitations` create/resend/revoke, `staff/search` | `members.read` sees the directory. Invite needs `members.invite` and `roles.assign` and at least one assignable role. Each lifecycle button needs its own key and the transition. The sheet also respects the delegation rules: self, an owner target and an unmanageable target each get a sentence instead of a form | No invitation list endpoint, no server-side member search or role/status filter, no ownership transfer, no "last active", no bulk selection |
+| `/settings/users` | `members` (page), `changeRoles`, `suspend`, `remove`, `restore`, `startRecovery`, `access-explanation`, `invitations` list/create/resend/revoke, `staff/search` | `members.read` sees the directory. Invite needs `members.invite` and `roles.assign` and at least one assignable role. Each lifecycle button needs its own key and the transition. The sheet also respects the delegation rules: self, an owner target and an unmanageable target each get a sentence instead of a form. Below the table, a "Pending invitations" panel lists the school's pending invitations with the masked destination, the roles and the expiry, and a Resend and a Revoke button. It is only asked for and only rendered when the person has `members.invite`, and it is hidden when nothing is pending. Invite, resend and revoke all invalidate the `[schoolId, 'members']` prefix, so the panel is right after a reload as well as after an action | No server-side member search or role/status filter, no ownership transfer, no "last active", no bulk selection |
 | `/settings/roles` | none | `roles.read` sees the frozen role templates and a read-only matrix of roles against active permission keys | Roles are not editable: `roles.manage` is reserved |
 | `/settings/audit-log` | `audit-events` (page, action, from, to), `audit-events/export` + `exports/:id` | `audit.read` sees the list; `audit.export` sees the Export button | The action filter is an exact match, there is no entity or free-text filter and no "who" picker, and the export queues a job with no download |
 
@@ -279,8 +279,6 @@ The app must be opened at `http://localhost:5173`; the API refuses any other ori
 
 Server gaps — a screen cannot do this until an endpoint or a contract field exists.
 
-- No invitation list endpoint. Invitations created in one browser session are held in component
-  state under "Sent this session" and disappear on reload; resend and revoke only work on those.
 - No lookup of a membership by staff id. The staff Login tab pages the member directory 100 at a
   time until it finds the person, because `GET /members` has no `staffId` filter.
 - No school access version is readable, so ownership transfer (which needs

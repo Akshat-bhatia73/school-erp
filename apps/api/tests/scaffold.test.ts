@@ -32,10 +32,11 @@ test('the server starts in sandbox delivery mode and reports it', async () => {
   assert.deepEqual(await response.json(), {
     deliveryMode: 'sandbox',
     studentLoginEnabled: false,
+    textMessagesHeld: false,
   })
 })
 
-test('provider delivery mode fails startup because no provider is configured', () => {
+test('provider delivery mode fails startup when no provider is configured', () => {
   assert.throws(
     () => loadConfig(testEnv(1234, { DELIVERY_MODE: 'provider' })),
     ConfigurationError,
@@ -233,4 +234,83 @@ test('a request the framework cannot parse is a client error, not an outage', as
 test('the shared rate limit store is the database table', async () => {
   const rows = await admin.query('SELECT count(*)::int AS n FROM auth_rate_limit')
   assert.ok((rows.rows[0]?.n ?? 0) >= 0)
+})
+
+// --- Production guards -------------------------------------------------
+// loadConfig is pure, so these cases need no server. They describe what a
+// real deployment is refused for.
+
+const productionEnv = (overrides: Record<string, string> = {}) =>
+  testEnv(4321, {
+    NODE_ENV: 'production',
+    AUTH_SECRET: 'a-real-production-secret-value-not-the-example-one',
+    APP_ORIGIN: 'https://school.example',
+    DELIVERY_MODE: 'sandbox',
+    ALLOW_SANDBOX_DELIVERY: 'true',
+    ...overrides,
+  })
+
+test('a complete production configuration is accepted', () => {
+  const config = loadConfig(productionEnv())
+  assert.equal(config.NODE_ENV, 'production')
+  assert.equal(config.APP_ORIGIN, 'https://school.example')
+  assert.equal(config.ALLOW_SANDBOX_DELIVERY, true)
+})
+
+test('production refuses the example AUTH_SECRET', () => {
+  assert.throws(
+    () =>
+      loadConfig(
+        productionEnv({
+          AUTH_SECRET: 'development-only-secret-change-me-0000000000',
+        }),
+      ),
+    ConfigurationError,
+  )
+})
+
+test('production refuses an AUTH_SECRET shorter than 32 characters', () => {
+  assert.throws(
+    () => loadConfig(productionEnv({ AUTH_SECRET: 'too-short' })),
+    ConfigurationError,
+  )
+})
+
+test('production refuses an APP_ORIGIN that is not https', () => {
+  assert.throws(
+    () => loadConfig(productionEnv({ APP_ORIGIN: 'http://school.example' })),
+    ConfigurationError,
+  )
+  // localhost stays allowed so a cutover rehearsal can run on one machine.
+  assert.equal(
+    loadConfig(productionEnv({ APP_ORIGIN: 'http://localhost:5173' }))
+      .APP_ORIGIN,
+    'http://localhost:5173',
+  )
+})
+
+test('production refuses sandbox delivery unless it is allowed explicitly', () => {
+  assert.throws(
+    () => loadConfig(productionEnv({ ALLOW_SANDBOX_DELIVERY: 'false' })),
+    ConfigurationError,
+  )
+})
+
+test('production refuses a database URL that signs in as the migrator', () => {
+  for (const name of [
+    'DATABASE_URL',
+    'AUTH_DATABASE_URL',
+    'IDENTITY_DATABASE_URL',
+  ]) {
+    assert.throws(
+      () =>
+        loadConfig(
+          productionEnv({
+            [name]: 'postgres://erp_migrator:erp_migrator@db.internal:5432/erp',
+          }),
+        ),
+      ConfigurationError,
+      `${name} must refuse the migrator login`,
+    )
+  }
 })

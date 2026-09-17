@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 
+import { FINANCE_AUDIT_ACTIONS, isFinanceAuditAction } from '@erp/contracts'
 import type { PermissionKey, ResourceType } from '@erp/contracts'
 import type { RequestContext } from '@erp/contracts/server'
 
@@ -52,6 +53,8 @@ let unrelatedTimetableId = ''
 let sectionSubstitutionId = ''
 let parentSubstitutionId = ''
 let exceptionTeacher = { membershipId: '', userId: '' }
+let financeAuditIds: string[] = []
+let otherAuditIds: string[] = []
 
 function tableFor(resourceType: ResourceType): ScopedTable {
   const table = scopedTableFor(resourceType)
@@ -321,6 +324,17 @@ before(async () => {
     authorMembershipId: fx('ownerA'),
   })
 
+  // The audit trail an accountant and an owner read. Only the finance actions
+  // belong to the finance audience; the rest are the school's own history.
+  for (const action of FINANCE_AUDIT_ACTIONS) {
+    financeAuditIds.push(await insertAuditEvent(schoolA, action))
+  }
+  for (const action of ['roles.assign', 'students.create', 'members.invite']) {
+    otherAuditIds.push(await insertAuditEvent(schoolA, action))
+  }
+  // School B gets a finance row too, so the school term is what excludes it.
+  await insertAuditEvent(schoolB, 'staff.update_pay')
+
   teacherNoStaff = await insertMembership({ schoolId: schoolA, roleKeys: ['teacher'] })
   accountant = await insertMembership({ schoolId: schoolA, roleKeys: ['accountant'] })
   deniedAccountant = await insertMembership({ schoolId: schoolA, roleKeys: ['accountant'] })
@@ -336,6 +350,16 @@ before(async () => {
 })
 
 after(cleanup)
+
+/** One audit row, written straight to the table the plan reads. */
+async function insertAuditEvent(schoolId: string, action: string): Promise<string> {
+  const result = await migrator.query<{ id: string }>(
+    `INSERT INTO audit_events (school_id, action, target_type, result, summary, request_id)
+     VALUES ($1, $2, 'test', 'allowed', $2, 'test-request') RETURNING id`,
+    [schoolId, action],
+  )
+  return result.rows[0]!.id
+}
 
 function ownerContext(): RequestContext {
   return contextFor({ schoolId: schoolA, membershipId: fx('ownerA'), roleKeys: ['owner'] })
@@ -658,4 +682,67 @@ test('the substitution list agrees with a single read and stays inside the schoo
     () => authz.scopeQuery(adultContext(), 'timetable.manage_substitutions', 'substitution'),
     (error: Error & { code?: string }) => error.code === 'ACCESS_DENIED',
   )
+})
+
+test('a finance audit plan selects only the finance actions', async () => {
+  const table = tableFor('audit_event')
+  const financeContext = accountantContext(accountant.membershipId)
+  const financePlan = await authz.scopeQuery(financeContext, 'audit.read', 'audit_event')
+  const finance = await withRuntime(financeContext, (conn) =>
+    scopedList<{ id: string; action: string }>(conn, financePlan, table, { page: 1, pageSize: 100 }),
+  )
+  const financeIds = finance.items.map((row) => row.id)
+  for (const id of financeAuditIds) {
+    assert.equal(financeIds.includes(id), true, 'a finance action is listed')
+  }
+  for (const id of otherAuditIds) {
+    assert.equal(financeIds.includes(id), false, 'a non finance action is never listed')
+  }
+  assert.equal(finance.total, finance.items.length, 'the total counts the same rows')
+  for (const row of finance.items) {
+    assert.ok(
+      isFinanceAuditAction(row.action),
+      `${row.action} is not a finance action`,
+    )
+  }
+
+  const ownerCtx = ownerContext()
+  const ownerPlan = await authz.scopeQuery(ownerCtx, 'audit.read', 'audit_event')
+  const owner = await withRuntime(ownerCtx, (conn) =>
+    scopedList<{ id: string; action: string }>(conn, ownerPlan, table, { page: 1, pageSize: 200 }),
+  )
+  const ownerIds = owner.items.map((row) => row.id)
+  for (const id of [...financeAuditIds, ...otherAuditIds]) {
+    assert.equal(ownerIds.includes(id), true, 'a school scope reads the whole log')
+  }
+  assert.ok(owner.total > finance.total, 'the owner reads more rows than the accountant')
+
+  // A row the finance plan refuses is refused one by one as well.
+  for (const id of otherAuditIds) {
+    const row = await withRuntime(financeContext, (conn) =>
+      scopedGet<{ id: string }>(conn, financePlan, table, id),
+    )
+    assert.equal(row, null, 'a non finance action is not readable by a finance plan')
+  }
+  for (const id of financeAuditIds) {
+    const row = await withRuntime(financeContext, (conn) =>
+      scopedGet<{ id: string }>(conn, financePlan, table, id),
+    )
+    assert.ok(row, 'a finance action stays readable')
+  }
+})
+
+test('a single audit event decision agrees with the finance plan', async () => {
+  const financeContext = accountantContext(accountant.membershipId)
+  const resource = (id: string) => ({ resourceType: 'audit_event' as const, id, schoolId: schoolA })
+  for (const id of financeAuditIds) {
+    const decision = await authz.authorize(financeContext, 'audit.read', resource(id))
+    assert.equal(decision.allowed, true, 'a finance action is readable one at a time')
+  }
+  for (const id of otherAuditIds) {
+    const decision = await authz.authorize(financeContext, 'audit.read', resource(id))
+    assert.equal(decision.allowed, false, 'a non finance action is refused one at a time')
+    const ownerDecision = await authz.authorize(ownerContext(), 'audit.read', resource(id))
+    assert.equal(ownerDecision.allowed, true, 'a school scope reads any single row')
+  }
 })

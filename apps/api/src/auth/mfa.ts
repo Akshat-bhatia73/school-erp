@@ -61,6 +61,28 @@ export async function stampSessionMfaVerified(
   )
 }
 
+/** Provider paths that replace or remove the second factor itself. */
+export const MFA_ENROLMENT_PATHS: readonly string[] = [
+  '/two-factor/enable',
+  '/two-factor/disable',
+]
+
+/**
+ * A new or removed authenticator makes every earlier proof meaningless: a
+ * session stamped by the replaced device must answer the new one before it
+ * enters privileged data again. The enrolling session is stamped afresh when
+ * its first code is accepted.
+ */
+export async function clearUserMfaVerification(
+  pool: Pool,
+  userId: string,
+): Promise<void> {
+  await pool.query(
+    'UPDATE auth_session SET mfa_verified_at = NULL WHERE user_id = $1',
+    [userId],
+  )
+}
+
 /**
  * Step-up attempt limits.
  *

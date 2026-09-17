@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import {
   AcceptInvitationRequest,
   InvitationActionRequest,
+  InvitationListRequest,
+  InvitationPage,
   InviteMemberRequest,
 } from '@erp/contracts'
 import { ApiFailure } from '../http/errors.ts'
@@ -10,6 +12,7 @@ import type { AccessDependencies } from '../memberships/routes.ts'
 import {
   acceptInvitation,
   createInvitation,
+  listInvitations,
   resendInvitation,
   revokeInvitation,
 } from './service.ts'
@@ -22,6 +25,13 @@ function bodyOf(raw: unknown): unknown {
   } catch {
     throw new ApiFailure('INVALID_REQUEST')
   }
+}
+
+/** Query values arrive as strings; only decimal digits become a number. */
+function asNumber(value: unknown): number | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || !/^\d{1,6}$/.test(value)) return Number.NaN
+  return Number(value)
 }
 
 function invitationIdOf(params: unknown): string {
@@ -38,6 +48,29 @@ export function registerInvitationRoutes(
   app: FastifyInstance,
   deps: AccessDependencies,
 ): void {
+  app.get(
+    '/api/schools/:schoolId/invitations',
+    { preHandler: requireMembership(deps) },
+    async (request) => {
+      const context = request.context
+      if (!context) throw new ApiFailure('AUTHENTICATION_REQUIRED')
+      const raw = request.query as Record<string, unknown>
+      const query = InvitationListRequest.safeParse({
+        ...(raw.status === undefined ? {} : { status: raw.status }),
+        ...(raw.page === undefined ? {} : { page: asNumber(raw.page) }),
+        ...(raw.pageSize === undefined ? {} : { pageSize: asNumber(raw.pageSize) }),
+      })
+      if (!query.success) throw new ApiFailure('INVALID_REQUEST')
+      const { items, total } = await listInvitations(deps, context, query.data)
+      return InvitationPage.parse({
+        items,
+        total,
+        page: query.data.page,
+        pageSize: query.data.pageSize,
+      })
+    },
+  )
+
   app.post(
     '/api/schools/:schoolId/invitations',
     { preHandler: requireMembership(deps) },

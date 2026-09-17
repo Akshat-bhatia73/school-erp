@@ -39,10 +39,9 @@ export interface InviteSheetProps {
   onOpenChange: (open: boolean) => void
   /** Prefill from the staff login tab: ?invite=<staffId>&name=<display name>. */
   prefill?: { staffId?: string; displayName?: string }
-  onInvited: (invitation: Invitation) => void
 }
 
-export function InviteSheet({ open, onOpenChange, prefill, onInvited }: InviteSheetProps) {
+export function InviteSheet({ open, onOpenChange, prefill }: InviteSheetProps) {
   const { schoolId, roleKeys } = useSchoolContext()
   const queryClient = useQueryClient()
   const assignable = useMemo(() => assignableRolesFor(roleKeys) as AssignableRole[], [roleKeys])
@@ -85,10 +84,10 @@ export function InviteSheet({ open, onOpenChange, prefill, onInvited }: InviteSh
         roleKeys: selectedRoles,
         ...(needsStaff && staffId ? { staffId } : {}),
       }),
-    onSuccess: (invitation) => {
+    onSuccess: () => {
+      // The pending list lives under the same prefix, so one invalidation refreshes both.
       void queryClient.invalidateQueries({ queryKey: [schoolId, 'members'] })
       toast.success('Invitation sent')
-      onInvited(invitation)
       onOpenChange(false)
     },
     onError: (error) => toast.error(describeError(error)),
@@ -205,19 +204,21 @@ export function InviteSheet({ open, onOpenChange, prefill, onInvited }: InviteSh
 
 const deliveryColor = { queued: 'orange', sent: 'green', failed: 'red' } as const
 
-/** One invitation created in this session, with the only two things you can still do to it. */
-export function InvitationPanel({ invitation, onChanged }: { invitation: Invitation; onChanged: (next: Invitation) => void }) {
+/** One pending invitation, with the only two things you can still do to it. */
+export function InvitationPanel({ invitation }: { invitation: Invitation }) {
   const { schoolId } = useSchoolContext()
+  const queryClient = useQueryClient()
+  const refresh = () => queryClient.invalidateQueries({ queryKey: [schoolId, 'members'] })
 
   const resend = useMutation({
     mutationFn: () => api.members.resendInvitation(schoolId, invitation.id, { expectedVersion: invitation.version }),
-    onSuccess: (next) => { onChanged(next); toast.success('Invitation sent again') },
+    onSuccess: () => { void refresh(); toast.success('Invitation sent again') },
     onError: (error) => toast.error(describeError(error)),
   })
 
   const revoke = useMutation({
     mutationFn: () => api.members.revokeInvitation(schoolId, invitation.id, { expectedVersion: invitation.version }),
-    onSuccess: (next) => { onChanged(next); toast.success('Invitation cancelled') },
+    onSuccess: () => { void refresh(); toast.success('Invitation cancelled') },
     onError: (error) => toast.error(describeError(error)),
   })
 

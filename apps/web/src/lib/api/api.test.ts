@@ -259,7 +259,9 @@ describe('api paths', () => {
     )
   })
 
-  it('invites, resends and revokes', async () => {
+  it('lists, invites, resends and revokes invitations', async () => {
+    await api.members.listInvitations(SCHOOL, { status: 'pending', page: 1, pageSize: 25 })
+    expect(lastCall().path).toBe(`${PREFIX}/invitations?status=pending&page=1&pageSize=25`)
     await api.members.invite(SCHOOL, {
       displayName: 'Asha Rao', identifier: { kind: 'email', value: 'asha@example.test' }, roleKeys: ['teacher'], staffId: 'sf-1',
     })

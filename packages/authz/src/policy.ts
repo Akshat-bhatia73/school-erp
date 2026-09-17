@@ -1,4 +1,4 @@
-import { PERMISSION_CATALOGUE, PermissionKey, ROLE_TEMPLATES } from '@erp/contracts'
+import { PERMISSION_CATALOGUE, PermissionKey, ROLE_TEMPLATES, isFinanceAuditAction } from '@erp/contracts'
 import type { AccessScope, ErrorCode, ResourceAccessRule, ResourceType, RoleKey } from '@erp/contracts'
 import type {
   AccessExplanation,
@@ -32,6 +32,8 @@ export interface ResourceFacts {
   readonly sectionIds?: readonly string[]
   readonly subjectIds?: readonly string[]
   readonly academicYearId?: string
+  /** The audited action of one audit event, which decides its finance audience. */
+  readonly action?: string
   /** Set for resources that summarise the whole authorized dataset, such as the dashboard. */
   readonly aggregate?: true
 }
@@ -79,7 +81,12 @@ export function matchesScope(scope: AccessScope, facts: RelationshipFacts, resou
     case 'school':
       return true
     case 'finance':
-      // Row scope is the school; the projection is narrowed by field groups.
+      // Row scope is the school and the projection is narrowed by field
+      // groups, except over the audit trail, where the rows themselves carry
+      // the audience: one audit event is readable only when its action is a
+      // finance action, exactly as the list predicate selects it.
+      if (resourceFacts.resourceType === 'audit_event' && resourceFacts.aggregate !== true)
+        return resourceFacts.action !== undefined && isFinanceAuditAction(resourceFacts.action)
       return true
     case 'self':
       if (facts.selfStaffId === null) return false

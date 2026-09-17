@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ContactIdentifier, DisplayName, Id, Reason, Timestamp, Version } from './common.ts'
+import { ContactIdentifier, DisplayName, Id, PageRequest, Reason, Timestamp, Version, pageOf } from './common.ts'
 import { MembershipStatus } from './identity.ts'
 import { RoleKey } from './role-templates.ts'
 
@@ -50,6 +50,14 @@ export const InvitationSummary = z.strictObject({
   expiresAt: Timestamp,
   version: Version,
 })
+
+export const InvitationListRequest = PageRequest.extend({
+  status: InvitationStatus.default('pending'),
+})
+export type InvitationListRequest = z.infer<typeof InvitationListRequest>
+
+export const InvitationPage = pageOf(InvitationSummary)
+
 /** Single-use bearer input: never put in logs, summary responses or query strings. */
 export const AcceptInvitationRequest = z.strictObject({ token: z.string().min(32).max(512) })
 export const InvitationActionRequest = z.strictObject({ expectedVersion: Version })
