@@ -78,15 +78,29 @@ REVOKE CREATE ON SCHEMA public FROM erp_identity_reader; -- straight after
 The migrations create the three runtime roles without a login; give each one
 with `ALTER ROLE ... LOGIN PASSWORD '...'` and `GRANT CONNECT`.
 
-**Seeding a test database.** `dev:seed` refuses `NODE_ENV=production`, and
-runs from a developer machine against the hosted database: set the three
-runtime URLs, `DEV_MIGRATOR_DATABASE_URL` (the owner URL), the hosted
-`AUTH_SECRET` (second factor secrets are encrypted with it),
-`NODE_ENV=development`, `DELIVERY_MODE=sandbox`, a private `SEED_PASSWORD`
-and `SEED_LOGINS_FILE=hosted-logins.csv`, then `pnpm --filter @erp/api
-dev:seed`. The development password is public, so never seed a reachable
-database with it. Privileged testers add their `totp_secret` from the CSV to
-an authenticator app.
+**Seeding a test database.** `dev:seed` refuses `NODE_ENV=production` and
+makes one round trip per row, so against a distant hosted database it times
+out. Seed a local scratch database and copy the data across:
+
+1. Create and migrate a scratch database locally. Run `pnpm --filter @erp/api
+   dev:seed` against it with the **hosted** `AUTH_SECRET` (second factor
+   secrets are encrypted with it), `NODE_ENV=development`,
+   `DELIVERY_MODE=sandbox`, a private `SEED_PASSWORD` and
+   `SEED_LOGINS_FILE=hosted-logins.csv`. The development password is public,
+   so never seed a reachable database with it.
+2. `pg_dump --data-only --no-owner --no-privileges` it, excluding
+   `erp_schema_migrations` and the data of `auth_session`, `auth_rate_limit`
+   and `auth_throttle`.
+3. Remove the dump's `set_config('search_path', '', false)` line (a trigger
+   function names tables without a schema) and load the file into the empty
+   hosted database inside one `BEGIN; ... COMMIT;` as the owner. The circular
+   key between `schools` and `academic_years` is deferred, so one transaction
+   is enough and no trigger needs disabling.
+4. Drop the scratch database and delete the dump: it holds password hashes
+   and second factor secrets.
+
+Privileged testers add their `totp_secret` from the CSV to an authenticator
+app. Seeding again makes new secrets, so every tester would start over.
 
 ## 1. How the two halves are joined
 
