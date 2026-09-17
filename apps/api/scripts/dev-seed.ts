@@ -9,6 +9,11 @@
  * Development only, and safe to run twice: the school it owns is deleted and
  * rebuilt from scratch in one transaction. The frozen Fixture A and Fixture B
  * schools, and the people who sign in to them, are never touched.
+ *
+ * A hosted test database is seeded from a developer machine with the same
+ * command: point the four database URLs and AUTH_SECRET at it (second factor
+ * secrets are encrypted with that secret), and set SEED_PASSWORD to a private
+ * value and SEED_LOGINS_FILE to a separate file. See docs/auth/RELEASE.md.
  */
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -25,7 +30,8 @@ import { createMemoryDocumentStorage } from '../src/files/storage.ts'
 import { decodeBase32 } from './totp-secret.ts'
 
 /** Documented in docs/auth/WEB_SESSION.md. Development accounts only. */
-const PASSWORD = 'sunrise-password-1'
+/** The development password is public. A hosted build must choose its own. */
+const PASSWORD = process.env.SEED_PASSWORD ?? 'sunrise-password-1'
 const LOGIN_CODE = 'sunrise'
 const EMAIL_DOMAIN = '@sunrise.test'
 const SHORT_NAME = 'SPS'
@@ -1392,7 +1398,7 @@ async function main(): Promise<void> {
   ].join('\n')
 
   const outputDir = path.resolve(import.meta.dirname, '..', '.dev')
-  const csvPath = path.join(outputDir, 'sunrise-logins.csv')
+  const csvPath = path.join(outputDir, process.env.SEED_LOGINS_FILE ?? 'sunrise-logins.csv')
   await mkdir(outputDir, { recursive: true })
   await writeFile(csvPath, `${csv}\n`, 'utf8')
 

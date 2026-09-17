@@ -32,10 +32,11 @@ test('the server starts in sandbox delivery mode and reports it', async () => {
   assert.deepEqual(await response.json(), {
     deliveryMode: 'sandbox',
     studentLoginEnabled: false,
+    textMessagesHeld: false,
   })
 })
 
-test('provider delivery mode fails startup because no provider is configured', () => {
+test('provider delivery mode fails startup when no provider is configured', () => {
   assert.throws(
     () => loadConfig(testEnv(1234, { DELIVERY_MODE: 'provider' })),
     ConfigurationError,

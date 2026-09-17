@@ -48,6 +48,8 @@ export type SignInResponse = z.infer<typeof SignInResponse>
 const AuthConfigResponse = z.looseObject({
   deliveryMode: z.enum(['sandbox', 'provider']),
   studentLoginEnabled: z.boolean(),
+  /** A test build: text messages are held for a tester instead of being sent. */
+  textMessagesHeld: z.boolean().optional(),
 })
 export type AuthConfigResponse = z.infer<typeof AuthConfigResponse>
 

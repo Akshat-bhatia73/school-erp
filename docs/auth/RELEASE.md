@@ -25,7 +25,82 @@ and the users are internal testers.
 | Backups | Neon's restore window plus a weekly `pg_dump` from a GitHub Actions cron kept as an artifact | Satisfies item 9 once the first restore has been rehearsed. |
 | Errors and uptime | Sentry (free) for errors and the denied-access alert; Better Stack (free) for uptime | Vercel log drains are a paid feature, so the API ships its own signals. |
 
-Sections 1 to 3 below describe the container path and stay correct for it.
+Section 0.1 is the path in use. Sections 1 and 3 describe the container path
+and stay correct for it; section 2 applies to both.
+
+## 0.1 The Vercel path, as built
+
+The Vercel project's root directory is the repository root, with no framework
+preset and no command overrides, so the root `vercel.json` governs. `pnpm
+build` builds the site into `dist/` and bundles the API into
+`apps/api/dist/vercel.mjs` (`apps/api/scripts/build-vercel.mjs`); `api/index.js`
+re-exports that bundle as the one function, and `vercel.json` rewrites
+`/api/(.*)` to `/api` before the single-page catch-all. The workspace packages
+are bundled because they publish TypeScript sources; registry packages are
+traced from `node_modules`. `apps/api/src/runtime.ts` assembles the app for
+both `server.ts` and the function, so there is one way to start it.
+
+Production environment variables, beyond the three database URLs and
+`AUTH_SECRET` of section 2:
+
+| Variable | Value | Why |
+|---|---|---|
+| `NODE_ENV` | `production` | Turns on the production guards. |
+| `APP_ORIGIN` | `https://<site>` | The one origin; the API is under it. |
+| `API_TRUST_PROXY` | `true` | A function is reachable only through Vercel's edge, which overwrites `X-Forwarded-For`, so the client address in it is real. Without this every visitor shares one rate limit. |
+| `DELIVERY_MODE` | `provider` | Email through Resend. |
+| `RESEND_API_KEY`, `EMAIL_FROM` | key; a bare address on the verified domain | Startup refuses provider mode without both. |
+| `DOCUMENT_STORAGE` | `blob` | A function has no disk. Needs `BLOB_READ_WRITE_TOKEN`, which the Blob store adds. |
+| `SENTRY_DSN`, `VITE_SENTRY_DSN` | the API and site DSNs | Errors only: no bodies, cookies, headers, query strings, users or breadcrumbs leave the process. Each `ACCESS_DENIED` is one warning event grouped by code, which is what the alert of section 7 counts. |
+| `HELD_SMS_TOKEN` | 32+ characters, **test builds only** | See below. |
+
+**Text messages in a test build.** There is no SMS provider. In provider mode
+an SMS fails, so nobody is told "sent". With `HELD_SMS_TOKEN` set, the message
+is kept in `held_sms` for ten minutes instead, and whoever presents the token
+reads it at `GET /api/held-codes` (the `/test-codes` page on the site). The
+token reads every parent's one-time code, so it is for a database of invented
+people only. Checklist item 6: it must be unset before a real school's data
+exists.
+
+**Neon.** The database owner (`neondb_owner`) is the migration login: it holds
+`BYPASSRLS`, so it must never be one of the three runtime URLs. The
+integration writes it to `DATABASE_URL`; override that variable for Production
+with the `erp_runtime` URL. The owner is not a superuser, and migrations that
+hand a function to `erp_identity_reader` (0002, 0004) need two grants a
+superuser would not:
+
+```sql
+GRANT erp_identity_reader TO neondb_owner WITH SET TRUE, INHERIT FALSE; -- keep
+GRANT CREATE ON SCHEMA public TO erp_identity_reader;  -- before migrating
+REVOKE CREATE ON SCHEMA public FROM erp_identity_reader; -- straight after
+```
+
+The migrations create the three runtime roles without a login; give each one
+with `ALTER ROLE ... LOGIN PASSWORD '...'` and `GRANT CONNECT`.
+
+**Seeding a test database.** `dev:seed` refuses `NODE_ENV=production` and
+makes one round trip per row, so against a distant hosted database it times
+out. Seed a local scratch database and copy the data across:
+
+1. Create and migrate a scratch database locally. Run `pnpm --filter @erp/api
+   dev:seed` against it with the **hosted** `AUTH_SECRET` (second factor
+   secrets are encrypted with it), `NODE_ENV=development`,
+   `DELIVERY_MODE=sandbox`, a private `SEED_PASSWORD` and
+   `SEED_LOGINS_FILE=hosted-logins.csv`. The development password is public,
+   so never seed a reachable database with it.
+2. `pg_dump --data-only --no-owner --no-privileges` it, excluding
+   `erp_schema_migrations` and the data of `auth_session`, `auth_rate_limit`
+   and `auth_throttle`.
+3. Remove the dump's `set_config('search_path', '', false)` line (a trigger
+   function names tables without a schema) and load the file into the empty
+   hosted database inside one `BEGIN; ... COMMIT;` as the owner. The circular
+   key between `schools` and `academic_years` is deferred, so one transaction
+   is enough and no trigger needs disabling.
+4. Drop the scratch database and delete the dump: it holds password hashes
+   and second factor secrets.
+
+Privileged testers add their `totp_secret` from the CSV to an authenticator
+app. Seeding again makes new secrets, so every tester would start over.
 
 ## 1. How the two halves are joined
 
@@ -205,12 +280,12 @@ Tick every line. "Verified by" is a person, not a team.
 
 | # | Item | How to verify | Signed off by |
 |---|---|---|---|
-| 1 | The `/api` rewrite points at the real API host | `vercel.json` has no `REPLACE-WITH-YOUR-DOMAIN`; `node scripts/check-deploy-config.mjs` passes without `ALLOW_PLACEHOLDER_API_ORIGIN` | Release manager |
+| 1 | The `/api` rewrite points at the function in this project, or at the real API host | `vercel.json` has no `REPLACE-WITH-YOUR-DOMAIN`; `node scripts/check-deploy-config.mjs` passes without `ALLOW_PLACEHOLDER_API_ORIGIN` | Release manager |
 | 2 | The API runs behind the rewrite with `API_TRUST_PROXY=true` and `APP_ORIGIN=https://<site>` | Sign in on the live site; the cookie is set on the site's own host with no `Domain` | Release manager |
 | 3 | The API's own address is not reachable from the internet | Request `https://api.<domain>/api/health` from outside; it must fail or be restricted to Vercel | Infrastructure owner |
 | 4 | The runtime uses least-privilege logins | `DATABASE_URL`, `AUTH_DATABASE_URL`, `IDENTITY_DATABASE_URL` use `erp_runtime`, `erp_auth`, `erp_identity`; startup refuses `erp_migrator` | Infrastructure owner |
 | 5 | `AUTH_SECRET` is fresh and from the secret store | Not the `.env.example` value, 32+ characters; startup refuses otherwise | Infrastructure owner |
-| 6 | Sandbox delivery is off, or consciously accepted for staging | `ALLOW_SANDBOX_DELIVERY` unset in production; nobody is told "sent" when nothing was sent. During the MVP, SMS stays sandboxed by decision (section 0); email must be real before any outside tester is invited | Product owner |
+| 6 | Sandbox delivery is off, or consciously accepted for staging | `ALLOW_SANDBOX_DELIVERY` and `HELD_SMS_TOKEN` unset in production; `GET /api/held-codes` returns 404; nobody is told "sent" when nothing was sent. During the MVP, SMS stays sandboxed by decision (section 0); email must be real before any outside tester is invited | Product owner |
 | 7 | `DEV_SANDBOX_OUTBOX` is unset | Startup refuses it under `NODE_ENV=production`; `GET /api/dev/outbox` returns 404 on the live site | Release manager |
 | 8 | Migrations applied | `pnpm db:migrate` then `pnpm --filter @erp/db migrate:check` reports nothing pending | Release manager |
 | 9 | Backup and a real restore | Restore date and duration written down in the operations log | Infrastructure owner |
