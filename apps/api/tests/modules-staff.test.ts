@@ -17,6 +17,7 @@ const PASSWORD = 'Fixture-Pass!42'
 // Unique per run: other test files rewrite the same fixture identities.
 const OWNER_EMAIL = `staff-owner-${randomUUID()}@example.test`
 const TEACHER_EMAIL = `staff-teacher-${randomUUID()}@example.test`
+const OFFICER_EMAIL = `staff-officer-${randomUUID()}@example.test`
 
 const schoolA = fixtureIds.schoolA as string
 const schoolB = fixtureIds.schoolB as string
@@ -34,11 +35,16 @@ const sectionBId = randomUUID()
 const yearBId = randomUUID()
 const gradeBId = randomUUID()
 const suffix = randomUUID().slice(0, 8)
+// A second office member, so the employee counter can be shown to belong to
+// the school rather than to whoever is signed in.
+const officerUser = randomUUID()
+const officerMembership = randomUUID()
 
 let server: TestServer
 type Client = Awaited<ReturnType<typeof signInWithMfa>>
 let owner: Client
 let teacher: Client
+let officer: Client
 
 interface ErrorBody {
   error: { code: string; requestId: string }
@@ -100,15 +106,33 @@ before(async () => {
     [sectionBId, schoolB, yearBId, gradeBId, `B-${suffix}`],
   )
 
+  await pool.query(
+    `INSERT INTO auth_user(id,name,email) VALUES ($1,'Office Admin',$2)`,
+    [officerUser, OFFICER_EMAIL],
+  )
+  await pool.query(
+    `INSERT INTO school_memberships(id,school_id,user_id,kind,status) VALUES ($1,$2,$3,'adult','active')`,
+    [officerMembership, schoolA, officerUser],
+  )
+  await pool.query(
+    `INSERT INTO membership_roles(school_id,membership_id,role_id)
+     SELECT $1,$2,id FROM roles WHERE school_id = $1 AND key = 'admin' ON CONFLICT DO NOTHING`,
+    [schoolA, officerMembership],
+  )
+
   await setFixturePassword(server, teacherUserId, PASSWORD)
+  await setFixturePassword(server, officerUser, PASSWORD)
+  officer = await signInWithMfa(server, { userId: officerUser, email: OFFICER_EMAIL, password: PASSWORD })
   owner = await signInWithMfa(server, { userId: ownerUserId, email: OWNER_EMAIL, password: PASSWORD })
   teacher = await signInWithPassword(server, TEACHER_EMAIL, PASSWORD)
 })
 
 after(async () => {
   const pool = adminPool()
-  await pool.query('DELETE FROM auth_two_factor WHERE user_id = $1', [ownerUserId])
-  await pool.query('UPDATE auth_user SET two_factor_enabled = false WHERE id = $1', [ownerUserId])
+  for (const userId of [ownerUserId, officerUser]) {
+    await pool.query('DELETE FROM auth_two_factor WHERE user_id = $1', [userId])
+    await pool.query('UPDATE auth_user SET two_factor_enabled = false WHERE id = $1', [userId])
+  }
   await pool.query('DELETE FROM teaching_assignments WHERE school_id = $1', [schoolA])
   await pool.query('DELETE FROM export_jobs WHERE school_id = $1', [schoolA])
   await pool.query('DELETE FROM staff WHERE id = ANY($1::uuid[])', [[colleagueId, staffBId]])
@@ -230,7 +254,6 @@ test('creating a staff record refuses pay, identity and school fields', async ()
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       schoolId: schoolB,
-      employeeCode: `BAD-${suffix}`,
       firstName: 'Nope',
       staffType: 'teaching',
       designation: 'Teacher',
@@ -251,7 +274,6 @@ test('a permitted create answers with the directory projection only', async () =
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      employeeCode: `NEW-${suffix}`,
       firstName: 'Newly',
       lastName: 'Hired',
       staffType: 'non_teaching',
@@ -264,9 +286,69 @@ test('a permitted create answers with the directory projection only', async () =
   })
   assert.equal(response.status, 201)
   const body = (await response.json()) as Record<string, unknown>
-  assert.deepEqual(Object.keys(body).sort(), ['department', 'designation', 'displayName', 'id', 'schoolId', 'version'])
+  assert.deepEqual(Object.keys(body).sort(), [
+    'department', 'designation', 'displayName', 'employeeCode', 'id', 'schoolId', 'version',
+  ])
   assert.equal(body.displayName, 'Newly Hired')
+  // The create response names the assigned code, so the screen shows it without a second read.
+  assert.match(String(body.employeeCode), /^A-E\d{3,}$/)
   await adminPool().query('DELETE FROM staff WHERE id = $1', [body.id])
+})
+
+async function createStaffAs(client: Client, firstName: string): Promise<string> {
+  const response = await client.fetch(`/api/schools/${schoolA}/staff`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      firstName,
+      staffType: 'non_teaching',
+      designation: 'Clerk',
+      employmentType: 'contract',
+      joiningDate: '2026-04-01',
+      phone: '+919812345673',
+    }),
+  })
+  assert.equal(response.status, 201)
+  return ((await response.json()) as { id: string }).id
+}
+
+test('a create may not choose its own employee code', async () => {
+  const before = await adminPool().query('SELECT count(*)::int AS n FROM staff WHERE school_id = $1', [schoolA])
+  const response = await owner.fetch(`/api/schools/${schoolA}/staff`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      employeeCode: 'A-E900',
+      firstName: 'Numbered',
+      staffType: 'teaching',
+      designation: 'Teacher',
+      employmentType: 'permanent',
+      joiningDate: '2026-04-01',
+      phone: '+919812345679',
+    }),
+  })
+  assert.equal(response.status, 400)
+  assert.equal(await codeOf(response), 'INVALID_REQUEST')
+  const after = await adminPool().query('SELECT count(*)::int AS n FROM staff WHERE school_id = $1', [schoolA])
+  assert.equal(after.rows[0].n, before.rows[0].n)
+})
+
+test('the employee code comes from the school counter, whoever creates the record', async () => {
+  const first = await createStaffAs(owner, 'Counter One')
+  const second = await createStaffAs(officer, 'Counter Two')
+  const pool = adminPool()
+  const codes = await pool.query<{ id: string; employee_code: string }>(
+    'SELECT id, employee_code FROM staff WHERE id = ANY($1::uuid[])',
+    [[first, second]],
+  )
+  const byId = new Map(codes.rows.map((row) => [row.id, row.employee_code]))
+  const firstCode = byId.get(first)
+  const secondCode = byId.get(second)
+  assert.ok(firstCode && secondCode)
+  for (const code of [firstCode, secondCode]) assert.match(code, /^A-E\d{3,}$/)
+  const counter = (code: string) => Number(code.slice('A-E'.length))
+  assert.equal(counter(secondCode), counter(firstCode) + 1)
+  await pool.query('DELETE FROM staff WHERE id = ANY($1::uuid[])', [[first, second]])
 })
 
 test('employment, private and pay updates each need their own key', async () => {

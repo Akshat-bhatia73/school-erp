@@ -1,85 +1,125 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { AlertTriangle, CalendarDays, ChevronUp, Printer, Wand2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
-import { DAY_LABELS } from '@erp/shared'
-import { api, type TimetableCell } from '@/api/client'
+import { api } from '@/lib/api'
+import type { TimetableCellRecord } from '@/lib/api/timetable'
+import { describeError, isApiError } from '@/lib/api-errors'
+import { allows } from '@/lib/permissions'
 import { FilterChip, ToolbarButton } from '@/components/shared/filter-chip'
 import { EmptyState, PageHeader, Panel, Toolbar } from '@/components/shared/page'
 import { Tag, colorFor } from '@/components/shared/tag'
-import { useAcademicYears } from '@/components/setup/use-current-year'
 import { TimetableTabs } from '@/components/timetable/timetable-tabs'
-import { TimetableGrid } from '@/components/timetable/timetable-grid'
-import { DaySelector, defaultDay } from '@/components/timetable/day-selector'
+import { TimetableGrid, periodNameFor } from '@/components/timetable/timetable-grid'
+import { DAY_LABELS, DaySelector, defaultDay } from '@/components/timetable/day-selector'
+import { NoAcademicYearState } from '@/components/timetable/states'
 import { SetPeriodDialog, type SetPeriodTarget } from '@/components/timetable/set-period-dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { qk } from '@/lib/query'
-import { useSession } from '@/lib/session'
+import { useSchoolContext } from '@/lib/session'
+import { useAcademicYear } from '@/lib/use-academic-year'
 import { cn } from '@/lib/utils'
 import { useIsMobile } from '@/lib/use-media'
 
-const searchSchema = z.object({ gradeId: z.string().optional(), sectionId: z.string().optional() })
+// A hand-edited or stale id must fall back to "nothing picked" rather than being
+// sent to the API, which answers 400 for anything that is not a uuid.
+const uuid = z.string().uuid().optional().catch(undefined)
+const searchSchema = z.object({ gradeId: uuid, sectionId: uuid })
 
 export const Route = createFileRoute('/_app/timetable/')({ component: Page, validateSearch: searchSchema })
 
-function Page() {
+export function Page() {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
-  const qc = useQueryClient()
-  const { can } = useSession()
-  const canEdit = can('timetable', 'edit')
-  const { current } = useAcademicYears()
-  const yearId = current?.id ?? ''
+  const queryClient = useQueryClient()
+  const { schoolId, hasPermission } = useSchoolContext()
+  const { currentYearId, isLoading: yearLoading } = useAcademicYear()
+  const yearId = currentYearId ?? ''
 
   const [target, setTarget] = useState<SetPeriodTarget | null>(null)
   const [day, setDay] = useState<number | undefined>()
   const [confirmGenerate, setConfirmGenerate] = useState(false)
   const [subjectsOpen, setSubjectsOpen] = useState(false)
 
-  const { data: grades = [] } = useQuery({ queryKey: qk.grades, queryFn: () => api.grades.list() })
-  const { data: allSections = [] } = useQuery({ queryKey: qk.sections({ academicYearId: yearId }), queryFn: () => api.sections.list({ academicYearId: yearId }), enabled: !!yearId })
-
+  const canReadGrades = hasPermission('grades.read')
+  const { data: grades = [] } = useQuery({
+    queryKey: qk.grades(schoolId),
+    queryFn: () => api.setup.grades(schoolId),
+    enabled: canReadGrades,
+  })
   const gradeId = search.gradeId
-  const sections = useMemo(() => allSections.filter((s) => s.gradeId === gradeId), [allSections, gradeId])
+  const sectionParams = useMemo(
+    () => ({ academicYearId: yearId, ...(gradeId ? { gradeId } : {}) }),
+    [yearId, gradeId],
+  )
+  // The server filters by class, so ask it for this class's sections only.
+  const { data: sections = [] } = useQuery({
+    queryKey: qk.sections(schoolId, sectionParams),
+    queryFn: () => api.setup.sections(schoolId, sectionParams),
+    enabled: !!yearId && hasPermission('sections.read'),
+  })
+  const allSections = sections
   const sectionId = search.sectionId
 
-  // Default to the first grade and its first section once the lists arrive.
+  // Default to the first section the server let this person see.
   useEffect(() => {
-    if (!grades.length || !allSections.length) return
-    if (gradeId && sectionId) return
-    const g = gradeId ?? allSections.find((s) => grades.some((x) => x.id === s.gradeId))?.gradeId ?? grades[0]!.id
-    const s = allSections.find((x) => x.gradeId === g)
-    navigate({ search: { gradeId: g, sectionId: sectionId ?? s?.id }, replace: true })
-  }, [grades, allSections, gradeId, sectionId, navigate])
+    if (allSections.length === 0 || sectionId) return
+    const first = gradeId ? allSections.find((s) => s.gradeId === gradeId) : allSections[0]
+    if (!first) return
+    void navigate({ search: { gradeId: gradeId ?? first.gradeId, sectionId: first.id }, replace: true })
+  }, [allSections, gradeId, sectionId, navigate])
 
-  const grade = grades.find((g) => g.id === gradeId)
   const section = allSections.find((s) => s.id === sectionId)
-  const sectionLabel = grade && section ? `${grade.name} - ${section.name}` : '—'
+  const grade = grades.find((g) => g.id === (section?.gradeId ?? gradeId))
+  const sectionLabel = section ? (grade ? `${grade.name} - ${section.name}` : section.name) : '—'
+  const bellGradeId = section?.gradeId ?? gradeId
 
-  const { data: bell, isLoading: bellLoading } = useQuery({ queryKey: [...qk.bellSchedules, sectionId ?? ''], queryFn: () => api.timetable.bellFor(sectionId), enabled: !!sectionId })
-  const { data: cells = [], isLoading: cellsLoading } = useQuery({ queryKey: qk.timetableSection(sectionId ?? ''), queryFn: () => api.timetable.forSection(sectionId!), enabled: !!sectionId })
-  const { data: conflicts = [] } = useQuery({ queryKey: qk.timetableConflicts, queryFn: () => api.timetable.conflicts() })
-  const { data: gradeSubjects = [] } = useQuery({ queryKey: qk.gradeSubjects({ academicYearId: yearId, gradeId }), queryFn: () => api.subjects.gradeSubjects({ academicYearId: yearId, gradeId }), enabled: !!yearId && !!gradeId })
-  const { data: allSubjects = [] } = useQuery({ queryKey: qk.subjects, queryFn: () => api.subjects.list() })
+  const bellQuery = useQuery({
+    queryKey: qk.bellScheduleForGrade(schoolId, bellGradeId ?? '', { academicYearId: yearId }),
+    queryFn: () => api.timetable.bellScheduleForGrade(schoolId, bellGradeId!, { academicYearId: yearId }),
+    enabled: !!bellGradeId && !!yearId,
+  })
+  const bell = bellQuery.data
+  const bellMissing = isApiError(bellQuery.error, 'RESOURCE_NOT_FOUND')
 
-  const subjects = useMemo(() => {
-    const ids = new Set(gradeSubjects.map((g) => g.subjectId))
-    const forGrade = allSubjects.filter((s) => ids.has(s.id))
-    return forGrade.length ? forGrade : allSubjects
-  }, [gradeSubjects, allSubjects])
+  const gridQuery = useQuery({
+    queryKey: qk.timetableSection(schoolId, sectionId ?? '', { academicYearId: yearId }),
+    queryFn: () => api.timetable.forSection(schoolId, sectionId!, { academicYearId: yearId }),
+    enabled: !!sectionId && !!yearId,
+  })
+  const cells = useMemo(() => gridQuery.data?.cells ?? [], [gridQuery.data])
+  const allowedActions = gridQuery.data?.allowedActions
+  const canEditEntries = allows(allowedActions, 'timetable.manage_entries')
+  const canGenerate = allows(allowedActions, 'timetable.generate')
 
-  const myConflicts = useMemo(() => {
-    const staffIds = new Set(cells.map((c) => c.staffId).filter(Boolean))
-    return conflicts.filter((c) => c.sectionId === sectionId || (c.staffId && staffIds.has(c.staffId)))
-  }, [conflicts, cells, sectionId])
+  const conflictParams = { academicYearId: yearId }
+  const { data: conflicts = [] } = useQuery({
+    queryKey: qk.conflicts(schoolId, conflictParams),
+    queryFn: () => api.timetable.conflicts(schoolId, conflictParams),
+    enabled: !!yearId && hasPermission('timetable.read_conflicts'),
+  })
+
+  const subjectParams = { academicYearId: yearId, gradeId: bellGradeId }
+  const { data: gradeSubjects = [] } = useQuery({
+    queryKey: qk.gradeSubjects(schoolId, subjectParams),
+    queryFn: () => api.setup.gradeSubjects(schoolId, { academicYearId: yearId, gradeId: bellGradeId! }),
+    enabled: !!yearId && !!bellGradeId && canEditEntries,
+  })
+  const subjects = useMemo(() => gradeSubjects.map((g) => g.subject), [gradeSubjects])
+
+  const myConflicts = useMemo(
+    () => conflicts.filter((c) => c.section.id === sectionId),
+    [conflicts, sectionId],
+  )
 
   const stats = useMemo(() => {
-    if (!bell) return { filled: 0, total: 0, subjects: 0, teachers: 0 }
+    if (!bell) return { filled: cells.length, total: 0, subjects: 0, teachers: 0 }
     const teachingSlots = bell.periods.filter((p) => p.type === 'period')
     let total = 0
     for (const d of bell.workingDays) {
@@ -87,28 +127,31 @@ function Page() {
         ? teachingSlots.filter((p) => p.index < bell.saturdayPeriodCount!).length
         : teachingSlots.length
     }
-    return { filled: cells.length, total, subjects: new Set(cells.map((c) => c.subjectId)).size, teachers: new Set(cells.map((c) => c.staffId).filter(Boolean)).size }
+    return {
+      filled: cells.length,
+      total,
+      subjects: new Set(cells.map((c) => c.subject.id)).size,
+      teachers: new Set(cells.map((c) => c.teacher?.id).filter(Boolean)).size,
+    }
   }, [bell, cells])
 
   const perSubject = useMemo(() => {
-    const map = new Map<string, { name: string; code: string; count: number }>()
+    const map = new Map<string, { id: string; name: string; count: number }>()
     for (const c of cells) {
-      const key = c.subjectId
-      const cur = map.get(key) ?? { name: c.subject?.name ?? 'Subject', code: c.subject?.code ?? key, count: 0 }
+      const cur = map.get(c.subject.id) ?? { id: c.subject.id, name: c.subject.name, count: 0 }
       cur.count++
-      map.set(key, cur)
+      map.set(c.subject.id, cur)
     }
     return [...map.values()].sort((a, b) => b.count - a.count)
   }, [cells])
 
   const generate = useMutation({
-    mutationFn: () => api.timetable.generateForSection(sectionId!),
-    onSuccess: (r) => {
-      qc.invalidateQueries({ queryKey: ['timetable'] })
-      qc.invalidateQueries({ queryKey: ['substitutions'] })
-      toast.success(`Placed ${r.placed} periods${r.unplaced > 0 ? ` · ${r.unplaced} could not be placed` : ''}`)
+    mutationFn: () => api.timetable.generate(schoolId, sectionId!, { academicYearId: yearId, reason: 'Generated from teaching assignments' }),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: [schoolId, 'timetable'] })
+      toast.success(`Placed ${result.placed} periods${result.unplaced > 0 ? ` · ${result.unplaced} could not be placed` : ''}`)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (error) => toast.error(describeError(error)),
   })
 
   const isMobile = useIsMobile()
@@ -120,19 +163,20 @@ function Page() {
   ) : (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       {perSubject.map((s) => (
-        <span key={s.code} className="flex items-center gap-1.5">
-          <Tag color={colorFor(s.code)}>{s.name}</Tag>
+        <span key={s.id} className="flex items-center gap-1.5">
+          <Tag color={colorFor(s.id)}>{s.name}</Tag>
           <span className="text-[13px] tabular-nums text-muted-foreground">{s.count}</span>
         </span>
       ))}
     </div>
   )
 
-  const onCellClick = (dayOfWeek: number, periodIndex: number, existing?: TimetableCell) => {
-    if (!canEdit) return
-    const p = bell?.periods.find((x) => x.index === periodIndex)
-    setTarget({ dayOfWeek, periodIndex, existing, periodName: p?.name ?? `Period ${periodIndex + 1}` })
+  const onCellClick = (dayOfWeek: number, periodIndex: number, existing?: TimetableCellRecord) => {
+    if (!canEditEntries) return
+    setTarget({ dayOfWeek, periodIndex, existing, periodName: periodNameFor(bell, periodIndex) })
   }
+
+  const gridRefused = isApiError(gridQuery.error) && !bellMissing
 
   return (
     <>
@@ -141,7 +185,7 @@ function Page() {
       <Toolbar
         right={
           <>
-            {canEdit && (
+            {canGenerate && (
               <ToolbarButton icon={<Wand2 />} onClick={() => setConfirmGenerate(true)}>Generate from assignments</ToolbarButton>
             )}
             <Tooltip>
@@ -155,23 +199,25 @@ function Page() {
           </>
         }
       >
-        <FilterChip
-          label="Class"
-          value={gradeId}
-          clearable={false}
-          options={grades.map((g) => ({ value: g.id, label: g.name }))}
-          onChange={(v) => {
-            const first = allSections.find((s) => s.gradeId === v)
-            navigate({ search: { gradeId: v, sectionId: first?.id }, replace: true })
-          }}
-          allLabel="Pick a class"
-        />
+        {canReadGrades && (
+          <FilterChip
+            label="Class"
+            value={gradeId}
+            clearable={false}
+            options={grades.map((g) => ({ value: g.id, label: g.name }))}
+            onChange={(v) => {
+              const first = allSections.find((s) => s.gradeId === v)
+              void navigate({ search: { gradeId: v, sectionId: first?.id }, replace: true })
+            }}
+            allLabel="Pick a class"
+          />
+        )}
         <FilterChip
           label="Section"
           value={sectionId}
           clearable={false}
           options={sections.map((s) => ({ value: s.id, label: s.name }))}
-          onChange={(v) => navigate({ search: (old) => ({ ...old, sectionId: v }), replace: true })}
+          onChange={(v) => void navigate({ search: (old) => ({ ...old, sectionId: v }), replace: true })}
           allLabel="Pick a section"
         />
       </Toolbar>
@@ -187,16 +233,16 @@ function Page() {
             <Popover>
               <PopoverTrigger asChild>
                 <button type="button" className="ml-auto">
-                  <Tag color="orange"><AlertTriangle className="size-3" />{myConflicts.length} {myConflicts.length === 1 ? 'conflict' : 'conflicts'}</Tag>
+                  <Tag color="orange"><AlertTriangle className="size-3" />{myConflicts.length} {myConflicts.length === 1 ? 'conflict' : 'conflicts'} in this class</Tag>
                 </button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-80 p-0">
-                <div className="border-b px-3 py-2 text-[13px] font-medium">Conflicts</div>
+                <div className="border-b px-3 py-2 text-[13px] font-medium">Conflicts in this class</div>
                 <ul className="max-h-72 overflow-auto scrollbar-thin">
                   {myConflicts.map((c, i) => (
                     <li key={i} className="border-b px-3 py-2 text-[12.5px] last:border-b-0">
-                      <div>{c.message}</div>
-                      <div className="mt-0.5 text-[11.5px] text-muted-foreground">{DAY_LABELS[c.dayOfWeek]} · {bell?.periods.find((p) => p.index === c.periodIndex)?.name ?? `Period ${c.periodIndex + 1}`}</div>
+                      <div>{conflictSentence(c)}</div>
+                      <div className="mt-0.5 text-[11.5px] text-muted-foreground">{DAY_LABELS[c.dayOfWeek]} · {periodNameFor(bell, c.periodIndex)}</div>
                     </li>
                   ))}
                 </ul>
@@ -205,16 +251,27 @@ function Page() {
           )}
         </div>
 
-        {bellLoading || cellsLoading ? (
+        {yearLoading || (!!sectionId && (bellQuery.isLoading || gridQuery.isLoading)) ? (
           <div className="grid gap-2 p-4">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
+        ) : !yearId ? (
+          <NoAcademicYearState />
         ) : !sectionId ? (
           <EmptyState icon={<CalendarDays />} title="Pick a class" description="Choose a class and section above to see its week." />
+        ) : gridRefused ? (
+          <EmptyState icon={<CalendarDays />} title={describeError(gridQuery.error)} />
         ) : !bell ? (
-          <EmptyState icon={<CalendarDays />} title="No bell schedule yet" description="Set up periods on the Bell schedule tab before filling the timetable." />
+          <EmptyState
+            icon={<CalendarDays />}
+            title="No periods set up for this class"
+            description="A bell schedule decides which periods exist in the school day."
+            action={hasPermission('timetable.manage_periods')
+              ? <Button size="sm" asChild><Link to="/timetable/periods">Set up periods</Link></Button>
+              : undefined}
+          />
         ) : (
           <>
             <DaySelector days={workingDays} value={shownDay} onChange={setDay} />
-            <TimetableGrid bell={bell} cells={cells} mode="section" editable={canEdit} dayFilter={isMobile ? shownDay : undefined} onCellClick={canEdit ? onCellClick : undefined} />
+            <TimetableGrid bell={bell} cells={cells} mode="section" editable={canEditEntries} dayFilter={isMobile ? shownDay : undefined} onCellClick={canEditEntries ? onCellClick : undefined} />
             {/* Desktop shows the breakdown inline; on a phone it is reference detail,
                 so it collapses to a bar that opens a bottom drawer. */}
             <div className="hidden p-4 md:block">
@@ -251,8 +308,8 @@ function Page() {
                       <ul className="space-y-1.5 border-t pt-3">
                         {myConflicts.map((c, i) => (
                           <li key={i} className="text-[12.5px]">
-                            <span className="text-tag-orange">{c.message}</span>
-                            <span className="block text-[11.5px] text-muted-foreground">{DAY_LABELS[c.dayOfWeek]} · {bell?.periods.find((p) => p.index === c.periodIndex)?.name ?? `Period ${c.periodIndex + 1}`}</span>
+                            <span className="text-tag-orange">{conflictSentence(c)}</span>
+                            <span className="block text-[11.5px] text-muted-foreground">{DAY_LABELS[c.dayOfWeek]} · {periodNameFor(bell, c.periodIndex)}</span>
                           </li>
                         ))}
                       </ul>
@@ -280,7 +337,24 @@ function Page() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <SetPeriodDialog target={target} onClose={() => setTarget(null)} sectionId={sectionId ?? ''} sectionLabel={sectionLabel} subjects={subjects} />
+      {canEditEntries && (
+        <SetPeriodDialog
+          target={target}
+          onClose={() => setTarget(null)}
+          sectionId={sectionId ?? ''}
+          sectionLabel={sectionLabel}
+          subjects={subjects}
+          academicYearId={yearId}
+        />
+      )}
     </>
   )
+}
+
+/** A plain sentence for one conflict; the contract carries the kind, not a message. */
+function conflictSentence(conflict: { kind: 'teacher_busy' | 'section_busy' | 'teacher_not_assigned'; section: { name: string }; teacher?: { name: string } }) {
+  const teacher = conflict.teacher?.name ?? 'The teacher'
+  if (conflict.kind === 'teacher_busy') return `${teacher} is already teaching another class in this period.`
+  if (conflict.kind === 'section_busy') return `${conflict.section.name} already has another period here.`
+  return `${teacher} is not assigned to teach this subject.`
 }

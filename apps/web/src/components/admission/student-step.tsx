@@ -1,11 +1,10 @@
 import { Panel } from '@/components/shared/page'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { humanize } from '@/lib/utils'
 import { Field, SelectField, TextField, type Errors } from './fields'
 import type { AdmitDraft } from './admit-state'
 
-const BLOOD = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'unknown']
 const CATEGORY = ['general', 'obc', 'sc', 'st', 'ews', 'other']
 const GENDERS = ['male', 'female', 'other'] as const
 
@@ -19,25 +18,21 @@ export function StudentStep({ draft, set, errors }: { draft: AdmitDraft; set: (p
           <TextField label="Date of birth" required type="date" value={draft.dateOfBirth} onChange={(v) => set({ dateOfBirth: v })} error={errors.dateOfBirth} />
           <Field label="Gender" required error={errors.gender}>
             <RadioGroup value={draft.gender} onValueChange={(v) => set({ gender: v as AdmitDraft['gender'] })} className="flex h-9 items-center gap-5">
-              {GENDERS.map((g) => (
-                <div key={g} className="flex items-center gap-2">
-                  <RadioGroupItem value={g} id={`gender-${g}`} />
-                  <Label htmlFor={`gender-${g}`} className="text-[13.5px] font-normal">{humanize(g)}</Label>
+              {GENDERS.map((gender) => (
+                <div key={gender} className="flex items-center gap-2">
+                  <RadioGroupItem value={gender} id={`gender-${gender}`} />
+                  <Label htmlFor={`gender-${gender}`} className="text-[13.5px] font-normal">{humanize(gender)}</Label>
                 </div>
               ))}
             </RadioGroup>
           </Field>
-          <SelectField label="Blood group" value={draft.bloodGroup} onChange={(v) => set({ bloodGroup: v as AdmitDraft['bloodGroup'] })} error={errors.bloodGroup} options={BLOOD.map((b) => ({ value: b, label: b === 'unknown' ? 'Not known' : b }))} />
-          <SelectField label="Category" value={draft.category} onChange={(v) => set({ category: v as AdmitDraft['category'] })} error={errors.category} options={CATEGORY.map((c) => ({ value: c, label: c === 'obc' || c === 'sc' || c === 'st' || c === 'ews' ? c.toUpperCase() : humanize(c) }))} />
-        </div>
-      </Panel>
-
-      <Panel title="Other details" description="Optional, but useful for government records.">
-        <div className="grid grid-cols-2 gap-4">
-          <TextField label="Religion" value={draft.religion} onChange={(v) => set({ religion: v })} error={errors.religion} />
-          <TextField label="Mother tongue" value={draft.motherTongue} onChange={(v) => set({ motherTongue: v })} error={errors.motherTongue} />
-          <TextField label="Aadhaar last 4 digits" value={draft.aadhaarLast4} onChange={(v) => set({ aadhaarLast4: v.replace(/\D/g, '').slice(0, 4) })} error={errors.aadhaarLast4} placeholder="1234" hint="We only keep the last 4 digits." />
-          <TextField label="Photo URL" value={draft.photoUrl} onChange={(v) => set({ photoUrl: v })} error={errors.photoUrl} placeholder="https://…" />
+          <SelectField
+            label="Category"
+            value={draft.category}
+            onChange={(v) => set({ category: v })}
+            error={errors.category}
+            options={CATEGORY.map((c) => ({ value: c, label: ['obc', 'sc', 'st', 'ews'].includes(c) ? c.toUpperCase() : humanize(c) }))}
+          />
         </div>
       </Panel>
     </div>

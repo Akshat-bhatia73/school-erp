@@ -188,9 +188,11 @@ export function registerStaffRoutes(app: FastifyInstance, deps: ModuleDependenci
     response: StaffEmploymentCreated,
     successStatus: 201,
     handler: async ({ context, body }) =>
-      withTenantTransaction(deps.pools.runtime, context, async (conn) =>
-        toDirectory(await createStaff(conn, context, body)),
-      ),
+      withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+        const row = await createStaff(conn, context, body)
+        // The assigned code travels with the row it was assigned to.
+        return { ...toDirectory(row), employeeCode: row.employeeCode }
+      }),
   })
 
   protectedRoute(app, deps, {

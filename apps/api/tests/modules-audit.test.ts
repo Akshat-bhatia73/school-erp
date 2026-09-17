@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import test, { after, before } from 'node:test'
+import { FINANCE_AUDIT_ACTIONS, isFinanceAuditAction } from '@erp/contracts'
 import { fixtureIds } from '@erp/db/fixtures'
 import {
   adminPool,
@@ -21,6 +22,10 @@ const PARENT_EMAIL = `audit-parent-${randomUUID()}@example.test`
 // show that the two gates are decided separately.
 const PRINCIPAL_EMAIL = `audit-principal-${randomUUID()}@example.test`
 const PRINCIPAL_NAME = 'Audit Principal'
+// An accountant reads the audit trail at the finance scope, which selects only
+// the finance actions.
+const ACCOUNTANT_EMAIL = `audit-accountant-${randomUUID()}@example.test`
+const ACCOUNTANT_NAME = 'Audit Accountant'
 
 const schoolA = fixtureIds.schoolA as string
 const schoolB = fixtureIds.schoolB as string
@@ -41,6 +46,9 @@ let parent: Client
 let principal: Client
 let principalUserId = ''
 let principalMembershipId = ''
+let accountant: Client
+let accountantUserId = ''
+let accountantMembershipId = ''
 
 interface ErrorBody {
   error: { code: string; requestId: string }
@@ -123,7 +131,35 @@ before(async () => {
     password: PASSWORD,
   })
 
-  // Rows written one by one so the newest-first order is unambiguous.
+  accountantUserId = randomUUID()
+  await pool.query(`INSERT INTO auth_user (id, name, email) VALUES ($1, $2, $3)`, [
+    accountantUserId,
+    ACCOUNTANT_NAME,
+    ACCOUNTANT_EMAIL,
+  ])
+  accountantMembershipId = randomUUID()
+  await pool.query(
+    `INSERT INTO school_memberships (id, school_id, user_id, kind, status)
+     VALUES ($1, $2, $3, 'adult', 'active')`,
+    [accountantMembershipId, schoolA, accountantUserId],
+  )
+  await pool.query(
+    `INSERT INTO membership_roles (school_id, membership_id, role_id) VALUES ($1, $2, $3)`,
+    [schoolA, accountantMembershipId, await roleIdFor(schoolA, 'accountant')],
+  )
+  accountant = await signInWithMfa(server, {
+    userId: accountantUserId,
+    email: ACCOUNTANT_EMAIL,
+    password: PASSWORD,
+  })
+
+  // Two finance rows, one of them by the accountant itself, so the actor
+  // filter has something to narrow on top of the finance predicate.
+  await insertEvent(schoolA, ownerMembership, 'staff.update_pay', summaryA(5), 'allowed')
+  await insertEvent(schoolA, accountantMembershipId, 'staff.export', summaryA(6), 'allowed')
+
+  // Rows written one by one so the newest-first order is unambiguous. They are
+  // written after the finance rows above, so the newest four are these.
   await insertEvent(schoolA, ownerMembership, 'members.roles.change', summaryA(1), 'allowed')
   await insertEvent(schoolA, null, 'members.invite.accept', summaryA(2), 'denied')
   await insertEvent(schoolA, fixtureIds.adult as string, 'members.recovery', summaryA(3), 'allowed')
@@ -138,10 +174,10 @@ after(async () => {
   // in its own private database. Every assertion keys off MARK for that reason.
   const pool = adminPool()
   await pool.query('DELETE FROM auth_two_factor WHERE user_id = ANY($1::uuid[])', [
-    [ownerUserId, principalUserId],
+    [ownerUserId, principalUserId, accountantUserId],
   ])
   await pool.query('UPDATE auth_user SET two_factor_enabled = false WHERE id = ANY($1::uuid[])', [
-    [ownerUserId, principalUserId],
+    [ownerUserId, principalUserId, accountantUserId],
   ])
   await server.close()
   await closeAdminPool()
@@ -369,4 +405,106 @@ test('a malformed actor id is bad input, not a server failure', async () => {
   const response = await owner.fetch(`/api/schools/${schoolA}/audit-events?actorMembershipId=abc`)
   assert.equal(response.status, 400)
   assert.equal(((await response.json()) as ErrorBody).error.code, 'INVALID_REQUEST')
+})
+
+/** How many audit rows of this school carry a finance action right now. */
+async function financeRowCount(): Promise<number> {
+  const result = await adminPool().query<{ total: string }>(
+    `SELECT count(*)::text AS total FROM audit_events WHERE school_id = $1 AND action = ANY($2::text[])`,
+    [schoolA, [...FINANCE_AUDIT_ACTIONS]],
+  )
+  return Number(result.rows[0]?.total ?? '0')
+}
+
+test('a finance reader lists only the finance actions while the owner reads the whole log', async () => {
+  const response = await accountant.fetch(`/api/schools/${schoolA}/audit-events?pageSize=100`)
+  assert.equal(response.status, 200)
+  const page = (await response.json()) as EventPage
+  assert.ok(page.items.length > 0, 'the accountant reads the finance rows')
+  for (const item of page.items) {
+    assert.ok(
+      isFinanceAuditAction(item.action),
+      `${item.action} is not a finance action`,
+    )
+  }
+  assert.ok(page.items.some((item) => item.summary === summaryA(5)))
+  assert.ok(page.items.some((item) => item.summary === summaryA(6)))
+  // The count is the same narrowed set, so a total can never exceed the rows
+  // the reader may page over.
+  assert.equal(page.total, await financeRowCount())
+  assert.equal(page.items.length, page.total)
+
+  const ownerPage = (await (
+    await owner.fetch(`/api/schools/${schoolA}/audit-events?pageSize=100`)
+  ).json()) as EventPage
+  assert.ok(
+    ownerPage.items.some((item) => !isFinanceAuditAction(item.action)),
+    'the owner still reads non finance actions',
+  )
+  assert.ok(ownerPage.total > page.total)
+  assert.equal(JSON.stringify(page).includes(summaryA(1)), false)
+})
+
+test('the finance reader keeps its filters on top of the narrowed rows', async () => {
+  const byAction = (await (
+    await accountant.fetch(`/api/schools/${schoolA}/audit-events?action=staff.update_pay&pageSize=100`)
+  ).json()) as EventPage
+  assert.ok(byAction.total >= 1)
+  for (const item of byAction.items) assert.equal(item.action, 'staff.update_pay')
+
+  // A non finance action is not readable even when it is asked for by name.
+  const hidden = (await (
+    await accountant.fetch(`/api/schools/${schoolA}/audit-events?action=members.roles.change&pageSize=100`)
+  ).json()) as EventPage
+  assert.equal(hidden.total, 0)
+  assert.deepEqual(hidden.items, [])
+
+  const byActor = (await (
+    await accountant.fetch(
+      `/api/schools/${schoolA}/audit-events?actorMembershipId=${accountantMembershipId}&pageSize=100`,
+    )
+  ).json()) as EventPage
+  assert.ok(byActor.items.some((item) => item.summary === summaryA(6)))
+  for (const item of byActor.items) {
+    assert.ok(isFinanceAuditAction(item.action))
+  }
+  assert.equal(byActor.items.some((item) => item.summary === summaryA(5)), false)
+})
+
+test('a finance export counts only the finance rows and the owner export counts more', async () => {
+  const window = {
+    from: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    to: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  }
+  const expected = await financeRowCount()
+  const financeJob = await accountant.fetch(`/api/schools/${schoolA}/audit-events/export`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(window),
+  })
+  assert.equal(financeJob.status, 202)
+  const financeId = ((await financeJob.json()) as { id: string }).id
+  const financeRow = await adminPool().query<{ row_count: number }>(
+    `SELECT row_count FROM export_jobs WHERE id = $1`,
+    [financeId],
+  )
+  assert.equal(financeRow.rows[0]?.row_count, expected)
+
+  const ownerJob = await owner.fetch(`/api/schools/${schoolA}/audit-events/export`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(window),
+  })
+  assert.equal(ownerJob.status, 202)
+  const ownerId = ((await ownerJob.json()) as { id: string }).id
+  const ownerRow = await adminPool().query<{ row_count: number }>(
+    `SELECT row_count FROM export_jobs WHERE id = $1`,
+    [ownerId],
+  )
+  assert.ok(
+    (ownerRow.rows[0]?.row_count ?? 0) > (financeRow.rows[0]?.row_count ?? 0),
+    'the owner export covers the whole log',
+  )
+
+  await adminPool().query(`DELETE FROM export_jobs WHERE id = ANY($1::uuid[])`, [[financeId, ownerId]])
 })

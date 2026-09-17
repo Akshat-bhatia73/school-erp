@@ -1,5 +1,17 @@
-import { DAY_LABELS } from '@erp/shared'
 import { cn } from '@/lib/utils'
+
+/** 1 = Monday … 6 = Saturday, the only days the timetable contracts allow. */
+export const DAY_LABELS: Record<number, string> = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' }
+
+export const WEEK_DAYS = [1, 2, 3, 4, 5, 6]
+
+/** The day of the week a calendar date falls on, in the 1–6 numbering. Sunday answers 0. */
+export function dayOfWeekFor(date: string): number {
+  const parsed = new Date(`${date}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return 0
+  const day = parsed.getDay()
+  return day === 0 ? 0 : day
+}
 
 /**
  * Mobile day picker for the timetable. A 6x8 grid cannot be read on a phone, so mobile

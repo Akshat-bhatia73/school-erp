@@ -39,6 +39,7 @@ function Probe() {
       <span data-testid="context">{session.context}</span>
       <span data-testid="school">{session.school?.id ?? 'none'}</span>
       <span data-testid="name">{session.user?.displayName ?? ''}</span>
+      <span data-testid="membership">{session.membershipId ?? 'none'}</span>
     </div>
   )
 }
@@ -80,6 +81,8 @@ describe('SessionProvider', () => {
     await waitFor(() => expect(screen.getByTestId('context')).toHaveTextContent('ready'))
     expect(screen.getByTestId('school')).toHaveTextContent('school-a')
     expect(screen.getByTestId('name')).toHaveTextContent('Asha Rao')
+    // Screens address a member by the membership the context response named, never by the user id.
+    expect(screen.getByTestId('membership')).toHaveTextContent('mem-school-a')
   })
 
   it('picks no school when there is more than one', async () => {

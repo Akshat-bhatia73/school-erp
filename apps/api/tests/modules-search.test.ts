@@ -283,7 +283,7 @@ test('a parent sees only their own child and no staff at all', async () => {
 })
 
 test('a parent cannot reach another child through the admission number', async () => {
-  const response = await search(parent, schoolA, 'FIX-A1')
+  const response = await search(parent, schoolA, 'A/2026-27/001')
   assert.equal(response.status, 200)
   assert.deepEqual(((await response.json()) as SearchBody).students, [])
 })

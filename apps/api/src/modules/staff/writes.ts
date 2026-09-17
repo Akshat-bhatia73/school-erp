@@ -7,6 +7,7 @@ import type { RequestContext } from '@erp/contracts/server'
 import { academicYears, exportJobs, sections, staff, subjects, teachingAssignments } from '@erp/db/schema'
 import { ApiFailure } from '../../http/errors.ts'
 import { lockSchool, writeAudit } from '../shared/audit.ts'
+import { allocateEmployeeCode } from '../shared/sequences.ts'
 import { bumpVersion } from '../shared/version.ts'
 import type { StaffRow } from './projection.ts'
 
@@ -41,22 +42,17 @@ export async function createStaff(
   context: RequestContext,
   body: StaffCreateRequest,
 ): Promise<StaffRow> {
-  // The employee code is unique per school. Taking the school lock first makes
-  // this read and the insert one decision, so a concurrent create loses on the
-  // lock and is answered as a duplicate rather than as a failed constraint.
+  // The employee code comes from the school counter, never from the request.
+  // Taking the school lock first makes the allocation and the insert one
+  // decision, so two creates at once take consecutive codes.
   await lockSchool(conn, context.schoolId)
-  const taken = await conn.db
-    .select({ id: staff.id })
-    .from(staff)
-    .where(and(eq(staff.schoolId, context.schoolId), eq(staff.employeeCode, body.employeeCode)))
-    .limit(1)
-  if (taken.length > 0) invalid()
+  const employeeCode = await allocateEmployeeCode(conn, context.schoolId)
 
   const inserted = await conn.db
     .insert(staff)
     .values({
       schoolId: context.schoolId,
-      employeeCode: body.employeeCode,
+      employeeCode,
       firstName: body.firstName,
       lastName: body.lastName ?? null,
       staffType: body.staffType,

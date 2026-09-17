@@ -2,15 +2,16 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Building2, CalendarClock, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, PanelLeft, School, ScrollText, Search, ShieldCheck, Users, UserRound, BookOpen, Sparkles, X } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { api } from '@/api/client'
 import { AccountMenu } from '@/components/auth/account-menu'
 import { SectionLabel } from '@/components/shared/page'
+import { api } from '@/lib/api'
+import { audienceFor, type PermissionKey } from '@/lib/permissions'
 import { qk } from '@/lib/query'
-import { useSession } from '@/lib/session'
+import { useSchoolContext } from '@/lib/session'
+import { useAcademicYear } from '@/lib/use-academic-year'
 import { cn } from '@/lib/utils'
-import type { Module } from '@erp/shared'
 
-interface NavItem { label: string; to: string; icon: ReactNode; count?: number | string; module?: Module; exact?: boolean }
+interface NavItem { label: string; to: string; icon: ReactNode; count?: number | string; permission?: PermissionKey; exact?: boolean }
 
 function NavLink({ item, collapsed, onNavigate }: { item: NavItem; collapsed: boolean; onNavigate?: () => void }) {
   const path = useRouterState({ select: (s) => s.location.pathname })
@@ -39,28 +40,42 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
 }) {
   const drawer = variant === 'drawer'
   const collapsed = drawer ? false : !!collapsedProp
-  const { school, can } = useSession()
-  const { data: dash } = useQuery({ queryKey: qk.dashboard, queryFn: api.dashboard.summary })
+  const { schoolId, school, roleKeys, hasPermission } = useSchoolContext()
+  const audience = audienceFor(roleKeys)
+  const isParent = audience === 'parent'
+  // Counts live under the module prefixes so the writes that change them refresh these badges too.
+  const office = audience === 'office'
+  const { data: studentCount } = useQuery({
+    queryKey: qk.studentCount(schoolId, { status: 'active' }),
+    queryFn: () => api.students.count(schoolId, { status: 'active' }),
+    enabled: office && hasPermission('students.read_basic'),
+  })
+  const { data: staffCount } = useQuery({
+    queryKey: qk.staffCount(schoolId),
+    queryFn: () => api.staff.count(schoolId),
+    enabled: office && hasPermission('staff.read_directory'),
+  })
+  const { current } = useAcademicYear()
 
   const primary: NavItem[] = [
-    { label: 'Dashboard', to: '/dashboard', icon: <LayoutDashboard />, exact: true },
-    { label: 'Students', to: '/students', icon: <GraduationCap />, count: dash?.students.active, module: 'students' },
-    { label: 'Staff', to: '/staff', icon: <Users />, count: dash?.staff.total, module: 'staff' },
-    { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, module: 'timetable' },
+    { label: isParent ? 'My children' : 'Dashboard', to: '/dashboard', icon: <LayoutDashboard />, exact: true },
+    { label: 'Students', to: '/students', icon: <GraduationCap />, count: studentCount?.count, permission: 'students.read_basic' },
+    { label: 'Staff', to: '/staff', icon: <Users />, count: staffCount?.count, permission: 'staff.read_directory' },
+    { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
   ]
   const setup: NavItem[] = [
-    { label: 'School profile', to: '/setup/school', icon: <School />, module: 'school_setup' },
-    { label: 'Academic years', to: '/setup/academic-years', icon: <CalendarDays />, module: 'school_setup' },
-    { label: 'Classes & sections', to: '/setup/classes', icon: <Building2 />, module: 'school_setup' },
-    { label: 'Subjects', to: '/setup/subjects', icon: <BookOpen />, module: 'school_setup' },
-    { label: 'Holidays', to: '/setup/holidays', icon: <ListChecks />, module: 'school_setup' },
+    { label: 'School profile', to: '/setup/school', icon: <School />, permission: 'school.read' },
+    { label: 'Academic years', to: '/setup/academic-years', icon: <CalendarDays />, permission: 'academic_years.read' },
+    { label: 'Classes & sections', to: '/setup/classes', icon: <Building2 />, permission: 'sections.read' },
+    { label: 'Subjects', to: '/setup/subjects', icon: <BookOpen />, permission: 'subjects.read' },
+    { label: 'Holidays', to: '/setup/holidays', icon: <ListChecks />, permission: 'holidays.read' },
   ]
   const settings: NavItem[] = [
-    { label: 'Users & logins', to: '/settings/users', icon: <UserRound />, module: 'users_roles' },
-    { label: 'Roles & permissions', to: '/settings/roles', icon: <ShieldCheck />, module: 'users_roles' },
-    { label: 'Audit log', to: '/settings/audit-log', icon: <ScrollText />, module: 'audit_log' },
+    { label: 'Users & logins', to: '/settings/users', icon: <UserRound />, permission: 'members.read' },
+    { label: 'Roles & permissions', to: '/settings/roles', icon: <ShieldCheck />, permission: 'roles.read' },
+    { label: 'Audit log', to: '/settings/audit-log', icon: <ScrollText />, permission: 'audit.read' },
   ]
-  const visible = (items: NavItem[]) => items.filter((i) => !i.module || can(i.module))
+  const visible = (items: NavItem[]) => items.filter((i) => !i.permission || hasPermission(i.permission))
 
   return (
     <aside className={cn('flex h-full min-h-0 flex-col bg-sidebar', drawer ? 'w-full' : 'shrink-0 border-r transition-[width] duration-200', !drawer && (collapsed ? 'w-14' : 'w-64'))}>
@@ -70,8 +85,10 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
           <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-foreground text-background"><Sparkles className="size-4" /></span>
           {!collapsed && (
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[14px] font-semibold leading-tight">{school?.name ?? 'School ERP'}</span>
-              <span className="block truncate text-[11px] leading-tight text-muted-foreground">{dash?.academicYearName ?? ''}{school?.code ? ` · ${school.code}` : ''}</span>
+              <span className="block truncate text-[14px] font-semibold leading-tight">{school.name}</span>
+              {!isParent && (
+                <span className="block truncate text-[11px] leading-tight text-muted-foreground">{current?.name ?? ''}{school.code ? ` · ${school.code}` : ''}</span>
+              )}
             </span>
           )}
         </span>
@@ -85,10 +102,12 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2 scrollbar-thin">
         {/* Quick actions */}
-        <button type="button" onClick={() => { onNavigate?.(); onOpenQuickActions() }} className={cn('mt-3 flex h-10 items-center gap-2 rounded-xl border bg-card px-3 text-[14px] text-muted-foreground shadow-xs hover:bg-accent', collapsed && 'justify-center px-0')} title="Quick actions">
+        {!isParent && (
+        <button type="button" onClick={() => { onNavigate?.(); onOpenQuickActions() }} className={cn('mt-3 flex h-9 shrink-0 items-center gap-2.5 rounded-lg border bg-card px-2 text-[14px] text-muted-foreground shadow-xs hover:bg-accent', collapsed && 'justify-center px-0')} title="Quick actions">
           <Search className="size-4" />
           {!collapsed && (<><span className="flex-1 text-left">Quick actions</span>{!drawer && <span className="kbd">⌘K</span>}</>)}
         </button>
+        )}
 
         <nav className="mt-3 flex flex-col gap-0.5">{visible(primary).map((i) => <NavLink key={i.to} item={i} collapsed={collapsed} onNavigate={onNavigate} />)}</nav>
 
@@ -107,7 +126,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
           </>
         )}
 
-        {!collapsed && (
+        {!collapsed && audience === 'office' && (
           <>
             <SectionLabel>Coming next</SectionLabel>
             <div className="flex flex-col gap-0.5 opacity-60">

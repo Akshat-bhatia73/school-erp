@@ -1,4 +1,3 @@
-import type { Holiday } from '@erp/shared'
 import { formatDate } from '@/lib/utils'
 
 const DAY = 86_400_000
@@ -23,7 +22,7 @@ export function holidayRange(h: { startDate: string; endDate: string }) {
 }
 
 /** Holiday days falling in each April→March month of the year starting `startYear`. */
-export function monthCounts(holidays: Holiday[], startYear: number) {
+export function monthCounts(holidays: Array<{ startDate: string; endDate: string }>, startYear: number) {
   const months = Array.from({ length: 12 }, (_, i) => {
     const m = (3 + i) % 12
     const y = startYear + (3 + i >= 12 ? 1 : 0)

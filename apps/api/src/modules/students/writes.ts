@@ -6,7 +6,14 @@ import type {
   StudentsUpdateGuardianRequest,
   StudentsUpdateSensitiveRequest,
 } from '@erp/contracts'
-import { ApiFailure, authorizeResource, bumpVersion, lockSchool, writeAudit } from '../shared/index.ts'
+import {
+  allocateAdmissionNumber,
+  ApiFailure,
+  authorizeResource,
+  bumpVersion,
+  lockSchool,
+  writeAudit,
+} from '../shared/index.ts'
 import type { ModuleConnection } from './reads.ts'
 import type { GuardianRow } from './project.ts'
 
@@ -159,12 +166,10 @@ export async function admitStudent(
 ): Promise<string> {
   await lockSchool(conn, context.schoolId)
   const section = await requireSection(conn, context.schoolId, body.sectionId)
-
-  const taken = await conn.db.execute<{ id: string }>(
-    sql`SELECT id FROM students WHERE school_id = ${context.schoolId}::uuid
-          AND admission_number = ${body.admissionNumber}`,
-  )
-  if (taken.rows.length > 0) throw new ApiFailure('INVALID_REQUEST')
+  // The number belongs to the academic year the student is being enrolled in,
+  // so the number and the enrolment can never disagree. It is claimed after
+  // the school lock, so two admissions at once take consecutive numbers.
+  const admissionNumber = await allocateAdmissionNumber(conn, context.schoolId, section.academicYearId)
 
   const named = body.guardians.filter((link) => link.guardianId !== undefined).map((link) => link.guardianId)
   if (new Set(named).size !== named.length) throw new ApiFailure('INVALID_REQUEST')
@@ -172,7 +177,7 @@ export async function admitStudent(
   const inserted = await conn.db.execute<{ id: string }>(
     sql`INSERT INTO students (school_id, admission_number, first_name, last_name, status,
                               date_of_birth, gender, category, admission_type, admission_date, address)
-        VALUES (${context.schoolId}::uuid, ${body.admissionNumber}, ${body.firstName},
+        VALUES (${context.schoolId}::uuid, ${admissionNumber}, ${body.firstName},
                 ${body.lastName ?? null}, 'active', ${body.dateOfBirth}::date, ${body.gender},
                 ${body.category ?? null}, ${body.admissionType ?? null}, ${body.admissionDate}::date,
                 ${body.address === undefined ? null : jsonText(body.address)}::jsonb)

@@ -1,63 +1,101 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { Subject } from '@erp/shared'
-import { DAY_LABELS } from '@erp/shared'
-import { api, type TimetableCell } from '@/api/client'
+import { TimetableEntryRequest } from '@erp/contracts'
+import { api } from '@/lib/api'
+import type { TimetableCellRecord } from '@/lib/api/timetable'
+import { describeError } from '@/lib/api-errors'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Tag, colorFor } from '@/components/shared/tag'
+import { DAY_LABELS } from '@/components/timetable/day-selector'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { qk } from '@/lib/query'
-import { fullName } from '@/lib/utils'
+import { useSchoolContext } from '@/lib/session'
 
-export interface SetPeriodTarget { dayOfWeek: number; periodIndex: number; existing?: TimetableCell; periodName: string }
+export interface SetPeriodTarget { dayOfWeek: number; periodIndex: number; existing?: TimetableCellRecord; periodName: string }
+
+export interface SubjectChoice { id: string; name: string }
 
 /** "Set period" dialog: pick the subject, then a free teacher for that slot. */
-export function SetPeriodDialog({ target, onClose, sectionId, sectionLabel, subjects }: {
+export function SetPeriodDialog({ target, onClose, sectionId, sectionLabel, subjects, academicYearId }: {
   target: SetPeriodTarget | null
   onClose: () => void
   sectionId: string
   sectionLabel: string
-  subjects: Subject[]
+  subjects: SubjectChoice[]
+  academicYearId: string
 }) {
-  const qc = useQueryClient()
+  const { schoolId } = useSchoolContext()
+  const queryClient = useQueryClient()
   const [subjectId, setSubjectId] = useState('')
   const [staffId, setStaffId] = useState('')
+  const [fieldError, setFieldError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (target) { setSubjectId(target.existing?.subjectId ?? ''); setStaffId(target.existing?.staffId ?? '') }
+    if (target) {
+      setSubjectId(target.existing?.subject.id ?? '')
+      setStaffId(target.existing?.teacher?.id ?? '')
+      setFieldError(null)
+    }
   }, [target])
 
-  const freeParams = { dayOfWeek: target?.dayOfWeek ?? 0, periodIndex: target?.periodIndex ?? 0, subjectId: subjectId || undefined }
+  const freeParams = {
+    academicYearId,
+    dayOfWeek: target?.dayOfWeek ?? 1,
+    periodIndex: target?.periodIndex ?? 0,
+    subjectId: subjectId || undefined,
+  }
   const { data: free = [], isLoading: freeLoading } = useQuery({
-    queryKey: qk.freeTeachers(freeParams),
-    queryFn: () => api.timetable.freeTeachers(freeParams),
-    enabled: !!target,
+    queryKey: qk.freeTeachers(schoolId, freeParams),
+    queryFn: () => api.timetable.freeTeachers(schoolId, freeParams),
+    enabled: !!target && !!academicYearId,
   })
 
-  const existingStaff = target?.existing?.staff
+  const existingTeacher = target?.existing?.teacher ?? null
   const teaches = free.filter((t) => t.teachesSubject)
   const others = free.filter((t) => !t.teachesSubject)
-  const keepsCurrent = useMemo(() => !!existingStaff && !free.some((t) => t.id === existingStaff.id), [existingStaff, free])
+  const keepsCurrent = useMemo(
+    () => !!existingTeacher && !free.some((t) => t.teacher.id === existingTeacher.id),
+    [existingTeacher, free],
+  )
 
   const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['timetable'] })
-    qc.invalidateQueries({ queryKey: ['substitutions'] })
+    void queryClient.invalidateQueries({ queryKey: [schoolId, 'timetable'] })
   }
 
   const save = useMutation({
-    mutationFn: () => api.timetable.setEntry({ sectionId, dayOfWeek: target!.dayOfWeek, periodIndex: target!.periodIndex, subjectId, staffId: staffId || undefined }),
-    onSuccess: () => { invalidate(); toast.success('Period saved'); onClose() },
-    onError: (e: Error) => toast.error(e.message),
+    mutationFn: () => {
+      const parsed = TimetableEntryRequest.safeParse({
+        academicYearId,
+        sectionId,
+        dayOfWeek: target?.dayOfWeek,
+        periodIndex: target?.periodIndex,
+        subjectId,
+        ...(staffId ? { staffId } : {}),
+      })
+      if (!parsed.success) {
+        setFieldError('Pick a subject for this period.')
+        return Promise.reject(new Error('invalid'))
+      }
+      setFieldError(null)
+      return api.timetable.setEntry(schoolId, parsed.data)
+    },
+    onSuccess: () => { invalidate(); toast.success('Saved this period'); onClose() },
+    onError: (error) => { if (error instanceof Error && error.message === 'invalid') return; toast.error(describeError(error)) },
   })
 
   const clear = useMutation({
-    mutationFn: () => api.timetable.clearEntry({ sectionId, dayOfWeek: target!.dayOfWeek, periodIndex: target!.periodIndex }),
-    onSuccess: () => { invalidate(); toast.success('Period cleared'); onClose() },
-    onError: (e: Error) => toast.error(e.message),
+    mutationFn: () => api.timetable.clearEntry(schoolId, {
+      academicYearId,
+      sectionId,
+      dayOfWeek: target!.dayOfWeek,
+      periodIndex: target!.periodIndex,
+    }),
+    onSuccess: () => { invalidate(); toast.success('Cleared this period'); onClose() },
+    onError: (error) => toast.error(describeError(error)),
   })
 
   return (
@@ -71,16 +109,17 @@ export function SetPeriodDialog({ target, onClose, sectionId, sectionLabel, subj
             <p className="text-[12.5px] text-muted-foreground">{sectionLabel} · {DAY_LABELS[target.dayOfWeek]} · {target.periodName}</p>
             <div className="grid gap-1.5">
               <label className="text-[12px] text-muted-foreground">Subject</label>
-              <Select value={subjectId} onValueChange={(v) => { setSubjectId(v); setStaffId('') }}>
+              <Select value={subjectId} onValueChange={(v) => { setSubjectId(v); setStaffId(''); setFieldError(null) }}>
                 <SelectTrigger className="w-full"><SelectValue placeholder="Pick a subject" /></SelectTrigger>
                 <SelectContent>
                   {subjects.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
-                      <span className="flex items-center gap-2"><Tag color={colorFor(s.code)}>{s.code}</Tag>{s.name}</span>
+                      <span className="flex items-center gap-2"><Tag color={colorFor(s.id)}>{s.name}</Tag></span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {fieldError && <p className="text-[11.5px] text-destructive">{fieldError}</p>}
             </div>
             <div className="grid gap-1.5">
               <label className="text-[12px] text-muted-foreground">Teacher</label>
@@ -88,11 +127,11 @@ export function SetPeriodDialog({ target, onClose, sectionId, sectionLabel, subj
                 <Select value={staffId} onValueChange={setStaffId} disabled={!subjectId}>
                   <SelectTrigger className="w-full"><SelectValue placeholder={subjectId ? 'Pick a teacher' : 'Pick a subject first'} /></SelectTrigger>
                   <SelectContent>
-                    {keepsCurrent && existingStaff && (
+                    {keepsCurrent && existingTeacher && (
                       <SelectGroup>
                         <SelectLabel>Currently assigned</SelectLabel>
-                        <SelectItem value={existingStaff.id}>
-                          <span className="flex items-center gap-2"><UserAvatar name={fullName(existingStaff)} size="xs" />{fullName(existingStaff)}</span>
+                        <SelectItem value={existingTeacher.id}>
+                          <span className="flex items-center gap-2"><UserAvatar name={existingTeacher.name} size="xs" />{existingTeacher.name}</span>
                         </SelectItem>
                       </SelectGroup>
                     )}
@@ -100,8 +139,8 @@ export function SetPeriodDialog({ target, onClose, sectionId, sectionLabel, subj
                       <SelectGroup>
                         <SelectLabel>Teaches this subject</SelectLabel>
                         {teaches.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            <span className="flex items-center gap-2"><UserAvatar name={fullName(t)} size="xs" />{fullName(t)}<span className="text-[11.5px] text-muted-foreground">{t.periodsPerWeek}/week</span></span>
+                          <SelectItem key={t.teacher.id} value={t.teacher.id}>
+                            <span className="flex items-center gap-2"><UserAvatar name={t.teacher.name} size="xs" />{t.teacher.name}<span className="text-[11.5px] text-muted-foreground">{t.periodsPerWeek}/week</span></span>
                           </SelectItem>
                         ))}
                       </SelectGroup>
@@ -110,8 +149,8 @@ export function SetPeriodDialog({ target, onClose, sectionId, sectionLabel, subj
                       <SelectGroup>
                         <SelectLabel>Other free teachers</SelectLabel>
                         {others.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            <span className="flex items-center gap-2"><UserAvatar name={fullName(t)} size="xs" />{fullName(t)}<span className="text-[11.5px] text-muted-foreground">{t.periodsPerWeek}/week</span></span>
+                          <SelectItem key={t.teacher.id} value={t.teacher.id}>
+                            <span className="flex items-center gap-2"><UserAvatar name={t.teacher.name} size="xs" />{t.teacher.name}<span className="text-[11.5px] text-muted-foreground">{t.periodsPerWeek}/week</span></span>
                           </SelectItem>
                         ))}
                       </SelectGroup>

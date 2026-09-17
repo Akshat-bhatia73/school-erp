@@ -2,7 +2,7 @@
 
 Task 6 puts the web app on the real API. The browser no longer picks who it is: `apps/web` signs in against [the Fastify service](./AUTHENTICATION.md), derives the whole session from `GET /api/me` and `GET /api/schools/:schoolId/context`, and renders nothing school-shaped until both have answered. It is defined in [the implementation plan](../AUTH_RBAC_IMPLEMENTATION_PLAN.md) (sections 4, 5 and 10, and the Task 6 checklist).
 
-It does not change any permission decision. The server decides; the web app only asks, and hides what it was told it cannot have. The feature screens still read the in-memory mock API — Task 7 moves them onto the protected APIs and `allowedActions`.
+It does not change any permission decision. The server decides; the web app only asks, and hides what it was told it cannot have. Task 7 moved the feature screens onto the protected APIs and `allowedActions` as well; see [the feature screens](./WEB_SCREENS.md).
 
 Source files: [src/lib/http.ts](../../apps/web/src/lib/http.ts), [src/lib/auth-client.ts](../../apps/web/src/lib/auth-client.ts), [src/lib/api-errors.ts](../../apps/web/src/lib/api-errors.ts), [src/lib/return-to.ts](../../apps/web/src/lib/return-to.ts), [src/lib/session.tsx](../../apps/web/src/lib/session.tsx), [src/lib/query.ts](../../apps/web/src/lib/query.ts), [src/components/auth](../../apps/web/src/components/auth), and the public routes under [src/routes](../../apps/web/src/routes).
 
@@ -18,6 +18,7 @@ FIXTURE_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp pn
 cp apps/api/.env.example apps/api/.env      # then set DEV_SANDBOX_OUTBOX=true
 pnpm dev:api                                # http://127.0.0.1:3001
 pnpm --filter @erp/api dev:logins           # the sign-in accounts below
+pnpm --filter @erp/api dev:seed             # a full school to click through
 pnpm --filter @erp/web dev                  # http://localhost:5173
 ```
 
@@ -36,6 +37,28 @@ The web app must be opened at `http://localhost:5173` and nowhere else: that ori
 | Student | Fixture A | student | email + password | `fixture-student@example.test` | Always refused: student sign-in is specified and disabled |
 | Parent A2 | Fixture A | parent | phone code | `9876543210` | `send-otp` always answers `{"status":"sent"}`; read the code from the outbox |
 | Parent B | Fixture B | parent | phone code | `9876543211` | A second school, for switching |
+
+### A realistic school for manual testing
+
+The fixture schools are deliberately tiny: two or three students, one staff member, one section. To open the feature screens against something that looks like a real school, seed Sunrise Public School.
+
+```sh
+pnpm --filter @erp/api dev:seed
+```
+
+It builds one CBSE school in the development database (`erp`): Nursery to Class 10 with two sections up to Class 8, ten subjects, about 330 students with guardians and siblings, 31 staff, last year's and this year's enrolments, teaching assignments for both years, a `Regular` bell schedule, a clash-free Monday to Saturday timetable for this year and six holidays. Admission numbers and employee codes are in the server's own format (`SPS/2026-27/001`, `SPS-E001`), and the `number_sequences` counters continue after them, so an admission made through the UI takes the next free number.
+
+Like `dev:logins`, it refuses to run when `NODE_ENV=production` or `DELIVERY_MODE` is not `sandbox`. It is idempotent: it finds its own school by the login code `sunrise`, deletes it with everything under it, and rebuilds in one transaction. **Fixture A and Fixture B, and the people who sign in to them, are never touched** — the script only ever deletes rows belonging to the school it owns.
+
+The accounts it creates are written to `apps/api/.dev/sunrise-logins.csv` (git-ignored) and printed as a table, along with the new school id: two owners, a principal, two office administrators, an accountant, five teachers (one of them also a parent, one suspended, one with a phone as well as an email), five parents (one with two children, one whose child has left, one whose access has not been approved) and one student account to show that student sign-in is refused. The password for every email login is `sunrise-password-1`; the parents sign in with a one-time code only.
+
+Every account whose role requires a second factor (owner, principal, admin, accountant) is enrolled during the seed, so there is no enrolment walk before using the screens. The CSV carries the base32 `totp_secret` and the `otpauth_uri`: paste the URI into an authenticator app, or ask for the current code on the command line.
+
+```sh
+pnpm --filter @erp/api dev:totp JBSWY3DPEHPK3PXP   # prints 6 digits
+```
+
+The code comes from the same generator the API verifies with, so it is always the one the sign-in challenge expects. Parent one-time codes are read from `GET /api/dev/outbox`, exactly as the fixture parents' are.
 
 ### Reading codes and tokens
 
@@ -95,13 +118,20 @@ Public routes render inside `AuthLayout`: a centred card on `md` and up, full-bl
 
 `returnTo` is sanitised by [`lib/return-to.ts`](../../apps/web/src/lib/return-to.ts): same-origin relative paths only, query string preserved, credential screens refused so signing in cannot loop. `/accept-invite` is deliberately allowed, because it is a destination rather than a sign-in step, so an invitee who has to sign in first lands back on their invitation.
 
-## The legacy mock bridge
+## The legacy mock bridge (removed)
 
-The feature screens still read the in-memory mock API in [`api/client.ts`](../../apps/web/src/api/client.ts) and still ask `can(module, action)` with the `@erp/shared` role model, which is a different vocabulary from the server's permission keys. Until Task 7, `lib/session.tsx` keeps both worlds alive, and says so at the top of the file: it resolves the mock roles whose key matches the server's `roleKeys` (the server's `principal` maps onto the mock `owner`), computes `can` and `scope` from them, and pushes the signed-in person into the mock client through `setApiContext`.
+Task 6 shipped a bridge so the mock feature screens kept working while the session became real:
+`can`, `scope` and `roles` on the session, resolved from the `@erp/shared` role model, and
+`setApiContext` pushing the signed-in person into the in-memory mock client.
 
-None of that is an authorization decision. The server decides, and the mock data is local dummy data. Task 7 deletes `can`, `scope`, `roles`, `mockSchoolId` and `setApiContext`, and the bridge block with them.
+Task 7 deleted all of it, along with `apps/web/src/api` and `legacyQk`. The screens read the
+protected APIs directly and gate on `hasPermission` and the record's own `allowedActions`. See
+[the feature screens](./WEB_SCREENS.md#the-bridge-is-gone) for what went and why nothing decides in
+the browser.
 
-Also gone in Task 6 and not coming back: the "viewing as" user switcher, the sidebar school-switcher dropdown and the "auth is off" notice. Switching school is now "Switch school" in the account menu and the command menu, both pointing at `/select-school`. `settings/users` still lists mock users and says plainly that invitations and logins are server-managed in a later build; Task 7 replaces it.
+Also gone in Task 6 and not coming back: the "viewing as" user switcher, the sidebar school-switcher
+dropdown and the "auth is off" notice. Switching school is "Switch school" in the account menu and
+the command menu, both pointing at `/select-school`.
 
 ## Deployment
 
@@ -109,7 +139,7 @@ Also gone in Task 6 and not coming back: the "viewing as" user switcher, the sid
 
 ## Tests
 
-`pnpm --filter @erp/web test -- --run` runs 88 tests in 13 files under vitest with jsdom and Testing Library. `lib/auth-client` is mocked everywhere; no test touches the network. `vitest` globals are off, so test files import `describe`, `it` and `expect` from `vitest`. The shared `src/test/setup.ts` stubs `matchMedia` and `ResizeObserver`, which jsdom lacks and the Radix primitives need.
+`pnpm --filter @erp/web test -- --run` runs 199 tests in 23 files under vitest with jsdom and Testing Library; 88 of them in 13 files cover the session and the auth screens described here, and the rest cover the feature screens ([WEB_SCREENS.md](./WEB_SCREENS.md#tests)). `lib/auth-client` is mocked everywhere; no test touches the network. `vitest` globals are off, so test files import `describe`, `it` and `expect` from `vitest`. The shared `src/test/setup.ts` stubs `matchMedia` and `ResizeObserver`, which jsdom lacks and the Radix primitives need.
 
 What they prove: the envelope parsing, `Retry-After` precedence and `STALE_RESPONSE` on a mid-flight generation bump in `http`; `returnTo` sanitising, including that an invitation link survives; the session provider going anonymous on 401, `blocked` on `FEATURE_DISABLED`, unavailable on a network failure, auto-selecting a single membership, `mfa_required` context, ignoring and deleting the old `localStorage` identity keys, and clearing on a `signed-out` broadcast; the gate rendering no shell while either the session or the context is loading; the login screens' generic refusals, throttle countdown, `returnTo` with a query string and the shared-device flag surviving a `twoFactorRedirect`; the OTP screen's auto-submit and resend; the reset screen treating a refused token as an expired link; the QR encoder against vectors from the reference `qrcode` package; the MFA verify panel saying a code was wrong rather than bouncing to sign-in, and only redirecting when the session really has gone; the enrolment step order with backup codes withheld until a code is accepted; account security's device list, revoke-by-id, password validation, turn-off freshness branch and backup-code regeneration; and the school chooser, invitation panel and access screens.
 
@@ -122,6 +152,7 @@ The API side is covered by `pnpm test:api` (250 tests), including the dev outbox
 - A real invitation token could not be minted (it needs an MFA-enrolled owner), so only the failure codes of `POST /api/invitations/accept` were exercised against the live API.
 - `two-factor/disable` from a session that never completed a second factor is refused as `AUTHENTICATION_REQUIRED`, not `FRESH_AUTHENTICATION_REQUIRED`. The turn-off dialog treats both the same way and offers the authenticator.
 - The provider sign-in body still carries the fixture parents' non-provider email. The UI takes display identity from `/api/me`, never from the provider body.
-- `dev:logins` does not enrol a second factor, so exercising the MFA screens still means walking the enrolment flow.
+- `dev:logins` does not enrol a second factor, so exercising the MFA screens still means walking the enrolment flow. `dev:seed` does enrol one for every account that needs it.
+- `dev:seed` cannot create a guardian whose access is still waiting for approval: `guardian_student_access` only has `approved` and `revoked`, so the parent who is meant to be waiting simply has no access row.
 - The device list uses a local query key `['account','sessions']` rather than one in `lib/query.ts`.
 - Phone sign-in is offered on the Teacher and Parent tabs because the server gives no per-identity signal about which method an identity may use; `LOGIN_METHODS` is not enforced in the browser.

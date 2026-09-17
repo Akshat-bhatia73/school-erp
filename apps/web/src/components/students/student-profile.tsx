@@ -1,181 +1,253 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { FileText, Plus, Upload, Users } from 'lucide-react'
-import type { AcademicYear, Enrollment, Grade, Guardian, Section, Student, StudentDocument, StudentGuardian } from '@erp/shared'
-import { api, type StudentRow } from '@/api/client'
+import { Download, FileText, Plus, Users } from 'lucide-react'
+import { useState } from 'react'
+import { toast } from 'sonner'
 import { UserAvatar } from '@/components/shared/avatar'
 import { EmptyState, Facts, Panel } from '@/components/shared/page'
 import { colorFor, StatusDot, Tag, type TagColor } from '@/components/shared/tag'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Switch } from '@/components/ui/switch'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { api } from '@/lib/api'
+import { describeError } from '@/lib/api-errors'
+import type { Enrollment, StudentDetail, StudentSummary } from '@/lib/api/students'
+import { allows } from '@/lib/permissions'
 import { qk } from '@/lib/query'
+import { useSchoolContext } from '@/lib/session'
 import { formatDate, fullName, humanize } from '@/lib/utils'
+import { GuardianSheet, type GuardianSheetEditing } from './guardian-sheet'
+import { classLabel } from './student-columns'
 
-export type GuardianLink = Guardian & { link: StudentGuardian }
-export type EnrollmentRow = Enrollment & { section?: Section; grade?: Grade; year?: AcademicYear }
-
-const ADMISSION_LABEL: Record<string, string> = { regular: 'Regular', rte: 'RTE', staff_ward: 'Staff ward', scholarship: 'Scholarship' }
-
-export function admissionTag(type: Student['admissionType']): { label: string; color: TagColor } | undefined {
-  if (type === 'regular') return undefined
-  const color: TagColor = type === 'rte' ? 'orange' : type === 'staff_ward' ? 'purple' : 'teal'
-  return { label: ADMISSION_LABEL[type] ?? humanize(type), color }
+/** A refused read is one sentence, not a blank tab. */
+function Refused({ what }: { what: string }) {
+  return <p className="text-[13px] text-muted-foreground">You do not have permission to see {what}.</p>
 }
 
-export function OverviewTab({ student }: { student: StudentRow }) {
-  const a = student.address
+/**
+ * Everything the server chose to send about this student. A block it left out (sensitive,
+ * medical, guardian contacts) is simply not rendered: there is no placeholder for private data.
+ */
+export function OverviewTab({ detail, showGuardianContacts }: { detail: StudentDetail; showGuardianContacts: boolean }) {
+  const { student, sensitive, medical, guardianContacts } = detail
   return (
     <div className="grid gap-4">
-      <Panel title="Personal">
+      <Panel title="Student">
         <Facts
           columns={3}
           items={[
-            { label: 'Date of birth', value: formatDate(student.dateOfBirth) },
-            { label: 'Gender', value: humanize(student.gender) },
-            { label: 'Blood group', value: student.bloodGroup === 'unknown' ? undefined : student.bloodGroup },
-            { label: 'Category', value: <span className="uppercase">{student.category}</span> },
-            { label: 'Religion', value: student.religion },
-            { label: 'Mother tongue', value: student.motherTongue },
-            { label: 'Nationality', value: student.nationality },
-            { label: 'Aadhaar last 4', value: student.aadhaarLast4 ? <span className="font-mono">•••• {student.aadhaarLast4}</span> : undefined },
-            { label: 'APAAR ID', value: student.apaarId ? <span className="font-mono">{student.apaarId}</span> : undefined },
-          ]}
-        />
-      </Panel>
-      <Panel title="Address">
-        <Facts
-          columns={3}
-          items={[
-            { label: 'Address', value: [a.line1, a.line2].filter(Boolean).join(', ') },
-            { label: 'City', value: a.city },
-            { label: 'District', value: a.district },
-            { label: 'State', value: a.state },
-            { label: 'PIN code', value: <span className="tabular-nums">{a.pincode}</span> },
-          ]}
-        />
-      </Panel>
-      <Panel title="Admission">
-        <Facts
-          columns={3}
-          items={[
+            { label: 'Name', value: fullName(student) },
             { label: 'Admission number', value: <span className="font-mono">{student.admissionNumber}</span> },
-            { label: 'Admission date', value: formatDate(student.admissionDate) },
-            { label: 'Admission type', value: ADMISSION_LABEL[student.admissionType] ?? humanize(student.admissionType) },
-            { label: 'Previous school', value: student.previousSchool },
-            { label: 'Transport', value: student.usesTransport ? 'Uses school bus' : 'Own arrangement' },
-            { label: 'Medical notes', value: student.medicalNotes },
+            { label: 'Status', value: <span className="capitalize">{student.status}</span> },
+            { label: 'Class', value: classLabel(student) },
+            { label: 'Roll number', value: student.enrollment?.rollNumber },
+            { label: 'Academic year', value: student.enrollment?.academicYear.name },
           ]}
         />
       </Panel>
-    </div>
-  )
-}
 
-export function GuardiansTab({ guardians, siblings, isLoading, canEdit, onAdd }: { guardians: GuardianLink[]; siblings: StudentRow[]; isLoading: boolean; canEdit: boolean; onAdd: () => void }) {
-  return (
-    <div className="grid gap-4">
-      <Panel
-        title="Parents and guardians"
-        actions={canEdit ? <Button size="sm" variant="outline" onClick={onAdd}><Plus />Add guardian</Button> : undefined}
-      >
-        {isLoading ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {[0, 1].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
-          </div>
-        ) : guardians.length === 0 ? (
-          <EmptyState icon={<Users />} title="No guardians yet" description="Add a parent or guardian so the school can reach the family." className="py-10" />
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {guardians.map((g) => (
-              <div key={g.id} className="rounded-xl border p-3.5">
-                <div className="flex items-start gap-3">
-                  <UserAvatar name={fullName(g)} src={g.photoUrl} size="lg" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate font-medium">{fullName(g)}</span>
-                      <Tag color={colorFor(g.link.relation)}>{humanize(g.link.relation)}</Tag>
-                      {g.link.isPrimary && <Tag color="green">Primary</Tag>}
-                    </div>
-                    <div className="mt-1 font-mono text-[12.5px] text-muted-foreground">{g.phone}</div>
-                    {g.email && <div className="truncate text-[12.5px] text-muted-foreground">{g.email}</div>}
-                    {g.occupation && <div className="text-[12.5px] text-muted-foreground">{g.occupation}</div>}
-                  </div>
-                </div>
-                <div className="mt-3 flex items-center justify-between border-t pt-3">
-                  <span className="text-[12.5px] text-muted-foreground">Gets notifications</span>
-                  <Switch checked={g.link.receivesNotifications} aria-label="Gets notifications" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Panel>
+      {sensitive && (
+        <Panel title="Personal details">
+          <Facts
+            columns={3}
+            items={[
+              { label: 'Date of birth', value: formatDate(sensitive.dateOfBirth) },
+              { label: 'Gender', value: humanize(sensitive.gender) },
+              { label: 'Category', value: sensitive.category },
+              { label: 'Admission type', value: sensitive.admissionType },
+              { label: 'Admission date', value: formatDate(sensitive.admissionDate) },
+              { label: 'Aadhaar last 4', value: sensitive.aadhaarLast4 ? <span className="font-mono">•••• {sensitive.aadhaarLast4}</span> : undefined },
+              { label: 'APAAR ID', value: sensitive.apaarId ? <span className="font-mono">{sensitive.apaarId}</span> : undefined },
+              { label: 'Address', value: sensitive.address },
+            ]}
+          />
+        </Panel>
+      )}
 
-      <Panel title="Siblings" description="Students who share a guardian.">
-        {siblings.length === 0 ? (
-          <p className="text-[13px] text-muted-foreground">No siblings in this school.</p>
-        ) : (
+      {medical && (
+        <Panel title="Health">
+          <Facts columns={3} items={[{ label: 'Blood group', value: medical.bloodGroup }, { label: 'Medical notes', value: medical.medicalNotes }]} />
+        </Panel>
+      )}
+
+      {showGuardianContacts && guardianContacts && guardianContacts.length > 0 && (
+        <Panel title="Who to call" description="The contacts the school may share with staff.">
           <ul className="divide-y">
-            {siblings.map((s) => (
-              <li key={s.id}>
-                <Link to="/students/$studentId" params={{ studentId: s.id }} className="flex items-center gap-3 py-2.5 hover:bg-accent/50">
-                  <UserAvatar name={fullName(s)} src={s.photoUrl} size="sm" />
-                  <span className="min-w-0 flex-1 truncate link-dotted font-medium">{fullName(s)}</span>
-                  {s.grade && <Tag color={colorFor(s.grade.name)}>{s.grade.shortName} - {s.section?.name ?? '—'}</Tag>}
-                  <span className="font-mono text-[12px] text-muted-foreground">{s.admissionNumber}</span>
-                </Link>
+            {guardianContacts.map((contact) => (
+              <li key={contact.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                <UserAvatar name={contact.displayName} size="sm" />
+                <span className="min-w-0 flex-1 truncate">{contact.displayName}</span>
+                <Tag color={colorFor(contact.relation)}>{humanize(contact.relation)}</Tag>
+                <span className="font-mono text-[12.5px] text-muted-foreground">{contact.phone}</span>
               </li>
             ))}
           </ul>
-        )}
-      </Panel>
+        </Panel>
+      )}
     </div>
   )
 }
 
-export function DocumentsTab({ documents, isLoading }: { documents: StudentDocument[]; isLoading: boolean }) {
+export function GuardiansTab({ studentId, canManage }: { studentId: string; canManage: boolean }) {
+  const { schoolId } = useSchoolContext()
+  const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<GuardianSheetEditing | null>(null)
+
+  const guardians = useQuery({
+    queryKey: qk.studentGuardians(schoolId, studentId),
+    queryFn: () => api.students.guardians(schoolId, studentId),
+  })
+
+  if (guardians.isError) return <Panel title="Parents and guardians"><Refused what="this family's guardian records" /></Panel>
+
   return (
-    <Panel
-      title="Documents"
-      actions={
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span><Button size="sm" variant="outline" disabled><Upload />Upload document</Button></span>
-          </TooltipTrigger>
-          <TooltipContent>Uploads come with the backend</TooltipContent>
-        </Tooltip>
-      }
-      bodyClassName="px-0 pb-0"
-    >
-      {isLoading ? (
-        <div className="grid gap-2 px-4 pb-4">
-          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-8" />)}
-        </div>
-      ) : documents.length === 0 ? (
+    <>
+      <Panel
+        title="Parents and guardians"
+        actions={canManage ? <Button size="sm" variant="outline" onClick={() => setAdding(true)}><Plus />Add guardian</Button> : undefined}
+      >
+        {guardians.isLoading ? (
+          <div className="grid gap-3 sm:grid-cols-2">{[0, 1].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>
+        ) : (guardians.data ?? []).length === 0 ? (
+          <EmptyState icon={<Users />} title="No guardians yet" description="Add a parent or guardian so the school can reach the family." className="py-10" />
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(guardians.data ?? []).map((guardian) => {
+              // The guardian contract carries no version yet, so editing is offered only when a
+              // server that does send one is in front of us.
+              const version = (guardian as { version?: number }).version
+              return (
+                <div key={guardian.id} className="rounded-xl border p-3.5">
+                  <div className="flex items-start gap-3">
+                    <UserAvatar name={guardian.displayName} size="lg" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">{guardian.displayName}</div>
+                      <div className="mt-1 font-mono text-[12.5px] text-muted-foreground">{guardian.phone}</div>
+                      {guardian.occupation && <div className="text-[12.5px] text-muted-foreground">{guardian.occupation}</div>}
+                      {guardian.address && <div className="text-[12.5px] text-muted-foreground">{guardian.address}</div>}
+                    </div>
+                    {canManage && version !== undefined && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditing({
+                          guardianId: guardian.id,
+                          expectedVersion: version,
+                          displayName: guardian.displayName,
+                          phone: guardian.phone,
+                          occupation: guardian.occupation,
+                          address: guardian.address,
+                        })}
+                      >
+                        Edit
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </Panel>
+      {canManage && (guardians.data ?? []).some((guardian) => (guardian as { version?: number }).version === undefined) && (
+        <p className="mt-2 text-[12.5px] text-muted-foreground">Correcting a guardian already on file is not built yet. Add the right record and ask the office to remove the old one.</p>
+      )}
+      {canManage && <GuardianSheet open={adding} onOpenChange={setAdding} studentId={studentId} />}
+      {canManage && editing && (
+        <GuardianSheet
+          key={editing.guardianId}
+          open
+          onOpenChange={(value) => { if (!value) setEditing(null) }}
+          studentId={studentId}
+          editing={editing}
+        />
+      )}
+    </>
+  )
+}
+
+export function SiblingsTab({ studentId }: { studentId: string }) {
+  const { schoolId } = useSchoolContext()
+  const siblings = useQuery({
+    queryKey: qk.studentSiblings(schoolId, studentId),
+    queryFn: () => api.students.siblings(schoolId, studentId),
+  })
+
+  if (siblings.isError) return <Panel title="Siblings"><Refused what="siblings in this school" /></Panel>
+
+  return (
+    <Panel title="Siblings" description="Students who share a guardian.">
+      {siblings.isLoading ? (
+        <div className="grid gap-2">{[0, 1].map((i) => <Skeleton key={i} className="h-9" />)}</div>
+      ) : (siblings.data ?? []).length === 0 ? (
+        <p className="text-[13px] text-muted-foreground">No siblings in this school.</p>
+      ) : (
+        <ul className="divide-y">
+          {(siblings.data ?? []).map((sibling: StudentSummary) => (
+            <li key={sibling.id}>
+              <Link to="/students/$studentId" params={{ studentId: sibling.id }} className="flex items-center gap-3 py-2.5 hover:bg-accent/50">
+                <UserAvatar name={fullName(sibling)} size="sm" />
+                <span className="link-dotted min-w-0 flex-1 truncate font-medium">{fullName(sibling)}</span>
+                {classLabel(sibling) && <Tag color={colorFor(sibling.enrollment!.grade.name)}>{classLabel(sibling)}</Tag>}
+                <span className="font-mono text-[12px] text-muted-foreground">{sibling.admissionNumber}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  )
+}
+
+export function DocumentsTab({ studentId, allowedActions }: { studentId: string; allowedActions: StudentDetail['allowedActions'] }) {
+  const { schoolId } = useSchoolContext()
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const documents = useQuery({
+    queryKey: qk.studentDocuments(schoolId, studentId),
+    queryFn: () => api.students.documents(schoolId, studentId),
+  })
+
+  const download = async (documentId: string, fallbackName: string) => {
+    setBusyId(documentId)
+    try {
+      const file = await api.files.downloadStudentDocument(schoolId, studentId, documentId)
+      const url = URL.createObjectURL(file.blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = file.fileName || fallbackName
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      toast.error(describeError(error))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (documents.isError) return <Panel title="Documents"><Refused what="this student's documents" /></Panel>
+
+  return (
+    <Panel title="Documents" bodyClassName="px-0 pb-0">
+      {documents.isLoading ? (
+        <div className="grid gap-2 px-4 pb-4">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-8" />)}</div>
+      ) : (documents.data ?? []).length === 0 ? (
         <EmptyState icon={<FileText />} title="No documents on file" description="Birth certificate, transfer certificate and marksheets will show here." className="py-10" />
       ) : (
-        <table className="w-full border-separate border-spacing-0 text-[13.5px]">
-          <thead>
-            <tr className="text-left text-muted-foreground">
-              {['Type', 'File name', 'Size', 'Verified', 'Uploaded'].map((h, i) => (
-                <th key={h} className={`h-9 border-y px-3 font-medium ${i > 0 ? 'border-l' : ''}`}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {documents.map((d) => (
-              <tr key={d.id}>
-                <td className="h-10 border-b px-3">{humanize(d.type)}</td>
-                <td className="h-10 border-b border-l px-3 font-mono text-[12.5px]">{d.fileName}</td>
-                <td className="h-10 border-b border-l px-3 tabular-nums">{Math.round(d.sizeBytes / 1024)} KB</td>
-                <td className="h-10 border-b border-l px-3"><StatusDot state={d.verified ? 'done' : 'empty'} title={d.verified ? 'Verified' : 'Not verified'} /></td>
-                <td className="h-10 border-b border-l px-3 text-muted-foreground">{formatDate(d.createdAt.slice(0, 10))}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <ul className="divide-y border-t">
+          {(documents.data ?? []).map((row) => (
+            <li key={row.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5 md:px-4">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13.5px]">{row.fileName}</span>
+                <span className="block text-[12px] text-muted-foreground">{humanize(row.type)} · {Math.max(1, Math.round(row.sizeBytes / 1024))} KB</span>
+              </span>
+              <StatusDot state={row.verified ? 'done' : 'empty'} title={row.verified ? 'Verified' : 'Not verified'} />
+              {allows(row.allowedActions ?? allowedActions, 'students.download_documents') && (
+                <Button size="sm" variant="outline" disabled={busyId === row.id} onClick={() => void download(row.id, row.fileName)}>
+                  <Download />{busyId === row.id ? 'Getting file…' : 'Download'}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </Panel>
   )
@@ -188,31 +260,35 @@ const OUTCOME: Record<Enrollment['outcome'], { label: string; color: TagColor }>
   left: { label: 'Left', color: 'grey' },
 }
 
-export function HistoryTab({ enrollments, isLoading }: { enrollments: EnrollmentRow[]; isLoading: boolean }) {
+export function EnrollmentsTab({ studentId }: { studentId: string }) {
+  const { schoolId } = useSchoolContext()
+  const enrollments = useQuery({
+    queryKey: qk.studentEnrollments(schoolId, studentId),
+    queryFn: () => api.students.enrollments(schoolId, studentId),
+  })
+
+  if (enrollments.isError) return <Panel title="Class history"><Refused what="this student's class history" /></Panel>
+
   return (
     <Panel title="Class history">
-      {isLoading ? (
-        <div className="grid gap-3">
-          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-10" />)}
-        </div>
-      ) : enrollments.length === 0 ? (
+      {enrollments.isLoading ? (
+        <div className="grid gap-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-10" />)}</div>
+      ) : (enrollments.data ?? []).length === 0 ? (
         <p className="text-[13px] text-muted-foreground">No enrolment records yet.</p>
       ) : (
         <ol className="relative ml-1.5 border-l pl-5">
-          {enrollments.map((e) => {
-            const o = OUTCOME[e.outcome]
+          {(enrollments.data ?? []).map((row) => {
+            const outcome = OUTCOME[row.outcome]
             return (
-              <li key={e.id} className="relative pb-5 last:pb-0">
-                <span className="absolute -left-[26px] top-1.5 size-2.5 rounded-full border-2 border-card bg-muted-foreground/50" />
+              <li key={row.id} className="relative pb-5 last:pb-0">
+                <span className="absolute top-1.5 -left-[26px] size-2.5 rounded-full border-2 border-card bg-muted-foreground/50" />
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{e.year?.name ?? 'Year'}</span>
-                  <Tag color={o.color}>{o.label}</Tag>
+                  <span className="font-medium">{row.academicYear.name}</span>
+                  <Tag color={outcome.color}>{outcome.label}</Tag>
                 </div>
                 <div className="mt-0.5 text-[13px] text-muted-foreground">
-                  {e.grade?.name ?? '—'} - {e.section?.name ?? '—'}
-                  {e.rollNumber !== undefined && <> · Roll {e.rollNumber}</>}
-                  <> · Joined {formatDate(e.joinedOn)}</>
-                  {e.leftOn && <> · Left {formatDate(e.leftOn)}</>}
+                  {row.grade.name} - {row.section.name}
+                  {row.rollNumber !== undefined && <> · Roll {row.rollNumber}</>}
                 </div>
               </li>
             )
@@ -220,40 +296,5 @@ export function HistoryTab({ enrollments, isLoading }: { enrollments: Enrollment
         </ol>
       )}
     </Panel>
-  )
-}
-
-export function QuickFacts({ student, siblingCount }: { student: StudentRow; siblingCount: number }) {
-  const sectionId = student.section?.id
-  const { data: section } = useQuery({ queryKey: qk.sections({ id: sectionId }), queryFn: () => api.sections.get(sectionId!), enabled: !!sectionId })
-  const teacherId = section?.classTeacherId
-  const { data: teacher } = useQuery({ queryKey: qk.staffMember(teacherId ?? ''), queryFn: () => api.staff.get(teacherId!), enabled: !!teacherId })
-
-  return (
-    <div className="grid gap-4">
-      <Panel title="Quick facts">
-        <Facts
-          columns={1}
-          items={[
-            { label: 'Class teacher', value: teacher ? <span className="flex items-center gap-2"><UserAvatar name={fullName(teacher)} size="xs" />{fullName(teacher)}</span> : undefined },
-            { label: 'Room', value: section?.roomNumber },
-            { label: 'Siblings in school', value: <span className="tabular-nums">{siblingCount}</span> },
-          ]}
-        />
-      </Panel>
-      <Panel title="Coming in Phase 2">
-        <ul className="divide-y">
-          {['Attendance this month', 'Fee dues', 'Last report card'].map((label) => (
-            <li key={label} className="flex items-center justify-between gap-2 py-2.5 first:pt-0 last:pb-0">
-              <span className="text-[13px] text-muted-foreground">{label}</span>
-              <span className="flex items-center gap-2">
-                <span className="text-muted-foreground/60">—</span>
-                <Tag className="h-5 text-[11px]">Phase 2</Tag>
-              </span>
-            </li>
-          ))}
-        </ul>
-      </Panel>
-    </div>
   )
 }

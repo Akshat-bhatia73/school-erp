@@ -1,30 +1,32 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
 import { CalendarClock, GraduationCap, LayoutDashboard, Menu, Search, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { api } from '@/api/client'
 import { UserAvatar } from '@/components/shared/avatar'
-import { qk } from '@/lib/query'
-import { useSession } from '@/lib/session'
+import { audienceFor, type PermissionKey } from '@/lib/permissions'
+import { useSchoolContext, useSession } from '@/lib/session'
+import { useAcademicYear } from '@/lib/use-academic-year'
 import { cn } from '@/lib/utils'
-import type { Module } from '@erp/shared'
 
 /**
  * Mobile header: drawer trigger, school identity, search, current user.
  * Same height and hairline as the desktop PageHeader so the two read as one product.
  */
 export function MobileTopBar({ onOpenNav, onOpenQuickActions }: { onOpenNav: () => void; onOpenQuickActions: () => void }) {
-  const { school, user } = useSession()
+  const { school, roleKeys } = useSchoolContext()
+  const { user } = useSession()
   const name = user?.displayName ?? 'Account'
-  const { data: dash } = useQuery({ queryKey: qk.dashboard, queryFn: api.dashboard.summary })
+  const isParent = audienceFor(roleKeys) === 'parent'
+  const { current } = useAcademicYear()
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-card px-2 md:hidden">
       <button type="button" onClick={onOpenNav} aria-label="Open navigation menu" className="flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
         <Menu className="size-5" />
       </button>
       <div className="min-w-0 flex-1">
-        <span className="block truncate text-[14px] font-semibold leading-tight">{school?.name ?? 'School ERP'}</span>
-        <span className="block truncate text-[11px] leading-tight text-muted-foreground">{dash?.academicYearName ?? ''}{school?.code ? ` · ${school.code}` : ''}</span>
+        <span className="block truncate text-[14px] font-semibold leading-tight">{school.name}</span>
+        {!isParent && (
+          <span className="block truncate text-[11px] leading-tight text-muted-foreground">{current?.name ?? ''}{school.code ? ` · ${school.code}` : ''}</span>
+        )}
       </div>
       <button type="button" onClick={onOpenQuickActions} aria-label="Search and quick actions" className="flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
         <Search className="size-5" />
@@ -36,13 +38,13 @@ export function MobileTopBar({ onOpenNav, onOpenQuickActions }: { onOpenNav: () 
   )
 }
 
-interface Tab { label: string; to: string; icon: ReactNode; module?: Module; exact?: boolean }
+interface Tab { label: string; to: string; icon: ReactNode; permission?: PermissionKey; exact?: boolean }
 
 const TABS: Tab[] = [
   { label: 'Home', to: '/dashboard', icon: <LayoutDashboard />, exact: true },
-  { label: 'Students', to: '/students', icon: <GraduationCap />, module: 'students' },
-  { label: 'Staff', to: '/staff', icon: <Users />, module: 'staff' },
-  { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, module: 'timetable' },
+  { label: 'Students', to: '/students', icon: <GraduationCap />, permission: 'students.read_basic' },
+  { label: 'Staff', to: '/staff', icon: <Users />, permission: 'staff.read_directory' },
+  { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
 ]
 
 /**
@@ -51,9 +53,11 @@ const TABS: Tab[] = [
  * It floats over the content, so `AppShell` reserves room for it under the `md` breakpoint.
  */
 export function MobileTabBar() {
-  const { can } = useSession()
+  const { roleKeys, hasPermission } = useSchoolContext()
+  const isParent = audienceFor(roleKeys) === 'parent'
   const path = useRouterState({ select: (s) => s.location.pathname })
-  const tabs = TABS.filter((t) => !t.module || can(t.module))
+  const tabs = TABS.filter((t) => !t.permission || hasPermission(t.permission))
+    .map((t) => (t.to === '/dashboard' && isParent ? { ...t, label: 'My children' } : t))
   if (tabs.length === 0) return null
   return (
     <nav

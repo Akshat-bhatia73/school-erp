@@ -10,7 +10,8 @@ import { ApiFailure } from '../shared/errors.ts'
  */
 export interface StoredImportRow {
   readonly rowNumber: number
-  readonly admissionNumber: string
+  /** Only when the sheet supplied one; otherwise assigned at commit time. */
+  readonly admissionNumber?: string
   readonly firstName: string
   readonly lastName?: string
   readonly dateOfBirth: string
@@ -141,12 +142,13 @@ export async function validateRows(
         message: 'No class and section with these names exists in this academic year.',
       })
     }
+    // A blank admission number is not a problem: the server assigns one at
+    // commit, in row order. A supplied one is a school's own historical
+    // number and is kept exactly, so it still has to be free.
     const admissionNumber = row.admissionNumber?.trim()
-    if (!admissionNumber) {
-      problems.push({ row: row.rowNumber, field: 'admissionNumber', message: 'Admission number is required.' })
-    } else if (taken.has(admissionNumber)) {
+    if (admissionNumber && taken.has(admissionNumber)) {
       problems.push({ row: row.rowNumber, field: 'admissionNumber', message: 'This admission number is already used.' })
-    } else {
+    } else if (admissionNumber) {
       const earlier = seen.get(admissionNumber)
       if (earlier !== undefined) {
         problems.push({
@@ -164,11 +166,11 @@ export async function validateRows(
       errors.push(...problems)
       continue
     }
-    // Only reachable when every check above passed, so both are set.
-    if (!sectionId || !admissionNumber) continue
+    // Only reachable when every check above passed, so the section is set.
+    if (!sectionId) continue
     // Compared exactly, because UNIQUE (school_id, admission_number) is exact:
     // 'abc/1' and 'ABC/1' are two admissible students, not a repeat.
-    seen.set(admissionNumber, row.rowNumber)
+    if (admissionNumber) seen.set(admissionNumber, row.rowNumber)
     valid.push(storedRow(row, sectionId, admissionNumber))
   }
   return { validRows: valid, errors }
@@ -177,13 +179,13 @@ export async function validateRows(
 function storedRow(
   row: StudentsBulkImportRow,
   sectionId: string,
-  admissionNumber: string,
+  admissionNumber: string | undefined,
 ): StoredImportRow {
   // Optional fields are left out rather than stored as null, so the stored row
   // reads exactly like the contract it came from.
   return {
     rowNumber: row.rowNumber,
-    admissionNumber,
+    ...(admissionNumber === undefined ? {} : { admissionNumber }),
     firstName: row.firstName,
     ...(row.lastName === undefined ? {} : { lastName: row.lastName }),
     dateOfBirth: row.dateOfBirth,
@@ -253,7 +255,10 @@ export async function revalidate(
   rows: readonly StoredImportRow[],
 ): Promise<void> {
   if (rows.length === 0) throw new ApiFailure('INVALID_REQUEST')
-  const numbers = rows.map((row) => row.admissionNumber)
+  // Only the numbers the sheet supplied: the rest are allocated at insert.
+  const numbers = rows
+    .map((row) => row.admissionNumber)
+    .filter((value): value is string => value !== undefined)
   if (new Set(numbers).size !== numbers.length) throw new ApiFailure('INVALID_REQUEST')
   const taken = await takenAdmissionNumbers(client, schoolId, numbers)
   if (taken.size > 0) throw new ApiFailure('INVALID_REQUEST')
@@ -267,12 +272,14 @@ export async function revalidate(
   if (sections.rowCount !== sectionIds.length) throw new ApiFailure('INVALID_REQUEST')
 }
 
-/** Writes one student, their enrollment and one guardian link. */
+/** Writes one student, their enrollment and one guardian link. The admission
+ * number is the one the sheet kept or the one the caller just allocated. */
 export async function insertStudent(
   client: PoolClient,
   schoolId: string,
   academicYearId: string,
   row: StoredImportRow,
+  admissionNumber: string,
 ): Promise<void> {
   const address =
     row.city === undefined && row.state === undefined && row.pincode === undefined
@@ -291,7 +298,7 @@ export async function insertStudent(
      RETURNING id`,
     [
       schoolId,
-      row.admissionNumber,
+      admissionNumber,
       row.firstName,
       row.lastName ?? null,
       row.dateOfBirth,

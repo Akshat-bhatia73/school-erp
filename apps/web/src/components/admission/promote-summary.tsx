@@ -1,13 +1,17 @@
-import { ArrowRight, TriangleAlert } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { Facts, Panel } from '@/components/shared/page'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 
-export function PromoteSummary({ total, promoteCount, detainCount, fromLabel, toLabel, fromYear, toYear, capacityWarning, canPromote, disabled, isPending, onConfirm }: {
+export function PromoteSummary({
+  total, promoteCount, detainCount, fromLabel, toLabel, fromYear, toYear,
+  reason, onReasonChange, reasonError, result, disabled, disabledReason, isPending, onConfirm,
+}: {
   total: number
   promoteCount: number
   detainCount: number
@@ -15,9 +19,13 @@ export function PromoteSummary({ total, promoteCount, detainCount, fromLabel, to
   toLabel: string
   fromYear: string
   toYear: string
-  capacityWarning?: string
-  canPromote: boolean
+  reason: string
+  onReasonChange: (value: string) => void
+  reasonError?: string
+  /** What the last promotion actually did, once the server has answered. */
+  result?: { promoted: number; detained: number }
   disabled: boolean
+  disabledReason?: string
   isPending: boolean
   onConfirm: () => void
 }) {
@@ -37,34 +45,39 @@ export function PromoteSummary({ total, promoteCount, detainCount, fromLabel, to
         <Facts className="mt-3" columns={1} items={[{ label: 'From year', value: fromYear }, { label: 'To year', value: toYear }]} />
       </Panel>
 
-      {capacityWarning && (
-        <Alert variant="destructive">
-          <TriangleAlert />
-          <AlertTitle>The new section will be over capacity</AlertTitle>
-          <AlertDescription>{capacityWarning}</AlertDescription>
-        </Alert>
+      <Panel title="Reason">
+        <div className="grid gap-1.5">
+          <Label className="text-[12.5px] text-muted-foreground">Why are these students moving up?</Label>
+          <Textarea rows={2} value={reason} onChange={(event) => onReasonChange(event.target.value)} placeholder="End of year promotion" />
+          {reasonError && <p className="text-[12px] text-destructive">{reasonError}</p>}
+        </div>
+      </Panel>
+
+      {result && (
+        <Panel title="Last promotion">
+          <Facts columns={1} items={[{ label: 'Promoted', value: result.promoted }, { label: 'Detained', value: result.detained }]} />
+        </Panel>
       )}
 
-      {canPromote && (
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button className="w-full" disabled={disabled || isPending}>{isPending ? 'Promoting…' : 'Promote students'}</Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Promote {promoteCount} students?</AlertDialogTitle>
-              <AlertDialogDescription>
-                {promoteCount} students move from {fromLabel} to {toLabel} for {toYear}
-                {detainCount ? `, and ${detainCount} stay in ${fromLabel}` : ''}. The {fromYear} record is kept for history.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={onConfirm}>Promote students</AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      )}
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button className="w-full" disabled={disabled || isPending}>{isPending ? 'Promoting…' : 'Promote students'}</Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Promote {promoteCount} students?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {promoteCount} students move from {fromLabel} to {toLabel} for {toYear}
+              {detainCount ? `, and ${detainCount} stay in ${fromLabel}` : ''}. The {fromYear} record is kept for history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={onConfirm}>Promote students</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {disabled && disabledReason && <p className="text-[12px] text-muted-foreground">{disabledReason}</p>}
     </aside>
   )
 }

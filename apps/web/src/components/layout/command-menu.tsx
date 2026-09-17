@@ -2,67 +2,74 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, LogOut, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus, CalendarClock } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import { api } from '@/api/client'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Tag, colorFor } from '@/components/shared/tag'
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from '@/components/ui/command'
+import { api } from '@/lib/api'
+import { describeError } from '@/lib/api-errors'
+import { type PermissionKey } from '@/lib/permissions'
 import { qk } from '@/lib/query'
-import { useSession } from '@/lib/session'
+import { useSchoolContext, useSession } from '@/lib/session'
 import { useTheme } from '@/lib/theme'
 import { fullName } from '@/lib/utils'
-import type { Module } from '@erp/shared'
 
-interface Entry { label: string; icon: ReactNode; to: string; module?: Module; action?: 'edit' | 'create' }
+interface Entry { label: string; icon: ReactNode; to: string; permission?: PermissionKey }
 
 const goTo: Entry[] = [
   { label: 'Dashboard', icon: <LayoutDashboard />, to: '/dashboard' },
-  { label: 'Students', icon: <GraduationCap />, to: '/students', module: 'students' },
-  { label: 'Staff', icon: <Users />, to: '/staff', module: 'staff' },
-  { label: 'Timetable', icon: <CalendarClock />, to: '/timetable', module: 'timetable' },
-  { label: 'School profile', icon: <School />, to: '/setup/school', module: 'school_setup' },
-  { label: 'Academic years', icon: <CalendarDays />, to: '/setup/academic-years', module: 'school_setup' },
-  { label: 'Classes & sections', icon: <Building2 />, to: '/setup/classes', module: 'school_setup' },
-  { label: 'Subjects', icon: <BookOpen />, to: '/setup/subjects', module: 'school_setup' },
-  { label: 'Holidays', icon: <ListChecks />, to: '/setup/holidays', module: 'school_setup' },
-  { label: 'Users & logins', icon: <UserRound />, to: '/settings/users', module: 'users_roles' },
-  { label: 'Roles & permissions', icon: <ShieldCheck />, to: '/settings/roles', module: 'users_roles' },
-  { label: 'Audit log', icon: <ScrollText />, to: '/settings/audit-log', module: 'audit_log' },
+  { label: 'Students', icon: <GraduationCap />, to: '/students', permission: 'students.read_basic' },
+  { label: 'Staff', icon: <Users />, to: '/staff', permission: 'staff.read_directory' },
+  { label: 'Timetable', icon: <CalendarClock />, to: '/timetable', permission: 'timetable.read' },
+  { label: 'School profile', icon: <School />, to: '/setup/school', permission: 'school.read' },
+  { label: 'Academic years', icon: <CalendarDays />, to: '/setup/academic-years', permission: 'academic_years.read' },
+  { label: 'Classes & sections', icon: <Building2 />, to: '/setup/classes', permission: 'sections.read' },
+  { label: 'Subjects', icon: <BookOpen />, to: '/setup/subjects', permission: 'subjects.read' },
+  { label: 'Holidays', icon: <ListChecks />, to: '/setup/holidays', permission: 'holidays.read' },
+  { label: 'Users & logins', icon: <UserRound />, to: '/settings/users', permission: 'members.read' },
+  { label: 'Roles & permissions', icon: <ShieldCheck />, to: '/settings/roles', permission: 'roles.read' },
+  { label: 'Audit log', icon: <ScrollText />, to: '/settings/audit-log', permission: 'audit.read' },
 ]
 
 const actions: Entry[] = [
-  { label: 'Admit student', icon: <UserPlus />, to: '/students/new', module: 'students', action: 'create' },
-  { label: 'Import students from Excel', icon: <Upload />, to: '/students/import', module: 'students', action: 'create' },
-  { label: 'Promote students', icon: <ArrowUpRight />, to: '/students/promote', module: 'students', action: 'edit' },
-  { label: 'Add staff', icon: <UserPlus />, to: '/staff/new', module: 'staff', action: 'create' },
-  { label: 'Invite user', icon: <MailPlus />, to: '/settings/users', module: 'users_roles', action: 'create' },
+  { label: 'Admit student', icon: <UserPlus />, to: '/students/new', permission: 'students.create' },
+  { label: 'Import students from Excel', icon: <Upload />, to: '/students/import', permission: 'students.import' },
+  { label: 'Promote students', icon: <ArrowUpRight />, to: '/students/promote', permission: 'students.promote' },
+  { label: 'Add staff', icon: <UserPlus />, to: '/staff/new', permission: 'staff.create' },
+  { label: 'Invite user', icon: <MailPlus />, to: '/settings/users', permission: 'members.invite' },
 ]
 
 export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const navigate = useNavigate()
-  const { can, activeMemberships, signOut } = useSession()
+  const { activeMemberships, signOut } = useSession()
+  const { schoolId, hasPermission } = useSchoolContext()
   const { theme, toggle } = useTheme()
   const [query, setQuery] = useState('')
-
-  useEffect(() => { if (!open) setQuery('') }, [open])
-
+  // Debounced so a name typed quickly is one request, not one per keystroke.
+  const [term, setTerm] = useState('')
   const search = query.trim()
+
+  useEffect(() => { if (!open) { setQuery(''); setTerm('') } }, [open])
+  useEffect(() => {
+    const id = setTimeout(() => setTerm(search), 200)
+    return () => clearTimeout(id)
+  }, [search])
+
   const searching = search.length >= 2
-  const { data: students, isFetching: studentsFetching } = useQuery({
-    queryKey: qk.students({ palette: search }),
-    queryFn: () => api.students.list({ search, pageSize: 6, status: 'all' }),
-    enabled: open && searching,
+  // The search route itself requires students.read_basic, so gate on exactly that.
+  const maySearch = hasPermission('students.read_basic')
+  const { data: results, isFetching, error } = useQuery({
+    queryKey: qk.search(schoolId, term),
+    queryFn: () => api.search.run(schoolId, term),
+    enabled: open && maySearch && term.length >= 2,
   })
-  const { data: staff, isFetching: staffFetching } = useQuery({
-    queryKey: qk.staff({ palette: search }),
-    queryFn: () => api.staff.list({ search, pageSize: 5, status: 'all' }),
-    enabled: open && searching,
-  })
+  const students = results?.students ?? []
+  const staff = results?.staff ?? []
 
   const run = (fn: () => void) => { onOpenChange(false); fn() }
   const go = (to: string) => run(() => { void navigate({ to }) })
 
-  const visibleGoTo = goTo.filter((e) => !e.module || can(e.module))
-  const visibleActions = actions.filter((e) => !e.module || can(e.module, e.action ?? 'create'))
+  const visibleGoTo = goTo.filter((e) => !e.permission || hasPermission(e.permission))
+  const visibleActions = actions.filter((e) => !e.permission || hasPermission(e.permission))
 
   return (
     <CommandDialog
@@ -76,7 +83,7 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
       <CommandInput placeholder="Search screens, actions, students, staff…" value={query} onValueChange={setQuery} />
       <CommandList className="max-h-[420px] py-1">
         <CommandEmpty className="py-10 text-[13px] text-muted-foreground">
-          {searching && (studentsFetching || staffFetching) ? 'Searching…' : <>No matches for “{search}”.</>}
+          {searching && error ? describeError(error) : searching && (isFetching || term !== search) ? 'Searching…' : <>No matches for “{search}”.</>}
         </CommandEmpty>
 
         {visibleGoTo.length > 0 && (
@@ -104,32 +111,31 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
           </>
         )}
 
-        {searching && (students?.items.length ?? 0) > 0 && (
+        {searching && students.length > 0 && (
           <>
             <CommandSeparator className="my-1" />
             <CommandGroup heading="Students">
-              {students!.items.map((s) => (
+              {students.map((s) => (
                 <CommandItem key={s.id} value={`student ${fullName(s)} ${s.admissionNumber} ${search}`} onSelect={() => go(`/students/${s.id}`)} className="gap-2.5 px-2 py-1.5 text-[13.5px]">
-                  <UserAvatar name={fullName(s)} src={s.photoUrl} size="sm" />
+                  <UserAvatar name={fullName(s)} size="sm" />
                   <span className="min-w-0 flex-1 truncate">{fullName(s)}</span>
                   <span className="text-[11.5px] text-muted-foreground tabular-nums">{s.admissionNumber}</span>
-                  {s.grade && <Tag color={colorFor(s.grade.name)}>{s.grade.name}{s.section ? `-${s.section.name}` : ''}</Tag>}
+                  {s.enrollment && <Tag color={colorFor(s.enrollment.grade.name)}>{s.enrollment.grade.name}-{s.enrollment.section.name}</Tag>}
                 </CommandItem>
               ))}
             </CommandGroup>
           </>
         )}
 
-        {searching && (staff?.items.length ?? 0) > 0 && (
+        {searching && staff.length > 0 && (
           <>
             <CommandSeparator className="my-1" />
             <CommandGroup heading="Staff">
-              {staff!.items.map((s) => (
-                <CommandItem key={s.id} value={`staff ${fullName(s)} ${s.employeeCode} ${search}`} onSelect={() => go(`/staff/${s.id}`)} className="gap-2.5 px-2 py-1.5 text-[13.5px]">
-                  <UserAvatar name={fullName(s)} src={s.photoUrl} size="sm" />
-                  <span className="min-w-0 flex-1 truncate">{fullName(s)}</span>
+              {staff.map((s) => (
+                <CommandItem key={s.id} value={`staff ${s.displayName} ${search}`} onSelect={() => go(`/staff/${s.id}`)} className="gap-2.5 px-2 py-1.5 text-[13.5px]">
+                  <UserAvatar name={s.displayName} size="sm" />
+                  <span className="min-w-0 flex-1 truncate">{s.displayName}</span>
                   <span className="text-[11.5px] text-muted-foreground">{s.designation}</span>
-                  <Tag color={colorFor(s.staffType)}>{s.staffType === 'teaching' ? 'Teaching' : 'Support'}</Tag>
                 </CommandItem>
               ))}
             </CommandGroup>

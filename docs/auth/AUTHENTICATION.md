@@ -23,11 +23,32 @@ pnpm --filter @erp/api typecheck
 
 `pnpm dev:api` loads `apps/api/.env` with `node --env-file-if-exists`; there is no dotenv dependency. [apps/api/.env.example](../../apps/api/.env.example) holds development values only: the local container passwords and a throwaway `AUTH_SECRET`. Deployments must supply real values from their secret store.
 
-Variables: `AUTH_DATABASE_URL`, `IDENTITY_DATABASE_URL`, `DATABASE_URL`, `AUTH_SECRET` (32 characters or more), `APP_ORIGIN` (the single browser origin), `API_TRUST_PROXY` (default `false`), `DELIVERY_MODE` (`sandbox` or `provider`), `PORT`, `NODE_ENV`. They are read once in `src/config.ts` with Zod. An invalid value stops the process and the message names the fields, never their values.
+Variables: `AUTH_DATABASE_URL`, `IDENTITY_DATABASE_URL`, `DATABASE_URL`, `AUTH_SECRET` (32 characters or more), `APP_ORIGIN` (the single browser origin), `API_TRUST_PROXY` (default `false`), `DELIVERY_MODE` (`sandbox` or `provider`), `ALLOW_SANDBOX_DELIVERY` (default `false`), `DEV_SANDBOX_OUTBOX` (default `false`), `DOCUMENT_STORAGE_DIR` (default `.documents`), `DOCUMENT_STORAGE` (`local` or `blob`), `BLOB_READ_WRITE_TOKEN`, `RESEND_API_KEY`, `EMAIL_FROM`, `HELD_SMS_TOKEN`, `SENTRY_DSN`, `PORT`, `HOST` (default `127.0.0.1`), `NODE_ENV`. They are read once in `src/config.ts` with Zod. An invalid value stops the process and the message names the fields, never their values.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `AUTH_DATABASE_URL` | none | Better Auth tables. Signs in as `erp_auth`. |
+| `IDENTITY_DATABASE_URL` | none | Identity provisioning. Signs in as `erp_identity`. |
+| `DATABASE_URL` | none | School data through the tenant transaction. Signs in as `erp_runtime`. |
+| `AUTH_SECRET` | none | Signs sessions. 32 characters or more. |
+| `APP_ORIGIN` | none | The one browser origin allowed to call the API. |
+| `API_TRUST_PROXY` | `false` | Honour `X-Forwarded-*`. Set `true` only behind a proxy you control. |
+| `DELIVERY_MODE` | `sandbox` | `sandbox` keeps messages in memory; `provider` sends email through Resend and needs `RESEND_API_KEY` and `EMAIL_FROM`, or startup stops. |
+| `HELD_SMS_TOKEN` | unset | Test builds only, provider mode only. There is no SMS provider: with this unset a text message fails; with it set the message is held for ten minutes and the token reads it at `GET /api/held-codes`. Never set for a real school. |
+| `DOCUMENT_STORAGE` | `local` | `blob` reads private documents from a Vercel Blob store and needs `BLOB_READ_WRITE_TOKEN`. |
+| `SENTRY_DSN` | unset | Error reporting. Reports carry no body, cookie, header, query string or user. |
+| `ALLOW_SANDBOX_DELIVERY` | `false` | Sandbox delivery logs codes instead of sending them; never in real use. With `NODE_ENV=production`, startup is refused on `DELIVERY_MODE=sandbox` unless this is `true`. |
+| `DEV_SANDBOX_OUTBOX` | `false` | Publishes `GET /api/dev/outbox`. Refused when `NODE_ENV=production`. |
+| `DOCUMENT_STORAGE_DIR` | `.documents` | Where private student documents are written. |
+| `PORT` | `3001` | Listen port. |
+| `HOST` | `127.0.0.1` | Listen interface. Loopback on a developer machine; the container sets `0.0.0.0` and publishes the port only to the proxy's private network. |
+| `NODE_ENV` | `development` | `production` adds the release guards below. |
+
+With `NODE_ENV=production` the server also refuses to start when `AUTH_SECRET` is the value in `apps/api/.env.example` or shorter than 32 characters, when `APP_ORIGIN` is not `https` (localhost excepted), when delivery is the sandbox without `ALLOW_SANDBOX_DELIVERY=true`, or when any database URL signs in as `erp_migrator`, the login that owns the schema. The runbook is [docs/auth/RELEASE.md](./RELEASE.md).
 
 ### Messages in development
 
-`DELIVERY_MODE=sandbox` is the only supported mode. The sandbox adapter keeps messages in memory, logs one line prefixed `[SANDBOX DELIVERY]` that states nothing was sent and omits the code or token, and exposes the list to tests. Nothing leaves the process, so a one-time code or reset link is read from that in-memory outbox in a test, or from the sandbox adapter in a REPL — not from a mailbox or a phone. `GET /api/auth-config` reports the delivery mode so a future sign-in screen can say plainly that no message was sent. `DELIVERY_MODE=provider` fails startup, because no email or SMS provider exists yet and the service must never imply a real delivery.
+`DELIVERY_MODE=sandbox` is the development and test mode. The sandbox adapter keeps messages in memory, logs one line prefixed `[SANDBOX DELIVERY]` that states nothing was sent and omits the code or token, and exposes the list to tests. Nothing leaves the process, so a one-time code or reset link is read from that in-memory outbox in a test, or from the sandbox adapter in a REPL — not from a mailbox or a phone. `GET /api/auth-config` reports the delivery mode so a future sign-in screen can say plainly that no message was sent. `DELIVERY_MODE=provider` sends email through Resend (`src/delivery/resend.ts`): links point at `APP_ORIGIN` and the adapter logs nothing. It has no SMS provider, so a text message fails rather than implying a delivery, unless a test build holds it (`HELD_SMS_TOKEN`, see the release runbook section 0.1).
 
 ## Credential boundaries
 
@@ -83,7 +104,7 @@ Memberships are not readable by `erp_auth`. After verification, `src/identity/re
 
 The second factor is an authenticator app: TOTP, 6 digits, 30 second period, issuer "School ERP", with single-use backup codes. The plugin's own email and SMS second-factor routes are not configured and not published, because an SMS code is a login factor here, not a second factor.
 
-`auth_session.mfa_verified_at` is the only signal a privileged route trusts. `twoFactorEnabled` on the identity says the person has a second factor, not that this session answered a challenge, so an unstamped session is refused with `MFA_REQUIRED` even when the flag is true. One `after` hook in `src/auth/better-auth.ts` stamps that column, through `stampSessionMfaVerified` in `src/auth/mfa.ts`, on `two-factor/verify-totp` and `two-factor/verify-backup-code`. It stamps the newly created session for a sign-in challenge or a first enrolment, and the existing session for a step-up, which keeps the same session id. A password sign-in without two-factor, and a phone OTP sign-in, leave the stamp null.
+`auth_session.mfa_verified_at` is the only signal a privileged route trusts. `twoFactorEnabled` on the identity says the person has a second factor, not that this session answered a challenge, so an unstamped session is refused with `MFA_REQUIRED` even when the flag is true. One `after` hook in `src/auth/better-auth.ts` stamps that column, through `stampSessionMfaVerified` in `src/auth/mfa.ts`, on `two-factor/verify-totp` and `two-factor/verify-backup-code`. It stamps the newly created session for a sign-in challenge or a first enrolment, and the existing session for a step-up, which keeps the same session id. A password sign-in without two-factor, and a phone OTP sign-in, leave the stamp null. The same hook clears the stamp on every session of the person when `two-factor/enable` or `two-factor/disable` succeeds (`clearUserMfaVerification`): a replaced or removed authenticator invalidates every earlier proof, and a session stamped by the old device must answer the new one before it enters privileged data again. The enrolling session is stamped afresh when its first code is accepted.
 
 `requireMembership()` re-reads the membership on every request, answers `SCHOOL_ACCESS_UNAVAILABLE` when there is no active membership for the school in the path, and `MFA_REQUIRED` when the membership is privileged and the session is not stamped. Better Auth counts second-factor failures only on the sign-in path, so a session that already exists could otherwise guess codes for ever. `src/auth/mfa.ts` adds our own budget: five failed `verify-totp` or `verify-backup-code` attempts per person (keyed by the verified user id, or by a hashed client address when there is no session yet) inside a rolling 15 minutes answer `RATE_LIMITED`, and a success clears the counter. Because the key is the verified identity and not the cookie header, a decoy cookie or a second stolen cookie for the same account cannot open a fresh budget.
 

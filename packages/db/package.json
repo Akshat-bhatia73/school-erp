@@ -13,10 +13,12 @@
     "migrate": "node scripts/migrate.mjs",
     "migrate:check": "node scripts/migrate.mjs --check",
     "fixtures": "tsx scripts/fixtures.mjs",
+    "test:prepare": "node scripts/prepare-test-db.mjs",
     "test": "tsx --test tests/*.test.mjs"
   },
   "dependencies": {
     "@erp/contracts": "workspace:*",
+    "@opentelemetry/api": "1.9.1",
     "better-auth": "1.7.4",
     "drizzle-orm": "0.45.2",
     "pg": "8.23.0"

@@ -18,39 +18,65 @@ export function createQueryClient() {
   })
 }
 
-/** Central query keys so pages invalidate consistently */
+/**
+ * Query keys for the protected school APIs.
+ *
+ * Every key starts with the school id, so switching school can never show another school's cached
+ * answer, and each module nests under one prefix: invalidating `[schoolId, 'students']` after a
+ * write clears the roster, the count, the search and every student's detail in one call.
+ */
+type Params = Record<string, unknown> | undefined
+
 export const qk = {
-  authConfig: ['authConfig'] as const,
-  schools: ['schools'] as const,
-  academicYears: ['academicYears'] as const,
-  grades: ['grades'] as const,
-  sections: (p?: object) => ['sections', p ?? {}] as const,
-  sectionStrengths: (yearId: string) => ['sectionStrengths', yearId] as const,
-  subjects: ['subjects'] as const,
-  gradeSubjects: (p: object) => ['gradeSubjects', p] as const,
-  holidays: (yearId?: string) => ['holidays', yearId ?? 'all'] as const,
-  students: (p?: object) => ['students', p ?? {}] as const,
-  student: (id: string) => ['student', id] as const,
-  studentGuardians: (id: string) => ['studentGuardians', id] as const,
-  studentSiblings: (id: string) => ['studentSiblings', id] as const,
-  studentDocuments: (id: string) => ['studentDocuments', id] as const,
-  studentEnrollments: (id: string) => ['studentEnrollments', id] as const,
-  staff: (p?: object) => ['staff', p ?? {}] as const,
-  staffMember: (id: string) => ['staffMember', id] as const,
-  staffAssignments: (id: string) => ['staffAssignments', id] as const,
-  sectionAssignments: (id: string) => ['sectionAssignments', id] as const,
-  departments: ['departments'] as const,
-  users: ['users'] as const,
-  user: (id: string) => ['user', id] as const,
-  roles: ['roles'] as const,
-  auditLogs: (p?: object) => ['auditLogs', p ?? {}] as const,
-  dashboard: ['dashboard'] as const,
-  bellSchedules: ['bellSchedules'] as const,
-  timetableSection: (sectionId: string) => ['timetable', 'section', sectionId] as const,
-  timetableStaff: (staffId: string) => ['timetable', 'staff', staffId] as const,
-  teacherLoads: ['timetable', 'loads'] as const,
-  timetableConflicts: ['timetable', 'conflicts'] as const,
-  freeTeachers: (p: object) => ['timetable', 'free', p] as const,
-  substitutions: (date: string) => ['substitutions', date] as const,
-  absentTeacherPeriods: (p: object) => ['timetable', 'absent', p] as const,
-}
+  /** Everything cached for one school. Invalidate this when access itself changes. */
+  all: (schoolId: string) => [schoolId] as const,
+
+  school: (schoolId: string) => [schoolId, 'school'] as const,
+  academicYears: (schoolId: string) => [schoolId, 'academicYears'] as const,
+  currentAcademicYear: (schoolId: string) => [schoolId, 'academicYears', 'current'] as const,
+  grades: (schoolId: string) => [schoolId, 'grades'] as const,
+  sections: (schoolId: string, params?: Params) => [schoolId, 'sections', 'list', params ?? {}] as const,
+  sectionStrengths: (schoolId: string, params: Params) => [schoolId, 'sections', 'strengths', params ?? {}] as const,
+  section: (schoolId: string, sectionId: string) => [schoolId, 'sections', 'detail', sectionId] as const,
+  subjects: (schoolId: string) => [schoolId, 'subjects', 'list'] as const,
+  gradeSubjects: (schoolId: string, params: Params) => [schoolId, 'subjects', 'byGrade', params ?? {}] as const,
+  holidays: (schoolId: string, params?: Params) => [schoolId, 'holidays', params ?? {}] as const,
+
+  students: (schoolId: string, params?: Params) => [schoolId, 'students', 'list', params ?? {}] as const,
+  studentCount: (schoolId: string, params?: Params) => [schoolId, 'students', 'count', params ?? {}] as const,
+  studentSearch: (schoolId: string, q: string) => [schoolId, 'students', 'search', q] as const,
+  student: (schoolId: string, studentId: string) => [schoolId, 'students', 'detail', studentId] as const,
+  studentGuardians: (schoolId: string, studentId: string) => [schoolId, 'students', 'detail', studentId, 'guardians'] as const,
+  studentSiblings: (schoolId: string, studentId: string) => [schoolId, 'students', 'detail', studentId, 'siblings'] as const,
+  studentDocuments: (schoolId: string, studentId: string) => [schoolId, 'students', 'detail', studentId, 'documents'] as const,
+  studentEnrollments: (schoolId: string, studentId: string) => [schoolId, 'students', 'detail', studentId, 'enrollments'] as const,
+  promotePreview: (schoolId: string, params: Params) => [schoolId, 'students', 'promotePreview', params ?? {}] as const,
+
+  staff: (schoolId: string, params?: Params) => [schoolId, 'staff', 'list', params ?? {}] as const,
+  staffCount: (schoolId: string) => [schoolId, 'staff', 'count'] as const,
+  staffSearch: (schoolId: string, q: string) => [schoolId, 'staff', 'search', q] as const,
+  staffMember: (schoolId: string, staffId: string) => [schoolId, 'staff', 'detail', staffId] as const,
+  staffAssignments: (schoolId: string, staffId: string) => [schoolId, 'staff', 'detail', staffId, 'assignments'] as const,
+  sectionAssignments: (schoolId: string, sectionId: string) => [schoolId, 'staff', 'sectionAssignments', sectionId] as const,
+  departments: (schoolId: string) => [schoolId, 'staff', 'departments'] as const,
+
+  bellSchedules: (schoolId: string, params?: Params) => [schoolId, 'timetable', 'bellSchedules', params ?? {}] as const,
+  bellScheduleForGrade: (schoolId: string, gradeId: string, params?: Params) => [schoolId, 'timetable', 'bellSchedules', 'forGrade', gradeId, params ?? {}] as const,
+  timetableSection: (schoolId: string, sectionId: string, params?: Params) => [schoolId, 'timetable', 'section', sectionId, params ?? {}] as const,
+  timetableStaff: (schoolId: string, staffId: string, params?: Params) => [schoolId, 'timetable', 'staff', staffId, params ?? {}] as const,
+  freeTeachers: (schoolId: string, params: Params) => [schoolId, 'timetable', 'freeTeachers', params ?? {}] as const,
+  conflicts: (schoolId: string, params?: Params) => [schoolId, 'timetable', 'conflicts', params ?? {}] as const,
+  teacherLoads: (schoolId: string, params?: Params) => [schoolId, 'timetable', 'teacherLoads', params ?? {}] as const,
+  substitutions: (schoolId: string, date: string) => [schoolId, 'timetable', 'substitutions', date] as const,
+  absentPeriods: (schoolId: string, params: Params) => [schoolId, 'timetable', 'absentPeriods', params ?? {}] as const,
+
+  dashboard: (schoolId: string) => [schoolId, 'dashboard'] as const,
+  search: (schoolId: string, q: string) => [schoolId, 'search', q] as const,
+  auditEvents: (schoolId: string, params?: Params) => [schoolId, 'audit', 'events', params ?? {}] as const,
+
+  members: (schoolId: string, params?: Params) => [schoolId, 'members', 'list', params ?? {}] as const,
+  invitations: (schoolId: string, params?: Params) => [schoolId, 'members', 'invitations', params ?? {}] as const,
+  accessExplanation: (schoolId: string, membershipId: string, params: Params) => [schoolId, 'members', 'accessExplanation', membershipId, params ?? {}] as const,
+
+  exportJob: (schoolId: string, jobId: string) => [schoolId, 'exports', jobId] as const,
+} as const

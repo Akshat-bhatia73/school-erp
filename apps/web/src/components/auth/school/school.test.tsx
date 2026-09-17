@@ -38,8 +38,7 @@ function session(over: Partial<Session>): Session {
     user: { id: 'u1', displayName: 'Fixture Adult', email: 'fixture-adult@example.test' },
     session: null, memberships, activeMemberships: memberships.filter((m) => m.status === 'active' && m.kind === 'adult'),
     school: null, membership: null, roleKeys: [], capabilities: [], accessVersion: null,
-    context: 'ready', twoFactorEnabled: false, hasPermission: () => false, can: () => false,
-    scope: () => 'none', roles: [], selectSchool, clearSchool: () => {},
+    context: 'ready', twoFactorEnabled: false, hasPermission: () => false, selectSchool, clearSchool: () => {},
     signOut, refresh, generation: 0,
     ...over,
   } as Session

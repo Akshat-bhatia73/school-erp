@@ -443,7 +443,7 @@ test('a teacher without the import permission is refused', async () => {
 
 test('a preview reports every bad row and stores only the good ones', async () => {
   const goodNumber = `BULK-${stamp}-ok`
-  const takenNumber = 'FIX-A1'
+  const takenNumber = 'A/2026-27/001'
   const response = await owner.fetch(`${base()}/import/preview`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -465,7 +465,7 @@ test('a preview reports every bad row and stores only the good ones', async () =
     errors: { row: number; field: string; message: string }[]
   }
   assert.deepEqual(Object.keys(body).sort(), [
-    'errors', 'expiresAt', 'id', 'totalRows', 'validRows', 'version',
+    'errors', 'expiresAt', 'id', 'rows', 'totalRows', 'validRows', 'version',
   ])
   assert.equal(body.totalRows, 3)
   assert.equal(body.validRows, 1)
@@ -477,6 +477,129 @@ test('a preview reports every bad row and stores only the good ones', async () =
   )
   assert.equal(stored.rows[0]?.rows.length, 1)
   assert.equal(stored.rows[0]?.rows[0]?.admissionNumber, goodNumber)
+})
+
+test('an import keeps a supplied number and assigns one to a blank row', async () => {
+  const kept = `KEPT-${stamp}`
+  // Names unique to this run: the suite shares one database.
+  const keptName = `Kept-${stamp}`
+  const blankName = `Blank-${stamp}`
+  const preview = await owner.fetch(`${base()}/import/preview`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      academicYearId: yearA,
+      rows: [
+        sheetRow({ rowNumber: 1, admissionNumber: kept, firstName: keptName }),
+        // No admission number at all: the server assigns one at commit.
+        sheetRow({ rowNumber: 2, firstName: blankName, admissionNumber: undefined }),
+      ],
+    }),
+  })
+  assert.equal(preview.status, 201)
+  const staged = (await preview.json()) as {
+    id: string
+    version: number
+    validRows: number
+    rows: { rowNumber: number; firstName: string; admissionNumber?: string }[]
+  }
+  assert.equal(staged.validRows, 2)
+  // The preview says which number the sheet keeps and which one is pending.
+  assert.deepEqual(staged.rows, [
+    { rowNumber: 1, firstName: keptName, admissionNumber: kept },
+    { rowNumber: 2, firstName: blankName },
+  ])
+
+  const committed = await owner.fetch(`${base()}/import/commit`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ previewId: staged.id, expectedVersion: staged.version }),
+  })
+  assert.equal(committed.status, 201)
+  const stored = await adminPool().query<{ first_name: string; admission_number: string }>(
+    `SELECT first_name, admission_number FROM students
+      WHERE school_id = $1 AND first_name = ANY($2::text[])`,
+    [schoolA, [keptName, blankName]],
+  )
+  const byName = new Map(stored.rows.map((row) => [row.first_name, row.admission_number]))
+  assert.equal(byName.get(keptName), kept)
+  assert.match(byName.get(blankName) ?? '', /^A\/2026-27\/\d{3,}$/)
+})
+
+test('a kept number with more digits than any counter does not break later admissions', async () => {
+  // Looks like the school format but could never have come from the counter.
+  // It is kept verbatim and ignored by the counter, so the blank row after it
+  // still gets an ordinary number instead of a failed cast.
+  // Unique per run, since the suite shares one database between runs.
+  const kept = `A/2026-27/${Date.now()}${'9'.repeat(20)}`
+  const keptName = `LongKept-${stamp}`
+  const blankName = `LongBlank-${stamp}`
+  const preview = await owner.fetch(`${base()}/import/preview`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      academicYearId: yearA,
+      rows: [
+        sheetRow({ rowNumber: 1, admissionNumber: kept, firstName: keptName }),
+        sheetRow({ rowNumber: 2, firstName: blankName, admissionNumber: undefined }),
+      ],
+    }),
+  })
+  assert.equal(preview.status, 201)
+  const staged = (await preview.json()) as { id: string; version: number; validRows: number }
+  assert.equal(staged.validRows, 2)
+  const committed = await owner.fetch(`${base()}/import/commit`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ previewId: staged.id, expectedVersion: staged.version }),
+  })
+  assert.equal(committed.status, 201)
+  const stored = await adminPool().query<{ first_name: string; admission_number: string }>(
+    `SELECT first_name, admission_number FROM students
+      WHERE school_id = $1 AND first_name = ANY($2::text[])`,
+    [schoolA, [keptName, blankName]],
+  )
+  const byName = new Map(stored.rows.map((row) => [row.first_name, row.admission_number]))
+  assert.equal(byName.get(keptName), kept)
+  assert.match(byName.get(blankName) ?? '', /^A\/2026-27\/\d{3,9}$/)
+})
+
+test('a kept number in the school format pushes the counter past it', async () => {
+  // A school migrating its register keeps numbers that look exactly like the
+  // generated ones. The counter has to clear them, or the next generated
+  // number would repeat one and the whole commit would roll back.
+  const high = 4000 + Math.floor(Math.random() * 100000)
+  const kept = `A/2026-27/${high}`
+  const keptName = `HighKept-${stamp}`
+  const blankName = `HighBlank-${stamp}`
+  const preview = await owner.fetch(`${base()}/import/preview`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      academicYearId: yearA,
+      rows: [
+        sheetRow({ rowNumber: 1, admissionNumber: kept, firstName: keptName }),
+        sheetRow({ rowNumber: 2, firstName: blankName, admissionNumber: undefined }),
+      ],
+    }),
+  })
+  assert.equal(preview.status, 201)
+  const staged = (await preview.json()) as { id: string; version: number }
+  const committed = await owner.fetch(`${base()}/import/commit`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ previewId: staged.id, expectedVersion: staged.version }),
+  })
+  assert.equal(committed.status, 201)
+  const stored = await adminPool().query<{ first_name: string; admission_number: string }>(
+    `SELECT first_name, admission_number FROM students
+      WHERE school_id = $1 AND first_name = ANY($2::text[])`,
+    [schoolA, [keptName, blankName]],
+  )
+  const byName = new Map(stored.rows.map((row) => [row.first_name, row.admission_number]))
+  assert.equal(byName.get(keptName), kept)
+  const assigned = Number((byName.get(blankName) ?? '').split('/').at(-1))
+  assert.ok(assigned > high, `${assigned} must be past ${high}`)
 })
 
 test('a preview body carrying a forbidden field writes nothing', async () => {

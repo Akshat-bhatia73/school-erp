@@ -1,54 +1,51 @@
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { ChevronDown, IdCard, Pencil, UserMinus, ArrowRightLeft, Users } from 'lucide-react'
+import { ArrowRightLeft, ChevronDown, Pencil, UserMinus, Users } from 'lucide-react'
 import { useState } from 'react'
-import { api } from '@/api/client'
 import { UserAvatar } from '@/components/shared/avatar'
 import { EmptyState, PageHeader } from '@/components/shared/page'
-import { colorFor, StatusDot, Tag } from '@/components/shared/tag'
-import { GuardianSheet } from '@/components/students/guardian-sheet'
+import { colorFor, Tag } from '@/components/shared/tag'
 import { MarkLeftDialog, MoveSectionDialog } from '@/components/students/student-dialogs'
-import { StudentEditSheet } from '@/components/students/student-edit-sheet'
-import { admissionTag, DocumentsTab, GuardiansTab, HistoryTab, OverviewTab, QuickFacts, type EnrollmentRow, type GuardianLink } from '@/components/students/student-profile'
+import { classLabel, StudentStatusTag } from '@/components/students/student-columns'
+import { StudentBasicSheet, StudentSensitiveSheet } from '@/components/students/student-edit-sheet'
+import { DocumentsTab, EnrollmentsTab, GuardiansTab, OverviewTab, SiblingsTab } from '@/components/students/student-profile'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { api } from '@/lib/api'
+import { describeError } from '@/lib/api-errors'
+import { allows } from '@/lib/permissions'
 import { qk } from '@/lib/query'
-import { useSession } from '@/lib/session'
-import { ageFromDob, formatDate, fullName } from '@/lib/utils'
+import { useSchoolContext } from '@/lib/session'
+import { fullName } from '@/lib/utils'
 
 export const Route = createFileRoute('/_app/students/$studentId')({ component: Page })
 
 function Page() {
   const { studentId } = Route.useParams()
-  const { can } = useSession()
-  const canEdit = can('students', 'edit')
-  const [edit, setEdit] = useState(false)
+  const { schoolId, hasPermission } = useSchoolContext()
+  const [editBasic, setEditBasic] = useState(false)
+  const [editSensitive, setEditSensitive] = useState(false)
   const [move, setMove] = useState(false)
   const [markLeft, setMarkLeft] = useState(false)
-  const [addGuardian, setAddGuardian] = useState(false)
 
-  const { data: student, isLoading, isError } = useQuery({ queryKey: qk.student(studentId), queryFn: () => api.students.get(studentId) })
-  const [guardiansQ, siblingsQ, documentsQ, enrollmentsQ] = useQueries({
-    queries: [
-      { queryKey: qk.studentGuardians(studentId), queryFn: () => api.students.guardians(studentId) },
-      { queryKey: qk.studentSiblings(studentId), queryFn: () => api.students.siblings(studentId) },
-      { queryKey: qk.studentDocuments(studentId), queryFn: () => api.students.documents(studentId) },
-      { queryKey: qk.studentEnrollments(studentId), queryFn: () => api.students.enrollments(studentId) },
-    ],
+  const detailQuery = useQuery({
+    queryKey: qk.student(schoolId, studentId),
+    queryFn: () => api.students.get(schoolId, studentId),
   })
 
-  if (isError) {
+  if (detailQuery.isError) {
     return (
       <>
-        <PageHeader crumbs={[{ label: 'Students', to: '/students', icon: <Users /> }, { label: 'Not found' }]} />
-        <EmptyState icon={<Users />} title="Student not found" description="This student may have been removed." />
+        <PageHeader crumbs={[{ label: 'Students', to: '/students', icon: <Users /> }, { label: 'Not available' }]} />
+        <EmptyState icon={<Users />} title="This student is not available" description={describeError(detailQuery.error)} />
       </>
     )
   }
 
-  if (isLoading || !student) {
+  const detail = detailQuery.data
+  if (detailQuery.isLoading || !detail) {
     return (
       <>
         <PageHeader crumbs={[{ label: 'Students', to: '/students', icon: <Users /> }, { label: 'Loading…' }]} />
@@ -60,42 +57,58 @@ function Page() {
     )
   }
 
+  const { student, allowedActions } = detail
   const name = fullName(student)
-  const admission = admissionTag(student.admissionType)
-  const guardians = (guardiansQ.data ?? []) as GuardianLink[]
-  const enrollments = (enrollmentsQ.data ?? []) as EnrollmentRow[]
+  const canEditBasic = allows(allowedActions, 'students.update_basic')
+  const canEditSensitive = allows(allowedActions, 'students.update_sensitive')
+  // Both enrolment writes resolve the current enrolment on the server, so a student without one
+  // can only be told 'not found'. The controls stay hidden until there is an enrolment to change.
+  // Guardian, document and enrolment keys belong to other resource types, so the server never lists
+  // them in a student's allowedActions. They are school-level grants, read from the session.
+  const canManageEnrollment = hasPermission('students.manage_enrollment') && Boolean(student.enrollment)
+  const canReadGuardians = hasPermission('students.read_guardians')
+  const canManageGuardians = hasPermission('students.manage_guardians')
+  const canReadSiblings = allows(allowedActions, 'students.read_siblings')
+  const canReadDocuments = hasPermission('students.read_documents')
+  const canReadEnrollments = hasPermission('students.read_enrollments')
+  const hasActions = canEditBasic || canEditSensitive || canManageEnrollment
+
+  const menuItems = (
+    <>
+      {canEditSensitive && <DropdownMenuItem onClick={() => setEditSensitive(true)}><Pencil />Edit details</DropdownMenuItem>}
+      {canManageEnrollment && <DropdownMenuItem onClick={() => setMove(true)}><ArrowRightLeft />Move to another section</DropdownMenuItem>}
+      {canManageEnrollment && <DropdownMenuItem onClick={() => setMarkLeft(true)}><UserMinus />Mark as left</DropdownMenuItem>}
+    </>
+  )
 
   return (
     <>
       <PageHeader
         crumbs={[{ label: 'Students', to: '/students', icon: <Users /> }, { label: name }]}
         actions={
-          canEdit ? (
+          hasActions ? (
             <>
-              <Button size="sm" variant="outline" onClick={() => setEdit(true)}><Pencil />Edit</Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="outline">More<ChevronDown /></Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-48">
-                  <DropdownMenuItem onClick={() => setMove(true)}><ArrowRightLeft />Move to section</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setMarkLeft(true)}><UserMinus />Mark as left</DropdownMenuItem>
-                  <DropdownMenuItem disabled><IdCard />Print ID card <span className="ml-auto text-[11px] text-muted-foreground">Phase 2</span></DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {canEditBasic && <Button size="sm" variant="outline" onClick={() => setEditBasic(true)}><Pencil />Edit name</Button>}
+              {(canEditSensitive || canManageEnrollment) && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline">More<ChevronDown /></Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-52">{menuItems}</DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </>
           ) : undefined
         }
         mobileActions={
-          canEdit ? (
+          hasActions ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" variant="outline" className="h-9">Actions<ChevronDown /></Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-48">
-                <DropdownMenuItem onClick={() => setEdit(true)}><Pencil />Edit</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setMove(true)}><ArrowRightLeft />Move to section</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setMarkLeft(true)}><UserMinus />Mark as left</DropdownMenuItem>
+              <DropdownMenuContent align="end" className="min-w-52">
+                {canEditBasic && <DropdownMenuItem onClick={() => setEditBasic(true)}><Pencil />Edit name</DropdownMenuItem>}
+                {menuItems}
               </DropdownMenuContent>
             </DropdownMenu>
           ) : undefined
@@ -103,59 +116,68 @@ function Page() {
       />
 
       <div className="flex items-start gap-3 border-b p-3 md:gap-4 md:p-5">
-        <UserAvatar name={name} src={student.photoUrl} size="xl" className="size-12 md:size-16" />
+        <UserAvatar name={name} size="xl" className="size-12 md:size-16" />
         <div className="min-w-0">
           <h1 className="text-[17px] font-semibold md:text-xl">{name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {student.grade && <Tag color={colorFor(student.grade.name)}>{student.grade.shortName} - {student.section?.name ?? '—'}</Tag>}
+            {student.enrollment && <Tag color={colorFor(student.enrollment.grade.name)}>{classLabel(student)}</Tag>}
             {student.enrollment?.rollNumber !== undefined && <Tag>Roll {student.enrollment.rollNumber}</Tag>}
-            {admission && <Tag color={admission.color}>{admission.label}</Tag>}
-            <Tag className="capitalize" color={student.status === 'active' ? 'green' : 'grey'} dot>{student.status}</Tag>
-            {student.house && <Tag color={colorFor(student.house)} dot>{student.house} house</Tag>}
+            <StudentStatusTag status={student.status} />
           </div>
-          <p className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground">
+          <p className="mt-2 text-[13px] text-muted-foreground">
             <span className="font-mono">{student.admissionNumber}</span>
-            <span>·</span>
-            <span>Admitted {formatDate(student.admissionDate)}</span>
-            <span>·</span>
-            <span>{ageFromDob(student.dateOfBirth)} years old</span>
-            {student.status !== 'active' && student.leftOn && (<><span>·</span><StatusDot state="warn" /><span>Left {formatDate(student.leftOn)}</span></>)}
           </p>
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
-        <div className="min-w-0 flex-1 p-3 scrollbar-thin md:overflow-y-auto md:p-4">
-          <Tabs defaultValue="overview" className="gap-4">
-            <TabsList variant="line">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="guardians">Guardians</TabsTrigger>
-              <TabsTrigger value="documents">Documents</TabsTrigger>
-              <TabsTrigger value="history">History</TabsTrigger>
-            </TabsList>
-            <TabsContent value="overview"><OverviewTab student={student} /></TabsContent>
-            <TabsContent value="guardians">
-              <GuardiansTab
-                guardians={guardians}
-                siblings={siblingsQ.data ?? []}
-                isLoading={guardiansQ.isLoading}
-                canEdit={canEdit}
-                onAdd={() => setAddGuardian(true)}
-              />
-            </TabsContent>
-            <TabsContent value="documents"><DocumentsTab documents={documentsQ.data ?? []} isLoading={documentsQ.isLoading} /></TabsContent>
-            <TabsContent value="history"><HistoryTab enrollments={enrollments} isLoading={enrollmentsQ.isLoading} /></TabsContent>
-          </Tabs>
-        </div>
-        <aside className="shrink-0 border-t p-3 scrollbar-thin md:w-80 md:overflow-y-auto md:border-t-0 md:border-l md:p-4">
-          <QuickFacts student={student} siblingCount={siblingsQ.data?.length ?? 0} />
-        </aside>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 scrollbar-thin md:p-4">
+        <Tabs defaultValue="overview" className="gap-4">
+          <TabsList variant="line">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            {canReadGuardians && <TabsTrigger value="guardians">Guardians</TabsTrigger>}
+            {canReadSiblings && <TabsTrigger value="siblings">Siblings</TabsTrigger>}
+            {canReadDocuments && <TabsTrigger value="documents">Documents</TabsTrigger>}
+            {canReadEnrollments && <TabsTrigger value="enrollments">Class history</TabsTrigger>}
+          </TabsList>
+          <TabsContent value="overview">
+            <OverviewTab detail={detail} showGuardianContacts={!canReadGuardians} />
+          </TabsContent>
+          {canReadGuardians && (
+            <TabsContent value="guardians"><GuardiansTab studentId={student.id} canManage={canManageGuardians} /></TabsContent>
+          )}
+          {canReadSiblings && <TabsContent value="siblings"><SiblingsTab studentId={student.id} /></TabsContent>}
+          {canReadDocuments && (
+            <TabsContent value="documents"><DocumentsTab studentId={student.id} allowedActions={allowedActions} /></TabsContent>
+          )}
+          {canReadEnrollments && <TabsContent value="enrollments"><EnrollmentsTab studentId={student.id} /></TabsContent>}
+        </Tabs>
       </div>
 
-      <StudentEditSheet key={`${student.id}:${student.updatedAt}`} open={edit} onOpenChange={setEdit} student={student} />
-      <MoveSectionDialog open={move} onOpenChange={setMove} studentIds={[student.id]} />
-      <MarkLeftDialog open={markLeft} onOpenChange={setMarkLeft} studentIds={[student.id]} />
-      <GuardianSheet open={addGuardian} onOpenChange={setAddGuardian} studentId={student.id} />
+      {canEditBasic && (
+        <StudentBasicSheet key={`basic:${student.version}`} open={editBasic} onOpenChange={setEditBasic} student={student} />
+      )}
+      {canEditSensitive && (
+        <StudentSensitiveSheet
+          key={`sensitive:${student.version}`}
+          open={editSensitive}
+          onOpenChange={setEditSensitive}
+          student={student}
+          sensitive={detail.sensitive}
+          medical={detail.medical}
+        />
+      )}
+      {canManageEnrollment && (
+        <MoveSectionDialog
+          open={move}
+          onOpenChange={setMove}
+          studentId={student.id}
+          expectedVersion={student.version}
+          academicYearId={student.enrollment?.academicYear.id ?? null}
+        />
+      )}
+      {canManageEnrollment && (
+        <MarkLeftDialog open={markLeft} onOpenChange={setMarkLeft} studentId={student.id} expectedVersion={student.version} />
+      )}
     </>
   )
 }

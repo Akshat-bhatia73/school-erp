@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 
 /** Side panel used for every quick add/edit form in School setup. */
-export function FormSheet({ open, onOpenChange, title, description, submitLabel = 'Save', onSubmit, busy, children }: {
+export function FormSheet({ open, onOpenChange, title, description, submitLabel = 'Save', onSubmit, busy, formError, children }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   title: string
@@ -11,6 +11,8 @@ export function FormSheet({ open, onOpenChange, title, description, submitLabel 
   submitLabel?: string
   onSubmit: () => void
   busy?: boolean
+  /** A problem that belongs to the whole form rather than to one field. */
+  formError?: string
   children: ReactNode
 }) {
   return (
@@ -25,7 +27,10 @@ export function FormSheet({ open, onOpenChange, title, description, submitLabel 
           onSubmit={(e) => { e.preventDefault(); onSubmit() }}
           id="setup-form-sheet"
         >
-          <div className="grid gap-3.5 pb-4">{children}</div>
+          <div className="grid gap-3.5 pb-4">
+            {formError ? <p role="alert" className="text-[12.5px] text-tag-red">{formError}</p> : null}
+            {children}
+          </div>
         </form>
         <SheetFooter className="flex-row justify-end gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>

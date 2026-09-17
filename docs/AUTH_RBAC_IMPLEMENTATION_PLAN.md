@@ -441,23 +441,51 @@ Replace fake invites with lifecycle-aware screens. Add role-change preview, susp
 
 Exit check: teacher, parent, accountant and owner sessions each expose only their permitted navigation/data/actions. The settings screen cannot assign a role the server says is not grantable. Removing access clears the visible data on notification/refresh.
 
-### Task 8: Adversarial testing and release integration
+### Task 8: Server-assigned admission numbers and employee codes
 
-Owner: security/test agent for `tests/security/` and browser security tests; integration agent owns CI, deployment configuration and final integration. Start test design after Task 0; execute against completed Tasks 1–7.
+Owner: domain backend agent for `apps/api/src/modules/students`, `apps/api/src/modules/staff`, one new migration in `packages/db` and the contract change in `packages/contracts`; the application frontend agent adjusts the admit, import and add-staff screens. Depends on Tasks 1, 5 and 7. Added on 16 September 2026 after the Task 7 review found that both identifiers are free text typed by the office, so nothing guarantees a school-wide numbering scheme. Every remaining task moves after this one.
+
+Format. An admission number is `<school short name>/<academic year name>/<counter>`, for example `SVM/2026-27/014`: the counter restarts at 1 for each academic year and counts admissions into that year in the order they were committed. An employee code is `<school short name>-E<counter>`, for example `SVM-E007`: one school-wide counter that never restarts. Both use the school's `short_name` in upper case and a counter padded to three digits (wider once it passes 999, never truncated). The office does not type either value and cannot edit it later; a school that needs its historical numbers keeps them through import only (below).
+
+Sequence storage. Add a `number_sequences` table keyed by `(school_id, kind, period)` with a `next_value` column, where `kind` is `admission` or `employee` and `period` is the academic year id for admissions and empty for employee codes. The row is created on first use. Every allocation happens inside the same `withTenantTransaction` as the insert it numbers, after the school lock that the write already takes, with `UPDATE ... RETURNING` so two concurrent admissions cannot receive the same number. Keep the existing `UNIQUE (school_id, admission_number)` and `UNIQUE (school_id, employee_code)` constraints as the last line of defence; a unique violation is a bug, not a user error, and is reported as such.
+
+Contract changes in `@erp/contracts`. Remove `admissionNumber` from the student create request and `employeeCode` from the staff create request; both stay in every response and in search. The admission year is the academic year of the section the student is admitted into, so the number and the enrolment always agree. The bulk import row keeps an optional `admissionNumber` for a school migrating its old register: a supplied value is kept verbatim (still unique per school, still validated in preview) and a blank one is generated at commit time in row order, so a preview can show "will be assigned" rather than a number that might change. Promotion never renumbers. Update `PROTECTED_APIS.md`, `CONTRACTS.md` and `WEB_SCREENS.md`.
+
+Screens. The admit form drops its Admission number field and its client-side suggestion (`suggestAdmissionNumber`); the review step says the number is assigned on save and the success toast shows the assigned one. The add-staff sheet drops Employee code the same way. The import preview shows the kept or pending number per row. Both remain read-only facts on the record and stay searchable.
+
+Fixtures and tests. `packages/db/scripts/fixtures.mjs` and `dev:logins` seed numbers in the new format and a sequence row that continues after them. API tests stop inventing `ADM-<hex>` and `INV-<hex>` values and assert the generated ones, including two admissions committed concurrently into the same year, an admission into a different year restarting at 001, an import that mixes kept and generated numbers, and a rejected client attempt to send a number. The API test suite must run against its own `TEST_DATABASE_URL` database, never the development one: the Task 7 review found test years, grades, students and staff with random suffixes in the development school because every documented example points both at the same database. Fix the docs and the `.env` example so a developer cannot repeat that, and reset the development database as part of this task.
+
+Exit check: admitting two students into the same year from two sessions at once yields consecutive numbers with no gap and no duplicate; the first admission into a new year is `001`; a new staff member gets the next employee code regardless of who created them; neither value can be set or changed through any endpoint; the roster, staff directory and search show and match the new formats; the development database shows fixture data only.
+
+### Task 9: Adversarial testing and release integration
+
+Owner: security/test agent for `tests/security/` and browser security tests; integration agent owns CI, deployment configuration and final integration. Start test design after Task 0; execute against completed Tasks 1–8.
 
 Implement the acceptance matrix below using direct API clients, a real PostgreSQL instance and browser tests. Inspect production assets for mock school data. Check failure paths and pooled/concurrent requests, not only happy-path login. Verify dependency advisories and the exact deployed runtime/proxy configuration before release.
 
 Exit check: all release checks pass, the runtime has least-privilege database credentials, an independent reviewer has assessed access boundaries, and the deployment cannot fall back to the unsecured demo.
+
+### Task 10: Finance-scoped audit reads and the invitation list
+
+Owner: domain backend agent for `packages/authz/src/scope.ts`, `apps/api/src/modules/audit`, `apps/api/src/invitations` and the contract additions in `packages/contracts`; the application frontend agent adjusts the members screen. Depends on Tasks 4, 5, 7 and 9. Added on 17 September 2026 to close two gaps every earlier handover carried forward.
+
+Finance audience. `audit.read` and `audit.export` at the `finance` scope currently map to TRUE, so an accountant reads every audit row of the school. The scope term for the `audit_event` resource must select only rows whose `action` is in a fixed list of finance actions declared in `@erp/contracts` (pay changes, staff and audit exports, and the reserved fee actions when they land). Lists, counts and exports narrow through the same predicate, so a finance reader's total never exceeds the rows it may page over. The `finance` scope on every other resource keeps its current meaning: a projection audience over the whole school, not a row filter.
+
+Invitation list. Add `GET /api/schools/:schoolId/invitations` behind `members.invite`, paged like the member directory, filtered by status with `pending` as the default and newest first. A pending row whose `expires_at` has passed is reported as `expired` without being written. Response rows are the existing `InvitationSummary`: no token, no digest, masked destination only. The members screen replaces its "Sent this session" list with this query, so resend and revoke work after a reload, and invalidates it after each invitation action.
+
+Exit check: an accountant's audit list, count and export contain only finance actions while an owner's contain every row; the previous security test that pinned the whole-log breadth now asserts the narrowing; a principal sees the school's pending invitations after a reload and can resend or revoke them; a caller without `members.invite` is refused the list; the list never returns a token or digest.
 
 ### Suggested execution order
 
 | Wave | Work |
 |---|---|
 | 1 | Task 0; agree contracts and the framework/auth integration decision |
-| 2 | Task 1 publishes schema; Tasks 2 and 3 start against those contracts; Task 8 authors denial cases |
+| 2 | Task 1 publishes schema; Tasks 2 and 3 start against those contracts; Task 9 authors denial cases |
 | 3 | Tasks 4 and 5 build backend workflows; Task 6 builds auth/session UI against contracts |
-| 4 | Task 7 connects all permission-driven screens; Task 8 runs full adversarial/browser tests |
-| 5 | Integration owner completes deployment checks, review and production cutover |
+| 4 | Task 7 connects all permission-driven screens |
+| 5 | Task 8 makes admission numbers and employee codes server-assigned and resets the development database; Task 9 runs full adversarial/browser tests |
+| 5b | Task 10 narrows finance audit reads and adds the invitation list |
+| 6 | Integration owner completes deployment checks, review and production cutover |
 
 These are work packages, not a promise that all require separate permanent agents. With fewer agents, combine consecutive tasks while preserving ownership and review. Database migrations and shared contracts have one owner at a time.
 

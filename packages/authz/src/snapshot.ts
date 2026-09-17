@@ -278,7 +278,6 @@ export async function loadRelationshipFactsFor(
  */
 type ExistenceTable =
   | 'academic_years'
-  | 'audit_events'
   | 'bell_schedules'
   | 'grades'
   | 'guardians'
@@ -293,7 +292,6 @@ type ExistenceTable =
 
 const EXISTENCE_QUERIES: Record<ExistenceTable, string> = {
   academic_years: `SELECT id FROM academic_years WHERE school_id = $1 AND id = $2`,
-  audit_events: `SELECT id FROM audit_events WHERE school_id = $1 AND id = $2`,
   bell_schedules: `SELECT id FROM bell_schedules WHERE school_id = $1 AND id = $2`,
   grades: `SELECT id FROM grades WHERE school_id = $1 AND id = $2`,
   guardians: `SELECT id FROM guardians WHERE school_id = $1 AND id = $2`,
@@ -581,8 +579,13 @@ export async function loadResourceFacts(
       return facts(resource, {})
     }
     case 'audit_event': {
-      if (!(await exists(conn, 'audit_events', schoolId, id))) return null
-      return facts(resource, {})
+      const event = await conn.client.query<{ action: string }>(
+        `SELECT action FROM audit_events WHERE school_id = $1 AND id = $2`,
+        [schoolId, id],
+      )
+      const action = event.rows[0]?.action
+      if (action === undefined) return null
+      return facts(resource, { action })
     }
     case 'dashboard':
       // The dashboard is computed from the whole authorized dataset, so it has

@@ -7,3 +7,5 @@ dist
 !.env.example
 coverage
 .turbo
+apps/api/.dev/
+.vercel

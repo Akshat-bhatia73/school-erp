@@ -6,15 +6,6 @@
  * preference in sessionStorage and is only honoured when it matches an active adult membership;
  * the server takes the school from the URL on every request, so this preference can never widen
  * access. Identity is never read from localStorage.
- *
- * LEGACY BRIDGE. The feature screens still read the in-memory mock API in `api/client.ts` and ask
- * `can(module, action)` with the `@erp/shared` role model, which is a different vocabulary from
- * the server's permission keys. Until Task 7 moves those screens onto the real protected APIs and
- * `allowedActions`, this provider keeps both worlds alive: it resolves the mock roles whose key
- * matches the server's `roleKeys` (the server's `principal` maps onto the mock `owner` role),
- * computes `can`/`scope` from them, and pushes the signed-in person into the mock client through
- * `setApiContext`. Nothing in that bridge is an authorization decision — the server decides — and
- * the whole block, along with `can`, `scope` and `roles`, disappears with Task 7.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
@@ -24,13 +15,10 @@ type ViewerIdentity = MeResponse['user']
 type SessionSummary = MeResponse['session']
 type MembershipSummary = MeResponse['memberships'][number]
 type SchoolSummary = SchoolContextResponse['school']
-import { can as canWithRoles, resolvePermission, type Action, type Module, type Role, type Scope } from '@erp/shared'
 import { getSession, me, schoolContext, signOut as signOutRequest } from '@/lib/auth-client'
 import { bumpGeneration, currentGeneration, isAbortLike, onSessionLost } from '@/lib/http'
 import { isApiError } from '@/lib/api-errors'
 import { createQueryClient } from '@/lib/query'
-import { setApiContext } from '@/api/client'
-import { getStore } from '@/api/store'
 
 /**
  * `blocked` is a signed-in identity the web app will not open for anyone: today only a student,
@@ -54,18 +42,14 @@ export interface Session {
   activeMemberships: MembershipSummary[]
   school: SchoolSummary | null
   membership: MembershipSummary | null
+  /** This person's membership in the active school, from the context response. Null until ready. */
+  membershipId: string | null
   roleKeys: string[]
   capabilities: PermissionKey[]
   accessVersion: number | null
   context: ContextStatus
   twoFactorEnabled: boolean
   hasPermission: (key: PermissionKey) => boolean
-  /** LEGACY BRIDGE — removed in Task 7. */
-  can: (module: Module, action?: Action) => boolean
-  /** LEGACY BRIDGE — removed in Task 7. */
-  scope: (module: Module, action?: Action) => Scope
-  /** LEGACY BRIDGE — removed in Task 7. */
-  roles: Role[]
   selectSchool: (schoolId: string) => void
   clearSchool: () => void
   signOut: () => Promise<void>
@@ -73,7 +57,8 @@ export interface Session {
   generation: number
 }
 
-const SessionContext = createContext<Session | null>(null)
+/** Exported for tests only: src/test/session.tsx renders a fully-formed session through it. */
+export const SessionContext = createContext<Session | null>(null)
 
 function isActiveAdult(membership: MembershipSummary) {
   return membership.status === 'active' && membership.kind === 'adult'
@@ -293,7 +278,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     await loadIdentity()
   }, [loadIdentity])
 
-  // ---------- legacy bridge ----------
+  // ---------- derived ----------
 
   const memberships = identity?.memberships ?? []
   const activeMemberships = useMemo(() => memberships.filter(isActiveAdult), [memberships])
@@ -303,22 +288,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   )
   const roleKeys: string[] = ctx.status === 'ready' ? ctx.roleKeys : (membership?.roleKeys ?? [])
 
-  const legacyRoles = useMemo<Role[]>(() => {
-    const wanted = new Set(roleKeys.map((key) => (key === 'principal' ? 'owner' : key)))
-    const store = getStore()
-    const schoolId = store.schools[0]?.id
-    return store.roles.filter((role) => role.schoolId === schoolId && wanted.has(role.key))
-  }, [roleKeys])
-
-  const membershipIndex = membership ? activeMemberships.indexOf(membership) : 0
-  setApiContext({
-    schoolId: activeSchoolId ?? '',
-    userId: identity?.user.id ?? '',
-    displayName: identity?.user.displayName ?? '',
-    roleKeys,
-    membershipIndex: membershipIndex < 0 ? 0 : membershipIndex,
-  })
-
   const value = useMemo<Session>(() => ({
     status,
     user: identity?.user ?? null,
@@ -327,21 +296,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     activeMemberships,
     school: ctx.school ?? membership?.school ?? null,
     membership,
+    membershipId: ctx.membershipId,
     roleKeys,
     capabilities: ctx.capabilities,
     accessVersion: ctx.accessVersion,
     context: ctx.status,
     twoFactorEnabled,
     hasPermission: (key) => ctx.capabilities.includes(key),
-    can: (module, action = 'view') => canWithRoles(legacyRoles, module, action),
-    scope: (module, action = 'view') => resolvePermission(legacyRoles, module, action),
-    roles: legacyRoles,
     selectSchool,
     clearSchool,
     signOut: doSignOut,
     refresh,
     generation,
-  }), [status, identity, memberships, activeMemberships, ctx, membership, roleKeys, twoFactorEnabled, legacyRoles, selectSchool, clearSchool, doSignOut, refresh, generation])
+  }), [status, identity, memberships, activeMemberships, ctx, membership, roleKeys, twoFactorEnabled, selectSchool, clearSchool, doSignOut, refresh, generation])
 
   return (
     <QueryClientProvider client={client}>
@@ -359,6 +326,27 @@ export function announceSignIn() {
   const channel = new BroadcastChannel(CHANNEL_NAME)
   channel.postMessage({ type: 'signed-in' })
   channel.close()
+}
+
+/**
+ * The school this screen is inside. It is only ever called under AppGate, which renders nothing
+ * school-shaped until the context is ready, so everything here is non-null and a screen never has
+ * to write `schoolId ?? ''`.
+ */
+export function useSchoolContext() {
+  const session = useSession()
+  if (session.context !== 'ready' || !session.school || !session.membershipId) {
+    throw new Error('useSchoolContext must be used inside AppGate, once the school context is ready')
+  }
+  return {
+    schoolId: session.school.id,
+    membershipId: session.membershipId,
+    school: session.school,
+    roleKeys: session.roleKeys,
+    capabilities: session.capabilities,
+    accessVersion: session.accessVersion,
+    hasPermission: session.hasPermission,
+  }
 }
 
 export function useSession() {
