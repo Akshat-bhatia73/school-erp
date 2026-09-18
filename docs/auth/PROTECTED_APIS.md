@@ -103,6 +103,11 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `POST /students/:studentId/leave` | `students.manage_enrollment` | leaving date not before the joining date; reason stored and audited | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `POST /students/:studentId/guardians` | `students.manage_guardians` | named guardian decided per record; one primary per student | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `PUT /students/:studentId/guardians/:guardianId` | `students.manage_guardians` | the link must exist | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `GET /students/:studentId/apaar` | `students.read_sensitive` | the record decided again; the sealed value is opened in the API and the reveal writes an audit row | 200 | `RESOURCE_NOT_FOUND` |
+| `GET /students/:studentId/consents` | `students.read_consents` | the student decided under this key first; the newest row per guardian and purpose only | 200 | `RESOURCE_NOT_FOUND` |
+| `POST /students/:studentId/consents` | `students.manage_consents` | the guardian must be linked to that student in this school; a guardian recording through the portal is stored as `portal` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /students/:studentId/anonymise` | `students.anonymise` | status `left` or `alumni`, the leaving date at least `RETENTION.studentSensitiveYears` old by the database clock, not already anonymised, `expectedVersion` | 200 | `NOT_ALLOWED_YET`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `POST /students/:studentId/guardians/:guardianId/unlink` | `students.manage_guardians` | the link must exist and must not be the last guardian of an active student; `expectedVersion` is the student's | 200 | `NOT_ALLOWED_YET`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 
 ### Students in bulk
 
@@ -131,6 +136,7 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `PUT /staff/:staffId/employment` | `staff.update_employment` | leaving date not before the stored joining date; `expectedVersion` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `PUT /staff/:staffId/private` | `staff.update_private` | that record decided, so the self scope works | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `PUT /staff/:staffId/pay` | `staff.update_pay` | audit row carries the reason and never the amount | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `POST /staff/:staffId/anonymise` | `staff.anonymise` | status `resigned` or `retired`, the leaving date at least `RETENTION.staffPrivateYears` old by the database clock, not already anonymised, `expectedVersion` | 200 | `NOT_ALLOWED_YET`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `POST /staff/export` | `staff.export` | every requested id must pass the export plan, or none is written | 202 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 
 ### Timetable
@@ -161,8 +167,9 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 |---|---|---|---|---|
 | `GET /dashboard` | `dashboard.read` | audience fixed from the caller's roles; every figure through its own plan | 200 | — |
 | `GET /search?q=` | `students.read_basic` | student rows through `students.read_basic`, staff rows through `staff.read_directory`, the class through `students.read_enrollments` | 200 | `INVALID_REQUEST` |
-| `GET /audit-events` | `audit.read` | plan predicate on `audit_event`; filters only narrow it | 200 | `INVALID_REQUEST` |
+| `GET /audit-events` | `audit.read` | plan predicate on `audit_event`; filters only narrow it; the note is joined under the same predicate and omitted once redacted | 200 | `INVALID_REQUEST` |
 | `POST /audit-events/export` | `audit.export` | window ordered and at most 366 days | 202 | `INVALID_REQUEST` |
+| `POST /audit-events/:eventId/note/redact` | `audit.redact_notes` | the event must be in this school; a repeat request changes nothing and writes no second row | 200 | `RESOURCE_NOT_FOUND` |
 | `GET /students/:studentId/documents/:documentId/content` | `students.download_documents` | record decided again; the document must belong to that student | 200, a byte stream | `RESOURCE_NOT_FOUND` |
 | `GET /exports/:jobId` | one of `students.export`, `staff.export`, `audit.export` | the job's own recorded permission re-decided, plus freshness | 200 | `RESOURCE_NOT_FOUND` |
 
@@ -171,12 +178,13 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 A response carries a field group only when the caller holds the key for that group, decided against that record, and never as a side effect of holding a different key.
 
 - **Student basic** (`students.read_basic`): id, name, admission number, status and version. The class summary rides along only when the `students.read_enrollments` plan also allows that enrolment row.
-- **Student sensitive** (`students.read_sensitive`): date of birth, gender and admission date, as one block that is present or absent.
+- **Student sensitive** (`students.read_sensitive`): date of birth, gender and admission date, as one block that is present or absent. The APAAR id appears here only as `apaarMasked` (`XXXX-XXXX-1234`); the full value has its own audited route.
 - **Student medical** (`students.read_medical`): blood group and medical notes, a separate block and a separate write check.
 - **Guardian contact** (`students.read_guardian_contact`): a minimal contact, never a guardian directory.
 - **Student documents** (`students.read_documents`): metadata only. The storage key is server state and appears in no body, no header, no log line and no error.
 - **Staff directory** (`staff.read_directory`): display name, designation and department. Nothing else.
 - **Staff employment, private and pay** (`staff.read_employment`, `read_private`, `read_pay`): three separate blocks behind three separate keys, each decided on that record, so a teacher reads their own employment and contact and never anybody's pay.
+- **Anonymised records**: a student or staff row that has been anonymised reports `anonymised: true` in its basic or directory block and carries no sensitive, medical, private or pay block at all, whatever keys the caller holds. There is nothing left in those columns to project.
 - **Audit events** (`audit.read`): time, actor label, action, summary and outcome. `safe_changes`, target ids, the request id and the actor ids are read by the handler and never projected.
 - **Nested references** everywhere else are a `NamedReference`: an id and a label, so a parent seeing a teacher's name on a period does not thereby get a staff directory.
 
@@ -200,13 +208,29 @@ The counters live in `number_sequences`, keyed by `(school_id, kind, period)`, w
 
 `GET /students/:studentId/documents/:documentId/content` is the only route that returns bytes. It decides the module action, then the record, and reports every denial as `RESOURCE_NOT_FOUND` so that a real id and an invented one look the same. The document must belong to the student in the path, or it is not found. Missing bytes roll the transaction back and write no audit row: nothing was delivered, so there is no download to record, and a caller cannot write audit rows by guessing ids. A successful read writes exactly one audit row and commits before the stream is attached, so the record says an authorized read began, not that the transfer finished. The filename in the `content-disposition` header is sanitised of newlines, quotes, backslashes and non-printable characters, the response is `no-store`, and the storage key never leaves the server.
 
+## Data lifecycle: consent, sealed identifiers and anonymisation
+
+Task 12 added five things to this module set. They are ordinary protected routes: the gate, the plan predicate, the school lock, the version check and the single audit row are unchanged.
+
+**Reading only what the caller asked for.** `students/reads.ts` no longer has one projection. `studentProjection({ sensitive, medical })` builds the select list, and the roster, the count and the search always build it with both false, so a caller holding only `students.read_basic` runs a statement that names no medical note, no address, no Aadhaar fragment and no APAAR column. Only the detail route passes `true`, and only after it has decided `students.read_sensitive` and `students.read_medical` on that record, which is why the decision now happens before the read rather than during the projection.
+
+**The APAAR id is sealed.** `modules/shared/crypto.ts` has `seal`, `open` and `maskApaar`. A write encrypts the value with AES-256-GCM under `DATA_ENCRYPTION_KEY` and stores `v1.<iv>.<tag>.<ciphertext>` in base64url in `students.apaar_ciphertext`, with the last four digits alongside in `apaar_last4`. The key never reaches the database, the version prefix leaves room for a second key or algorithm, and `open` refuses a tampered, wrongly keyed or wrongly versioned value rather than returning something. Reads show `apaarMasked` built from the last four digits. `GET /students/:studentId/apaar` is the only way to the full value: it decides the record under `students.read_sensitive`, opens the ciphertext and writes an audit row reading "Revealed the full APAAR id." Search never matches on it, because no search statement selects the column.
+
+**Consent is an event log.** `guardian_consents` refuses UPDATE and DELETE, so recording and withdrawing are both inserts and the current answer for a purpose is the newest row. `recordConsents(conn, context, studentId, entries)` in `modules/students/consents.ts` is the one insertion path: it checks every guardian id against `student_guardians` for this school and student and refuses the whole request as `INVALID_REQUEST` if one is not linked, forces `method` to `portal` when the actor's own membership is linked to that guardian, and writes exactly one audit row carrying the purposes and statuses and never the evidence text. Admission calls it after the guardian links exist, mapping each `consents[].guardianIndex` into its own `guardians` array and refusing an index outside that array before anything is written. The list returns `DISTINCT ON (guardian_id, purpose)` newest rows with the guardian's display name and `recordedBy` of `office` or `guardian`.
+
+**Anonymisation is a decision, not a timer.** Nothing deletes a person. `POST /students/:studentId/anonymise` refuses unless the pupil has left and the leaving date is at least `RETENTION.studentSensitiveYears` old, compared by the database against its own clock so a wrongly dated API host cannot shorten the period. It clears the sensitive, medical and address columns, blanks `file_name` and `storage_key` to `''` and removes the document bytes through the storage adapter once the transaction has committed (the rows stay, because `DELETE` is revoked from the runtime login), sets `anonymised_at`, bumps the version, and then anonymises every linked guardian who has no other student left un-anonymised. The register fields — name, admission number, status, admission date and every enrolment — stay, because a school must keep its admission register. `POST /students/:studentId/guardians/:guardianId/unlink` removes one link, refuses to remove the last guardian of an active pupil, and anonymises the guardian when no link remains. `POST /staff/:staffId/anonymise` does the same for an ex-employee after `RETENTION.staffPrivateYears`, keeping the display name, employee code, designation, department, employment dates and status. Each of the three writes one audit row whose reason is stored as a note.
+
+**Reasons are notes, not audit fields.** `recordAuditEvent` takes an optional `note` and writes it to `audit_event_notes` in the same transaction; `ModuleAuditEntry` carries it through `writeAudit`. `safe_changes` stays structural, so no free text from a request body is written into a row that can never be edited. `GET /audit-events` joins the note under the same plan predicate and stops returning it once it is redacted; `POST /audit-events/:eventId/note/redact` marks the row and writes an audit row of its own with no note, because a redaction reason would only put the text back.
+
+**The sweep is outside this module set.** `GET /api/maintenance/sweep` in `apps/api/src/maintenance/routes.ts` is not a `protectedRoute`: it has no session, no school and no audit row, and it exists only when `CRON_SECRET` is configured. It calls the three `SECURITY DEFINER` sweep functions described in [the database foundation](./DATABASE.md) and returns the counts. See [the release runbook](./RELEASE.md#61-the-daily-sweep).
+
 ## What is deliberately not built
 
 - No web UI and no change to the mock client. Tasks 6 to 8 own that.
 - No export producer and no export download. A job is a record of an authorized request; its bytes are later work, and whoever writes the producer has to repeat the freshness checks before handing anything over.
 - No attendance, fee, exam, communication or report module.
 - No new permission, no custom role and no membership change. A module that needs a parent linked to a new child has to ask access management for it.
-- No expiry sweeper for staged previews or export jobs: both are refused when used, and nothing collects them.
+- No expiry sweeper inside these modules: a stale preview or export job is refused when used, and the daily maintenance sweep is what collects the rows.
 - No audience redaction inside the audit log beyond the row-level plan.
 
 ## Known gaps
@@ -237,6 +261,8 @@ Coverage and behaviour:
 - `timetable.freeTeachers` accepts either management key inside the handler, but `protectedRoute` takes exactly one gate permission, so a member whose only grant is `timetable.manage_substitutions` through an exception is still refused at the gate. Every role template that grants one grants the other.
 - Searches are leading-wildcard `ILIKE` scans with no trigram index, which is fine at fixture scale and will need an index before real data.
 - `allowedActionsFor` and `decideResource` reload the policy snapshot and relationship facts on every call, so a detail read makes several snapshot loads where one would do. Correct, and worth caching per transaction in the shared layer.
+- There is no way back from anonymisation and no preview of what it will clear beyond the sentence on the screen. The cleared columns are set to null in one statement and the document bytes are gone from storage.
+- Nothing prunes `guardian_consents` or `audit_event_notes`. Both are history a school is expected to keep, but neither has a stated retention period of its own.
 - `apps/api` still has no lint script, so `pnpm -r lint` does not reach this source.
 
 ## Run the tests

@@ -60,6 +60,7 @@ interface EventItem {
   action: string
   summary: string
   outcome: string
+  note?: string
 }
 interface EventPage {
   items: EventItem[]
@@ -507,4 +508,87 @@ test('a finance export counts only the finance rows and the owner export counts 
   )
 
   await adminPool().query(`DELETE FROM export_jobs WHERE id = ANY($1::uuid[])`, [[financeId, ownerId]])
+})
+
+test('a reason is stored as a redactable note and never in safe_changes', async () => {
+  const pool = adminPool()
+  // A membership of its own, so changing its roles disturbs no other test.
+  const targetUserId = randomUUID()
+  await pool.query(`INSERT INTO auth_user (id, name, email) VALUES ($1, $2, $3)`, [
+    targetUserId,
+    'Audit Note Target',
+    `audit-note-${randomUUID()}@example.test`,
+  ])
+  const targetMembershipId = randomUUID()
+  await pool.query(
+    `INSERT INTO school_memberships (id, school_id, user_id, kind, status)
+     VALUES ($1, $2, $3, 'adult', 'active')`,
+    [targetMembershipId, schoolA, targetUserId],
+  )
+  await pool.query(
+    `INSERT INTO membership_roles (school_id, membership_id, role_id) VALUES ($1, $2, $3)`,
+    [schoolA, targetMembershipId, await roleIdFor(schoolA, 'teacher')],
+  )
+
+  const reason = `Moved to the office desk ${MARK}`
+  const changed = await owner.fetch(`/api/schools/${schoolA}/members/${targetMembershipId}/roles`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ roleKeys: ['accountant'], expectedVersion: 1, reason }),
+  })
+  assert.equal(changed.status, 200)
+
+  // The permanent row carries the structure of the change and nothing a person
+  // typed; the note lives in the table that can be redacted.
+  const stored = await pool.query<{ id: string; safe_changes: Record<string, unknown> }>(
+    `SELECT id, safe_changes FROM audit_events
+      WHERE school_id = $1 AND action = 'roles.assign' AND target_id = $2::uuid`,
+    [schoolA, targetMembershipId],
+  )
+  assert.equal(stored.rows.length, 1)
+  const eventId = stored.rows[0]?.id ?? ''
+  assert.equal(JSON.stringify(stored.rows[0]?.safe_changes).includes(reason), false)
+  assert.equal('reason' in (stored.rows[0]?.safe_changes ?? {}), false)
+
+  const withNote = await owner.fetch(`/api/schools/${schoolA}/audit-events?action=roles.assign`)
+  assert.equal(withNote.status, 200)
+  const page = (await withNote.json()) as EventPage
+  const row = page.items.find((item) => item.id === eventId)
+  assert.equal(row?.note, reason)
+
+  // A principal holds audit.read but not audit.redact_notes.
+  const refused = await principal.fetch(
+    `/api/schools/${schoolA}/audit-events/${eventId}/note/redact`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'The parent asked for the text to be removed' }),
+    },
+  )
+  assert.equal(refused.status, 403)
+  assert.equal(((await refused.json()) as ErrorBody).error.code, 'ACCESS_DENIED')
+
+  const redacted = await owner.fetch(
+    `/api/schools/${schoolA}/audit-events/${eventId}/note/redact`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'The parent asked for the text to be removed' }),
+    },
+  )
+  assert.equal(redacted.status, 200)
+  assert.deepEqual(await redacted.json(), { status: 'redacted' })
+
+  const after = await owner.fetch(`/api/schools/${schoolA}/audit-events?action=roles.assign`)
+  const afterPage = (await after.json()) as EventPage
+  assert.equal(afterPage.items.find((item) => item.id === eventId)?.note, undefined)
+  // The event itself is untouched.
+  assert.ok(afterPage.items.some((item) => item.id === eventId))
+
+  const redactionRow = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM audit_events
+      WHERE school_id = $1 AND action = 'audit.redact_notes' AND target_id = $2::uuid`,
+    [schoolA, eventId],
+  )
+  assert.equal(redactionRow.rows[0]?.count, '1')
 })

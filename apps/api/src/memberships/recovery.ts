@@ -78,8 +78,9 @@ export async function startRecovery(
       targetId: membershipId,
       result: 'allowed',
       summary: 'Credential recovery was started for a school membership.',
-      safeChanges: { reason: body.reason, channel: chosen.channel },
+      safeChanges: { channel: chosen.channel },
       requestId: context.requestId,
+      note: body.reason,
     })
     return chosen
   })
@@ -107,8 +108,9 @@ export async function startRecovery(
         targetId: membershipId,
         result: 'failed',
         summary: 'Credential recovery delivery could not be started.',
-        safeChanges: { reason: body.reason, channel: plan.channel },
+        safeChanges: { channel: plan.channel },
         requestId: context.requestId,
+        note: body.reason,
       })
     })
     throw new ApiFailure('SERVICE_UNAVAILABLE')

@@ -148,9 +148,9 @@ export async function transferOwnership(
       safeChanges: {
         fromMembershipId: actor.id,
         toMembershipId: target.id,
-        reason: body.reason,
       },
       requestId: context.requestId,
+      note: body.reason,
     })
 
     return freshSummary(conn, deps.pools.auth, context.schoolId, target.id)

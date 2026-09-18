@@ -20,6 +20,7 @@ const MESSAGES: Record<ApiErrorCode, string> = {
   VERSION_CONFLICT: 'Someone else changed this while you were working. Reload and try again.',
   LAST_OWNER_PROTECTED: 'A school must always keep one owner.',
   IDENTITY_LINK_CONFLICT: 'This invitation belongs to a different account.',
+  NOT_ALLOWED_YET: 'This cannot be done yet.',
   RATE_LIMITED: 'Too many tries. Please wait a moment and try again.',
   SERVICE_UNAVAILABLE: 'The service is busy right now. Please try again shortly.',
   NETWORK_ERROR: 'We could not reach the server. Check your connection and try again.',

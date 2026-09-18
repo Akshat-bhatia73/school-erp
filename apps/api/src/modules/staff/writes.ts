@@ -185,7 +185,9 @@ export async function updatePay(
     targetId: staffId,
     // The amount is exactly what an audit reader must not learn.
     summary: 'Changed monthly pay on a staff record.',
-    safeChanges: { payChanged: true, reason: body.reason },
+    safeChanges: { payChanged: true },
+    // The typed reason is a note, which can be redacted later.
+    note: body.reason,
   })
 }
 
@@ -258,7 +260,8 @@ export async function upsertAssignment(
     summary: existing[0]
       ? 'Updated a teaching assignment for a staff member.'
       : 'Added a teaching assignment for a staff member.',
-    safeChanges: { reason: body.reason, academicYearId: body.academicYearId },
+    safeChanges: { academicYearId: body.academicYearId },
+    note: body.reason,
   })
 }
 

@@ -1,11 +1,13 @@
 /** The staff directory, one person's record and teaching assignments.
  *  Mirrors apps/api/src/modules/staff/routes.ts. */
 import {
+  AnonymiseRequest,
   AuthorizedCount,
   DepartmentSuggestionList,
   SectionTeachingAssignmentList,
   StaffCreateRequest,
   StaffDetailByAudience,
+  StaffDetailResponse,
   StaffDirectoryPage,
   StaffEmploymentCreated,
   StaffExportJob,
@@ -33,6 +35,7 @@ export type UpdatePrivateInput = z.input<typeof UpdateStaffPrivateRequest>
 export type UpdatePayInput = z.input<typeof UpdateStaffPayRequest>
 export type AssignTeachingInput = z.input<typeof TeachingAssignmentRequest>
 export type ExportStaffInput = z.input<typeof StaffExportRequest>
+export type AnonymiseStaffInput = z.input<typeof AnonymiseRequest>
 
 const base = (schoolId: string, suffix = '') => schoolPath(schoolId, `/staff${suffix}`)
 
@@ -89,6 +92,11 @@ export function assign(schoolId: string, staffId: string, body: AssignTeachingIn
 
 export async function unassign(schoolId: string, staffId: string, assignmentId: string): Promise<void> {
   await request(base(schoolId, `/${seg(staffId)}/assignments/${seg(assignmentId)}`), { method: 'DELETE' })
+}
+
+/** Clears the private and pay fields of a person who left long enough ago. */
+export function anonymise(schoolId: string, staffId: string, body: AnonymiseStaffInput) {
+  return request(base(schoolId, `/${seg(staffId)}/anonymise`), { method: 'POST', body, schema: StaffDetailResponse })
 }
 
 export function exportStaff(schoolId: string, body: ExportStaffInput) {

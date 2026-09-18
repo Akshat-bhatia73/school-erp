@@ -56,6 +56,18 @@ Document listing and download require their respective document permissions. A m
 
 Salary is available by default only to owner and accountant. Private contact and bank projections must be limited to the needs of the matched audience. Audit events must not expose raw before/after objects, credentials, medical data or salary to an audience without the corresponding access.
 
+## Consent, retention and anonymisation
+
+`module-lifecycle.ts` holds the data lifecycle contracts. Five permissions go with them: `students.read_consents` and `students.manage_consents` over a student at `school` or `own_children`, `students.anonymise` over a student, `staff.anonymise` over a staff record and `audit.redact_notes` over an audit event, the last three at `school` scope and privileged. Owner holds all five, principal all but the redaction, administrator the two consent keys at school scope and parent the two at `own_children`. Teacher, accountant and student hold none.
+
+`CONSENT_PURPOSES` is a closed list of five: education records, health information, photographs, communication and third-party services. A `ConsentRecord` is one event — guardian, purpose, `given` or `withdrawn`, the method (`in_person`, `signed_form` or `portal`), an optional evidence reference and who recorded it, `office` or `guardian`. `ConsentList` returns only the newest row per guardian and purpose, because that is the current answer; the history behind it is a table, not a response. Recording answers with the whole `ConsentList` and 200, since the screen needs the current answer for every purpose after a write, not the one row it sent. `RecordConsentRequest` is the same shape without the derived fields, and `AdmitConsent` carries a `guardianIndex` into the admission request's own `guardians` array, since the guardians have no ids yet; an index outside that array is `INVALID_REQUEST`.
+
+`StudentSensitive` carries `apaarMasked` (`XXXX-XXXX-1234`) and no longer carries the full APAAR id at all. `StudentApaarReveal` is the one schema that does, answered only by the audited reveal route. Write requests still take `apaarId` as trimmed input, because the school types the number once.
+
+`AnonymiseRequest` and `UnlinkGuardianRequest` are `{ expectedVersion, reason }`; the version is always the student's or the staff record's, and the reason becomes a note rather than an audit field. `RedactAuditNoteRequest` is `{ reason }`, and that reason is deliberately not stored. `AuditEventSummary` gains an optional `note`, and `StudentBasic` and `StaffDirectory` gain a required `anonymised` flag, so a screen can tell an empty record from a cleared one.
+
+`RETENTION` is the schedule as numbers: three years of student sensitive fields after leaving, eight years of staff private and pay fields, thirty days of credentials after the last membership ends, ninety days for invitations and outbox rows, twenty-four hours for import previews. The API, the sweep and the screens all read the same constants, so no period is written down twice. They are the earliest moment an anonymisation may be taken, not an automatic deletion.
+
 ## Inviting, changing and removing members
 
 Role assignment needs both `roles.assign` and `ROLE_DELEGATION_RULES`. Membership lifecycle actions also need `ROLE_MANAGEMENT_RULES`. Check every current role on the target and every proposed role. Principal and admin can manage teacher-only targets; a target who is both teacher and owner does not qualify. Deny self-service privilege changes. Generic role assignment cannot create an owner or enable a student.

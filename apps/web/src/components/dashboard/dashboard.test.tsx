@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { ApiRequestError } from '@/lib/http'
 import { renderWithSession } from '@/test/session'
 
@@ -24,6 +25,9 @@ const school = vi.fn()
 const academicYears = vi.fn()
 const auditList = vi.fn()
 const forSection = vi.fn()
+const studentConsents = vi.fn()
+const recordConsent = vi.fn()
+const studentGet = vi.fn()
 const bellSchedules = vi.fn()
 
 vi.mock('@/lib/api', () => ({
@@ -38,6 +42,11 @@ vi.mock('@/lib/api', () => ({
       academicYears: (...args: unknown[]) => academicYears(...args),
     },
     audit: { list: (...args: unknown[]) => auditList(...args) },
+    students: {
+      consents: (...args: unknown[]) => studentConsents(...args),
+      recordConsent: (...args: unknown[]) => recordConsent(...args),
+      get: (...args: unknown[]) => studentGet(...args),
+    },
     timetable: {
       forSection: (...args: unknown[]) => forSection(...args),
       bellSchedules: (...args: unknown[]) => bellSchedules(...args),
@@ -65,6 +74,7 @@ beforeEach(() => {
   auditList.mockResolvedValue({ items: [{ id: 'a1', at: new Date().toISOString(), actorDisplayName: 'Owner A', action: 'students.create', summary: 'admitted a student', outcome: 'allowed' }], page: 1, pageSize: 8, total: 1 })
   bellSchedules.mockResolvedValue([])
   forSection.mockResolvedValue({ cells: [], allowedActions: [] })
+  studentGet.mockResolvedValue({ student: { id: 'st-2', schoolId: SCHOOL, version: 1, firstName: 'Student B', admissionNumber: 'B/2026-27/001', status: 'active', anonymised: false }, guardianContacts: [{ id: 'g1', displayName: 'Asha Rao', relation: 'mother', phone: '9876543210' }], allowedActions: [] })
 })
 
 describe('dashboard by audience', () => {
@@ -121,6 +131,58 @@ describe('dashboard by audience', () => {
     expect(screen.getByText('Not in a class this year.')).toBeInTheDocument()
     expect(screen.queryByText(/fee/i)).not.toBeInTheDocument()
     await waitFor(() => expect(forSection).toHaveBeenCalledWith(SCHOOL, 'sec-1', { academicYearId: YEAR.id }))
+  })
+
+  it('lets a parent give a consent their child record allows, through the portal', async () => {
+    dashboardGet.mockResolvedValue({
+      audience: 'parent',
+      children: [{ id: 'st-2', schoolId: SCHOOL, version: 1, firstName: 'Student B', admissionNumber: 'B/2026-27/001', status: 'active', anonymised: false }],
+    })
+    studentConsents.mockResolvedValue({
+      items: [{
+        id: 'c1', studentId: 'st-2', guardianId: 'g1', guardianDisplayName: 'Asha Rao',
+        purpose: 'photographs', status: 'withdrawn', method: 'portal',
+        recordedAt: '2026-04-02T10:00:00.000Z', recordedBy: 'guardian',
+      }],
+      allowedActions: ['students.read_consents', 'students.manage_consents'],
+    })
+    recordConsent.mockResolvedValue({ items: [], allowedActions: ['students.read_consents', 'students.manage_consents'] })
+    const user = userEvent.setup()
+    await renderDashboard({
+      roleKeys: ['parent'],
+      capabilities: ['dashboard.read', 'students.read_basic', 'students.read_consents', 'students.manage_consents'],
+    })
+
+    const row = (await screen.findByText('Photographs')).closest('li')!
+    expect(within(row).getByText('Withdrawn')).toBeInTheDocument()
+    await user.click(within(row).getByRole('button', { name: 'Give' }))
+
+    await waitFor(() => expect(recordConsent).toHaveBeenCalledWith(SCHOOL, 'st-2', {
+      guardianId: 'g1', purpose: 'photographs', status: 'given', method: 'portal',
+    }))
+  })
+
+  it('lets a parent give a first consent when nothing has been recorded yet', async () => {
+    dashboardGet.mockResolvedValue({
+      audience: 'parent',
+      children: [{ id: 'st-2', schoolId: SCHOOL, version: 1, firstName: 'Student B', admissionNumber: 'B/2026-27/001', status: 'active', anonymised: false }],
+    })
+    // No consent rows at all: the guardians come from the child's own record.
+    studentConsents.mockResolvedValue({ items: [], allowedActions: ['students.read_consents', 'students.manage_consents'] })
+    recordConsent.mockResolvedValue({ items: [], allowedActions: ['students.read_consents', 'students.manage_consents'] })
+    const user = userEvent.setup()
+    await renderDashboard({
+      roleKeys: ['parent'],
+      capabilities: ['dashboard.read', 'students.read_basic', 'students.read_consents', 'students.manage_consents'],
+    })
+
+    const row = (await screen.findByText('Photographs')).closest('li')!
+    expect(within(row).getByText('Not asked')).toBeInTheDocument()
+    await user.click(within(row).getByRole('button', { name: 'Give' }))
+
+    await waitFor(() => expect(recordConsent).toHaveBeenCalledWith(SCHOOL, 'st-2', {
+      guardianId: 'g1', purpose: 'photographs', status: 'given', method: 'portal',
+    }))
   })
 
   it('does not claim a child has no class when enrollments are not readable', async () => {

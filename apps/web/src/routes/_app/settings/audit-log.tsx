@@ -70,7 +70,15 @@ function Page() {
       ),
     },
     { id: 'action', header: 'Action', size: 180, cell: ({ row }) => <Tag color="blue">{actionLabel(row.original.action)}</Tag> },
-    { id: 'what', header: 'What', cell: ({ row }) => <span className="truncate text-muted-foreground">{row.original.summary}</span> },
+    {
+      id: 'what', header: 'What',
+      cell: ({ row }) => (
+        <span className="block min-w-0">
+          <span className="block truncate text-muted-foreground">{row.original.summary}</span>
+          {row.original.note && <span className="block truncate text-[12.5px] text-muted-foreground/80">{row.original.note}</span>}
+        </span>
+      ),
+    },
     {
       id: 'outcome', header: 'Outcome', size: 110,
       cell: ({ row }) => <Tag color={row.original.outcome === 'allowed' ? 'green' : 'red'} dot>{row.original.outcome === 'allowed' ? 'Allowed' : 'Refused'}</Tag>,

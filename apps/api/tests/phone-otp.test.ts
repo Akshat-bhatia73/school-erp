@@ -13,6 +13,7 @@ import {
   type TestServer,
 } from './harness.ts'
 import { provisionPhoneIdentity } from '../src/identity/provision.ts'
+import { hashPhone } from '../src/auth/phone-otp.ts'
 
 /** A number nobody was ever given. */
 const UNKNOWN_PHONE = '9000000001'
@@ -267,7 +268,7 @@ test('the daily send budget is durable and survives the provider pruning its own
      VALUES ($1, 5, 0, now() + interval '1 hour')
      ON CONFLICT (key) DO UPDATE SET count = 5, last_request = 0,
        expires_at = now() + interval '1 hour'`,
-    [`otp-send:day:${day}:${TEACHER_PHONE}`],
+    [`otp-send:day:${day}:${hashPhone(TEACHER_PHONE)}`],
   )
   // Better Auth prunes its own rate-limit rows on every window rollover. That
   // must not hand the caller a fresh daily budget.
@@ -284,6 +285,12 @@ test('the daily send budget is durable and survives the provider pruning its own
     JSON.stringify(body),
   )
   assert.equal(smsFor(server, TEACHER_PHONE).length, delivered)
+  // A throttle row is durable, so it must not carry the number itself.
+  const keys = await throttleQuery<{ key: string }>(
+    'SELECT key FROM auth_throttle',
+  )
+  for (const row of keys.rows)
+    assert.equal(row.key.includes(TEACHER_PHONE.slice(-10)), false, row.key)
 })
 
 test('the daily budget per client address stops sends to other numbers too', async () => {

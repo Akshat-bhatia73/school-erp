@@ -7,6 +7,7 @@ import {
   StudentMedical,
   StudentSensitive,
 } from '@erp/contracts'
+import { maskApaar } from '../shared/index.ts'
 import type { StudentRow } from './reads.ts'
 
 type Basic = z.infer<typeof StudentBasic>
@@ -82,6 +83,7 @@ export function toStudentBasic(row: StudentRow): Basic {
       : { lastName: optionalText(row.last_name, 160) as string }),
     admissionNumber: row.admission_number,
     status: oneOf(STATUSES, row.status) ?? 'active',
+    anonymised: row.anonymised_at !== null,
     ...(enrollmentOf(row) === undefined ? {} : { enrollment: enrollmentOf(row) as Enrollment }),
   }
 }
@@ -92,13 +94,27 @@ export function toStudentBasic(row: StudentRow): Basic {
  * simply has no sensitive block rather than a fabricated one.
  */
 export function toStudentSensitive(row: StudentRow): Sensitive | undefined {
+  // An anonymised record has nothing restricted left; the block is omitted
+  // rather than answered with a shell of empty fields.
+  if (row.anonymised_at !== null) return undefined
   const gender = oneOf(GENDERS, row.gender)
-  if (row.date_of_birth === null || gender === undefined || row.admission_date === null) {
+  if (
+    row.date_of_birth === null ||
+    row.date_of_birth === undefined ||
+    gender === undefined ||
+    row.admission_date === null ||
+    row.admission_date === undefined
+  ) {
     return undefined
   }
   const category = optionalText(row.category, 50)
   const admissionType = optionalText(row.admission_type, 50)
-  const apaarId = optionalText(row.apaar_id, 100)
+  // Only the last four digits ever leave the database in a detail response;
+  // the full identifier comes from the audited reveal route.
+  const apaarMasked =
+    typeof row.apaar_last4 === 'string' && /^\d{4}$/.test(row.apaar_last4)
+      ? maskApaar(row.apaar_last4)
+      : undefined
   const address = optionalText(row.address, 1000)
   const aadhaar = typeof row.aadhaar_last4 === 'string' && /^\d{4}$/.test(row.aadhaar_last4)
     ? row.aadhaar_last4
@@ -109,13 +125,14 @@ export function toStudentSensitive(row: StudentRow): Sensitive | undefined {
     ...(category === undefined ? {} : { category }),
     ...(admissionType === undefined ? {} : { admissionType }),
     admissionDate: row.admission_date,
-    ...(apaarId === undefined ? {} : { apaarId }),
+    ...(apaarMasked === undefined ? {} : { apaarMasked }),
     ...(aadhaar === undefined ? {} : { aadhaarLast4: aadhaar }),
     ...(address === undefined ? {} : { address }),
   }
 }
 
-export function toStudentMedical(row: StudentRow): Medical {
+export function toStudentMedical(row: StudentRow): Medical | undefined {
+  if (row.anonymised_at !== null) return undefined
   const bloodGroup = optionalText(row.blood_group, 20)
   const notes = optionalText(row.medical_notes, 4000)
   return {

@@ -3,6 +3,7 @@ import { Facts, Panel } from '@/components/shared/page'
 import { colorFor, Tag } from '@/components/shared/tag'
 import { useSectionOptions } from '@/components/students/use-section-options'
 import { Button } from '@/components/ui/button'
+import { METHOD_LABEL, PURPOSE_LABEL } from '@/lib/consent'
 import { formatDate, humanize } from '@/lib/utils'
 import type { AdmitDraft } from './admit-state'
 
@@ -72,7 +73,28 @@ export function ReviewStep({ draft, onEdit, academicYearId, yearName }: {
         </div>
       </Panel>
 
-      <Panel title="Class and admission" actions={editButton(2)}>
+      <Panel title="Consent" actions={editButton(2)}>
+        <div className="space-y-4">
+          {draft.guardians.map((guardian, index) => (
+            <Facts
+              key={index}
+              items={[
+                {
+                  label: [guardian.firstName, guardian.lastName].filter(Boolean).join(' ') || humanize(guardian.relation),
+                  value: guardian.consentPurposes.length === 0
+                    ? 'Nothing recorded'
+                    : guardian.consentPurposes.map((purpose) => PURPOSE_LABEL[purpose]).join(', '),
+                },
+                ...(guardian.consentPurposes.length > 0
+                  ? [{ label: 'How it was given', value: METHOD_LABEL[guardian.consentMethod] }]
+                  : []),
+              ]}
+            />
+          ))}
+        </div>
+      </Panel>
+
+      <Panel title="Class and admission" actions={editButton(3)}>
         <Facts
           items={[
             { label: 'Academic year', value: yearName },

@@ -3,8 +3,8 @@
  * no longer takes an admission number: the server assigns it.
  */
 import { describe, expect, it } from 'vitest'
-import { StudentsAdmitRequest } from '@erp/contracts'
-import { emptyDraft, emptyGuardian, errorsForStep, toAdmitRequest, validateDraft } from './admit-state'
+import { StudentsAdmitRequest, type ConsentPurpose } from '@erp/contracts'
+import { consentEntries, emptyDraft, emptyGuardian, errorsForStep, toAdmitRequest, validateDraft } from './admit-state'
 import { mapSheetRows, sampleRows } from './import-utils'
 
 function filledDraft() {
@@ -41,7 +41,36 @@ describe('admission draft', () => {
     const draft = { ...filledDraft(), firstName: '', sectionId: '' }
     const errors = validateDraft(draft)
     expect(Object.keys(errorsForStep(0, errors))).toContain('firstName')
-    expect(Object.keys(errorsForStep(2, errors))).toContain('sectionId')
+    // The class step moved one along when the consent step was added between guardians and class.
+    expect(Object.keys(errorsForStep(3, errors))).toContain('sectionId')
+  })
+
+  it('sends no consents when nothing was ticked, because an untouched box is not an answer', () => {
+    expect(toAdmitRequest(filledDraft())).not.toHaveProperty('consents')
+    expect(consentEntries(filledDraft())).toEqual([])
+  })
+
+  it('emits one row per guardian and purpose, pointing at the guardian by index', () => {
+    const draft = {
+      ...filledDraft(),
+      guardians: [
+        { ...emptyGuardian('father'), firstName: 'Rakesh', phone: '9876543210' },
+        {
+          ...emptyGuardian('mother'), firstName: 'Meera', phone: '9876543211',
+          consentPurposes: ['photographs', 'communication'] as ConsentPurpose[],
+          consentMethod: 'signed_form' as const,
+          consentEvidence: 'Form 12',
+        },
+      ],
+    }
+    const request = toAdmitRequest(draft)
+    const parsed = StudentsAdmitRequest.safeParse(request)
+
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data.consents).toEqual([
+      { guardianIndex: 1, purpose: 'photographs', method: 'signed_form', evidenceReference: 'Form 12' },
+      { guardianIndex: 1, purpose: 'communication', method: 'signed_form', evidenceReference: 'Form 12' },
+    ])
   })
 })
 

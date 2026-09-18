@@ -1,18 +1,20 @@
 import type { FastifyInstance } from 'fastify'
 import type { Pool } from 'pg'
-import { and, desc, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, sql, type SQL } from 'drizzle-orm'
 import {
   AUDIT_EXPORT_MAX_DAYS,
   AuditEventListRequest,
   AuditEventPage,
   AuditExportJob,
   AuditExportRequest,
+  LIFECYCLE_ENDPOINTS,
+  RedactAuditNoteRequest,
 } from '@erp/contracts'
 import { withTenantTransaction } from '@erp/db'
-import { auditEvents } from '@erp/db/schema'
+import { auditEventNotes, auditEvents } from '@erp/db/schema'
 import { planPredicate, scopedTableFor, type AuthzConnection } from '@erp/authz'
 import { resolveDisplayNames, type MemberRow } from '../../memberships/directory.ts'
-import { ApiFailure, readPlan, writeAudit } from '../shared/index.ts'
+import { ApiFailure, assertUuidParam, lockSchool, readPlan, writeAudit } from '../shared/index.ts'
 import type { ModuleDependencies } from '../shared/route.ts'
 import { protectedRoute } from '../shared/route.ts'
 
@@ -33,6 +35,8 @@ interface EventRow {
   readonly action: string
   readonly summary: string
   readonly result: string
+  /** Null when no note was written, or when the note has been redacted. */
+  readonly note: string | null
 }
 
 /**
@@ -186,8 +190,18 @@ export function registerAuditRoutes(app: FastifyInstance, deps: ModuleDependenci
             action: auditEvents.action,
             summary: auditEvents.summary,
             result: auditEvents.result,
+            // A redacted note reads as absent: the event stays, the free text
+            // a person typed does not.
+            note: sql<string | null>`CASE WHEN ${auditEventNotes.redactedAt} IS NULL THEN ${auditEventNotes.note} END`,
           })
           .from(auditEvents)
+          .leftJoin(
+            auditEventNotes,
+            and(
+              eq(auditEventNotes.schoolId, auditEvents.schoolId),
+              eq(auditEventNotes.auditEventId, auditEvents.id),
+            ),
+          )
           .where(where)
           // Newest first, with the id as the tie break so paging is stable
           // when several rows share a timestamp.
@@ -207,6 +221,7 @@ export function registerAuditRoutes(app: FastifyInstance, deps: ModuleDependenci
             // way through is reported as denied: an operator who needs to tell
             // the two apart reads the result column in the database.
             outcome: row.result === 'allowed' ? ('allowed' as const) : ('denied' as const),
+            ...(row.note === null ? {} : { note: row.note.slice(0, 1000) }),
           })),
           total,
           page: query.page,
@@ -269,6 +284,52 @@ export function registerAuditRoutes(app: FastifyInstance, deps: ModuleDependenci
         // Saying 'ready' here would let the files module hand back a download
         // with nothing behind it.
         return { id: jobId, status: 'queued' as const }
+      })
+    },
+  })
+
+  /**
+   * Redaction of one note. The audit event itself is permanent; the free text
+   * a person typed into a reason box is not, so a subject can ask for it to be
+   * removed without the trail losing the fact that something happened.
+   */
+  protectedRoute(app, deps, {
+    method: LIFECYCLE_ENDPOINTS.redactAuditNote.method,
+    path: LIFECYCLE_ENDPOINTS.redactAuditNote.path,
+    permission: 'audit.redact_notes',
+    body: RedactAuditNoteRequest,
+    response: LIFECYCLE_ENDPOINTS.redactAuditNote.response,
+    handler: async ({ context, param }) => {
+      const eventId = assertUuidParam(param('eventId'))
+      return withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+        await lockSchool(conn, context.schoolId)
+        const event = await conn.client.query<{ id: string }>(
+          `SELECT id FROM audit_events WHERE school_id = $1 AND id = $2::uuid`,
+          [context.schoolId, eventId],
+        )
+        if (event.rows.length === 0) throw new ApiFailure('RESOURCE_NOT_FOUND')
+
+        const updated = await conn.client.query(
+          `UPDATE audit_event_notes
+              SET redacted_at = now(), redacted_by_membership_id = $3
+            WHERE school_id = $1 AND audit_event_id = $2::uuid AND redacted_at IS NULL`,
+          [context.schoolId, eventId, context.membershipId],
+        )
+        // A note that is already redacted is left alone and leaves no second
+        // audit row: repeating the request changes nothing.
+        if ((updated.rowCount ?? 0) > 0) {
+          // The reason the redacting person gave is itself free text about a
+          // person, so it is not stored anywhere: the row records only that a
+          // note was removed and from which event.
+          await writeAudit(conn, context, {
+            action: 'audit.redact_notes',
+            targetType: 'audit_event',
+            targetId: eventId,
+            summary: 'Redacted the note attached to an audit event.',
+            safeChanges: { eventId },
+          })
+        }
+        return { status: 'redacted' as const }
       })
     },
   })

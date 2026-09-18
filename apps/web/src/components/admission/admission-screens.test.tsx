@@ -8,6 +8,7 @@
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { renderWithSession } from '@/test/session'
 
 const setup = { sections: vi.fn(), grades: vi.fn(), academicYears: vi.fn() }
@@ -19,6 +20,7 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 
 const { ClassStep } = await import('./class-step')
 const { ReviewStep } = await import('./review-step')
+const { ConsentStep } = await import('./consent-step')
 const { ImportReview } = await import('./import-review')
 const { emptyDraft, emptyGuardian } = await import('./admit-state')
 
@@ -64,6 +66,36 @@ describe('admit form', () => {
 
     expect(await screen.findByText('Admission number')).toBeInTheDocument()
     expect(screen.getByText('Assigned when you save')).toBeInTheDocument()
+  })
+
+  it('lists what each guardian agreed to on the review step', async () => {
+    const draft = filledDraft()
+    draft.guardians = [{ ...draft.guardians[0]!, consentPurposes: ['photographs'], consentMethod: 'signed_form' }]
+    renderWithSession(
+      <ReviewStep draft={draft} onEdit={() => {}} academicYearId="year-1" yearName="2026-27" />,
+      { capabilities: [...CAPABILITIES] },
+    )
+
+    expect(await screen.findByText('Consent')).toBeInTheDocument()
+    expect(screen.getByText('Photographs')).toBeInTheDocument()
+    expect(screen.getByText('Signed form')).toBeInTheDocument()
+  })
+})
+
+describe('consent step', () => {
+  it('starts with nothing ticked and records the purpose the office ticked', async () => {
+    const set = vi.fn()
+    const user = userEvent.setup()
+    renderWithSession(<ConsentStep draft={filledDraft()} set={set} errors={{}} />, { capabilities: [...CAPABILITIES] })
+
+    expect(screen.getByText('Photographs')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /Photographs for Rakesh/ })).not.toBeChecked()
+
+    await user.click(screen.getByRole('checkbox', { name: /Photographs for Rakesh/ }))
+
+    expect(set).toHaveBeenCalledWith({
+      guardians: [expect.objectContaining({ consentPurposes: ['photographs'] })],
+    })
   })
 })
 

@@ -220,6 +220,7 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
             lastName: students.lastName,
             admissionNumber: students.admissionNumber,
             status: students.status,
+            anonymisedAt: students.anonymisedAt,
           })
           .from(students)
           .where(
@@ -251,6 +252,7 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
             ...(row.lastName ? { lastName: row.lastName } : {}),
             admissionNumber: row.admissionNumber,
             status: row.status as 'active' | 'left' | 'alumni' | 'suspended',
+            anonymised: row.anonymisedAt !== null,
           })),
           targetSection: { id: target.id, name: `${target.gradeName} ${target.name}` },
         }
@@ -375,7 +377,7 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
           `INSERT INTO export_jobs
              (school_id, requested_by_membership_id, kind, status, access_version,
               permission, criteria, row_count, expires_at)
-           VALUES ($1, $2, 'students', 'ready', $3, 'students.export', $4::jsonb, $5,
+           VALUES ($1, $2, 'students', 'queued', $3, 'students.export', $4::jsonb, $5,
                    now() + interval '1 day')
            RETURNING id, status`,
           [

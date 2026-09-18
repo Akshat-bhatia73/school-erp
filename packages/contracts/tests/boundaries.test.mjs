@@ -2,8 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as c from '../src/index.ts'
 
-const student = { id: 'student-1', schoolId: 'school-1', version: 1, firstName: 'Meera', admissionNumber: '2026/1', status: 'active' }
-const staff = { id: 'staff-1', schoolId: 'school-1', version: 1, displayName: 'Meera', designation: 'Teacher' }
+const student = { id: 'student-1', schoolId: 'school-1', version: 1, firstName: 'Meera', admissionNumber: '2026/1', status: 'active', anonymised: false }
+const staff = { id: 'staff-1', schoolId: 'school-1', version: 1, displayName: 'Meera', designation: 'Teacher', anonymised: false }
 const invite = { displayName: 'Meera', identifier: { kind: 'email', value: 'meera@example.org' }, roleKeys: ['teacher'], staffId: 'staff-1' }
 const rule = {
   id: 'rule-1', schoolId: 'school-1', membershipId: 'member-1', permission: 'students.read_basic',
@@ -121,4 +121,47 @@ test('advertised actions exclude reserved or duplicate permissions', () => {
 test('output date ranges retain input refinements', () => {
   assert.equal(c.AcademicYear.safeParse({ id: 'year-1', schoolId: 'school-1', version: 1, name: '2026', status: 'current', startDate: '2026-04-01', endDate: '2025-03-31' }).success, false)
   assert.equal(c.Holiday.safeParse({ id: 'holiday-1', schoolId: 'school-1', academicYearId: 'year-1', version: 1, name: 'Break', type: 'school', startDate: '2026-09-15', endDate: '2026-09-14' }).success, false)
+})
+
+test('consent, reveal and anonymisation contracts refuse free-form or unscoped input', () => {
+  const consent = { guardianId: 'guardian-1', purpose: 'photographs', status: 'given', method: 'portal' }
+  assert.equal(c.RecordConsentRequest.safeParse(consent).success, true)
+  for (const field of ['studentId', 'recordedBy', 'schoolId', 'recordedAt']) {
+    assert.equal(c.RecordConsentRequest.safeParse({ ...consent, [field]: 'injected' }).success, false, field)
+  }
+  assert.equal(c.RecordConsentRequest.safeParse({ ...consent, purpose: 'anything' }).success, false)
+  assert.equal(c.RecordConsentRequest.safeParse({ ...consent, evidenceReference: 'x'.repeat(201) }).success, false)
+  assert.deepEqual(c.CONSENT_PURPOSES.length, 5)
+
+  // The sensitive block carries the mask only; the full value has its own audited route.
+  const sensitive = { dateOfBirth: '2014-05-02', gender: 'female', admissionDate: '2020-04-01' }
+  assert.equal(c.StudentSensitive.safeParse({ ...sensitive, apaarMasked: 'XXXX-XXXX-4321' }).success, true)
+  assert.equal(c.StudentSensitive.safeParse({ ...sensitive, apaarMasked: '1234-5678-4321' }).success, false)
+  assert.equal(c.StudentSensitive.safeParse({ ...sensitive, apaarId: '123456784321' }).success, false)
+  assert.equal(c.StudentApaarReveal.safeParse({ apaarId: '123456784321' }).success, true)
+
+  const anonymise = { expectedVersion: 1, reason: 'Retention period has passed' }
+  assert.equal(c.AnonymiseRequest.safeParse(anonymise).success, true)
+  assert.equal(c.UnlinkGuardianRequest.safeParse(anonymise).success, true)
+  for (const field of ['status', 'anonymisedAt', 'schoolId']) {
+    assert.equal(c.AnonymiseRequest.safeParse({ ...anonymise, [field]: 'injected' }).success, false, field)
+  }
+  assert.equal(c.RedactAuditNoteRequest.safeParse({ reason: 'Contained a phone number' }).success, true)
+  assert.equal(c.RedactAuditNoteRequest.safeParse({ reason: 'Contained a phone number', note: 'x' }).success, false)
+  assert.equal(c.RETENTION.studentSensitiveYears, 3)
+  assert.equal(c.RETENTION.staffPrivateYears, 8)
+})
+
+test('admission consents index the request guardians and stay bounded', () => {
+  const admit = {
+    firstName: 'Meera', dateOfBirth: '2014-05-02', gender: 'female', admissionDate: '2026-04-01',
+    sectionId: 'section-1',
+    guardians: [{ guardian: { firstName: 'Anil', phone: '+919876543210' }, relation: 'father' }],
+    consents: [{ guardianIndex: 0, purpose: 'communication', method: 'signed_form' }],
+  }
+  assert.equal(c.StudentsAdmitRequest.safeParse(admit).success, true)
+  assert.equal(c.StudentsAdmitRequest.safeParse({ ...admit, consents: [{ guardianIndex: -1, purpose: 'communication', method: 'signed_form' }] }).success, false)
+  assert.equal(c.StudentsAdmitRequest.safeParse({ ...admit, consents: [{ guardianIndex: 0, purpose: 'communication', method: 'signed_form', guardianId: 'guardian-1' }] }).success, false)
+  const many = Array.from({ length: 26 }, () => ({ guardianIndex: 0, purpose: 'communication', method: 'portal' }))
+  assert.equal(c.StudentsAdmitRequest.safeParse({ ...admit, consents: many }).success, false)
 })

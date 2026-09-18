@@ -8,7 +8,7 @@ import { colorFor, Tag } from '@/components/shared/tag'
 import { MarkLeftDialog, MoveSectionDialog } from '@/components/students/student-dialogs'
 import { classLabel, StudentStatusTag } from '@/components/students/student-columns'
 import { StudentBasicSheet, StudentSensitiveSheet } from '@/components/students/student-edit-sheet'
-import { DocumentsTab, EnrollmentsTab, GuardiansTab, OverviewTab, SiblingsTab } from '@/components/students/student-profile'
+import { AnonymisePanel, ConsentsTab, DocumentsTab, EnrollmentsTab, GuardiansTab, OverviewTab, SiblingsTab } from '@/components/students/student-profile'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -71,6 +71,8 @@ function Page() {
   const canReadSiblings = allows(allowedActions, 'students.read_siblings')
   const canReadDocuments = hasPermission('students.read_documents')
   const canReadEnrollments = hasPermission('students.read_enrollments')
+  const canReadConsents = allows(allowedActions, 'students.read_consents')
+  const canAnonymise = allows(allowedActions, 'students.anonymise')
   const hasActions = canEditBasic || canEditSensitive || canManageEnrollment
 
   const menuItems = (
@@ -123,6 +125,7 @@ function Page() {
             {student.enrollment && <Tag color={colorFor(student.enrollment.grade.name)}>{classLabel(student)}</Tag>}
             {student.enrollment?.rollNumber !== undefined && <Tag>Roll {student.enrollment.rollNumber}</Tag>}
             <StudentStatusTag status={student.status} />
+            {student.anonymised && <Tag color="grey">Anonymised</Tag>}
           </div>
           <p className="mt-2 text-[13px] text-muted-foreground">
             <span className="font-mono">{student.admissionNumber}</span>
@@ -135,16 +138,19 @@ function Page() {
           <TabsList variant="line">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             {canReadGuardians && <TabsTrigger value="guardians">Guardians</TabsTrigger>}
+            {canReadConsents && <TabsTrigger value="consent">Consent</TabsTrigger>}
             {canReadSiblings && <TabsTrigger value="siblings">Siblings</TabsTrigger>}
             {canReadDocuments && <TabsTrigger value="documents">Documents</TabsTrigger>}
             {canReadEnrollments && <TabsTrigger value="enrollments">Class history</TabsTrigger>}
           </TabsList>
-          <TabsContent value="overview">
+          <TabsContent value="overview" className="space-y-4">
             <OverviewTab detail={detail} showGuardianContacts={!canReadGuardians} />
+            {canAnonymise && !student.anonymised && <AnonymisePanel student={student} />}
           </TabsContent>
           {canReadGuardians && (
-            <TabsContent value="guardians"><GuardiansTab studentId={student.id} canManage={canManageGuardians} /></TabsContent>
+            <TabsContent value="guardians"><GuardiansTab studentId={student.id} studentVersion={student.version} canManage={canManageGuardians} /></TabsContent>
           )}
+          {canReadConsents && <TabsContent value="consent"><ConsentsTab studentId={student.id} /></TabsContent>}
           {canReadSiblings && <TabsContent value="siblings"><SiblingsTab studentId={student.id} /></TabsContent>}
           {canReadDocuments && (
             <TabsContent value="documents"><DocumentsTab studentId={student.id} allowedActions={allowedActions} /></TabsContent>

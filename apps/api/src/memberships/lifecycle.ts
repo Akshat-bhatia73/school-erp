@@ -6,7 +6,7 @@ import {
   lockMembershipForAccessChange,
   type AuthzConnection,
 } from '@erp/authz'
-import { withTenantTransaction } from '@erp/db'
+import { activeMembershipsForUser, withTenantTransaction } from '@erp/db'
 import {
   MEMBERSHIP_TRANSITIONS,
   MemberSummary,
@@ -162,7 +162,7 @@ export async function changeMembershipStatus(
   const body = restoreBody ?? parseBody(rawBody, MembershipActionRequest)
   const roleKeys: readonly RoleKey[] | undefined = restoreBody?.roleKeys
 
-  return withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+  const committed = await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
     // Serialise every access change in this school against the owner check.
     await lockSchool(conn, context.schoolId)
     await authorizeOnMembership(conn, context, EVENT_PERMISSION[event], membershipId)
@@ -234,13 +234,38 @@ export async function changeMembershipStatus(
       summary: `Membership status changed to ${to}.`,
       safeChanges: {
         status: { from: target.status, to },
-        reason: body.reason,
         ...(roleKeys ? { roleKeys } : {}),
         ...(event === 'remove' ? { rulesRevoked } : {}),
       },
       requestId: context.requestId,
+      // The typed reason is a redactable note, never structural audit data.
+      note: body.reason,
     })
 
-    return freshSummary(conn, deps.pools.auth, context.schoolId, membershipId)
+    return {
+      summary: await freshSummary(conn, deps.pools.auth, context.schoolId, membershipId),
+      userId: target.userId,
+    }
   })
+
+  // Only once the removal is committed: a person with no membership left
+  // anywhere has nothing to be signed in to, so their sessions end now. The
+  // credential rows follow 30 days later through the sweep.
+  if (event === 'remove') await endSessionsWhenLastMembership(deps, committed.userId)
+
+  return committed.summary
+}
+
+/**
+ * The identity pool is the only login that may ask which schools a user still
+ * belongs to. No row means no active or suspended membership anywhere.
+ */
+async function endSessionsWhenLastMembership(
+  deps: LifecycleDependencies,
+  userId: string | null,
+): Promise<void> {
+  if (!userId) return
+  const remaining = await activeMembershipsForUser(deps.pools.identity, userId)
+  if (remaining.length > 0) return
+  await deps.pools.auth.query('DELETE FROM auth_session WHERE user_id = $1', [userId])
 }

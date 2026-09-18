@@ -1,6 +1,7 @@
 /** Task 5 request and response contracts owned by the students module. */
 import { z } from 'zod'
 import { CalendarDate, DisplayName, Id, Phone, Version } from './common.ts'
+import { AdmitConsent } from './module-lifecycle.ts'
 
 /** The relationship vocabulary a guardian link may use. Mirrors GuardianContact. */
 export const StudentsGuardianRelation = z.enum([
@@ -57,6 +58,7 @@ export const StudentsAdmitRequest = z.strictObject({
   sectionId: Id,
   rollNumber: z.number().int().positive().optional(),
   guardians: z.array(StudentsAdmitGuardian).min(1).max(5),
+  consents: z.array(AdmitConsent).max(25).optional(),
 })
 
 /** The restricted demographic fields, behind students.update_sensitive. */

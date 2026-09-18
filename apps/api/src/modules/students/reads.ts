@@ -54,6 +54,7 @@ export interface StudentRow extends Record<string, unknown> {
   last_name: string | null
   admission_number: string
   status: string
+  anonymised_at: string | null
   enrollment_id: string | null
   roll_number: number | null
   outcome: string | null
@@ -63,17 +64,33 @@ export interface StudentRow extends Record<string, unknown> {
   section_name: string | null
   grade_id: string | null
   grade_name: string | null
-  date_of_birth: string | null
-  gender: string | null
-  category: string | null
-  admission_type: string | null
-  admission_date: string | null
-  apaar_id: string | null
-  aadhaar_last4: string | null
-  address: string | null
-  blood_group: string | null
-  medical_notes: string | null
+  /** Present only when the caller asked for the sensitive block. */
+  date_of_birth?: string | null
+  gender?: string | null
+  category?: string | null
+  admission_type?: string | null
+  admission_date?: string | null
+  apaar_last4?: string | null
+  apaar_ciphertext?: string | null
+  aadhaar_last4?: string | null
+  address?: string | null
+  /** Present only when the caller asked for the medical block. */
+  blood_group?: string | null
+  medical_notes?: string | null
 }
+
+/**
+ * Which restricted column groups the statement may name. The roster, the
+ * search and the count always pass the default, so a basic reader's query
+ * never mentions a health note or a home address at all: nothing to leak
+ * through an error message, a query log or a later change to the projection.
+ */
+export interface StudentReadOptions {
+  readonly sensitive: boolean
+  readonly medical: boolean
+}
+
+const BASIC: StudentReadOptions = { sensitive: false, medical: false }
 
 /**
  * One statement for the roster, the search, the count and the detail read, so
@@ -101,15 +118,24 @@ function studentSource(predicate: SQL, enrollmentPredicate: SQL, filters: SQL[])
      WHERE ${where}`
 }
 
-const PROJECTION = sql`SELECT students.id, students.school_id, students.version,
-      students.first_name, students.last_name, students.admission_number, students.status,
-      students.date_of_birth::text AS date_of_birth, students.gender, students.category,
+/** The select list for a read, built from what the caller was allowed. */
+export function studentProjection(options: StudentReadOptions): SQL {
+  const sensitive = options.sensitive
+    ? sql`, students.date_of_birth::text AS date_of_birth, students.gender, students.category,
       students.admission_type, students.admission_date::text AS admission_date,
-      students.apaar_id, students.aadhaar_last4, students.blood_group, students.medical_notes,
-      COALESCE(students.address #>> '{}', students.address::text) AS address,
+      students.apaar_last4, students.apaar_ciphertext, students.aadhaar_last4,
+      COALESCE(students.address #>> '{}', students.address::text) AS address`
+    : sql``
+  const medical = options.medical
+    ? sql`, students.blood_group, students.medical_notes`
+    : sql``
+  return sql`SELECT students.id, students.school_id, students.version,
+      students.first_name, students.last_name, students.admission_number, students.status,
+      students.anonymised_at::text AS anonymised_at,
       current_enrollment.id AS enrollment_id, current_enrollment.roll_number, current_enrollment.outcome,
       ay.id AS year_id, ay.name AS year_name, sec.id AS section_id, sec.name AS section_name,
-      gr.id AS grade_id, gr.name AS grade_name `
+      gr.id AS grade_id, gr.name AS grade_name${sensitive}${medical} `
+}
 
 /** The filters the roster, the count and the search all share. */
 export function rosterFilters(input: {
@@ -160,7 +186,7 @@ export async function listStudents(
   const filters = rosterFilters(input)
   const offset = (input.page - 1) * input.pageSize
   const rows = await conn.db.execute<StudentRow>(
-    sql`${PROJECTION} ${studentSource(predicate, enrollmentPredicate, filters)}
+    sql`${studentProjection(BASIC)} ${studentSource(predicate, enrollmentPredicate, filters)}
         ORDER BY ${orderBy(input.sort)} LIMIT ${input.pageSize} OFFSET ${offset}`,
   )
   const counted = await conn.db.execute<{ total: number }>(
@@ -190,7 +216,7 @@ export async function searchStudents(
 ): Promise<StudentRow[]> {
   const predicate = planPredicate(plan, studentTable())
   const rows = await conn.db.execute<StudentRow>(
-    sql`${PROJECTION} ${studentSource(predicate, enrollmentPredicate, rosterFilters({ search: term }))}
+    sql`${studentProjection(BASIC)} ${studentSource(predicate, enrollmentPredicate, rosterFilters({ search: term }))}
         ORDER BY students.first_name ASC, students.id ASC LIMIT 20`,
   )
   return rows.rows
@@ -202,10 +228,11 @@ export async function getStudent(
   plan: AuthorizedReadPlan,
   enrollmentPredicate: SQL,
   studentId: string,
+  options: StudentReadOptions = BASIC,
 ): Promise<StudentRow | null> {
   const predicate = planPredicate(plan, studentTable())
   const rows = await conn.db.execute<StudentRow>(
-    sql`${PROJECTION} ${studentSource(predicate, enrollmentPredicate, [sql`students.id = ${studentId}::uuid`])} LIMIT 1`,
+    sql`${studentProjection(options)} ${studentSource(predicate, enrollmentPredicate, [sql`students.id = ${studentId}::uuid`])} LIMIT 1`,
   )
   return rows.rows[0] ?? null
 }

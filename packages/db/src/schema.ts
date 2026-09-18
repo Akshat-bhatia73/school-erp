@@ -303,7 +303,6 @@ export const staff = pgTable(
     bloodGroup: text('blood_group'),
     phone: text('phone'),
     email: text('email'),
-    photoUrl: text('photo_url'),
     address: jsonb('address'),
     department: text('department'),
     employmentType: text('employment_type'),
@@ -314,6 +313,7 @@ export const staff = pgTable(
     monthlySalary: numeric('monthly_salary'),
     bankAccountLast4: text('bank_account_last4'),
     panLast4: text('pan_last4'),
+    anonymisedAt: timestamp('anonymised_at', { withTimezone: true }),
     version: integer('version').notNull().default(1),
     ...timestamps(),
   },
@@ -408,8 +408,10 @@ export const students = pgTable(
     motherTongue: text('mother_tongue'),
     nationality: text('nationality'),
     aadhaarLast4: text('aadhaar_last4'),
-    apaarId: text('apaar_id'),
-    photoUrl: text('photo_url'),
+    /** Last four digits of the APAAR id: all a screen is ever shown. */
+    apaarLast4: text('apaar_last4'),
+    /** The APAAR id sealed by the API; the key never reaches the database. */
+    apaarCiphertext: text('apaar_ciphertext'),
     address: jsonb('address'),
     admissionDate: date('admission_date'),
     admissionType: text('admission_type'),
@@ -419,6 +421,7 @@ export const students = pgTable(
     house: text('house'),
     medicalNotes: text('medical_notes'),
     usesTransport: boolean('uses_transport').notNull().default(false),
+    anonymisedAt: timestamp('anonymised_at', { withTimezone: true }),
     version: integer('version').notNull().default(1),
     ...timestamps(),
   },
@@ -445,7 +448,7 @@ export const guardians = pgTable(
     qualification: text('qualification'),
     annualIncome: numeric('annual_income'),
     address: jsonb('address'),
-    photoUrl: text('photo_url'),
+    anonymisedAt: timestamp('anonymised_at', { withTimezone: true }),
     version: integer('version').notNull().default(1),
     ...timestamps(),
   },
@@ -828,6 +831,59 @@ export const numberSequences = pgTable(
   (t) => [primaryKey({ columns: [t.schoolId, t.kind, t.period] })],
 )
 
+/**
+ * Task 12 lifecycle tables. A consent row is an event: the newest row for a
+ * (guardian, purpose) pair is the current answer, and a trigger refuses any
+ * edit. A note keeps the words somebody typed out of the append-only audit
+ * row, so it can be redacted without rewriting history.
+ */
+export const guardianConsents = pgTable(
+  'guardian_consents',
+  {
+    id: id(),
+    schoolId: tenant(),
+    studentId: uuid('student_id').notNull(),
+    guardianId: uuid('guardian_id').notNull(),
+    purpose: text('purpose').notNull(),
+    status: text('status').notNull(),
+    method: text('method').notNull(),
+    recordedByMembershipId: uuid('recorded_by_membership_id').notNull(),
+    evidenceReference: text('evidence_reference'),
+    recordedAt: timestamp('recorded_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique('guardian_consents_school_id_unique').on(t.schoolId, t.id),
+    index('guardian_consents_current_idx').on(
+      t.schoolId,
+      t.studentId,
+      t.guardianId,
+      t.purpose,
+      t.recordedAt,
+    ),
+  ],
+)
+
+export const auditEventNotes = pgTable(
+  'audit_event_notes',
+  {
+    id: id(),
+    schoolId: tenant(),
+    auditEventId: uuid('audit_event_id').notNull().unique(),
+    note: text('note').notNull(),
+    redactedAt: timestamp('redacted_at', { withTimezone: true }),
+    redactedByMembershipId: uuid('redacted_by_membership_id'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [unique('audit_event_notes_school_id_unique').on(t.schoolId, t.id)],
+)
+
 export const schoolTables = [
   schoolMemberships,
   roles,
@@ -861,4 +917,6 @@ export const schoolTables = [
   studentImportPreviews,
   exportJobs,
   numberSequences,
+  guardianConsents,
+  auditEventNotes,
 ] as const

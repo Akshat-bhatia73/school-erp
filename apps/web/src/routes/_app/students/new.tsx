@@ -4,6 +4,7 @@ import { Lock } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { ClassStep } from '@/components/admission/class-step'
+import { ConsentStep } from '@/components/admission/consent-step'
 import { GuardiansStep } from '@/components/admission/guardians-step'
 import { ReviewStep } from '@/components/admission/review-step'
 import { StepProgress, StepRail } from '@/components/admission/step-rail'
@@ -22,7 +23,7 @@ import { useAcademicYear } from '@/lib/use-academic-year'
 
 export const Route = createFileRoute('/_app/students/new')({ component: Page })
 
-const STEPS = ['Student details', 'Parents / guardians', 'Class & admission', 'Review']
+const STEPS = ['Student details', 'Parents / guardians', 'Consent', 'Class & admission', 'Review']
 
 function Page() {
   const { schoolId, hasPermission } = useSchoolContext()
@@ -92,8 +93,9 @@ function Page() {
             <h1 className="mb-4 hidden text-[16px] font-semibold md:block">{STEPS[step]}</h1>
             {step === 0 && <StudentStep draft={draft} set={set} errors={stepErrors} />}
             {step === 1 && <GuardiansStep draft={draft} set={set} errors={stepErrors} canAttachExisting={hasPermission('students.manage_guardians')} />}
-            {step === 2 && <ClassStep draft={draft} set={set} errors={stepErrors} academicYearId={currentYearId} yearName={current?.name ?? 'This year'} />}
-            {step === 3 && <ReviewStep draft={draft} onEdit={setStep} academicYearId={currentYearId} yearName={current?.name ?? 'This year'} />}
+            {step === 2 && <ConsentStep draft={draft} set={set} errors={stepErrors} />}
+            {step === 3 && <ClassStep draft={draft} set={set} errors={stepErrors} academicYearId={currentYearId} yearName={current?.name ?? 'This year'} />}
+            {step === 4 && <ReviewStep draft={draft} onEdit={setStep} academicYearId={currentYearId} yearName={current?.name ?? 'This year'} />}
 
             {/* Sticky on mobile so Next is always in reach on a long form */}
             <div className="sticky bottom-0 -mx-3 mt-5 flex items-center justify-between gap-3 border-t bg-card px-3 py-3 md:static md:mx-0 md:bg-transparent md:px-0 md:pt-4 md:pb-0">

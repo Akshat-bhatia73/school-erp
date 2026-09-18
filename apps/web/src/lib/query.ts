@@ -49,6 +49,7 @@ export const qk = {
   studentGuardians: (schoolId: string, studentId: string) => [schoolId, 'students', 'detail', studentId, 'guardians'] as const,
   studentSiblings: (schoolId: string, studentId: string) => [schoolId, 'students', 'detail', studentId, 'siblings'] as const,
   studentDocuments: (schoolId: string, studentId: string) => [schoolId, 'students', 'detail', studentId, 'documents'] as const,
+  studentConsents: (schoolId: string, studentId: string) => [schoolId, 'students', 'detail', studentId, 'consents'] as const,
   studentEnrollments: (schoolId: string, studentId: string) => [schoolId, 'students', 'detail', studentId, 'enrollments'] as const,
   promotePreview: (schoolId: string, params: Params) => [schoolId, 'students', 'promotePreview', params ?? {}] as const,
 

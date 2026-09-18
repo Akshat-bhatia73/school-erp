@@ -155,13 +155,18 @@ test('an owner reviews the roles of a teacher', async () => {
   assert.deepEqual([...summary.roleKeys].sort(), ['parent', 'teacher'])
   assert.equal(summary.accessVersion, 2)
 
-  const audit = await adminPool().query<{ safe_changes: { reason: string } }>(
-    `SELECT safe_changes FROM audit_events
-      WHERE school_id = $1 AND target_id = $2 AND action = 'roles.assign'`,
+  // The reason a person typed lives in the redactable note table, never in the
+  // permanent safe_changes.
+  const audit = await adminPool().query<{ safe_changes: Record<string, unknown>; note: string | null }>(
+    `SELECT e.safe_changes, n.note
+       FROM audit_events e
+       LEFT JOIN audit_event_notes n ON n.school_id = e.school_id AND n.audit_event_id = e.id
+      WHERE e.school_id = $1 AND e.target_id = $2 AND e.action = 'roles.assign'`,
     [schoolA, member.membershipId],
   )
   assert.equal(audit.rowCount, 1)
-  assert.equal(audit.rows[0]?.safe_changes.reason, 'Also collects a sibling from school')
+  assert.equal('reason' in (audit.rows[0]?.safe_changes ?? {}), false)
+  assert.equal(audit.rows[0]?.note, 'Also collects a sibling from school')
 })
 
 test('a stale expected version changes nothing', async () => {

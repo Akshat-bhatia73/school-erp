@@ -1,5 +1,14 @@
 import { z } from 'zod'
 
+/** Base64 of exactly 32 bytes, the AES-256 key length. */
+function isBase64Key(value: string): boolean {
+  try {
+    return Buffer.from(value, 'base64').length === 32 && Buffer.from(value, 'base64').toString('base64') === value
+  } catch {
+    return false
+  }
+}
+
 /** Read once at startup. A missing or unsupported value must stop the process. */
 const EnvSchema = z.object({
   AUTH_DATABASE_URL: z.string().min(1),
@@ -47,6 +56,18 @@ const EnvSchema = z.object({
   /** `blob` reads from a private Vercel Blob store; a function has no disk. */
   DOCUMENT_STORAGE: z.enum(['local', 'blob']).default('local'),
   BLOB_READ_WRITE_TOKEN: z.string().min(1).optional(),
+  /**
+   * Seals sensitive text (today the APAAR id) with AES-256-GCM before it is
+   * stored. Base64 of 32 random bytes: openssl rand -base64 32. The key never
+   * reaches the database; losing it makes the sealed values unreadable.
+   */
+  DATA_ENCRYPTION_KEY: z.string().refine(isBase64Key, 'must be base64 of 32 bytes'),
+  /**
+   * Publishes GET /api/maintenance/sweep for the daily cron. Absent, the route
+   * does not exist. Present, a request must carry Authorization: Bearer
+   * <this value>, which Vercel Cron sends on its own.
+   */
+  CRON_SECRET: z.string().min(32).optional(),
   /** Error reporting. Absent means nothing leaves the process. */
   SENTRY_DSN: z.url().optional(),
   PORT: z.coerce.number().int().min(0).max(65_535).default(3001),
@@ -67,6 +88,8 @@ export class ConfigurationError extends Error {}
 
 /** The value shipped in apps/api/.env.example. It is public, so it is not a secret. */
 const EXAMPLE_AUTH_SECRET = 'development-only-secret-change-me-0000000000'
+/** The key shipped in apps/api/.env.example; public, so production refuses it. */
+const EXAMPLE_DATA_ENCRYPTION_KEY = 'ZGV2ZWxvcG1lbnQtb25seS1kYXRhLWtleS0wMDAwMDA='
 
 /** Postgres login that owns the schema. The running API must never use it. */
 const MIGRATOR_LOGIN = 'erp_migrator'
@@ -92,6 +115,11 @@ function assertProductionSafe(config: z.infer<typeof EnvSchema>): void {
   if (config.AUTH_SECRET.length < 32)
     throw new ConfigurationError(
       'AUTH_SECRET must be at least 32 characters in production.',
+    )
+
+  if (config.DATA_ENCRYPTION_KEY === EXAMPLE_DATA_ENCRYPTION_KEY)
+    throw new ConfigurationError(
+      'DATA_ENCRYPTION_KEY is still the example value from apps/api/.env.example. Generate a new one: openssl rand -base64 32',
     )
 
   const origin = new URL(config.APP_ORIGIN)

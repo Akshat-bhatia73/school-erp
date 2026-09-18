@@ -70,6 +70,8 @@ export function testEnv(port: number, overrides: Record<string, string> = {}) {
   return {
     ...DB_URLS,
     AUTH_SECRET: 'test-secret-value-for-local-authentication-only',
+    // Base64 of 32 bytes; a test value, not the example the production check refuses.
+    DATA_ENCRYPTION_KEY: 'dGVzdC1vbmx5LWRhdGEtZW5jcnlwdGlvbi1rZXktMDA=',
     APP_ORIGIN: `http://127.0.0.1:${port}`,
     API_TRUST_PROXY: 'false',
     DELIVERY_MODE: 'sandbox',
@@ -137,6 +139,7 @@ export async function startTestServer(
   const app = buildApp({ config, auth, delivery, pools, documents })
   if (extend) {
     extend(app, {
+      config,
       auth,
       pools,
       delivery,

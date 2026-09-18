@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { stat, unlink } from 'node:fs/promises'
 import { isAbsolute, join, normalize, sep } from 'node:path'
 
 /**
@@ -16,6 +16,12 @@ export interface DocumentFile {
 export interface DocumentStorage {
   /** The file, or null when the key names nothing this storage holds. */
   read(storageKey: string): Promise<DocumentFile | null>
+  /**
+   * Destroy the bytes behind a key. Anonymisation has to reach the object
+   * store as well as the row, so a key that no longer exists is not an error:
+   * the outcome asked for is already true.
+   */
+  remove(storageKey: string): Promise<void>
 }
 
 /** Bytes are typed by the caller's own record, never sniffed from the file. */
@@ -55,6 +61,16 @@ export function createLocalDocumentStorage(rootDir: string): DocumentStorage {
         return null
       }
     },
+    async remove(storageKey: string): Promise<void> {
+      if (!isSafeStorageKey(storageKey)) return
+      const full = normalize(join(root, storageKey))
+      if (full !== root && !full.startsWith(root.endsWith(sep) ? root : `${root}${sep}`)) return
+      try {
+        await unlink(full)
+      } catch {
+        // Already gone, or never ours to begin with.
+      }
+    },
   }
 }
 
@@ -88,6 +104,9 @@ export function createMemoryDocumentStorage(): MemoryDocumentStorage {
         contentType: found.contentType,
         sizeBytes: bytes.byteLength,
       }
+    },
+    async remove(storageKey) {
+      files.delete(storageKey)
     },
   }
 }

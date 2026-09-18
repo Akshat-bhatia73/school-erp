@@ -78,6 +78,9 @@ export const ROLE_TEMPLATES = {
       grant('roles.assign', 'school'), grant('access.explain', 'school'),
       grant('ownership.transfer', 'school'), grant('audit.read', 'school'),
       grant('audit.export', 'school'),
+      grant('students.read_consents', 'school'), grant('students.manage_consents', 'school'),
+      grant('students.anonymise', 'school'), grant('staff.anonymise', 'school'),
+      grant('audit.redact_notes', 'school'),
     ],
   },
   principal: {
@@ -90,6 +93,8 @@ export const ROLE_TEMPLATES = {
       grant('members.suspend', 'school'), grant('members.remove', 'school'),
       grant('members.restore', 'school'), grant('roles.read', 'school'),
       grant('roles.assign', 'school'), grant('audit.read', 'school'),
+      grant('students.read_consents', 'school'), grant('students.manage_consents', 'school'),
+      grant('students.anonymise', 'school'), grant('staff.anonymise', 'school'),
     ],
   },
   admin: {
@@ -101,6 +106,7 @@ export const ROLE_TEMPLATES = {
       grant('members.suspend', 'school'),
       grant('members.restore', 'school'), grant('roles.read', 'school'),
       grant('roles.assign', 'school'),
+      grant('students.read_consents', 'school'), grant('students.manage_consents', 'school'),
     ],
   },
   accountant: {
@@ -140,6 +146,8 @@ export const ROLE_TEMPLATES = {
       grant('students.read_enrollments', 'own_children'),
       grant('timetable.read', 'own_children'),
       grant('dashboard.read', 'own_children'),
+      grant('students.read_consents', 'own_children'),
+      grant('students.manage_consents', 'own_children'),
     ],
   },
   student: { displayName: 'Student', enabled: false, requiredMfa: false, grants: [] },

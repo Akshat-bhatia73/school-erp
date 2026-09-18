@@ -9,8 +9,11 @@ import { parseBody, requiredParam } from '../../memberships/lifecycle.ts'
 import { authorizeSchoolAction } from '../../memberships/authorize.ts'
 import type { AccessDependencies } from '../../memberships/routes.ts'
 import type { DocumentStorage } from '../../files/storage.ts'
+import type { ApiConfig } from '../../config.ts'
 
 export interface ModuleDependencies extends AccessDependencies {
+  /** Read once at startup; modules use it for the data encryption key. */
+  readonly config: ApiConfig
   /** Private document bytes. Keys are server state and are never returned. */
   readonly documents: DocumentStorage
 }

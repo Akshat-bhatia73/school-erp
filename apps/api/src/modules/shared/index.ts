@@ -10,7 +10,7 @@ export {
 } from './authorize.ts'
 export { lockSchool, recordAuditEvent, writeAudit } from './audit.ts'
 export type { ModuleAuditEntry, TenantConnection } from './audit.ts'
-export { ApiFailure, assertAllowed, requireFound } from './errors.ts'
+export { ApiFailure, assertAllowed, assertUuidParam, requireFound } from './errors.ts'
 export {
   allocateAdmissionNumber,
   allocateEmployeeCode,
@@ -21,3 +21,4 @@ export {
 } from './sequences.ts'
 export { assertVersion, bumpVersion } from './version.ts'
 export type { VersionedTable } from './version.ts'
+export { maskApaar, open, seal } from './crypto.ts'

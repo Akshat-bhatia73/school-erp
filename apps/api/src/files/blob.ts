@@ -1,4 +1,4 @@
-import { get } from '@vercel/blob'
+import { del, get } from '@vercel/blob'
 import { isSafeStorageKey, type DocumentFile, type DocumentStorage } from './storage.ts'
 
 /** Bytes are typed by the caller's own record, never by what the store says. */
@@ -25,6 +25,14 @@ export function createBlobDocumentStorage(token: string): DocumentStorage {
         // A missing file and an unreachable store answer the same way, so the
         // difference cannot be probed.
         return null
+      }
+    },
+    async remove(storageKey: string): Promise<void> {
+      if (!isSafeStorageKey(storageKey)) return
+      try {
+        await del(storageKey, { token })
+      } catch {
+        // A key that is already gone is the outcome anonymisation wanted.
       }
     },
   }

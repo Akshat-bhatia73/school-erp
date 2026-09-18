@@ -1,10 +1,13 @@
 /** The student roster, one student's record, and bulk admission, promotion and export.
  *  Mirrors apps/api/src/modules/students and apps/api/src/modules/students-bulk. */
 import {
+  AnonymiseRequest,
   AuthorizedCount,
   AuthorizedSiblingList,
   BulkCommitResult,
   CommitStudentImportRequest,
+  ConsentList,
+  ConsentRecord,
   EndEnrollmentRequest,
   EnrollmentSummaryList,
   ExportStudentsRequest,
@@ -14,9 +17,12 @@ import {
   PromoteStudentsRequest,
   PromotionPreview,
   PromotionResult,
+  RecordConsentRequest,
+  StudentApaarReveal,
   StudentBasicDetail,
   StudentCreated,
   StudentDetailByAudience,
+  StudentDetailResponse,
   StudentDocumentMetadataList,
   StudentExportJob,
   StudentImportPreview,
@@ -28,6 +34,7 @@ import {
   StudentsImportPreviewRequest,
   StudentsUpdateGuardianRequest,
   StudentsUpdateSensitiveRequest,
+  UnlinkGuardianRequest,
   UpdateStudentBasicRequest,
 } from '@erp/contracts'
 import type { z } from 'zod'
@@ -65,6 +72,11 @@ export type PromotePreviewParams = {
 }
 export type PromoteInput = z.input<typeof PromoteStudentsRequest>
 export type ExportStudentsInput = z.input<typeof ExportStudentsRequest>
+export type ConsentRecordEntry = z.infer<typeof ConsentRecord>
+export type Consents = z.infer<typeof ConsentList>
+export type RecordConsentInput = z.input<typeof RecordConsentRequest>
+export type AnonymiseInput = z.input<typeof AnonymiseRequest>
+export type UnlinkGuardianInput = z.input<typeof UnlinkGuardianRequest>
 
 const base = (schoolId: string, suffix = '') => schoolPath(schoolId, `/students${suffix}`)
 
@@ -100,6 +112,11 @@ export function enrollments(schoolId: string, studentId: string) {
   return request(base(schoolId, `/${seg(studentId)}/enrollments`), { schema: EnrollmentSummaryList })
 }
 
+/** The newest consent event per guardian and purpose, with what this person may do with them. */
+export function consents(schoolId: string, studentId: string) {
+  return request(base(schoolId, `/${seg(studentId)}/consents`), { schema: ConsentList })
+}
+
 // ---------- writes ----------
 
 export function create(schoolId: string, body: AdmitStudentInput) {
@@ -128,6 +145,26 @@ export function addGuardian(schoolId: string, studentId: string, body: AddGuardi
 
 export function updateGuardian(schoolId: string, studentId: string, guardianId: string, body: UpdateGuardianInput) {
   return request(base(schoolId, `/${seg(studentId)}/guardians/${seg(guardianId)}`), { method: 'PUT', body, schema: GuardianDetail })
+}
+
+export function recordConsent(schoolId: string, studentId: string, body: RecordConsentInput) {
+  return request(base(schoolId, `/${seg(studentId)}/consents`), { method: 'POST', body, schema: ConsentList })
+}
+
+/**
+ * The full APAAR id, on demand and audited. Never cache this answer: the screen shows it once and
+ * forgets it when the record is closed.
+ */
+export function revealApaar(schoolId: string, studentId: string) {
+  return request(base(schoolId, `/${seg(studentId)}/apaar`), { schema: StudentApaarReveal })
+}
+
+export function anonymise(schoolId: string, studentId: string, body: AnonymiseInput) {
+  return request(base(schoolId, `/${seg(studentId)}/anonymise`), { method: 'POST', body, schema: StudentDetailResponse })
+}
+
+export function unlinkGuardian(schoolId: string, studentId: string, guardianId: string, body: UnlinkGuardianInput) {
+  return request(base(schoolId, `/${seg(studentId)}/guardians/${seg(guardianId)}/unlink`), { method: 'POST', body, schema: StudentDetailResponse })
 }
 
 // ---------- bulk ----------

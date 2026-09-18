@@ -17,3 +17,15 @@ export function requireFound<T>(row: T | null | undefined): T {
   if (row === null || row === undefined) throw new ApiFailure('RESOURCE_NOT_FOUND')
   return row
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Identifiers are opaque in the contract but uuid in storage. Checking the
+ * shape here keeps a malformed identifier a plain not-found instead of a
+ * database error the boundary would have to answer with 503.
+ */
+export function assertUuidParam(value: string): string {
+  if (!UUID.test(value)) throw new ApiFailure('RESOURCE_NOT_FOUND')
+  return value
+}

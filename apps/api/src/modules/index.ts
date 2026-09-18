@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify'
 import type { ModuleDependencies } from './shared/route.ts'
 import { registerSetupRoutes } from './setup/routes.ts'
 import { registerStudentRoutes } from './students/routes.ts'
+import { registerConsentRoutes } from './students/consents.ts'
+import { registerStudentLifecycleRoutes } from './students/lifecycle.ts'
+import { registerStaffLifecycleRoutes } from './staff/lifecycle.ts'
 import { registerStudentBulkRoutes } from './students-bulk/routes.ts'
 import { registerStaffRoutes } from './staff/routes.ts'
 import { registerTimetableRoutes } from './timetable/routes.ts'
@@ -19,8 +22,11 @@ export type { ModuleDependencies }
 export function registerModuleRoutes(app: FastifyInstance, deps: ModuleDependencies): void {
   registerSetupRoutes(app, deps)
   registerStudentRoutes(app, deps)
+  registerConsentRoutes(app, deps)
+  registerStudentLifecycleRoutes(app, deps)
   registerStudentBulkRoutes(app, deps)
   registerStaffRoutes(app, deps)
+  registerStaffLifecycleRoutes(app, deps)
   registerTimetableRoutes(app, deps)
   registerDashboardRoutes(app, deps)
   registerSearchRoutes(app, deps)
