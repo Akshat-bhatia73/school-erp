@@ -5,6 +5,7 @@ import {
   AvailableTeacherSuggestionList,
   BellSchedule,
   BellScheduleList,
+  ExportJobSummary,
   NotificationMarkResult,
   SectionTimetable,
   StaffTimetable,
@@ -16,6 +17,7 @@ import {
   TimetableConflictList,
   TimetableEntry,
   TimetableEntryRequest,
+  TimetableExportRequest,
   TimetableGenerateRequest,
   TimetableGenerationResult,
   TimetableNotifyRequest,
@@ -51,6 +53,7 @@ export type GenerateInput = z.input<typeof TimetableGenerateRequest>
 export type SubstitutionRecord = z.infer<typeof Substitution>
 export type CreateSubstitutionInput = z.input<typeof TimetableSubstitutionRequest>
 export type NotifyInput = z.input<typeof TimetableNotifyRequest>
+export type ExportTimetableInput = z.input<typeof TimetableExportRequest>
 
 const base = (schoolId: string, suffix = '') => schoolPath(schoolId, `/timetable${suffix}`)
 
@@ -104,6 +107,12 @@ export function conflicts(schoolId: string, params: YearParams) {
 
 export function teacherLoads(schoolId: string, params: YearParams) {
   return request(withQuery(base(schoolId, '/teacher-loads'), { ...params }), { schema: TeacherLoadList })
+}
+
+/** The week currently on screen, as a spreadsheet or a PDF. Exporting is reading, in another
+ *  format, so it asks for nothing beyond the timetable read the screen already made. */
+export function exportTimetable(schoolId: string, body: ExportTimetableInput) {
+  return request(base(schoolId, '/export'), { method: 'POST', body, schema: ExportJobSummary })
 }
 
 // ---------- substitutions ----------

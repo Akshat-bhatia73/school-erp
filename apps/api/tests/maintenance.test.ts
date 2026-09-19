@@ -140,6 +140,181 @@ test('one sweep clears expired rows in both schools and keeps live ones', async 
   assert.equal(rowCount, 0)
 })
 
+/** The access version the owner's membership carries right now. */
+async function ownerAccessVersion(): Promise<number> {
+  const found = await adminPool().query<{ access_version: number }>(
+    'SELECT access_version FROM school_memberships WHERE id = $1',
+    [OWNER_A],
+  )
+  return found.rows[0]?.access_version ?? 1
+}
+
+async function insertJob(opts: {
+  status: string
+  accessVersion: number
+  expiresAt: string
+  storageKey?: string
+  /** The assurance the request that asked for the file had reached. */
+  assurance?: 'single_factor' | 'mfa'
+}): Promise<string> {
+  const id = randomUUID()
+  const assurance = opts.assurance ?? 'mfa'
+  await adminPool().query(
+    `INSERT INTO export_jobs
+       (id, school_id, requested_by_membership_id, kind, status, access_version, permission,
+        criteria, storage_key, file_name, content_type, requested_assurance,
+        requested_mfa_verified_at, expires_at)
+     VALUES ($1, $2, $3, 'students', $4, $5, 'students.export', $6::jsonb, $7, $8, $9, $11,
+             CASE WHEN $11 = 'mfa' THEN now() ELSE NULL END,
+             now() + ($10::text)::interval)`,
+    [
+      id,
+      SCHOOL_A,
+      OWNER_A,
+      opts.status,
+      opts.accessVersion,
+      JSON.stringify({ studentIds: [String(fixtureIds.studentA)] }),
+      opts.storageKey ?? null,
+      opts.storageKey ? 'Students.xlsx' : null,
+      opts.storageKey
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : null,
+      opts.expiresAt,
+      assurance,
+    ],
+  )
+  return id
+}
+
+async function jobStatus(id: string): Promise<string | undefined> {
+  const found = await adminPool().query<{ status: string }>(
+    'SELECT status FROM export_jobs WHERE id = $1',
+    [id],
+  )
+  return found.rows[0]?.status
+}
+
+async function runSweep(): Promise<SweepBody> {
+  const response = await server.fetch('/api/maintenance/sweep', {
+    headers: { authorization: `Bearer ${CRON_SECRET}` },
+  })
+  const text = await response.text()
+  assert.equal(response.status, 200, text)
+  return JSON.parse(text) as SweepBody
+}
+
+test('an expired export loses its file first and then its row', async () => {
+  const storageKey = `exports/${SCHOOL_A}/${randomUUID()}.xlsx`
+  server.documents.put(storageKey, new TextEncoder().encode('old bytes'))
+  // Past the sweep's own threshold, which is a day beyond the expiry.
+  const jobId = await insertJob({
+    status: 'ready',
+    accessVersion: await ownerAccessVersion(),
+    expiresAt: '-3 days',
+    storageKey,
+  })
+
+  const body = await runSweep()
+  assert.ok(body.swept['exports.files_removed']! >= 1, JSON.stringify(body))
+  assert.equal(await server.documents.read(storageKey), null)
+  assert.equal(await jobStatus(jobId), undefined)
+})
+
+test('every expired export loses its file, not just the first page of them', async () => {
+  const keys: string[] = []
+  const jobs: string[] = []
+  for (let index = 0; index < 3; index += 1) {
+    const key = `exports/${SCHOOL_A}/${randomUUID()}.xlsx`
+    server.documents.put(key, new TextEncoder().encode('old bytes'))
+    keys.push(key)
+    jobs.push(
+      await insertJob({
+        status: 'ready',
+        accessVersion: await ownerAccessVersion(),
+        expiresAt: '-3 days',
+        storageKey: key,
+      }),
+    )
+  }
+
+  const body = await runSweep()
+  assert.ok(body.swept['exports.files_removed']! >= 3, JSON.stringify(body))
+  // Nothing was left behind when the run ended.
+  assert.equal(body.swept['exports.files_left'], 0, JSON.stringify(body))
+  for (const key of keys) assert.equal(await server.documents.read(key), null)
+  for (const jobId of jobs) assert.equal(await jobStatus(jobId), undefined)
+})
+
+test('the sweep builds a queued export and hands it a file', async () => {
+  const jobId = await insertJob({
+    status: 'queued',
+    accessVersion: await ownerAccessVersion(),
+    expiresAt: '1 hour',
+  })
+
+  const body = await runSweep()
+  assert.ok(body.swept['exports.produced']! >= 1, JSON.stringify(body))
+  assert.equal(await jobStatus(jobId), 'ready')
+
+  const stored = await adminPool().query<{ storage_key: string; row_count: number }>(
+    'SELECT storage_key, row_count FROM export_jobs WHERE id = $1',
+    [jobId],
+  )
+  const key = stored.rows[0]?.storage_key as string
+  assert.ok(key.endsWith('.xlsx'))
+  assert.equal(stored.rows[0]?.row_count, 1)
+  const file = await server.documents.read(key)
+  assert.ok(file)
+
+  await adminPool().query('DELETE FROM export_jobs WHERE id = $1', [jobId])
+  await server.documents.remove(key)
+})
+
+test('a queued export asked for on a single-factor session is built on one too', async () => {
+  // The sweep replays the assurance the row stored rather than inventing a
+  // second factor. The owner's roles require one, so a job asked for on a
+  // single-factor session reads no privileged row and produces no file at all,
+  // where the same job stored as 'mfa' is built.
+  const jobId = await insertJob({
+    status: 'queued',
+    accessVersion: await ownerAccessVersion(),
+    expiresAt: '1 hour',
+    assurance: 'single_factor',
+  })
+
+  await runSweep()
+
+  const stored = await adminPool().query<{ status: string; storage_key: string | null }>(
+    'SELECT status, storage_key FROM export_jobs WHERE id = $1',
+    [jobId],
+  )
+  assert.equal(stored.rows[0]?.status, 'failed')
+  assert.equal(stored.rows[0]?.storage_key, null, 'no bytes were left behind')
+
+  await adminPool().query('DELETE FROM export_jobs WHERE id = $1', [jobId])
+})
+
+test('a queued export whose requester lost access is expired, not built', async () => {
+  // The job remembers an access version the membership no longer carries,
+  // which is exactly what a role change leaves behind.
+  const jobId = await insertJob({
+    status: 'queued',
+    accessVersion: (await ownerAccessVersion()) + 1,
+    expiresAt: '1 hour',
+  })
+
+  const body = await runSweep()
+  assert.ok(body.swept['exports.expired']! >= 1, JSON.stringify(body))
+  assert.equal(await jobStatus(jobId), 'expired')
+  const stored = await adminPool().query<{ storage_key: string | null }>(
+    'SELECT storage_key FROM export_jobs WHERE id = $1',
+    [jobId],
+  )
+  assert.equal(stored.rows[0]?.storage_key, null)
+
+  await adminPool().query('DELETE FROM export_jobs WHERE id = $1', [jobId])
+})
+
 test('a member removed longer ago than the grace period loses sessions and email', async () => {
   const userId = randomUUID()
   const membershipId = randomUUID()

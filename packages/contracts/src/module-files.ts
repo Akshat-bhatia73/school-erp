@@ -2,7 +2,14 @@
 import { z } from 'zod'
 
 import { Id } from './common.ts'
-import { ExportJobSummary } from './response-families.ts'
+import { ExportFileFormat, ExportJobSummary } from './response-families.ts'
+
+/**
+ * A job this size or smaller is produced in the request that asks for it, so
+ * the caller gets a ready file instead of something to poll for. Anything
+ * bigger waits for the daily maintenance route.
+ */
+export const EXPORT_INLINE_MAX_ROWS = 5000
 
 /**
  * Record identifiers in this module are database uuids. Validating that exact
@@ -38,3 +45,33 @@ export type FilesExportJobParams = z.infer<typeof FilesExportJobParams>
  */
 export const FilesExportJobSummary = ExportJobSummary
 export type FilesExportJobSummary = z.infer<typeof FilesExportJobSummary>
+
+/**
+ * A profile export names its record in the path, so the body carries nothing.
+ * It is still a strict object, so a request that tries to smuggle a filter or
+ * a field list past the producer is refused rather than ignored.
+ */
+export const StudentProfileExportRequest = z.strictObject({})
+export type StudentProfileExportRequest = z.infer<typeof StudentProfileExportRequest>
+
+export const StaffProfileExportRequest = z.strictObject({})
+export type StaffProfileExportRequest = z.infer<typeof StaffProfileExportRequest>
+
+/**
+ * A timetable export is the same read the grid routes answer today, in another
+ * format: one academic year, and either one section or one teacher. The two
+ * are separate cases rather than two optional ids, so "neither" and "both"
+ * cannot be asked for at all.
+ */
+export const TimetableExportView = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('section'), sectionId: Id }),
+  z.strictObject({ kind: z.literal('teacher'), staffId: Id }),
+])
+export type TimetableExportView = z.infer<typeof TimetableExportView>
+
+export const TimetableExportRequest = z.strictObject({
+  academicYearId: Id,
+  format: ExportFileFormat,
+  view: TimetableExportView,
+})
+export type TimetableExportRequest = z.infer<typeof TimetableExportRequest>

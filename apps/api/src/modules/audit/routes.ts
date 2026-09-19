@@ -13,6 +13,7 @@ import {
 import { withTenantTransaction } from '@erp/db'
 import { auditEventNotes, auditEvents } from '@erp/db/schema'
 import { planPredicate, scopedTableFor, type AuthzConnection } from '@erp/authz'
+import { createAndMaybeProduce } from '../../exports/run.ts'
 import { resolveDisplayNames, type MemberRow } from '../../memberships/directory.ts'
 import { ApiFailure, assertUuidParam, lockSchool, readPlan, writeAudit } from '../shared/index.ts'
 import type { ModuleDependencies } from '../shared/route.ts'
@@ -280,10 +281,10 @@ export function registerAuditRoutes(app: FastifyInstance, deps: ModuleDependenci
           summary: 'Requested an export of audit events for a date window',
           safeChanges: { rowCount, days: Math.round((Date.parse(window.to) - Date.parse(window.from)) / 86_400_000) },
         })
-        // The job is queued, not ready: no file and no storage key exist yet.
-        // Saying 'ready' here would let the files module hand back a download
-        // with nothing behind it.
-        return { id: jobId, status: 'queued' as const }
+        // A short window is produced now and comes back ready; a long one
+        // stays queued until the daily route builds it. The status is never
+        // claimed here, it is whatever the run actually reached.
+        return createAndMaybeProduce(deps, conn, context, { id: jobId, estimatedRows: rowCount })
       })
     },
   })

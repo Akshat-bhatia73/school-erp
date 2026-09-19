@@ -282,6 +282,28 @@ export function adminPool(): pg.Pool {
   return adminPoolInstance
 }
 
+/**
+ * The bytes an export job produced. The storage key never leaves the API, so a
+ * test reads it from the row with the migrator connection and then asks the
+ * same in-memory store the server wrote to.
+ */
+export async function readExportFileBytes(
+  server: TestServer,
+  jobId: string,
+): Promise<Uint8Array> {
+  const found = await adminPool().query<{ storage_key: string | null }>(
+    'SELECT storage_key FROM export_jobs WHERE id = $1',
+    [jobId],
+  )
+  const key = found.rows[0]?.storage_key
+  if (!key) throw new Error('the job holds no storage key')
+  const file = await server.documents.read(key)
+  if (!file) throw new Error('no bytes are stored under the job key')
+  const chunks: Uint8Array[] = []
+  for await (const chunk of file.stream as ReadableStream<Uint8Array>) chunks.push(chunk)
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)))
+}
+
 export async function closeAdminPool(): Promise<void> {
   await adminPoolInstance?.end()
   adminPoolInstance = undefined

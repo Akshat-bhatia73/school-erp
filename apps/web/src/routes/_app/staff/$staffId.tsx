@@ -4,16 +4,18 @@
  */
 import { useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
-import { CalendarDays, Pencil, Users } from 'lucide-react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { CalendarDays, FileDown, Pencil, Users } from 'lucide-react'
+import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { EmptyState, Facts, PageHeader, Panel } from '@/components/shared/page'
+import { useExportDownload } from '@/components/shared/export-download'
 import { Tag, colorFor } from '@/components/shared/tag'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { isApiError } from '@/lib/api-errors'
+import { describeError, isApiError } from '@/lib/api-errors'
 import { allows } from '@/lib/permissions'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
@@ -30,6 +32,13 @@ function Page() {
   const { staffId } = Route.useParams()
   const { schoolId, hasPermission } = useSchoolContext()
   const [editing, setEditing] = useState<'employment' | 'contact' | 'pay' | null>(null)
+  const exportFile = useExportDownload()
+
+  const startExport = useMutation({
+    mutationFn: () => api.staff.exportProfile(schoolId, staffId),
+    onSuccess: (job) => exportFile.start(job),
+    onError: (error) => toast.error(describeError(error)),
+  })
 
   const detailQuery = useQuery({
     queryKey: qk.staffMember(schoolId, staffId),
@@ -67,17 +76,36 @@ function Page() {
   const canSeeTeaching = allows(detail.allowedActions, 'staff.read_employment')
   const canSeeLogin = hasPermission('members.read')
   const canAnonymise = allows(detail.allowedActions, 'staff.anonymise')
+  const canExport = allows(detail.allowedActions, 'staff.export')
   // Mount each sheet only while it is open, so its fields always come from the version being saved.
 
   return (
     <>
       <PageHeader
         crumbs={[{ label: 'Staff', to: '/staff', icon: <Users /> }, { label: staff.displayName }]}
-        actions={canEditEmployment ? (
-          <Button variant="outline" size="sm" onClick={() => setEditing('employment')}><Pencil />Edit employment</Button>
+        actions={(canExport || canEditEmployment) ? (
+          <>
+            {canExport && (
+              <Button variant="outline" size="sm" disabled={startExport.isPending} onClick={() => startExport.mutate()}>
+                <FileDown />{startExport.isPending ? 'Preparing…' : 'Export PDF'}
+              </Button>
+            )}
+            {canEditEmployment && (
+              <Button variant="outline" size="sm" onClick={() => setEditing('employment')}><Pencil />Edit employment</Button>
+            )}
+          </>
         ) : undefined}
-        mobileActions={canEditEmployment ? (
-          <Button variant="outline" size="sm" className="h-9" onClick={() => setEditing('employment')}><Pencil />Edit</Button>
+        mobileActions={(canExport || canEditEmployment) ? (
+          <>
+            {canExport && (
+              <Button variant="outline" size="sm" className="h-9" disabled={startExport.isPending} onClick={() => startExport.mutate()}>
+                <FileDown />PDF
+              </Button>
+            )}
+            {canEditEmployment && (
+              <Button variant="outline" size="sm" className="h-9" onClick={() => setEditing('employment')}><Pencil />Edit</Button>
+            )}
+          </>
         ) : undefined}
       />
 
@@ -93,6 +121,7 @@ function Page() {
               {employment && <StaffStatusTag status={employment.status} />}
               {staff.anonymised && <Tag>Anonymised</Tag>}
             </div>
+            {exportFile.status}
           </div>
         </div>
 

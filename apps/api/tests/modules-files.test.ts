@@ -85,6 +85,63 @@ async function insertJob(opts: {
   return id
 }
 
+/** The bytes of a job that already holds a file, and the key they sit under. */
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+/**
+ * A job with a file behind it. The key is built the way the runner builds one
+ * and the bytes are put into the same in-memory store the server reads, so the
+ * download route finds a real file without any producer running.
+ */
+async function insertJobWithFile(opts: {
+  membershipId: string
+  accessVersion: number
+  permission: string
+  kind: string
+  contentType: string
+  fileName: string
+  status?: string
+  expiresAt?: string
+  /** What the producer was told to build; a job naming one record needs it. */
+  criteria?: Record<string, unknown>
+}): Promise<string> {
+  const id = randomUUID()
+  insertedJobs.push(id)
+  const extension = opts.contentType === XLSX_TYPE ? 'xlsx' : 'pdf'
+  const storageKey = `exports/${schoolA}/${id}.${extension}`
+  await adminPool().query(
+    `INSERT INTO export_jobs
+       (id, school_id, requested_by_membership_id, kind, status, access_version, permission,
+        criteria, storage_key, file_name, content_type, row_count, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $12::jsonb, $8, $9, $10, 1, $11)`,
+    [
+      id,
+      schoolA,
+      opts.membershipId,
+      opts.kind,
+      opts.status ?? 'ready',
+      opts.accessVersion,
+      opts.permission,
+      storageKey,
+      opts.fileName,
+      opts.contentType,
+      opts.expiresAt ?? new Date(Date.now() + 3_600_000).toISOString(),
+      JSON.stringify(opts.criteria ?? {}),
+    ],
+  )
+  server.documents.put(storageKey, BYTES, opts.contentType)
+  return id
+}
+
+async function exportAuditCount(jobId: string): Promise<number> {
+  const result = await adminPool().query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM audit_events
+      WHERE school_id = $1 AND target_id = $2 AND target_type = 'export_job'`,
+    [schoolA, jobId],
+  )
+  return Number(result.rows[0]?.count ?? '0')
+}
+
 before(async () => {
   await seedDatabaseFixtures()
   server = await startTestServer()
@@ -327,22 +384,24 @@ test('an export job cannot be read through another school path', async () => {
   assert.equal(body.error.code, 'SCHOOL_ACCESS_UNAVAILABLE')
 })
 
-test('a member who could not have asked for an export is refused before any row is read', async () => {
+test('a member who may export their timetable but not students gets an expired job', async () => {
+  // The student reads their own timetable, so they pass the floor the route
+  // applies before it reads a row. The job's own permission is decided again
+  // straight after, and students.export is not theirs, so the job expires
+  // instead of handing over a file.
   const jobId = await insertJob({
     membershipId: adultMembership,
     accessVersion: ownerAccessVersion,
     permission: 'students.export',
   })
   const response = await adult.fetch(`/api/schools/${schoolA}/exports/${jobId}`)
-  assert.equal(response.status, 403)
-  const body = (await response.json()) as ErrorBody
-  assert.equal(body.error.code, 'ACCESS_DENIED')
-  // The unreadable job is left exactly as it was.
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { id: jobId, status: 'expired' })
   const stored = await adminPool().query<{ status: string }>(
     'SELECT status FROM export_jobs WHERE id = $1',
     [jobId],
   )
-  assert.equal(stored.rows[0]?.status, 'ready')
+  assert.equal(stored.rows[0]?.status, 'expired')
 })
 
 test('a failed job stays failed instead of being rewritten as expired', async () => {
@@ -360,6 +419,143 @@ test('a failed job stays failed instead of being rewritten as expired', async ()
     [jobId],
   )
   assert.equal(stored.rows[0]?.status, 'failed')
+})
+
+test('the requester downloads their own spreadsheet and it is audited once', async () => {
+  const jobId = await insertJobWithFile({
+    membershipId: ownerMembership,
+    accessVersion: ownerAccessVersion,
+    permission: 'students.export',
+    kind: 'students',
+    contentType: XLSX_TYPE,
+    fileName: 'Students 07 Apr 2026.xlsx',
+  })
+  const response = await owner.fetch(`/api/schools/${schoolA}/exports/${jobId}/file`)
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), XLSX_TYPE)
+  assert.equal(
+    response.headers.get('content-disposition'),
+    'attachment; filename="Students 07 Apr 2026.xlsx"',
+  )
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [...BYTES])
+  assert.equal(await exportAuditCount(jobId), 1)
+
+  const audit = await adminPool().query<{
+    action: string
+    summary: string
+    safe_changes: Record<string, unknown>
+  }>(
+    `SELECT action, summary, safe_changes FROM audit_events
+      WHERE school_id = $1 AND target_id = $2`,
+    [schoolA, jobId],
+  )
+  assert.equal(audit.rows[0]?.action, 'students.export')
+  assert.equal(audit.rows[0]?.summary, 'Downloaded an export file')
+  // The key the bytes sit under is server state: it is in no header, no body
+  // and no audit row.
+  const stored = await adminPool().query<{ storage_key: string }>(
+    'SELECT storage_key FROM export_jobs WHERE id = $1',
+    [jobId],
+  )
+  const key = stored.rows[0]?.storage_key as string
+  assert.ok(key.length > 0)
+  assert.ok(!JSON.stringify(audit.rows[0]?.safe_changes ?? {}).includes(key))
+  assert.ok(![...response.headers].some(([, value]) => value.includes(key)))
+})
+
+test('the requester downloads their own document', async () => {
+  const jobId = await insertJobWithFile({
+    membershipId: ownerMembership,
+    accessVersion: ownerAccessVersion,
+    permission: 'students.export',
+    kind: 'student_profile',
+    contentType: 'application/pdf',
+    fileName: 'student-2026-4001-2026-04-07.pdf',
+    // A job that names one record: the download decides that record again, so
+    // the criteria has to name a student this owner may still export.
+    criteria: { studentId: studentA },
+  })
+  const status = await owner.fetch(`/api/schools/${schoolA}/exports/${jobId}`)
+  assert.deepEqual(await status.json(), {
+    id: jobId,
+    status: 'ready',
+    fileName: 'student-2026-4001-2026-04-07.pdf',
+    format: 'pdf',
+  })
+  const response = await owner.fetch(`/api/schools/${schoolA}/exports/${jobId}/file`)
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), 'application/pdf')
+  assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [...BYTES])
+  assert.equal(await exportAuditCount(jobId), 1)
+})
+
+test("another member's export file is not found and is not audited", async () => {
+  const jobId = await insertJobWithFile({
+    membershipId: adultMembership,
+    accessVersion: 1,
+    permission: 'students.export',
+    kind: 'students',
+    contentType: XLSX_TYPE,
+    fileName: 'Students.xlsx',
+  })
+  const response = await owner.fetch(`/api/schools/${schoolA}/exports/${jobId}/file`)
+  assert.equal(response.status, 404)
+  assert.equal(((await response.json()) as ErrorBody).error.code, 'RESOURCE_NOT_FOUND')
+  assert.equal(await exportAuditCount(jobId), 0)
+})
+
+test('a file made before an access change is refused and the job is marked expired', async () => {
+  const jobId = await insertJobWithFile({
+    membershipId: ownerMembership,
+    accessVersion: ownerAccessVersion + 1,
+    permission: 'students.export',
+    kind: 'students',
+    contentType: XLSX_TYPE,
+    fileName: 'Students.xlsx',
+  })
+  const response = await owner.fetch(`/api/schools/${schoolA}/exports/${jobId}/file`)
+  assert.equal(response.status, 404)
+  assert.equal(((await response.json()) as ErrorBody).error.code, 'RESOURCE_NOT_FOUND')
+  const stored = await adminPool().query<{ status: string }>(
+    'SELECT status FROM export_jobs WHERE id = $1',
+    [jobId],
+  )
+  assert.equal(stored.rows[0]?.status, 'expired')
+  assert.equal(await exportAuditCount(jobId), 0)
+})
+
+test('a file whose job has aged out is refused', async () => {
+  const jobId = await insertJobWithFile({
+    membershipId: ownerMembership,
+    accessVersion: ownerAccessVersion,
+    permission: 'students.export',
+    kind: 'students',
+    contentType: XLSX_TYPE,
+    fileName: 'Students.xlsx',
+    expiresAt: new Date(Date.now() - 1000).toISOString(),
+  })
+  const response = await owner.fetch(`/api/schools/${schoolA}/exports/${jobId}/file`)
+  assert.equal(response.status, 404)
+  assert.equal(await exportAuditCount(jobId), 0)
+})
+
+test('a queued or failed job has no file to download', async () => {
+  for (const status of ['queued', 'failed']) {
+    const jobId = await insertJobWithFile({
+      membershipId: ownerMembership,
+      accessVersion: ownerAccessVersion,
+      permission: 'students.export',
+      kind: 'students',
+      contentType: XLSX_TYPE,
+      fileName: 'Students.xlsx',
+      status,
+    })
+    const response = await owner.fetch(`/api/schools/${schoolA}/exports/${jobId}/file`)
+    assert.equal(response.status, 404, status)
+    assert.equal(((await response.json()) as ErrorBody).error.code, 'RESOURCE_NOT_FOUND')
+    assert.equal(await exportAuditCount(jobId), 0)
+  }
 })
 
 test("a school B job id through school A's path is not found", async () => {

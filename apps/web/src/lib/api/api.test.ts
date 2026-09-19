@@ -294,6 +294,18 @@ describe('api paths', () => {
     await api.files.exportJob(SCHOOL, 'job-1')
     expect(lastCall().path).toBe(`${PREFIX}/exports/job-1`)
   })
+
+  it('asks for the three exports a screen can start', async () => {
+    await api.students.exportProfile(SCHOOL, 'st-1')
+    expect(methodOf()).toBe('POST')
+    expect(lastCall().path).toBe(`${PREFIX}/students/st-1/export-profile`)
+    await api.staff.exportProfile(SCHOOL, 'staff-1')
+    expect(lastCall().path).toBe(`${PREFIX}/staff/staff-1/export-profile`)
+    await api.timetable.export(SCHOOL, {
+      academicYearId: 'year-1', format: 'pdf', view: { kind: 'teacher', staffId: 'staff-1' },
+    })
+    expect(lastCall().path).toBe(`${PREFIX}/timetable/export`)
+  })
 })
 
 describe('document download', () => {
@@ -320,6 +332,24 @@ describe('document download', () => {
     )
     expect(file.fileName).toBe('transfer-certificate.pdf')
     expect(await file.blob.text()).toBe('bytes')
+    vi.unstubAllGlobals()
+  })
+
+  it('fetches an export file the same way', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('sheet', {
+        status: 200,
+        headers: {
+          'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'content-disposition': 'attachment; filename="students.xlsx"',
+        },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const file = await api.files.downloadExportFile(SCHOOL, 'job-1')
+    expect(fetchMock).toHaveBeenCalledWith(`${PREFIX}/exports/job-1/file`, { credentials: 'same-origin' })
+    expect(file.fileName).toBe('students.xlsx')
     vi.unstubAllGlobals()
   })
 

@@ -22,13 +22,16 @@ const listInvitations = vi.hoisted(() => vi.fn())
 const changeRoles = vi.hoisted(() => vi.fn())
 const auditList = vi.hoisted(() => vi.fn())
 const redactNote = vi.hoisted(() => vi.fn())
+const auditExport = vi.hoisted(() => vi.fn())
+const exportJob = vi.hoisted(() => vi.fn())
+const downloadExportFile = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/api', () => ({
   api: {
     members: { list: membersList, listInvitations, changeRoles, suspend: vi.fn(), remove: vi.fn(), restore: vi.fn(), startRecovery: vi.fn(), accessExplanation: vi.fn(), invite: vi.fn(), resendInvitation: vi.fn(), revokeInvitation: vi.fn() },
-    audit: { list: auditList, export: vi.fn(), redactNote },
+    audit: { list: auditList, export: auditExport, redactNote },
     staff: { search: vi.fn() },
-    files: { exportJob: vi.fn() },
+    files: { exportJob: exportJob, downloadExportFile },
   },
 }))
 
@@ -153,6 +156,22 @@ describe('Audit log', () => {
     renderWithSession(<Page />, { capabilities: ['audit.read'], roleKeys: ['principal'] })
     await waitFor(() => expect(screen.getByText('Suspended Priya Nair')).toBeInTheDocument())
     expect(screen.queryByRole('button', { name: 'Export' })).not.toBeInTheDocument()
+  })
+
+  it('starts an audit export for the window picked and saves the file when it is ready', async () => {
+    auditExport.mockResolvedValue({ id: 'job-1', status: 'ready', fileName: 'audit.xlsx' })
+    exportJob.mockResolvedValue({ id: 'job-1', status: 'ready', fileName: 'audit.xlsx' })
+    downloadExportFile.mockResolvedValue({ blob: new Blob(['x']), fileName: 'audit.xlsx' })
+    const user = userEvent.setup()
+    const { AuditExportDialog } = await import('@/components/settings/audit-export-dialog')
+    renderWithSession(<AuditExportDialog open onOpenChange={() => {}} />, { capabilities: ['audit.read', 'audit.export'], roleKeys: ['owner'] })
+
+    await user.type(screen.getByLabelText('From'), '2026-03-01')
+    await user.type(screen.getByLabelText('To'), '2026-03-05')
+    await user.click(screen.getByRole('button', { name: 'Export to Excel' }))
+
+    await waitFor(() => expect(auditExport).toHaveBeenCalled())
+    await waitFor(() => expect(downloadExportFile).toHaveBeenCalledWith(SCHOOL_ID, 'job-1'))
   })
 
   it('narrows the page in view to refusals when the outcome chip is set', async () => {

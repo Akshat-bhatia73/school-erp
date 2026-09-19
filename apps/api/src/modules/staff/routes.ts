@@ -276,7 +276,7 @@ export function registerStaffRoutes(app: FastifyInstance, deps: ModuleDependenci
         const rows = await conn.db.select({ id: staff.id }).from(staff).where(where)
         const allowed = new Set(rows.map((row) => row.id))
         if (staffIds.some((id) => !allowed.has(id))) throw new ApiFailure('RESOURCE_NOT_FOUND')
-        return createExportJob(conn, context, staffIds)
+        return createExportJob(conn, context, deps, staffIds)
       }),
   })
 }

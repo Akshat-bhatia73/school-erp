@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import test, { after, before } from 'node:test'
+import ExcelJS from 'exceljs'
 import { fixtureIds } from '@erp/db/fixtures'
 import {
   adminPool,
   closeAdminPool,
+  readExportFileBytes,
   seedDatabaseFixtures,
   signInWithMfa,
   setFixturePassword,
@@ -851,11 +853,12 @@ test('an export of a set with one unreachable record is refused whole', async ()
     body: JSON.stringify({ studentIds: [taught] }),
   })
   assert.equal(allowed.status, 202)
-  const body = (await allowed.json()) as { id: string; status: string }
-  assert.deepEqual(Object.keys(body).sort(), ['id', 'status'])
-  // Queued like the staff and audit exports: the file is built later, so the
-  // job never claims to be ready before anything has been written.
-  assert.equal(body.status, 'queued')
+  const body = (await allowed.json()) as { id: string; status: string; format: string }
+  assert.deepEqual(Object.keys(body).sort(), ['fileName', 'format', 'id', 'status'])
+  // One row is well under the inline limit, so the file exists by the time the
+  // request answers and the job names it.
+  assert.equal(body.status, 'ready')
+  assert.equal(body.format, 'xlsx')
   const job = await adminPool().query<{
     row_count: number
     permission: string
@@ -865,10 +868,49 @@ test('an export of a set with one unreachable record is refused whole', async ()
     `SELECT row_count, permission, access_version, status FROM export_jobs WHERE school_id = $1 AND id = $2`,
     [schoolA, body.id],
   )
-  assert.equal(job.rows[0]?.status, 'queued')
+  assert.equal(job.rows[0]?.status, 'ready')
   assert.equal(job.rows[0]?.row_count, 1)
   assert.equal(job.rows[0]?.permission, 'students.export')
   assert.ok((job.rows[0]?.access_version ?? 0) > 0)
+})
+
+test("a teacher's export holds only the students of their own section", async () => {
+  // Two students in the teacher's section and one in a class they do not
+  // teach. The teacher may only ask for their own two, and the file that comes
+  // back must hold exactly those rows.
+  const mine = await seatStudent()
+  const alsoMine = await seatStudent()
+  const response = await teacher.fetch(`${base()}/export`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ studentIds: [mine, alsoMine] }),
+  })
+  assert.equal(response.status, 202)
+  const job = (await response.json()) as { id: string; status: string }
+  assert.equal(job.status, 'ready')
+
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(
+    (await readExportFileBytes(server, job.id)) as unknown as ArrayBuffer,
+  )
+  const sheet = workbook.worksheets[0]
+  assert.ok(sheet)
+  assert.equal(sheet.getRow(1).getCell(1).value, 'Admission number')
+  const names: string[] = []
+  sheet.eachRow((row, index) => {
+    if (index > 1) names.push(String(row.getCell(2).value))
+  })
+  assert.deepEqual(names, ['Seated', 'Seated'])
+  // The sensitive columns are not in the file at all, whoever asked for it.
+  const headers = (sheet.getRow(1).values as unknown[]).slice(1).map(String)
+  assert.deepEqual(headers, [
+    'Admission number',
+    'Name',
+    'Class',
+    'Section',
+    'Roll number',
+    'Status',
+  ])
 })
 
 test('an export body carrying a forbidden field writes nothing', async () => {

@@ -65,7 +65,17 @@ export const AuthorizedCount = z.strictObject({ count: z.number().int().nonnegat
 export const DepartmentSuggestionList = z.array(z.string().max(160)).max(100)
 export const StudentSearchResults = z.array(StudentBasic).max(100)
 export const StaffSearchResults = z.array(StaffDirectory).max(100)
-export const ExportJobSummary = z.strictObject({ id: Id, status: z.enum(['queued', 'ready', 'failed', 'expired']) })
+/**
+ * A job that is ready also says what the file is called and which of the two
+ * formats it is, so the screen can name the download without a second read.
+ * Both fields are absent while the job is queued and on every terminal state
+ * that produced nothing, which is why they stay optional.
+ */
+export const ExportFileFormat = z.enum(['xlsx', 'pdf'])
+export const ExportJobSummary = z.strictObject({
+  id: Id, status: z.enum(['queued', 'ready', 'failed', 'expired']),
+  fileName: z.string().max(200).optional(), format: ExportFileFormat.optional(),
+})
 export const StudentExportJob = ExportJobSummary
 export const StaffExportJob = ExportJobSummary
 export const AuditExportJob = ExportJobSummary

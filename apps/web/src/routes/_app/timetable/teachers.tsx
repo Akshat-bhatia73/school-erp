@@ -10,6 +10,7 @@ import { UserAvatar } from '@/components/shared/avatar'
 import { EmptyState, PageHeader } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
 import { TimetableTabs } from '@/components/timetable/timetable-tabs'
+import { TimetableExportMenu } from '@/components/timetable/export-menu'
 import { TimetableGrid, mergeBellSchedules } from '@/components/timetable/timetable-grid'
 import { DAY_LABELS, DaySelector, defaultDay } from '@/components/timetable/day-selector'
 import { NoAcademicYearState, RefusedState } from '@/components/timetable/states'
@@ -161,6 +162,7 @@ export function Page() {
                     <Tag color="blue">{load.periodsPerWeek} periods / week</Tag>
                     <Tag>{load.sectionsCount} sections</Tag>
                     <Tag>{load.subjectsCount} subjects</Tag>
+                    <TimetableExportMenu academicYearId={yearId} view={{ kind: 'teacher', staffId: load.teacher.id }} />
                   </div>
                 </div>
                 {bellLoading || gridQuery.isLoading ? (

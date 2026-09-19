@@ -201,6 +201,14 @@ uses, never to the internet; checklist item 16 checks both halves.
 Migrations run as `erp_migrator` and only at deploy time. The running service
 never holds that login.
 
+Migration `0012_export_files.sql` is the export-file release. It adds two
+nullable columns to `export_jobs`, widens the job-kind constraint and creates
+two `SECURITY DEFINER` functions for the daily route, so the previous version of
+the code still runs against it and step 2 above is the whole release step. It
+needs no new setting: export files are written to the same private store the
+student documents already use, through the same `DOCUMENT_STORAGE` choice and
+the same `BLOB_READ_WRITE_TOKEN`.
+
 ## 5. Backups and restore
 
 A backup nobody has restored is not a backup.
@@ -235,14 +243,20 @@ database access to read them.
 
 ## 6.1 The daily sweep
 
-`GET /api/maintenance/sweep` deletes transient copies: expired import previews
-and export jobs, delivery outbox and invitation rows past ninety days, expired
+`GET /api/maintenance/sweep` deletes transient copies: expired import previews,
+the bytes of expired export files and then the export job rows themselves,
+delivery outbox and invitation rows past ninety days, expired
 sessions, one-time codes, throttle rows and held text messages, the login
 credentials of people whose last membership ended more than thirty days ago, and
 access-log rows older than 180 days. It
 never touches a person's record. `vercel.json` schedules it at 20:30 UTC, which
 is 02:00 in India. The route is registered only when `CRON_SECRET` is set and
 refuses any other bearer token; it logs one line with the counts it removed, one of which is `access_log`.
+
+The same route also produces the export jobs that were too large to make inside
+the request that asked for them. Each one is produced under the requester's own
+access, in its own transaction, so a job whose requester has lost the permission
+is recorded as failed rather than made.
 
 ## 6.2 The retention schedule
 
@@ -259,6 +273,7 @@ quote the same numbers. Periods start when the purpose ends, not when the row wa
 | Login identity and credentials | While the person holds any active membership | Sessions end when the last membership is removed; credentials go 30 days later, keeping `auth_user.id` and the name for audit attribution | Membership removal, then `sweep_orphaned_credentials` |
 | Sessions, one-time codes, reset tokens, throttle rows, held text messages | Until expiry | Deleted | `sweep_auth_transients`, daily |
 | Import previews | 24 hours | Deleted | `sweep_tenant_transients`, daily |
+| Export files (a spreadsheet or document made from a list, a record or a timetable) | 24 hours from the moment the file is ready | The bytes are deleted first, then the job row; the audit row saying who asked stays | `list_expired_export_files ()` then `sweep_tenant_transients`, daily |
 | Invitations | Until terminal | The identifier is blanked at that point; the row is deleted after 90 days | `sweep_tenant_transients`, daily |
 | Delivery outbox | 90 days after delivery or failure | Deleted | `sweep_tenant_transients`, daily |
 | Audit events | 7 years, covering a child's time at the school plus the one-year log requirement | Archive whole years to cold storage; never edit | Manual; see section 6 |

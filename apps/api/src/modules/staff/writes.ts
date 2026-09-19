@@ -1,6 +1,8 @@
 import { and, eq, sql } from 'drizzle-orm'
 import type { StaffCreateRequest, StaffUpdateEmploymentRequest, TeachingAssignmentRequest } from '@erp/contracts'
 import { UpdateStaffPayRequest, UpdateStaffPrivateRequest } from '@erp/contracts'
+import type { FilesExportJobSummary } from '@erp/contracts'
+import { createAndMaybeProduce, type ExportDependencies } from '../../exports/run.ts'
 import type { AuthzConnection } from '@erp/authz'
 import type { z } from 'zod'
 import type { RequestContext } from '@erp/contracts/server'
@@ -293,14 +295,16 @@ export async function deleteAssignment(
 
 /**
  * The export job. The rows are not read here: the job records who asked, under
- * which permission and at which access version, so the worker and the later
- * download both recheck access rather than trusting this moment.
+ * which permission and at which access version, so the producer and the later
+ * download both recheck access rather than trusting this moment. A small job
+ * is then produced inside this same transaction and comes back ready.
  */
 export async function createExportJob(
   conn: AuthzConnection,
   context: RequestContext,
+  deps: ExportDependencies,
   staffIds: readonly string[],
-): Promise<{ id: string; status: 'queued' }> {
+): Promise<FilesExportJobSummary> {
   const inserted = await conn.db
     .insert(exportJobs)
     .values({
@@ -311,6 +315,7 @@ export async function createExportJob(
       accessVersion: context.accessVersion,
       permission: 'staff.export',
       criteria: { staffIds: [...staffIds] },
+      rowCount: staffIds.length,
       expiresAt: sql`now() + interval '24 hours'`,
     })
     .returning({ id: exportJobs.id })
@@ -323,6 +328,11 @@ export async function createExportJob(
     summary: 'Requested an export of selected staff records.',
     safeChanges: { staffCount: staffIds.length },
   })
-  return { id: row.id, status: 'queued' }
+  // One audit row per request stays one row: producing the file writes none,
+  // and the download route writes its own when the bytes are handed over.
+  return createAndMaybeProduce(deps, conn, context, {
+    id: row.id,
+    estimatedRows: staffIds.length,
+  })
 }
 

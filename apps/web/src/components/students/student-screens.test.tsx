@@ -46,6 +46,7 @@ const students = {
   leave: vi.fn(),
   addGuardian: vi.fn(),
   export: vi.fn(),
+  exportProfile: vi.fn(),
   consents: vi.fn(),
   recordConsent: vi.fn(),
   revealApaar: vi.fn(),
@@ -53,7 +54,7 @@ const students = {
   unlinkGuardian: vi.fn(),
 }
 const setup = { sections: vi.fn(), grades: vi.fn(), academicYears: vi.fn() }
-const files = { exportJob: vi.fn(), downloadStudentDocument: vi.fn() }
+const files = { exportJob: vi.fn(), downloadStudentDocument: vi.fn(), downloadExportFile: vi.fn() }
 
 vi.mock('@/lib/api', () => ({ api: { students, setup, files } }))
 
@@ -326,13 +327,51 @@ describe('Bulk export bar', () => {
     const { StudentBulkBar } = await import('@/components/students/student-bulk-bar')
 
     const withoutPermission = renderWithSession(<StudentBulkBar ids={['student-1']} onClear={() => {}} />, { capabilities: ['students.read_basic'] })
-    expect(screen.queryByRole('button', { name: /export selected/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /export to excel/i })).not.toBeInTheDocument()
     withoutPermission.unmount()
 
     renderWithSession(<StudentBulkBar ids={['student-1']} onClear={() => {}} />, { capabilities: ['students.read_basic', 'students.export'] })
-    await user.click(screen.getByRole('button', { name: /export selected/i }))
+    await user.click(screen.getByRole('button', { name: /export to excel/i }))
 
     await waitFor(() => expect(students.export).toHaveBeenCalledWith(SCHOOL_ID, { studentIds: ['student-1'] }))
-    expect(await screen.findByText('Preparing your export…')).toBeInTheDocument()
+    expect(await screen.findByText('Preparing your file…')).toBeInTheDocument()
+  })
+
+  it('saves the file itself as soon as the job is ready', async () => {
+    students.export.mockResolvedValue({ id: 'job-2', status: 'ready', fileName: 'students.xlsx' })
+    files.exportJob.mockResolvedValue({ id: 'job-2', status: 'ready', fileName: 'students.xlsx' })
+    files.downloadExportFile.mockResolvedValue({ blob: new Blob(['x']), fileName: 'students.xlsx' })
+    const user = userEvent.setup()
+    const { StudentBulkBar } = await import('@/components/students/student-bulk-bar')
+
+    renderWithSession(<StudentBulkBar ids={['student-1']} onClear={() => {}} />, { capabilities: ['students.read_basic', 'students.export'] })
+    await user.click(screen.getByRole('button', { name: /export to excel/i }))
+
+    await waitFor(() => expect(files.downloadExportFile).toHaveBeenCalledWith(SCHOOL_ID, 'job-2'))
+    // The file saved itself once; the button is only there to get it again.
+    expect(await screen.findByRole('button', { name: /download file/i })).toBeInTheDocument()
+    expect(files.downloadExportFile).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Student profile export', () => {
+  it('offers Export PDF only when the record allows it, and starts a profile export', async () => {
+    students.exportProfile.mockResolvedValue({ id: 'job-3', status: 'queued' })
+    files.exportJob.mockResolvedValue({ id: 'job-3', status: 'queued' })
+    const { Route } = await import('@/routes/_app/students/$studentId')
+    const Screen = (Route as unknown as { component: () => ReactElement }).component
+
+    students.get.mockResolvedValue({ student: STUDENT, allowedActions: ['students.read_basic'] })
+    const withoutExport = renderWithSession(<Screen />, { capabilities: ['students.read_basic'] })
+    expect(await screen.findByRole('heading', { name: /Aarav/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /export pdf/i })).not.toBeInTheDocument()
+    withoutExport.unmount()
+
+    students.get.mockResolvedValue({ student: STUDENT, allowedActions: ['students.read_basic', 'students.export'] })
+    const user = userEvent.setup()
+    renderWithSession(<Screen />, { capabilities: ['students.read_basic', 'students.export'] })
+
+    await user.click(await screen.findByRole('button', { name: /export pdf/i }))
+    await waitFor(() => expect(students.exportProfile).toHaveBeenCalledWith(SCHOOL_ID, 'student-1'))
   })
 })
