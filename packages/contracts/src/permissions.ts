@@ -25,6 +25,7 @@ const permissionKeys = [
   'students.manage_enrollment', 'students.manage_guardians', 'students.import',
   'students.export', 'students.promote',
   'students.read_consents', 'students.manage_consents', 'students.anonymise',
+  'students.export_subject',
   'staff.read_directory', 'staff.read_employment', 'staff.read_private', 'staff.read_pay',
   'staff.create', 'staff.update_employment', 'staff.update_private', 'staff.update_pay',
   'staff.manage_assignments', 'staff.export', 'staff.anonymise',
@@ -121,6 +122,9 @@ export const PERMISSION_CATALOGUE = {
   // signs in with a phone code and has no second factor to be asked for.
   'students.manage_consents': active('student', ['school', 'own_children'], 'Record or withdraw a guardian consent for an authorized student.', true, ['school']),
   'students.anonymise': active('student', ['school'], 'Anonymise a student who has left, after the retention period.', true),
+  // A parent asking for their own child's record is answering a subject access
+  // request about themselves, so the office answer is the only privileged one.
+  'students.export_subject': active('student', ['school', 'own_children'], 'Export everything the system holds about one authorized student.', true, ['school']),
   'staff.read_directory': active('staff', ['school', 'self', 'assigned_sections', 'own_children'], 'Read a minimal staff directory or timetable attribution.'),
   'staff.read_employment': active('staff', ['school', 'self'], 'Read authorized employment fields, excluding private and pay data.'),
   'staff.read_private': active('staff', ['school', 'self', 'finance'], 'Read private staff contact, identity, or bank fields.', true, ['school', 'finance']),

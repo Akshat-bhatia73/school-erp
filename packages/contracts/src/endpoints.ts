@@ -8,7 +8,7 @@ import {
 import { PERMISSION_CATALOGUE, PermissionKey, ResourceType } from './permissions.ts'
 import {
   AnonymiseRequest, ConsentList, RecordConsentRequest,
-  RedactAuditNoteRequest, StudentApaarReveal, UnlinkGuardianRequest,
+  RedactAuditNoteRequest, StudentApaarReveal, SubjectAccessExport, UnlinkGuardianRequest,
 } from './module-lifecycle.ts'
 import { StudentDetailResponse, StaffDetailResponse } from './responses.ts'
 
@@ -68,5 +68,6 @@ export const LIFECYCLE_ENDPOINTS = {
   anonymiseStudent: { method: 'POST', path: '/api/schools/:schoolId/students/:studentId/anonymise', auth: 'membership', permission: 'students.anonymise', params: StudentParams, body: AnonymiseRequest, response: StudentDetailResponse, successStatus: 200 },
   unlinkGuardian: { method: 'POST', path: '/api/schools/:schoolId/students/:studentId/guardians/:guardianId/unlink', auth: 'membership', permission: 'students.manage_guardians', params: StudentGuardianParams, body: UnlinkGuardianRequest, response: StudentDetailResponse, successStatus: 200 },
   anonymiseStaff: { method: 'POST', path: '/api/schools/:schoolId/staff/:staffId/anonymise', auth: 'membership', permission: 'staff.anonymise', params: StaffParams, body: AnonymiseRequest, response: StaffDetailResponse, successStatus: 200 },
+  subjectAccess: { method: 'GET', path: '/api/schools/:schoolId/students/:studentId/subject-access', auth: 'membership', permission: 'students.export_subject', params: StudentParams, response: SubjectAccessExport, successStatus: 200 },
   redactAuditNote: { method: 'POST', path: '/api/schools/:schoolId/audit-events/:eventId/note/redact', auth: 'membership', permission: 'audit.redact_notes', params: AuditEventParams, body: RedactAuditNoteRequest, response: z.strictObject({ status: z.literal('redacted') }), successStatus: 200 },
 } as const satisfies Record<string, EndpointContract>

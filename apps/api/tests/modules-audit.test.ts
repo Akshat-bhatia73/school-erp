@@ -248,7 +248,15 @@ test('a permitted read returns exactly the contract fields, newest first', async
   assert.equal(page.items.length, 4)
   assert.ok(page.total >= 4)
 
-  const mine = page.items.filter((item) => item.summary.includes(MARK))
+  // The page of four also holds rows the read trail and other tests left in
+  // this school, so the ordering and the fields of this file's own four rows
+  // are read from a page wide enough to hold all of them.
+  const wide = await owner.fetch(`/api/schools/${schoolA}/audit-events?pageSize=100`)
+  assert.equal(wide.status, 200)
+  const wanted = new Set([summaryA(1), summaryA(2), summaryA(3), summaryA(4)])
+  const mine = ((await wide.json()) as EventPage).items.filter((item) =>
+    wanted.has(item.summary),
+  )
   assert.deepEqual(
     mine.map((item) => item.summary),
     [summaryA(4), summaryA(3), summaryA(2), summaryA(1)],
@@ -433,7 +441,9 @@ test('a finance reader lists only the finance actions while the owner reads the 
   // The count is the same narrowed set, so a total can never exceed the rows
   // the reader may page over.
   assert.equal(page.total, await financeRowCount())
-  assert.equal(page.items.length, page.total)
+  // The trail is append-only and this database is reused, so the page holds
+  // the whole narrowed set only while that set fits one page.
+  assert.equal(page.items.length, Math.min(page.total, 100))
 
   const ownerPage = (await (
     await owner.fetch(`/api/schools/${schoolA}/audit-events?pageSize=100`)

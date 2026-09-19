@@ -127,6 +127,8 @@ test('one sweep clears expired rows in both schools and keeps live ones', async 
   const body = JSON.parse(text) as SweepBody
   assert.ok(body.swept['tenant.import_previews']! >= 2, JSON.stringify(body))
   assert.ok(body.swept['auth.verifications']! >= 1, JSON.stringify(body))
+  // The access log sweep reports its own count even when nothing is old enough.
+  assert.equal(typeof body.swept['access_log'], 'number', JSON.stringify(body))
 
   assert.equal(await previewExists(expiredA), false)
   assert.equal(await previewExists(expiredB), false)

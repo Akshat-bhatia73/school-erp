@@ -24,6 +24,7 @@ import { allows } from '@/lib/permissions'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
 import { formatDate, fullName, humanize } from '@/lib/utils'
+import { ExportRecordButton } from './export-record-button'
 import { GuardianSheet, type GuardianSheetEditing } from './guardian-sheet'
 import { classLabel } from './student-columns'
 
@@ -62,7 +63,10 @@ export function OverviewTab({ detail, showGuardianContacts }: { detail: StudentD
   const { student, sensitive, medical, guardianContacts, allowedActions } = detail
   return (
     <div className="grid gap-4">
-      <Panel title="Student">
+      <Panel
+        title="Student"
+        actions={<ExportRecordButton studentId={student.id} admissionNumber={student.admissionNumber} allowedActions={allowedActions} />}
+      >
         <Facts
           columns={3}
           items={[

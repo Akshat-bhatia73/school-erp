@@ -343,7 +343,10 @@ test('section-year foreign keys reject valid records from another school and tra
 test('every tenant table has forced RLS, and Better Auth core, phone and MFA fields exist', async () => {
   const tenantTables = (
     await admin.query(
-      `SELECT DISTINCT c.table_name FROM information_schema.columns c WHERE c.table_schema='public' AND c.column_name='school_id' UNION SELECT 'schools' ORDER BY 1`,
+      // access_log names a school without belonging to one: it is global
+      // infrastructure like auth_throttle, written by the runtime and read only
+      // during an incident. See migration 0010.
+      `SELECT DISTINCT c.table_name FROM information_schema.columns c WHERE c.table_schema='public' AND c.column_name='school_id' AND c.table_name <> 'access_log' UNION SELECT 'schools' ORDER BY 1`,
     )
   ).rows.map((r) => r.table_name)
   const rls = await admin.query(

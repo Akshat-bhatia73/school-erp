@@ -65,6 +65,12 @@ export function registerMaintenanceRoutes(
         'tenant',
         'SELECT * FROM sweep_tenant_transients()',
       )),
+      // The access log is global infrastructure, but its sweep function is
+      // granted to the runtime login only, so it runs on that pool. Its single
+      // item name collides with nothing, so it is not namespaced.
+      ...(
+        await deps.pools.runtime.query<SweepRow>('SELECT * FROM sweep_access_log()')
+      ).rows.map((row): [string, number] => [row.item, Number(row.count)]),
       ...(await sweep(
         deps.pools.auth,
         'auth',

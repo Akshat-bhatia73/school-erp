@@ -67,6 +67,11 @@ export const authUsers = pgTable('auth_user', {
     .notNull()
     .default(false),
   twoFactorEnabled: boolean('two_factor_enabled').notNull().default(false),
+  // Lockout and disable live on the identity, because no school owns it. See
+  // migration 0010.
+  disabledAt: timestamp('disabled_at', { withTimezone: true }),
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  failedSignIns: integer('failed_sign_ins').notNull().default(0),
   ...timestamps(),
 })
 export const authSessions = pgTable(
@@ -110,6 +115,32 @@ export const heldSms = pgTable('held_sms', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 })
+/**
+ * One row per /api request: the route pattern only, never the URL, query
+ * string, body or user agent. Global infrastructure table, no tenant policy and
+ * no foreign keys, so a row survives what it names. See migration 0010.
+ */
+export const accessLog = pgTable(
+  'access_log',
+  {
+    id: id(),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+    method: text('method').notNull(),
+    route: text('route').notNull(),
+    status: integer('status').notNull(),
+    code: text('code'),
+    userId: uuid('user_id'),
+    membershipId: uuid('membership_id'),
+    schoolId: uuid('school_id'),
+    ipHash: text('ip_hash'),
+    durationMs: integer('duration_ms').notNull(),
+    requestId: text('request_id').notNull(),
+  },
+  (t) => [
+    index('access_log_at_idx').on(t.at),
+    index('access_log_membership_idx').on(t.membershipId, t.at),
+  ],
+)
 export const authAccounts = pgTable(
   'auth_account',
   {

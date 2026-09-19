@@ -107,6 +107,18 @@ export function registerStaffRoutes(app: FastifyInstance, deps: ModuleDependenci
     // A directory-only reader gets a name and a designation and nothing else.
     permission: 'staff.read_directory',
     response: StaffDetailByAudience,
+    auditRead: {
+      targetType: 'staff',
+      param: 'staffId',
+      summary: 'Opened the staff record.',
+      detail: (result) => ({
+        blocks: [
+          ...('employment' in result ? ['employment'] : []),
+          ...('private' in result ? ['private'] : []),
+          ...('pay' in result ? ['pay'] : []),
+        ],
+      }),
+    },
     handler: async ({ context, param }) => {
       const staffId = recordId(param('staffId'))
       return withTenantTransaction(deps.pools.runtime, context, async (conn) => {

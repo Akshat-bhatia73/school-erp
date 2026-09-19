@@ -136,8 +136,8 @@ Owner or permission changed:
 ## Operations added after this inventory
 
 The data lifecycle work (Task 12) added operations this inventory never had, because the mock client
-had no consent, no anonymisation and no maintenance. They are listed here in the same shape so the
-inventory stays a complete statement of what the API answers.
+had no consent, no anonymisation and no maintenance. Task 13 added one more. They are listed here in
+the same shape so the inventory stays a complete statement of what the API answers.
 
 | Operation | Permission / scope | Safe response family | Owner |
 |---|---|---|---|
@@ -148,7 +148,18 @@ inventory stays a complete statement of what the API answers.
 | `students.unlinkGuardian` | `students.manage_guardians` / school | `StudentDetailByAudience` | Task 12 |
 | `staff.anonymise` | `staff.anonymise` / school; privileged | `StaffDetailByAudience` | Task 12 |
 | `auditLogs.redactNote` | `audit.redact_notes` / school; privileged | `{ status: 'redacted' }` | Task 12 |
-| maintenance sweep | no membership; `Authorization: Bearer <CRON_SECRET>` only, and the route is absent without it | counts per swept item | Task 12 |
+| maintenance sweep | no membership; `Authorization: Bearer <CRON_SECRET>` only, and the route is absent without it | counts per swept item, now including `access_log` | Task 12, extended by Task 13 |
+| `students.subjectAccess` | `students.export_subject` / school for owner and principal, own children for a parent; privileged at school scope | `SubjectAccessExport`, assembled from existing families (`StudentBasic`, `StudentSensitive` with the full APAAR, `StudentMedical`, `GuardianPrivate` or `GuardianContact`, `EnrollmentSummary`, `DocumentSummary`, `ConsentRecord`) | Task 13 |
+
+## Read auditing
+
+Task 13 made reads visible in the same trail as writes. A detail read of one person's record leaves
+one `allowed` audit row through `auditRead` on the route definition, naming the record and which
+blocks were returned: student detail, student guardians, student consents, staff detail, the APAAR
+reveal, the subject-access export, and the document download through its own row. Lists leave none.
+Every refusal a member receives leaves one `denied` row with the permission and the route pattern,
+written outside the transaction that refused. Neither adds a response family and neither changes any
+operation above. The full description is in [protected APIs](./PROTECTED_APIS.md#read-auditing-and-denials).
 
 ## Coverage constraints
 

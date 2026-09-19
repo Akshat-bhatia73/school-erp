@@ -7,6 +7,7 @@ import {
   StudentMedical,
   StudentSensitive,
 } from '@erp/contracts'
+import type { SubjectGuardian } from '@erp/contracts'
 import { maskApaar } from '../shared/index.ts'
 import type { StudentRow } from './reads.ts'
 
@@ -179,6 +180,33 @@ export function toGuardianPrivate(row: GuardianRow): Private | undefined {
     id: row.id,
     displayName: displayName(row),
     phone,
+    ...(occupation === undefined ? {} : { occupation }),
+    ...(income === undefined || Number.isNaN(income) || income < 0 ? {} : { annualIncome: income }),
+    ...(address === undefined ? {} : { address }),
+  }
+}
+
+/**
+ * A guardian for the subject access export. Unlike the screen projections this
+ * one never drops a person: a guardian with no usable telephone number is
+ * still part of their child's record, so the field is omitted, not the row.
+ * `full` is the caller's guardian-detail permission; without it only the
+ * fields a contact card already shows are named.
+ */
+export function toSubjectGuardian(row: GuardianRow, full: boolean): SubjectGuardian {
+  const phone = toE164(row.phone)
+  const named = {
+    id: row.id,
+    displayName: displayName(row),
+    relation: oneOf(RELATIONS, row.relation) ?? 'other',
+    ...(phone === undefined ? {} : { phone }),
+  }
+  if (!full) return named
+  const occupation = optionalText(row.occupation, 200)
+  const address = optionalText(row.address, 1000)
+  const income = row.annual_income === null ? undefined : Number(row.annual_income)
+  return {
+    ...named,
     ...(occupation === undefined ? {} : { occupation }),
     ...(income === undefined || Number.isNaN(income) || income < 0 ? {} : { annualIncome: income }),
     ...(address === undefined ? {} : { address }),

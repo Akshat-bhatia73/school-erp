@@ -41,12 +41,59 @@ export function reportError(error: unknown, context: { requestId: string; route?
  * A refused request. Grouped by code alone, so an alert on "ACCESS_DENIED more
  * than 20 times in 5 minutes" is one issue's event frequency.
  */
-export function reportDenial(code: string, context: { requestId: string; route?: string }): void {
+export function reportDenial(
+  code: string,
+  context: { requestId: string; route?: string; membershipId?: string },
+): void {
   Sentry.captureMessage(`request refused: ${code}`, {
     level: 'warning',
     fingerprint: ['request-refused', code],
-    tags: { code, requestId: context.requestId, route: context.route },
+    tags: {
+      code,
+      requestId: context.requestId,
+      route: context.route,
+      membershipId: context.membershipId,
+    },
   })
+}
+
+export interface DenialBurst {
+  readonly schoolId: string
+  readonly membershipId: string
+  readonly count: number
+}
+
+/** One event per membership per burst, so an alert names who to look at. */
+function sendDenialBurst(burst: DenialBurst): void {
+  Sentry.captureMessage('denial burst', {
+    level: 'error',
+    fingerprint: ['denial-burst', burst.membershipId],
+    // Ids only: what they tried to read is in the school's own audit trail.
+    tags: {
+      schoolId: burst.schoolId,
+      membershipId: burst.membershipId,
+      count: String(burst.count),
+    },
+  })
+}
+
+let denialBurstReporter: (burst: DenialBurst) => void = sendDenialBurst
+
+/**
+ * Many refusals from one membership in ten minutes. Tests replace the reporter
+ * so the burst can be observed without a Sentry project.
+ */
+export function reportDenialBurst(burst: DenialBurst): void {
+  denialBurstReporter(burst)
+}
+
+/** Returns the reporter that was in place, so a test can put it back. */
+export function setDenialBurstReporter(
+  reporter: (burst: DenialBurst) => void,
+): (burst: DenialBurst) => void {
+  const previous = denialBurstReporter
+  denialBurstReporter = reporter
+  return previous
 }
 
 export async function flushObservability(): Promise<void> {

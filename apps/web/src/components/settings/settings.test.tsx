@@ -155,6 +155,30 @@ describe('Audit log', () => {
     expect(screen.queryByRole('button', { name: 'Export' })).not.toBeInTheDocument()
   })
 
+  it('narrows the page in view to refusals when the outcome chip is set', async () => {
+    auditList.mockResolvedValue({
+      items: [
+        { id: 'a1', at: '2026-03-01T10:00:00.000Z', actorDisplayName: 'Asha Rao', action: 'members.suspend', summary: 'Suspended Priya Nair', outcome: 'allowed' },
+        { id: 'a2', at: '2026-03-01T10:05:00.000Z', actorDisplayName: 'Priya Nair', action: 'students.read_sensitive', summary: 'Refused: students.read_sensitive', outcome: 'denied' },
+      ],
+      total: 2, page: 1, pageSize: 50,
+    })
+    const user = userEvent.setup()
+    const { Route } = await import('@/routes/_app/settings/audit-log')
+    const Page = (Route as unknown as { component: () => ReactNode }).component
+    renderWithSession(<Page />, { capabilities: ['audit.read'], roleKeys: ['principal'] })
+
+    await waitFor(() => expect(screen.getByText('Suspended Priya Nair')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /outcome/i }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Refused' }))
+
+    await waitFor(() => expect(screen.queryByText('Suspended Priya Nair')).not.toBeInTheDocument())
+    expect(screen.getByText('Refused: students.read_sensitive')).toBeInTheDocument()
+    // The list request has no outcome field, so the filter is on the loaded page, not the query.
+    expect(screen.getByText('1 of this page match')).toBeInTheDocument()
+    expect(auditList).toHaveBeenCalledTimes(1)
+  })
+
   it('shows the note under the summary and offers Redact only to somebody who may redact', async () => {
     const entry = {
       id: 'a1', at: '2026-03-01T10:00:00.000Z', actorDisplayName: 'Asha Rao',

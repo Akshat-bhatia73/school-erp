@@ -220,6 +220,13 @@ in `audit_events`, written in the same transaction as the change. Keep them for
 at least seven years, which covers a student's time at the school. Do not delete
 rows to save space; archive whole years to cold storage instead.
 
+Detail reads of one person's record leave a row too: opening a student, their
+guardians or their consents, a staff record, an APAAR reveal, a document
+download and a subject-access export each write one `allowed` row naming which
+blocks were returned. Lists do not, so the volume follows the number of profiles
+opened, not roster paging. Every refusal a member receives leaves one `denied`
+row. Both are the same seven-year retention.
+
 Audit rows can contain what changed. Read them through the audit API, which
 applies the same permission rules as the record itself. Do not hand out direct
 database access to read them.
@@ -228,11 +235,12 @@ database access to read them.
 
 `GET /api/maintenance/sweep` deletes transient copies: expired import previews
 and export jobs, delivery outbox and invitation rows past ninety days, expired
-sessions, one-time codes, throttle rows and held text messages, and the login
-credentials of people whose last membership ended more than thirty days ago. It
+sessions, one-time codes, throttle rows and held text messages, the login
+credentials of people whose last membership ended more than thirty days ago, and
+access-log rows older than 180 days. It
 never touches a person's record. `vercel.json` schedules it at 20:30 UTC, which
 is 02:00 in India. The route is registered only when `CRON_SECRET` is set and
-refuses any other bearer token; it logs one line with the counts it removed.
+refuses any other bearer token; it logs one line with the counts it removed, one of which is `access_log`.
 
 ## 6.2 The retention schedule
 
@@ -253,11 +261,52 @@ quote the same numbers. Periods start when the purpose ends, not when the row wa
 | Delivery outbox | 90 days after delivery or failure | Deleted | `sweep_tenant_transients`, daily |
 | Audit events | 7 years, covering a child's time at the school plus the one-year log requirement | Archive whole years to cold storage; never edit | Manual; see section 6 |
 | Audit notes | With their event, unless redacted on request | Redaction removes the text and keeps the event | `POST /audit-events/:id/note/redact` |
-| Access logs | 180 days within India (CERT-In), 1 year preferred | Provider retention setting | Not yet chosen; Task 13 |
+| Access logs | 180 days | Deleted | `access_log` and `sweep_access_log()`, daily. CERT-In wants these kept in India and the database is in Neon `us-east-1`; see section 6.3 |
 
 Anonymisation is never automatic. The sweep deletes transient copies only; clearing a person's
 record is a decision a school takes through a permission-gated route, and the route refuses while
 the period is still running.
+
+## 6.3 The access log
+
+Every `/api` request except `/api/health` leaves one row in `access_log`, written
+by an `onResponse` hook in `apps/api/src/http/access-log.ts` through the runtime
+pool. The row holds the method, the **route pattern** (`GET
+/api/schools/:schoolId/students/:studentId`, never the concrete URL), the status,
+our own error code when one was sent, the user, membership and school ids when
+the request had them, an `ip_hash`, the duration and the request id. The
+`ip_hash` is an HMAC-SHA256 of the client address keyed by `AUTH_SECRET`, hex,
+first 32 characters: two rows can be compared and a suspected address can be
+confirmed by hashing it, but no address is stored. Nothing else goes in — no
+query string, no body, no cookie, no user agent, no name.
+
+The insert is fire-and-forget. Nothing the client waits for awaits it, and a
+failure is logged once and dropped, so the log can never fail a request.
+
+Rows are kept 180 days and removed by `sweep_access_log()` in the daily sweep.
+The runtime login holds `INSERT` only; `SELECT` and `DELETE` belong to the
+maintenance login and the sweep function. There is no API route that reads the
+table. Reading it directly is permitted only during an incident, with the
+migrator login, recorded in the incident record: see
+[the incident runbook](../compliance/INCIDENT_RESPONSE.md).
+
+**Region.** The database, and therefore this log, is in Neon `us-east-1`. CERT-In
+direction 5 requires system logs to be kept within India for 180 days. Neon has
+no Indian region, so the retention half is met and the region half is not. This
+is a known, written-down gap, not an oversight; the hosting decision belongs to
+Task 14 and is finding F19 of
+[the data protection assessment](../compliance/DATA_PROTECTION.md).
+
+## 6.4 Disabling an identity
+
+`pnpm --filter @erp/api ops:identity -- --email <address> --disable` sets
+`auth_user.disabled_at` and deletes every session that identity holds. `--enable`
+reverses it; `--unlock` only clears a lockout from failed sign-ins. It reads
+`AUTH_DATABASE_URL`, so run it with the production value from the secret store
+and not from a shared shell. Ten failed password sign-ins already lock an
+identity for fifteen minutes without anyone doing anything; see
+[authentication](./AUTHENTICATION.md#lockout-and-disable). This is the first
+containment step in the incident runbook.
 
 ## 7. Alerting on repeated denied access
 
@@ -275,6 +324,18 @@ The message is always `request failed`; the field to watch is `code`. Alert on:
 - `"msg":"provider request failed"` in a burst: failed sign-ins.
 - `"msg":"phone otp send failed"` at all: delivery is broken, and the caller was
   told nothing on purpose.
+
+A refusal a member receives also leaves a `denied` audit row in that school's
+trail, so the audit screen answers who tried what; anonymous refusals have no
+school and appear in the access log only. When one membership collects twenty or
+more refusals inside ten minutes, the API sends one Sentry event, level error,
+message `denial burst`, fingerprint `denial-burst:<membershipId>`, tags
+`schoolId`, `membershipId` and `count`. The fingerprint means one issue per
+membership, so a burst is one alert and not two hundred. Configure a Sentry alert
+rule on that issue — "a new issue is created" with the tag `membershipId`
+present — to notify immediately rather than in a digest, and treat it as
+severity S2 in [the incident runbook](../compliance/INCIDENT_RESPONSE.md). Sentry
+holds ids only: no names, no request bodies, no addresses.
 
 Send these to whoever runs the school's IT, not only to a dashboard. Request
 bodies, cookies, passwords, one-time codes and invitation tokens are redacted

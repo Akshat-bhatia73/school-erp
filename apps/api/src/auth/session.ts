@@ -4,6 +4,7 @@ import { ApiFailure } from '../http/errors.ts'
 import type { ApiPools } from '../db.ts'
 import type { AuthInstance } from './better-auth.ts'
 import { sessionLimitsFor, type SessionLimits } from './assurance.ts'
+import { userIsDisabled } from './lockout.ts'
 import {
   hasStudentIdentity,
   resolveMemberships,
@@ -70,6 +71,14 @@ export async function resolveSession(
     sharedDevice?: boolean | null
   }
   const user = result.user as unknown as VerifiedSession['user']
+
+  // An operator-disabled identity loses every live session at once, so a
+  // cookie taken before the disable stops working on its next request.
+  if (await userIsDisabled(deps.pools.auth, user.id)) {
+    const context = await deps.auth.$context
+    await context.internalAdapter.deleteUserSessions(user.id)
+    throw new ApiFailure('AUTHENTICATION_REQUIRED')
+  }
 
   // Student identities can never hold a session, whichever door they used.
   if (await hasStudentIdentity(deps.pools, user.id)) {
