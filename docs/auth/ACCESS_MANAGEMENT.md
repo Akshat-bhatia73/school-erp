@@ -61,7 +61,7 @@ Every workflow that changes a membership follows the same order inside one `with
 3. Check delegation: `checkRoleAssignment`, `checkMembershipLifecycle`, `assignableRolesFor` or `mayTransferOwnership`. A permission says the action exists for this caller; delegation says this target is theirs to touch.
 4. Assert fresh MFA when the change hands out a privileged role or moves ownership. `isFreshMfa` is the same five minute check that guards `two-factor/disable`; see [authentication and sessions](./AUTHENTICATION.md). A role the target already holds is not re-granted and does not ask for a new proof.
 5. `lockMembershipForAccessChange` with the caller's `expectedVersion`, apply the change, `assertSchoolKeepsOwner`, then `commitAccessChange`, which bumps `version` and `access_version` together. See the locking protocol in [authorization and access scope](./AUTHORIZATION.md).
-6. `recordAuditEvent` in the same transaction, exactly one row per committed change. The summary is plain English and `safe_changes` carries ids, role keys, statuses and the caller's reason, never a name, address, phone number or token.
+6. `recordAuditEvent` in the same transaction, exactly one row per committed change. The summary is plain English and `safe_changes` carries ids, role keys and statuses, never a name, address, phone number, token or free text. The caller's reason is passed as `note` and stored beside the row in `audit_event_notes`; see below.
 7. Re-read the row and return a `MemberSummary` parsed against the contract, so the answer always describes committed state.
 
 `assertSchoolKeepsOwner` counts active memberships holding the `owner` role and fails the whole transaction with `LAST_OWNER_PROTECTED` when the count is zero. A school with no active owner has nobody who can restore access, so it is never allowed to exist.
@@ -82,6 +82,8 @@ Suspending sets the status and bumps the access version. Every context issued ea
 
 Removing does the same and additionally revokes every `resource_access_rules` row of that membership, because an exception is a grant on top of a membership and ends with it. Removal deletes nothing: the membership row, its staff link, its role history and its audit events all survive, because the record of who had access has to outlive the person leaving.
 
+Removal also ends the person's logins when they have nowhere else to be. After the tenant transaction commits, the identity pool is asked whether that user still holds an active adult membership anywhere; if not, every `auth_session` row of theirs is deleted, so an open browser elsewhere stops working rather than waiting for a cookie to expire. The credential rows themselves — password, authenticator secret, linked accounts — go thirty days later through the daily sweep described in [the release runbook](./RELEASE.md#61-the-daily-sweep), which keeps `auth_user.id` and the name so old audit rows still say who did what.
+
 Restoring is the only lifecycle event that also states a role set, so it needs `roles.assign` as well and runs the full assignment check on the reviewed roles. It deliberately does not bring back expired or revoked exceptions. A reviewed return of access is the role set, not the old exceptions.
 
 ## Recovery and explanation
@@ -89,6 +91,14 @@ Restoring is the only lifecycle event that also states a role set, so it needs `
 `POST .../recovery` lets an administrator start credential recovery for another member without ever seeing or using the result. The target must be active and pass the same lifecycle check, and the caller states the target's `expectedVersion`, which is only compared and never bumped, because recovery changes no grant. The channel is chosen server side: a real email address wins, a phone number is the fallback, and an identity with neither is answered `FEATURE_DISABLED`. The decision is audited inside the tenant transaction, then the provider is asked to send a reset. A provider failure writes a second `failed` audit row and answers `SERVICE_UNAVAILABLE`. The response is always `202 {"status":"queued"}` and says nothing about the destination.
 
 `GET .../access-explanation` answers, for one target membership and one permission and resource, why the answer would be what it is. The route does no check of its own: `explainAccess` verifies the viewer holds `access.explain` for that membership first and throws otherwise, because a second copy of the rule here would be a second thing to keep correct. The response is parsed through `AccessExplanation`, which carries the failing invariant, the matched grants and the matched exceptions, and never another person's id or the reason text of a rule.
+
+## The reason a change was made
+
+Every workflow here asks for a reason, and until Task 12 that sentence was written verbatim into `audit_events.safe_changes`, a table with no UPDATE and no DELETE. Operators write what they are thinking — a name, an illness, a family arrangement — so the audit contract's promise of no personal detail could not survive the reason box.
+
+The reason is now a note. `recordAuditEvent` takes an optional `note` and, when it is present, inserts one `audit_event_notes` row against the event in the same transaction. Role changes, suspension, removal, restore, ownership transfer and credential recovery (both the queued row and the delivery-failure row) all pass it that way, and none of them puts `reason` in `safe_changes` any more. `audit_event_notes` is tenant-scoped and forced like every other school table, but it has no append-only trigger, which is the whole point: a note can be redacted.
+
+`GET /api/schools/:schoolId/audit-events` joins the note under the same plan predicate as the event, so a reader who may not see the event never sees its note, and returns it only while `redacted_at` is null. `POST /api/schools/:schoolId/audit-events/:eventId/note/redact` needs `audit.redact_notes`, which only an owner holds. It sets `redacted_at` and the redacting membership, leaves the event itself untouched, and writes one audit row of its own with no note: a redaction reason would put back the text somebody just asked to have removed. A second request on the same note changes nothing and writes no second row.
 
 ## Run the tests
 
@@ -124,7 +134,7 @@ The suite is 89 tests across nine files. Task 4 adds 35 of them: 14 in `invitati
 - No real delivery. Sandbox is the only supported mode, so an invitation link is readable only from the in-memory outbox. Provider failure handling, retries and a real outbox worker are later work.
 - A phone-only invitee still gets a login with no password, so they sign in by OTP and cannot enrol in two factor, which keeps them out of any privileged role. The same limitation is described in [authentication and sessions](./AUTHENTICATION.md).
 - Recovery of an identity with neither a real email nor a phone number answers `FEATURE_DISABLED`. There is no other channel.
-- No expiry sweeper. A pending invitation is only written as `expired` when somebody tries to use it, so a stale row can sit in the table indefinitely.
+- A pending invitation is still only written as `expired` when somebody tries to use it. The daily sweep blanks the stored identifier of a row that is no longer pending and deletes it ninety days after that, but it does not expire a pending row, so a stale one keeps its destination until it is used or swept out with the rest.
 - No endpoint exposes `schools.access_version`, so a caller of ownership transfer has to learn `expectedSchoolAccessVersion` some other way. The transfer screen in Task 6 needs it.
 - No UI. Nothing in `apps/web` calls any of these routes yet.
 - `apps/api` has no lint script, so the repo wide `pnpm -r lint` does not reach this source.

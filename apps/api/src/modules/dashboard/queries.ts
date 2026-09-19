@@ -178,13 +178,15 @@ export async function listOwnChildren(
     last_name: string | null
     admission_number: string
     status: Basic['status']
+    anonymised_at: string | null
   }>(
     conn,
     sql`SELECT ${studentsTable.id} AS id, ${studentsTable.schoolId} AS school_id,
                ${studentsTable.version} AS version, ${studentsTable.firstName} AS first_name,
                ${studentsTable.lastName} AS last_name,
                ${studentsTable.admissionNumber} AS admission_number,
-               ${studentsTable.status} AS status
+               ${studentsTable.status} AS status,
+               ${studentsTable.anonymisedAt}::text AS anonymised_at
           FROM ${studentsTable}
          WHERE ${predicateFor(plan)} AND ${studentsTable.id} IN (${idList})
          ORDER BY first_name, admission_number
@@ -198,6 +200,7 @@ export async function listOwnChildren(
     ...(row.last_name === null || row.last_name.trim() === '' ? {} : { lastName: row.last_name }),
     admissionNumber: row.admission_number,
     status: row.status,
+    anonymised: row.anonymised_at !== null,
   }))
 }
 

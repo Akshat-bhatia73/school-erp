@@ -68,6 +68,7 @@ async function findStudents(conn: AuthzConnection, context: RequestContext, term
       lastName: students.lastName,
       admissionNumber: students.admissionNumber,
       status: students.status,
+      anonymisedAt: students.anonymisedAt,
     })
     .from(students)
     .where(and(planPredicate(plan, table), matches))
@@ -82,6 +83,7 @@ async function findStudents(conn: AuthzConnection, context: RequestContext, term
     ...(row.lastName === null ? {} : { lastName: row.lastName }),
     admissionNumber: row.admissionNumber,
     status: row.status as Student['status'],
+    anonymised: row.anonymisedAt !== null,
   }))
   if (found.length === 0) return found
 
@@ -172,6 +174,7 @@ async function findStaff(conn: AuthzConnection, context: RequestContext, term: s
       lastName: staff.lastName,
       designation: staff.designation,
       department: staff.department,
+      anonymisedAt: staff.anonymisedAt,
     })
     .from(staff)
     .where(and(planPredicate(plan, table), matches))
@@ -184,6 +187,7 @@ async function findStaff(conn: AuthzConnection, context: RequestContext, term: s
     version: row.version,
     displayName: row.lastName === null ? row.firstName : `${row.firstName} ${row.lastName}`,
     designation: row.designation,
+    anonymised: row.anonymisedAt !== null,
     ...(row.department === null ? {} : { department: row.department }),
   }))
 }

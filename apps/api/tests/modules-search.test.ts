@@ -241,7 +241,8 @@ test('the owner finds a student by admission number and a staff member by employ
   // Only contract fields: nothing private travels with a search hit.
   assert.deepEqual(
     Object.keys(students[0] ?? {}).sort(),
-    ['admissionNumber', 'enrollment', 'firstName', 'id', 'lastName', 'schoolId', 'status', 'version'],
+    ['admissionNumber', 'anonymised', 'enrollment', 'firstName', 'id', 'lastName', 'schoolId',
+      'status', 'version'],
   )
 
   const byCode = await search(owner, schoolA, employeeCode)
@@ -250,7 +251,7 @@ test('the owner finds a student by admission number and a staff member by employ
   assert.equal(staff[0]?.id, newStaffA)
   assert.deepEqual(
     Object.keys(staff[0] ?? {}).sort(),
-    ['department', 'designation', 'displayName', 'id', 'schoolId', 'version'],
+    ['anonymised', 'department', 'designation', 'displayName', 'id', 'schoolId', 'version'],
   )
 
   const byDesignation = await search(owner, schoolA, 'Lab Assistant')

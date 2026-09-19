@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { Pool } from 'pg'
 import { bumpBucket, lockBucket, type ThrottleBucket } from './throttle.ts'
 
@@ -34,6 +35,11 @@ export function normalizeIndianPhone(raw: unknown): string | null {
   return null
 }
 
+/** SHA-256 hex of a number, so no throttle key stores a phone number. */
+export function hashPhone(phone: string): string {
+  return createHash('sha256').update(phone).digest('hex')
+}
+
 export type SendAllowance =
   | { allowed: true }
   | { allowed: false; retryAfterSeconds: number }
@@ -58,9 +64,12 @@ export async function consumeSendAllowance(
   const now = input.now ?? new Date()
   const nowMs = now.getTime()
   const day = dayKey(now)
+  // A throttle row outlives the request, so it carries a digest of the number
+  // rather than the number itself.
+  const phoneKey = hashPhone(input.phone)
   const keys = [
-    `otp-send:cooldown:${input.phone}`,
-    `otp-send:day:${day}:${input.phone}`,
+    `otp-send:cooldown:${phoneKey}`,
+    `otp-send:day:${day}:${phoneKey}`,
     `otp-send:day:${day}:ip:${input.ip}`,
   ]
   const endOfDay = new Date(

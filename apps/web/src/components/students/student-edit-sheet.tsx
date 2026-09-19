@@ -126,7 +126,8 @@ export function StudentSensitiveSheet({ open, onOpenChange, student, sensitive, 
   const [admissionType, setAdmissionType] = useState(sensitive?.admissionType ?? '')
   const [address, setAddress] = useState(sensitive?.address ?? '')
   const [aadhaarLast4, setAadhaarLast4] = useState(sensitive?.aadhaarLast4 ?? '')
-  const [apaarId, setApaarId] = useState(sensitive?.apaarId ?? '')
+  // The server only ever sends the mask, so the box starts empty and an untouched box changes nothing.
+  const [apaarId, setApaarId] = useState('')
   const [bloodGroup, setBloodGroup] = useState(medical?.bloodGroup ?? '')
   const [medicalNotes, setMedicalNotes] = useState(medical?.medicalNotes ?? '')
   const [errors, setErrors] = useState<FieldErrors>({})
@@ -151,7 +152,7 @@ export function StudentSensitiveSheet({ open, onOpenChange, student, sensitive, 
       address: cleared(address, sensitive?.address),
       // The contract wants exactly four digits, so an emptied Aadhaar cannot be sent as ''.
       aadhaarLast4: trimmed(aadhaarLast4),
-      apaarId: cleared(apaarId, sensitive?.apaarId),
+      apaarId: trimmed(apaarId),
       ...(medical
         ? { bloodGroup: cleared(bloodGroup, medical.bloodGroup), medicalNotes: cleared(medicalNotes, medical.medicalNotes) }
         : {}),
@@ -190,7 +191,13 @@ export function StudentSensitiveSheet({ open, onOpenChange, student, sensitive, 
             >
               <Input value={aadhaarLast4} inputMode="numeric" maxLength={4} onChange={(e) => setAadhaarLast4(e.target.value.replace(/\D/g, '').slice(0, 4))} />
             </Field>
-            <Field label="APAAR ID" error={errors.apaarId}><Input value={apaarId} onChange={(e) => setApaarId(e.target.value)} /></Field>
+            <Field
+              label="APAAR ID"
+              error={errors.apaarId}
+              hint={sensitive?.apaarMasked ? `On file: ${sensitive.apaarMasked}. Type the full id to replace it.` : undefined}
+            >
+              <Input value={apaarId} onChange={(e) => setApaarId(e.target.value)} />
+            </Field>
             <Field label="Address" error={errors.address} className="col-span-2"><Textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} /></Field>
           </div>
 

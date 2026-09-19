@@ -183,7 +183,7 @@ test('an office reader sees the directory and nothing beyond the contract', asyn
   assert.equal(ids.includes(staffBId), false)
   for (const item of body.items) {
     assert.deepEqual(
-      Object.keys(item).filter((key) => !['id', 'schoolId', 'version', 'displayName', 'designation', 'department'].includes(key)),
+      Object.keys(item).filter((key) => !['id', 'schoolId', 'version', 'displayName', 'designation', 'department', 'anonymised'].includes(key)),
       [],
     )
   }
@@ -287,7 +287,7 @@ test('a permitted create answers with the directory projection only', async () =
   assert.equal(response.status, 201)
   const body = (await response.json()) as Record<string, unknown>
   assert.deepEqual(Object.keys(body).sort(), [
-    'department', 'designation', 'displayName', 'employeeCode', 'id', 'schoolId', 'version',
+    'anonymised', 'department', 'designation', 'displayName', 'employeeCode', 'id', 'schoolId', 'version',
   ])
   assert.equal(body.displayName, 'Newly Hired')
   // The create response names the assigned code, so the screen shows it without a second read.
@@ -430,14 +430,24 @@ test('a pay change is audited without the amount', async () => {
   assert.equal(response.status, 200)
   assert.deepEqual(((await response.json()) as { pay: unknown }).pay, { monthlySalary: 45500 })
 
-  const audit = await adminPool().query(
-    `SELECT summary, safe_changes FROM audit_events WHERE school_id = $1 AND action = 'staff.update_pay' ORDER BY created_at DESC LIMIT 1`,
+  // The reason a person typed lives in the redactable note table, never in the
+  // permanent safe_changes.
+  const audit = await adminPool().query<{
+    summary: string
+    safe_changes: Record<string, unknown>
+    note: string | null
+  }>(
+    `SELECT e.summary, e.safe_changes, n.note
+       FROM audit_events e
+       LEFT JOIN audit_event_notes n ON n.school_id = e.school_id AND n.audit_event_id = e.id
+      WHERE e.school_id = $1 AND e.action = 'staff.update_pay' ORDER BY e.created_at DESC LIMIT 1`,
     [schoolA],
   )
   const row = audit.rows[0]
   assert.ok(row)
-  assert.equal(JSON.stringify(row).includes('45500'), false)
-  assert.equal(row.safe_changes.reason, 'Annual revision')
+  assert.equal(JSON.stringify(row.safe_changes).includes('45500'), false)
+  assert.equal('reason' in row.safe_changes, false)
+  assert.equal(row.note, 'Annual revision')
 })
 
 test('assignments are managed, listed by staff and by section, and removed', async () => {

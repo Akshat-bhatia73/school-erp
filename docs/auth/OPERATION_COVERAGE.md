@@ -27,6 +27,9 @@ Owner or permission changed:
 - `auditLogs.list` redaction by audience is the scope term: `audit.read` and `audit.export` at the `finance` scope select only rows whose action is in `FINANCE_AUDIT_ACTIONS`, so an accountant's list, count and export never exceed the money trail.
 - `timetable.bellSchedules` and `timetable.bellFor` are school-wide rather than matched scope: `timetable.read` is a permission over timetable entries, so no read plan can be built for a bell schedule.
 - Search merges the student and staff search rows into one command-menu endpoint, returns at most ten hits of each kind with no count, and answers `staff: []` rather than a refusal for a caller who holds no staff key.
+- `students.get` no longer carries the APAAR id in the sensitive block. It carries `apaarMasked`, and the full value is a separate audited read (`students.apaar` below).
+- `students.list`, `students.count`, `students.search` and the search endpoint select no sensitive or medical column at all, rather than selecting them and dropping them in the projection.
+- `auditLogs.list` also carries the note attached to an event, joined under the same predicate and omitted once it has been redacted.
 - `dashboard.summary` has no `clerk` audience, because there is no `clerk` role key in this build; the office audience is owner, principal and admin.
 
 ## Routes
@@ -129,6 +132,23 @@ Owner or permission changed:
 | `timetable.addSubstitution`, `timetable.removeSubstitution` | `timetable.manage_substitutions` / school | `Substitution`, `EmptySuccess` | Task 5 |
 | `timetable.markNotified` | `timetable.notify_substitutions` / school | `NotificationMarkResult` | Task 5 |
 | `dashboard.summary` | `dashboard.read` / matched audience scope | `DashboardByAudience` | Task 5 |
+
+## Operations added after this inventory
+
+The data lifecycle work (Task 12) added operations this inventory never had, because the mock client
+had no consent, no anonymisation and no maintenance. They are listed here in the same shape so the
+inventory stays a complete statement of what the API answers.
+
+| Operation | Permission / scope | Safe response family | Owner |
+|---|---|---|---|
+| `students.consents` | `students.read_consents` / school or own children | `ConsentList` | Task 12 |
+| `students.recordConsent` | `students.manage_consents` / school or own children | `ConsentList` | Task 12 |
+| `students.revealApaar` | `students.read_sensitive` / matched record scope; every reveal audited | `StudentApaarReveal` | Task 12 |
+| `students.anonymise` | `students.anonymise` / school; privileged | `StudentDetailByAudience` | Task 12 |
+| `students.unlinkGuardian` | `students.manage_guardians` / school | `StudentDetailByAudience` | Task 12 |
+| `staff.anonymise` | `staff.anonymise` / school; privileged | `StaffDetailByAudience` | Task 12 |
+| `auditLogs.redactNote` | `audit.redact_notes` / school; privileged | `{ status: 'redacted' }` | Task 12 |
+| maintenance sweep | no membership; `Authorization: Bearer <CRON_SECRET>` only, and the route is absent without it | counts per swept item | Task 12 |
 
 ## Coverage constraints
 

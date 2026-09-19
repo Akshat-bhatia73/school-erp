@@ -143,6 +143,13 @@ break in one path cannot reach the others.
 | `IDENTITY_DATABASE_URL` | `erp_identity` | Creating and recovering identities. Narrow on purpose. |
 | `MIGRATION_DATABASE_URL` | `erp_migrator` | Deploy-time only, never in the running container. It owns the schema. |
 
+Two more secrets belong to the data lifecycle work:
+
+| Variable | Required | What it is for |
+|---|---|---|
+| `DATA_ENCRYPTION_KEY` | Yes | Base64 of 32 bytes. Seals sensitive text such as the APAAR id with AES-256-GCM. Production refuses the example value. Losing it makes the sealed fields unreadable, so keep it in the secret store with the rest. |
+| `CRON_SECRET` | No, but needed for the daily sweep | 32 characters or more. The daily sweep route exists only when this is set, and accepts only `Authorization: Bearer <CRON_SECRET>`. Vercel sends this header for a scheduled job. |
+
 The running API refuses to start if any of its three URLs signs in as
 `erp_migrator`.
 
@@ -216,6 +223,41 @@ rows to save space; archive whole years to cold storage instead.
 Audit rows can contain what changed. Read them through the audit API, which
 applies the same permission rules as the record itself. Do not hand out direct
 database access to read them.
+
+## 6.1 The daily sweep
+
+`GET /api/maintenance/sweep` deletes transient copies: expired import previews
+and export jobs, delivery outbox and invitation rows past ninety days, expired
+sessions, one-time codes, throttle rows and held text messages, and the login
+credentials of people whose last membership ended more than thirty days ago. It
+never touches a person's record. `vercel.json` schedules it at 20:30 UTC, which
+is 02:00 in India. The route is registered only when `CRON_SECRET` is set and
+refuses any other bearer token; it logs one line with the counts it removed.
+
+## 6.2 The retention schedule
+
+This is the schedule the system enforces, and the one to publish to a school. The periods that the
+code acts on are constants in `@erp/contracts` (`RETENTION`), so the API, the sweep and the screens
+quote the same numbers. Periods start when the purpose ends, not when the row was created.
+
+| Data | Keep while | Then | Enforced by |
+|---|---|---|---|
+| Student register fields (name, admission number, dates, class history, outcome) | Permanently, as state education rules require an admission register | Nothing; these are the register | `DELETE` is revoked from the runtime login |
+| Student sensitive fields (birth date, Aadhaar fragment, APAAR, category, religion, medical notes, address, documents) | Enrolled, plus 3 years after leaving | Anonymise: clear the fields, delete the documents | `POST /students/:id/anonymise`, refused before the period has run |
+| Guardian records | While any linked student is within the period above | Anonymised when the last link ends | The same route, and guardian unlink |
+| Staff records (salary, identifier fragments, private contact) | Employed, plus 8 years after leaving for statutory payroll records | Anonymise contact and identifiers; keep employment dates and designation | `POST /staff/:id/anonymise` |
+| Login identity and credentials | While the person holds any active membership | Sessions end when the last membership is removed; credentials go 30 days later, keeping `auth_user.id` and the name for audit attribution | Membership removal, then `sweep_orphaned_credentials` |
+| Sessions, one-time codes, reset tokens, throttle rows, held text messages | Until expiry | Deleted | `sweep_auth_transients`, daily |
+| Import previews | 24 hours | Deleted | `sweep_tenant_transients`, daily |
+| Invitations | Until terminal | The identifier is blanked at that point; the row is deleted after 90 days | `sweep_tenant_transients`, daily |
+| Delivery outbox | 90 days after delivery or failure | Deleted | `sweep_tenant_transients`, daily |
+| Audit events | 7 years, covering a child's time at the school plus the one-year log requirement | Archive whole years to cold storage; never edit | Manual; see section 6 |
+| Audit notes | With their event, unless redacted on request | Redaction removes the text and keeps the event | `POST /audit-events/:id/note/redact` |
+| Access logs | 180 days within India (CERT-In), 1 year preferred | Provider retention setting | Not yet chosen; Task 13 |
+
+Anonymisation is never automatic. The sweep deletes transient copies only; clearing a person's
+record is a decision a school takes through a permission-gated route, and the route refuses while
+the period is still running.
 
 ## 7. Alerting on repeated denied access
 

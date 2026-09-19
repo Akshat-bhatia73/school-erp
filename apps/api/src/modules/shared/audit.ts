@@ -13,6 +13,11 @@ export interface ModuleAuditEntry {
   readonly summary: string
   readonly safeChanges?: Record<string, unknown>
   readonly result?: 'allowed' | 'denied' | 'failed'
+  /**
+   * Free text a person typed. It goes to audit_event_notes, which can be
+   * redacted, never into safe_changes, which cannot.
+   */
+  readonly note?: string
 }
 
 /**
@@ -36,5 +41,6 @@ export async function writeAudit(
     summary: entry.summary,
     safeChanges: entry.safeChanges ?? {},
     requestId: context.requestId,
+    ...(entry.note === undefined ? {} : { note: entry.note }),
   })
 }

@@ -50,7 +50,7 @@ const { Route: AddStaffRoute } = await import('@/routes/_app/staff/new')
 
 const SCHOOL_ID = '10000000-0000-4000-8000-000000000001'
 
-const anita = { id: 'staff-1', schoolId: SCHOOL_ID, version: 4, displayName: 'Anita Sharma', designation: 'TGT Science', department: 'Science' }
+const anita = { id: 'staff-1', schoolId: SCHOOL_ID, version: 4, displayName: 'Anita Sharma', designation: 'TGT Science', department: 'Science', anonymised: false }
 
 function directoryPage() {
   return { items: [anita], total: 1, page: 1, pageSize: 25 }

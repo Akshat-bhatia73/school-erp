@@ -23,12 +23,12 @@ This document freezes the Task 0 access-control vocabulary. The executable sourc
 | Sections | `sections.read`, `sections.read_strengths`, `sections.manage` | school; bounded read/count scopes | Counts use the same authorized population as detail reads. |
 | Subjects | `subjects.read`, `subjects.manage` | school; read also assigned subjects/own children | Mapping subjects is manage. |
 | Holidays | `holidays.read`, `holidays.manage` | school | Calendar read is broadly safe within an active membership. |
-| Students | `students.read_basic`, `read_sensitive`, `read_medical`, `read_guardian_contact`, `read_guardians`, `read_siblings`, `read_documents`, `download_documents`, `read_enrollments`, `create`, `update_basic`, `update_sensitive`, `manage_enrollment`, `manage_guardians`, `import`, `export`, `promote` | Per catalogue | Basic, sensitive, medical, guardian, and document responses are separate. Download rechecks authorization. Minimal guardian contact is a separate policy from full guardian access. |
-| Staff | `staff.read_directory`, `read_employment`, `read_private`, `read_pay`, `create`, `update_employment`, `update_private`, `update_pay`, `manage_assignments`, `export` | Per catalogue | A teacher's own private profile does not trigger privileged-scope MFA; school/finance private access does. Pay is separate from employment. |
+| Students | `students.read_basic`, `read_sensitive`, `read_medical`, `read_guardian_contact`, `read_guardians`, `read_siblings`, `read_documents`, `download_documents`, `read_enrollments`, `create`, `update_basic`, `update_sensitive`, `manage_enrollment`, `manage_guardians`, `import`, `export`, `promote`, `read_consents`, `manage_consents`, `anonymise` | Per catalogue | Basic, sensitive, medical, guardian, and document responses are separate. Download rechecks authorization. Minimal guardian contact is a separate policy from full guardian access. Consent reads and writes follow the same student scopes, so a parent acts only for an approved child. Anonymisation is school scope only and refused before the retention period. |
+| Staff | `staff.read_directory`, `read_employment`, `read_private`, `read_pay`, `create`, `update_employment`, `update_private`, `update_pay`, `manage_assignments`, `export`, `anonymise` | Per catalogue | A teacher's own private profile does not trigger privileged-scope MFA; school/finance private access does. Pay is separate from employment. Anonymisation is school scope only and refused before the retention period. |
 | Membership | `members.read`, `invite`, `suspend`, `remove`, `restore`, `manage_credentials` | school only | These are privileged operations. Role input is never accepted by a generic member update. |
 | Roles/access | `roles.read`, `roles.assign`, `access.explain` | school only | Fixed templates cannot be edited. Assignment also checks delegation. Access explanations are owner-only by default. |
 | Ownership | `ownership.transfer` | school only | Owner-only, fresh MFA, verified target, last-owner lock, and audit event. |
-| Audit | `audit.read`, `audit.export` | school or finance | Responses are redacted for the matched audience. |
+| Audit | `audit.read`, `audit.export`, `audit.redact_notes` | school or finance; redaction is school only | Responses are redacted for the matched audience. The free-text note lives outside `safe_changes` and redaction removes it while the event itself stays. |
 | Timetable | `timetable.read`, `manage_periods`, `manage_entries`, `generate`, `read_conflicts`, `read_teacher_loads`, `manage_substitutions`, `notify_substitutions` | Read may use relationship scopes; management is school only | A parent receives minimal teacher attribution nested in the timetable DTO, never directory search. |
 | Dashboard | `dashboard.read` | school, self, assigned sections, own children, finance | Each scope has a distinct safe aggregate response. |
 
@@ -36,12 +36,12 @@ This document freezes the Task 0 access-control vocabulary. The executable sourc
 
 | Role | Enabled | MFA | Default access |
 |---|---:|---:|---|
-| Owner | yes | required | All current school operations, salary, membership lifecycle, fixed-role assignment, access explanation, audit, and ownership transfer. |
-| Principal | yes | required | School-wide setup and operations, medical/private records, teacher membership lifecycle and teacher role assignment; no salary, access explanation, or ownership transfer. |
-| Administrator | yes | required | Setup, student/staff/timetable operations, approved teacher invitation and assignment; no medical, salary, audit, membership removal, custom access, or ownership. |
+| Owner | yes | required | All current school operations, salary, membership lifecycle, fixed-role assignment, access explanation, audit, ownership transfer, consent, anonymisation, and audit note redaction. |
+| Principal | yes | required | School-wide setup and operations, medical/private records, teacher membership lifecycle and teacher role assignment, consent, and anonymisation; no salary, access explanation, ownership transfer, or audit note redaction. |
+| Administrator | yes | required | Setup, student/staff/timetable operations, approved teacher invitation and assignment, and guardian consent records; no medical, salary, audit, membership removal, custom access, or ownership. |
 | Accountant | yes | required | Minimal billing identity/contact data, compensation, finance dashboard, and finance-redacted audit; no medical, broad student administration, or access management. |
 | Teacher | yes | no by role | Basic students and minimal guardian contact in current assigned sections; own employment/private profile; relevant section/subject/self timetable. No student sensitive/medical/documents, staff directory, salary, or export. |
-| Parent | yes | no by role | Basic and enrollment data for approved child links, the guardian contact projection for those children, relevant calendar/setup labels, and child timetable. No sibling inference, full guardian records, documents, staff directory, or school search. |
+| Parent | yes | no by role | Basic and enrollment data for approved child links, the guardian contact projection for those children, relevant calendar/setup labels, child timetable, and the consent record of those children, which they may give or withdraw. No sibling inference, full guardian records, documents, staff directory, or school search. |
 | Student | no | no | No active grants. Future policy remains reserved and login stays disabled. |
 
 ## Reserved permissions

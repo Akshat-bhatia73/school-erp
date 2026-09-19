@@ -5,6 +5,7 @@
  * so every check is a safeParse of the request the screen would post.
  */
 import { StudentsAdmitRequest } from '@erp/contracts'
+import type { ConsentMethod, ConsentPurpose } from '@erp/contracts'
 import type { AdmitStudentInput } from '@/lib/api/students'
 import type { Errors } from './fields'
 
@@ -22,6 +23,10 @@ export interface GuardianDraft {
   occupation: string
   address: string
   receivesNotifications: boolean
+  /** The purposes this guardian agreed to, and how that agreement was taken. */
+  consentPurposes: ConsentPurpose[]
+  consentMethod: ConsentMethod
+  consentEvidence: string
 }
 
 export interface AdmitDraft {
@@ -42,7 +47,10 @@ export interface AdmitDraft {
 export const todayIso = () => new Date().toISOString().slice(0, 10)
 
 export function emptyGuardian(relation: GuardianRelation = 'father'): GuardianDraft {
-  return { mode: 'new', guardianId: '', relation, firstName: '', lastName: '', phone: '', occupation: '', address: '', receivesNotifications: true }
+  return {
+    mode: 'new', guardianId: '', relation, firstName: '', lastName: '', phone: '', occupation: '', address: '',
+    receivesNotifications: true, consentPurposes: [], consentMethod: 'in_person', consentEvidence: '',
+  }
 }
 
 export function emptyDraft(): AdmitDraft {
@@ -63,6 +71,7 @@ export function toE164(tenDigits: string): string {
 
 /** The request body this draft stands for, ready for StudentsAdmitRequest.safeParse. */
 export function toAdmitRequest(draft: AdmitDraft): AdmitStudentInput {
+  const consents = consentEntries(draft)
   return {
     firstName: draft.firstName.trim(),
     lastName: clean(draft.lastName),
@@ -90,14 +99,29 @@ export function toAdmitRequest(draft: AdmitDraft): AdmitStudentInput {
       isPrimary: index === draft.primaryIndex,
       receivesNotifications: guardian.receivesNotifications,
     })),
+    // Consent is per guardian and per purpose; the server matches guardianIndex to the array above.
+    ...(consents.length > 0 ? { consents } : {}),
   } as AdmitStudentInput
+}
+
+/** The consent rows this draft stands for, one per guardian and ticked purpose. */
+export function consentEntries(draft: AdmitDraft) {
+  return draft.guardians.flatMap((guardian, guardianIndex) =>
+    guardian.consentPurposes.map((purpose) => ({
+      guardianIndex,
+      purpose,
+      method: guardian.consentMethod,
+      evidenceReference: clean(guardian.consentEvidence),
+    })),
+  )
 }
 
 /** Which step owns which top-level field, so an error lands on the step that can fix it. */
 const STEP_FIELDS: Record<number, string[]> = {
   0: ['firstName', 'lastName', 'dateOfBirth', 'gender', 'category'],
   1: ['guardians'],
-  2: ['admissionDate', 'admissionType', 'address', 'sectionId', 'rollNumber'],
+  2: ['consents'],
+  3: ['admissionDate', 'admissionType', 'address', 'sectionId', 'rollNumber'],
 }
 
 /** Every problem the contract found, keyed by dotted path. */
@@ -115,13 +139,13 @@ export function validateDraft(draft: AdmitDraft): Errors {
   return errors
 }
 
-/** The step a dotted error path belongs to, or 2 for anything unrecognised. */
+/** The step a dotted error path belongs to, or the class step for anything unrecognised. */
 export function stepOfError(path: string): number {
   const head = path.split('.')[0] ?? ''
   for (const [step, fields] of Object.entries(STEP_FIELDS)) {
     if (fields.includes(head)) return Number(step)
   }
-  return 2
+  return 3
 }
 
 /** Only the problems this step can fix. */

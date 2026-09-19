@@ -49,6 +49,7 @@ export function toDirectory(row: StaffRow): StaffDirectoryDto {
     // employee code rather than sending a value the contract rejects.
     displayName: fit(displayName(row), 160) ?? fit(row.employeeCode, 160) ?? 'Staff member',
     designation: fit(row.designation, 160) ?? '',
+    anonymised: row.anonymisedAt !== null,
     ...(department === undefined ? {} : { department }),
   }
 }
@@ -123,9 +124,13 @@ export interface DetailProjection {
 
 /** One detail response, assembled from the blocks the caller was allowed. */
 export function toDetail(row: StaffRow, allowed: DetailProjection): StaffDetailDto {
+  // An anonymised record keeps its employment history and nothing else: the
+  // private and pay columns are already cleared, and an empty block would
+  // still suggest there is something to look at.
+  const anonymised = row.anonymisedAt !== null
   const employment = allowed.employment ? toEmployment(row) : undefined
-  const privateBlock = allowed.private ? toPrivate(row) : undefined
-  const pay = allowed.pay ? toPay(row) : undefined
+  const privateBlock = allowed.private && !anonymised ? toPrivate(row) : undefined
+  const pay = allowed.pay && !anonymised ? toPay(row) : undefined
   return {
     staff: toDirectory(row),
     ...(employment ? { employment } : {}),

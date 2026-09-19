@@ -36,6 +36,9 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `students.import` | active | school | school | school | school | — | — | — | — |
 | `students.export` | active | school, assigned_sections | school | school | school | — | — | — | — |
 | `students.promote` | active | school | school | school | school | — | — | — | — |
+| `students.read_consents` | active | — | school | school | school | — | — | own_children | — |
+| `students.manage_consents` | active | school | school | school | school | — | — | own_children | — |
+| `students.anonymise` | active | school | school | school | — | — | — | — | — |
 | `staff.read_directory` | active | — | school | school | school | school | self | — | — |
 | `staff.read_employment` | active | — | school | school | school | school | self | — | — |
 | `staff.read_private` | active | school, finance | school | school | school | finance | self | — | — |
@@ -46,6 +49,7 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `staff.update_pay` | active | school, finance | finance | — | — | finance | — | — | — |
 | `staff.manage_assignments` | active | school | school | school | school | — | — | — | — |
 | `staff.export` | active | school, finance | school | school | school | finance | — | — | — |
+| `staff.anonymise` | active | school | school | school | — | — | — | — | — |
 | `members.read` | active | school | school | school | school | — | — | — | — |
 | `members.invite` | active | school | school | school | school | — | — | — | — |
 | `members.update` | reserved | school | — | — | — | — | — | — | — |
@@ -61,6 +65,7 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `ownership.transfer` | active | school | school | — | — | — | — | — | — |
 | `audit.read` | active | school, finance | school | school | — | finance | — | — | — |
 | `audit.export` | active | school, finance | school | — | — | finance | — | — | — |
+| `audit.redact_notes` | active | school | school | — | — | — | — | — | — |
 | `timetable.read` | active | — | school | school | school | — | self, assigned_sections, assigned_subjects | own_children | — |
 | `timetable.manage_periods` | active | school | school | school | school | — | — | — | — |
 | `timetable.manage_entries` | active | school | school | school | school | — | — | — | — |

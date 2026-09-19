@@ -109,3 +109,31 @@ test('every named safe response family in the coverage inventory has an exported
     }
   }
 })
+
+test('the lifecycle actions are granted exactly to the roles that may take them', () => {
+  const scopesOf = (role, permission) => c.ROLE_TEMPLATES[role].grants
+    .filter((g) => g.permission === permission).map((g) => g.scope)
+  assert.deepEqual(scopesOf('owner', 'audit.redact_notes'), ['school'])
+  for (const role of ['principal', 'admin', 'accountant', 'teacher', 'parent', 'student']) {
+    assert.deepEqual(scopesOf(role, 'audit.redact_notes'), [], role)
+  }
+  for (const permission of ['students.anonymise', 'staff.anonymise']) {
+    for (const role of ['owner', 'principal']) assert.deepEqual(scopesOf(role, permission), ['school'], role)
+    for (const role of ['admin', 'accountant', 'teacher', 'parent']) assert.deepEqual(scopesOf(role, permission), [], role)
+  }
+  for (const permission of ['students.read_consents', 'students.manage_consents']) {
+    for (const role of ['owner', 'principal', 'admin']) assert.deepEqual(scopesOf(role, permission), ['school'], role)
+    assert.deepEqual(scopesOf('parent', permission), ['own_children'])
+    for (const role of ['accountant', 'teacher', 'student']) assert.deepEqual(scopesOf(role, permission), [], role)
+  }
+})
+
+test('lifecycle routes name an active permission and stay under a school path', () => {
+  for (const [key, route] of Object.entries(c.LIFECYCLE_ENDPOINTS)) {
+    assert.equal(c.PERMISSION_CATALOGUE[route.permission].availability, 'active', key)
+    assert.equal(route.auth, 'membership', key)
+    assert.equal(route.path.startsWith('/api/schools/:schoolId/'), true, key)
+  }
+  assert.equal(c.LIFECYCLE_ENDPOINTS.revealApaar.permission, 'students.read_sensitive')
+  assert.equal(c.LIFECYCLE_ENDPOINTS.unlinkGuardian.permission, 'students.manage_guardians')
+})

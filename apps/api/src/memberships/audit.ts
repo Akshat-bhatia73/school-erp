@@ -18,6 +18,11 @@ export interface AuditEvent {
   readonly summary: string
   readonly safeChanges: Record<string, unknown>
   readonly requestId: string
+  /**
+   * Free text a person typed (a reason box). It is stored in audit_event_notes,
+   * which can be redacted, never in safe_changes, which cannot. Task 12.
+   */
+  readonly note?: string
 }
 
 /**
@@ -28,11 +33,12 @@ export async function recordAuditEvent(
   conn: TenantConnection,
   event: AuditEvent,
 ): Promise<void> {
-  await conn.client.query(
+  const inserted = await conn.client.query<{ id: string }>(
     `INSERT INTO audit_events
        (school_id, actor_user_id, actor_membership_id, action, target_type,
         target_id, result, summary, safe_changes, request_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
+     RETURNING id`,
     [
       event.schoolId,
       event.actorUserId,
@@ -46,6 +52,13 @@ export async function recordAuditEvent(
       event.requestId,
     ],
   )
+  const note = event.note?.trim()
+  if (note) {
+    await conn.client.query(
+      `INSERT INTO audit_event_notes (school_id, audit_event_id, note) VALUES ($1, $2, $3)`,
+      [event.schoolId, inserted.rows[0]?.id, note],
+    )
+  }
 }
 
 /**

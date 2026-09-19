@@ -16,6 +16,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   VERSION_CONFLICT: 'Someone else changed this first. Reload and try again.',
   LAST_OWNER_PROTECTED: 'A school must always keep one owner.',
   IDENTITY_LINK_CONFLICT: 'This login is already linked to someone else.',
+  NOT_ALLOWED_YET: 'This cannot be done yet.',
   RATE_LIMITED: 'Too many attempts. Please wait and try again.',
   SERVICE_UNAVAILABLE: 'The service is busy. Please try again shortly.',
 }

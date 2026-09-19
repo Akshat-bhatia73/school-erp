@@ -17,6 +17,7 @@ export const StudentBasic = z.strictObject({
   id: Id, schoolId: Id, version: Version, firstName: DisplayName, lastName: DisplayName.optional(),
   admissionNumber: z.string().min(1).max(100),
   status: z.enum(['active', 'left', 'alumni', 'suspended']),
+  anonymised: z.boolean(),
   enrollment: EnrollmentSummary.optional(),
 })
 export const StudentSensitive = z.strictObject({
@@ -25,7 +26,7 @@ export const StudentSensitive = z.strictObject({
   category: z.string().max(50).optional(),
   admissionType: z.string().max(50).optional(),
   admissionDate: CalendarDate,
-  apaarId: z.string().max(100).optional(),
+  apaarMasked: z.string().regex(/^XXXX-XXXX-\d{4}$/).optional(),
   aadhaarLast4: z.string().regex(/^\d{4}$/).optional(),
   address: z.string().max(1000).optional(),
 })
@@ -57,6 +58,7 @@ export const StudentListResponse = pageOf(StudentBasic)
 export const StaffDirectory = z.strictObject({
   id: Id, schoolId: Id, version: Version, displayName: DisplayName,
   designation: z.string().max(160), department: z.string().max(160).optional(),
+  anonymised: z.boolean(),
 })
 export const StaffEmployment = z.strictObject({
   employeeCode: z.string().max(100), joiningDate: CalendarDate,
@@ -103,6 +105,7 @@ export const AuditEventSummary = z.strictObject({
   id: Id, at: Timestamp, actorDisplayName: DisplayName,
   action: z.string().min(1).max(100), summary: z.string().max(500),
   outcome: z.enum(['allowed', 'denied']),
+  note: z.string().max(1000).optional(),
 })
 export const AuditListResponse = pageOf(AuditEventSummary)
 export const DashboardResponse = z.discriminatedUnion('audience', [

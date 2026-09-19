@@ -6,6 +6,11 @@ import {
   InvitationPage, InvitationSummary, InviteMemberRequest, MemberSummary, MembershipActionRequest, RestoreMembershipRequest, TransferOwnershipRequest,
 } from './memberships.ts'
 import { PERMISSION_CATALOGUE, PermissionKey, ResourceType } from './permissions.ts'
+import {
+  AnonymiseRequest, ConsentList, RecordConsentRequest,
+  RedactAuditNoteRequest, StudentApaarReveal, UnlinkGuardianRequest,
+} from './module-lifecycle.ts'
+import { StudentDetailResponse, StaffDetailResponse } from './responses.ts'
 
 interface EndpointContract {
   method: 'GET' | 'POST' | 'PUT'
@@ -48,4 +53,20 @@ export const ACCESS_ENDPOINTS = {
   transferOwnership: { method: 'POST', path: '/api/schools/:schoolId/ownership/transfer', auth: 'membership', permission: 'ownership.transfer', params: SchoolParams, body: TransferOwnershipRequest, response: MemberSummary, successStatus: 200 },
   explain: { method: 'GET', path: '/api/schools/:schoolId/members/:membershipId/access-explanation', auth: 'membership', permission: 'access.explain', params: MemberParams, query: AccessExplanationQuery, response: AccessExplanation, successStatus: 200 },
   recovery: { method: 'POST', path: '/api/schools/:schoolId/members/:membershipId/recovery', auth: 'membership', permission: 'members.manage_credentials', params: MemberParams, body: MembershipActionRequest, response: z.strictObject({ status: z.literal('queued') }), successStatus: 202 },
+} as const satisfies Record<string, EndpointContract>
+
+const StudentParams = z.strictObject({ schoolId: Id, studentId: Id })
+const StudentGuardianParams = z.strictObject({ schoolId: Id, studentId: Id, guardianId: Id })
+const StaffParams = z.strictObject({ schoolId: Id, staffId: Id })
+const AuditEventParams = z.strictObject({ schoolId: Id, eventId: Id })
+
+/** Task 12 routes: consent, the audited APAAR reveal, anonymisation and note redaction. */
+export const LIFECYCLE_ENDPOINTS = {
+  readConsents: { method: 'GET', path: '/api/schools/:schoolId/students/:studentId/consents', auth: 'membership', permission: 'students.read_consents', params: StudentParams, response: ConsentList, successStatus: 200 },
+  recordConsent: { method: 'POST', path: '/api/schools/:schoolId/students/:studentId/consents', auth: 'membership', permission: 'students.manage_consents', params: StudentParams, body: RecordConsentRequest, response: ConsentList, successStatus: 200 },
+  revealApaar: { method: 'GET', path: '/api/schools/:schoolId/students/:studentId/apaar', auth: 'membership', permission: 'students.read_sensitive', params: StudentParams, response: StudentApaarReveal, successStatus: 200 },
+  anonymiseStudent: { method: 'POST', path: '/api/schools/:schoolId/students/:studentId/anonymise', auth: 'membership', permission: 'students.anonymise', params: StudentParams, body: AnonymiseRequest, response: StudentDetailResponse, successStatus: 200 },
+  unlinkGuardian: { method: 'POST', path: '/api/schools/:schoolId/students/:studentId/guardians/:guardianId/unlink', auth: 'membership', permission: 'students.manage_guardians', params: StudentGuardianParams, body: UnlinkGuardianRequest, response: StudentDetailResponse, successStatus: 200 },
+  anonymiseStaff: { method: 'POST', path: '/api/schools/:schoolId/staff/:staffId/anonymise', auth: 'membership', permission: 'staff.anonymise', params: StaffParams, body: AnonymiseRequest, response: StaffDetailResponse, successStatus: 200 },
+  redactAuditNote: { method: 'POST', path: '/api/schools/:schoolId/audit-events/:eventId/note/redact', auth: 'membership', permission: 'audit.redact_notes', params: AuditEventParams, body: RedactAuditNoteRequest, response: z.strictObject({ status: z.literal('redacted') }), successStatus: 200 },
 } as const satisfies Record<string, EndpointContract>

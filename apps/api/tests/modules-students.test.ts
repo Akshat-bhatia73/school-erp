@@ -206,6 +206,7 @@ interface Basic {
   firstName: string
   admissionNumber: string
   status: string
+  anonymised: boolean
   enrollment?: { id: string; section: { id: string; name: string }; rollNumber?: number }
 }
 interface Roster {
@@ -397,7 +398,8 @@ test('admission writes the student, the enrolment, the guardian and one audit ro
   // Assigned by the server from the counter of the section's academic year.
   assert.match(created.admissionNumber, /^A\/2026-27\/\d{3,}$/)
   assert.deepEqual(Object.keys(created).sort(), [
-    'admissionNumber', 'enrollment', 'firstName', 'id', 'lastName', 'schoolId', 'status', 'version',
+    'admissionNumber', 'anonymised', 'enrollment', 'firstName', 'id', 'lastName', 'schoolId',
+    'status', 'version',
   ])
 
   const pool = adminPool()
@@ -628,13 +630,21 @@ test('a move without a roll number keeps the one the student has', async () => {
 
   // The stated justification survives on the audit row and, for a leave, on
   // the record itself.
-  const moveAudit = await adminPool().query(
-    `SELECT safe_changes FROM audit_events WHERE school_id = $1 AND target_type = 'enrollment'
+  const moveAudit = await adminPool().query<{ id: string; safe_changes: Record<string, unknown> }>(
+    `SELECT id, safe_changes FROM audit_events WHERE school_id = $1 AND target_type = 'enrollment'
        AND action = 'students.manage_enrollment' AND safe_changes->>'toSectionId' = $2
      ORDER BY created_at DESC LIMIT 1`,
     [schoolA, sectionA2],
   )
-  assert.equal(moveAudit.rows[0].safe_changes.reason, 'Class balance')
+  const moveEvent = moveAudit.rows[0]
+  assert.ok(moveEvent)
+  // Free text a person typed lives in the note table, not in the structured changes.
+  assert.equal('reason' in moveEvent.safe_changes, false)
+  const moveNote = await adminPool().query<{ note: string }>(
+    'SELECT note FROM audit_event_notes WHERE school_id = $1 AND audit_event_id = $2',
+    [schoolA, moveEvent.id],
+  )
+  assert.equal(moveNote.rows[0]?.note, 'Class balance')
 
   const left = await owner.fetch(`/api/schools/${schoolA}/students/${created.id}/leave`, {
     method: 'POST',
@@ -756,4 +766,112 @@ test('the first admission into another academic year starts at 001', async () =>
   assert.equal(created.admissionNumber, `A/${yearName}/001`)
   const next = await body<Basic>(await admit({ sectionId: freshSection }))
   assert.equal(next.admissionNumber, `A/${yearName}/002`)
+})
+
+test('the APAAR id is stored sealed, shown masked and revealed only once audited', async () => {
+  const created = await body<Basic>(await admit())
+  const update = await owner.fetch(`/api/schools/${schoolA}/students/${created.id}/sensitive`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ expectedVersion: created.version, apaarId: '123456789012' }),
+  })
+  assert.equal(update.status, 200)
+
+  const pool = adminPool()
+  const stored = await pool.query<{ apaar_ciphertext: string; apaar_last4: string }>(
+    'SELECT apaar_ciphertext, apaar_last4 FROM students WHERE school_id = $1 AND id = $2',
+    [schoolA, created.id],
+  )
+  assert.equal(stored.rows[0]?.apaar_last4, '9012')
+  assert.match(stored.rows[0]?.apaar_ciphertext ?? '', /^v1\./)
+  assert.equal((stored.rows[0]?.apaar_ciphertext ?? '').includes('123456789012'), false)
+
+  const detail = await owner.fetch(`/api/schools/${schoolA}/students/${created.id}`)
+  const text = await detail.text()
+  assert.equal(text.includes('123456789012'), false)
+  assert.equal((JSON.parse(text) as Detail).sensitive?.apaarMasked, 'XXXX-XXXX-9012')
+
+  const revealed = await owner.fetch(`/api/schools/${schoolA}/students/${created.id}/apaar`)
+  assert.equal(revealed.status, 200)
+  assert.deepEqual(await body<{ apaarId: string }>(revealed), { apaarId: '123456789012' })
+  const audits = await pool.query<{ summary: string }>(
+    `SELECT summary FROM audit_events
+      WHERE school_id = $1 AND target_id = $2 AND action = 'students.read_sensitive'`,
+    [schoolA, created.id],
+  )
+  assert.equal(audits.rowCount, 1)
+  assert.equal(audits.rows[0]?.summary, 'Revealed the full APAAR id.')
+})
+
+test('a teacher may neither see the mask nor ask for the value', async () => {
+  const seen = await body<Detail>(await teacher.fetch(`/api/schools/${schoolA}/students/${studentA}`))
+  assert.equal('sensitive' in seen, false)
+  const refused = await teacher.fetch(`/api/schools/${schoolA}/students/${studentA}/apaar`)
+  assert.equal(refused.status, 403)
+  assert.equal(await codeOf(refused), 'ACCESS_DENIED')
+})
+
+test('the reason for ending an enrolment is a note beside the audit row', async () => {
+  const created = await body<Basic>(await admit())
+  const left = await owner.fetch(`/api/schools/${schoolA}/students/${created.id}/leave`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      expectedVersion: created.version,
+      leftOn: new Date().toISOString().slice(0, 10),
+      reason: 'The family is moving to another city.',
+    }),
+  })
+  assert.equal(left.status, 204)
+  const pool = adminPool()
+  const row = await pool.query<{ id: string; safe_changes: Record<string, unknown> }>(
+    `SELECT id, safe_changes FROM audit_events
+      WHERE school_id = $1 AND action = 'students.manage_enrollment'
+      ORDER BY created_at DESC LIMIT 1`,
+    [schoolA],
+  )
+  const event = row.rows[0]
+  assert.ok(event)
+  assert.equal(JSON.stringify(event.safe_changes).includes('moving'), false)
+  const note = await pool.query<{ note: string }>(
+    'SELECT note FROM audit_event_notes WHERE school_id = $1 AND audit_event_id = $2',
+    [schoolA, event.id],
+  )
+  assert.equal(note.rows[0]?.note, 'The family is moving to another city.')
+})
+
+test('admission records the consents it was given and refuses an index it was not', async () => {
+  const pool = adminPool()
+  const before = await pool.query<{ total: number }>(
+    'SELECT count(*)::int AS total FROM students WHERE school_id = $1',
+    [schoolA],
+  )
+  const outOfRange = await admit({
+    consents: [{ guardianIndex: 3, purpose: 'photographs', method: 'in_person' }],
+  })
+  assert.equal(outOfRange.status, 400)
+  assert.equal(await codeOf(outOfRange), 'INVALID_REQUEST')
+  const after = await pool.query<{ total: number }>(
+    'SELECT count(*)::int AS total FROM students WHERE school_id = $1',
+    [schoolA],
+  )
+  assert.equal(after.rows[0]?.total, before.rows[0]?.total)
+
+  const created = await body<Basic>(
+    await admit({
+      consents: [
+        { guardianIndex: 0, purpose: 'education_records', method: 'signed_form' },
+        { guardianIndex: 0, purpose: 'photographs', method: 'in_person' },
+      ],
+    }),
+  )
+  const consents = await pool.query<{ purpose: string; status: string; method: string }>(
+    `SELECT purpose, status, method FROM guardian_consents
+      WHERE school_id = $1 AND student_id = $2 ORDER BY purpose`,
+    [schoolA, created.id],
+  )
+  assert.deepEqual(consents.rows, [
+    { purpose: 'education_records', status: 'given', method: 'signed_form' },
+    { purpose: 'photographs', status: 'given', method: 'in_person' },
+  ])
 })

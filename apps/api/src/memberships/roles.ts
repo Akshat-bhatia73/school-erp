@@ -70,9 +70,9 @@ export async function changeRoles(
       summary: 'Roles changed for a school membership.',
       safeChanges: {
         roleKeys: { from: target.roleKeys, to: body.roleKeys },
-        reason: body.reason,
       },
       requestId: context.requestId,
+      note: body.reason,
     })
 
     return freshSummary(conn, deps.pools.auth, context.schoolId, membershipId)

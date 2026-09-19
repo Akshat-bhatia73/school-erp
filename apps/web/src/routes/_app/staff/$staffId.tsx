@@ -22,6 +22,7 @@ import { StaffContactSheet, StaffEmploymentSheet, StaffPaySheet } from '@/compon
 import { TeachingTab } from '@/components/staff/teaching-tab'
 import { LoginTab } from '@/components/staff/login-tab'
 import { StaffStatusTag, employmentLabel } from '@/components/staff/shared'
+import { StaffAnonymisePanel } from '@/components/staff/anonymise-panel'
 
 export const Route = createFileRoute('/_app/staff/$staffId')({ component: Page })
 
@@ -65,6 +66,7 @@ function Page() {
   const canEditPay = allows(detail.allowedActions, 'staff.update_pay')
   const canSeeTeaching = allows(detail.allowedActions, 'staff.read_employment')
   const canSeeLogin = hasPermission('members.read')
+  const canAnonymise = allows(detail.allowedActions, 'staff.anonymise')
   // Mount each sheet only while it is open, so its fields always come from the version being saved.
 
   return (
@@ -89,6 +91,7 @@ function Page() {
               {staff.department && <Tag color={colorFor(staff.department)}>{staff.department}</Tag>}
               {employment && <Tag>{employmentLabel[employment.employmentType]}</Tag>}
               {employment && <StaffStatusTag status={employment.status} />}
+              {staff.anonymised && <Tag>Anonymised</Tag>}
             </div>
           </div>
         </div>
@@ -158,6 +161,7 @@ function Page() {
                 <Facts columns={3} items={[{ label: 'Monthly salary', value: formatINR(detail.pay.monthlySalary) }]} />
               </Panel>
             )}
+            {canAnonymise && !staff.anonymised && <StaffAnonymisePanel staff={staff} />}
           </TabsContent>
 
           {canSeeTeaching && (

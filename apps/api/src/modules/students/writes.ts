@@ -12,22 +12,15 @@ import {
   authorizeResource,
   bumpVersion,
   lockSchool,
+  recordAuditEvent,
+  seal,
   writeAudit,
 } from '../shared/index.ts'
+import { recordConsents, type ConsentEntry } from './consents.ts'
 import type { ModuleConnection } from './reads.ts'
 import type { GuardianRow } from './project.ts'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-/**
- * Identifiers are opaque in the contract but uuid in storage. Checking the
- * shape here keeps a malformed identifier a plain not-found or bad request
- * instead of a database error the boundary would have to answer with 503.
- */
-export function assertUuidParam(value: string): string {
-  if (!UUID.test(value)) throw new ApiFailure('RESOURCE_NOT_FOUND')
-  return value
-}
 
 export function assertUuidReference(value: string): string {
   if (!UUID.test(value)) throw new ApiFailure('INVALID_REQUEST')
@@ -164,6 +157,11 @@ export async function admitStudent(
   context: RequestContext,
   body: StudentsAdmitRequest,
 ): Promise<string> {
+  // Checked before anything is written, so a consent aimed at a guardian this
+  // request never named cannot spend an admission number.
+  for (const entry of body.consents ?? []) {
+    if (entry.guardianIndex >= body.guardians.length) throw new ApiFailure('INVALID_REQUEST')
+  }
   await lockSchool(conn, context.schoolId)
   const section = await requireSection(conn, context.schoolId, body.sectionId)
   // The number belongs to the academic year the student is being enrolled in,
@@ -191,9 +189,29 @@ export async function admitStudent(
         VALUES (${context.schoolId}::uuid, ${studentId}::uuid, ${section.academicYearId}::uuid,
                 ${section.id}::uuid, ${body.rollNumber ?? null}, ${body.admissionDate}::date, 'ongoing')`,
   )
+  const guardianIds: string[] = []
   for (const link of body.guardians) {
     const guardianId = await resolveGuardian(conn, context, link)
     await linkGuardian(conn, context.schoolId, studentId, guardianId, link)
+    guardianIds.push(guardianId)
+  }
+  if (body.consents && body.consents.length > 0) {
+    const entries: ConsentEntry[] = body.consents.map((entry) => {
+      const guardianId = guardianIds[entry.guardianIndex]
+      // The index points into this request's own guardians array; anything
+      // else is a bad request, not a consent recorded against a stranger.
+      if (guardianId === undefined) throw new ApiFailure('INVALID_REQUEST')
+      return {
+        guardianId,
+        purpose: entry.purpose,
+        status: 'given',
+        method: entry.method,
+        ...(entry.evidenceReference === undefined
+          ? {}
+          : { evidenceReference: entry.evidenceReference }),
+      }
+    })
+    await recordConsents(conn, context, studentId, entries)
   }
 
   await writeAudit(conn, context, {
@@ -238,7 +256,6 @@ const SENSITIVE_COLUMNS: Record<string, string> = {
   admissionType: 'admission_type',
   address: 'address',
   aadhaarLast4: 'aadhaar_last4',
-  apaarId: 'apaar_id',
   bloodGroup: 'blood_group',
   medicalNotes: 'medical_notes',
 }
@@ -252,12 +269,20 @@ export async function updateSensitive(
   context: RequestContext,
   studentId: string,
   body: StudentsUpdateSensitiveRequest,
+  encryptionKey: string,
 ): Promise<void> {
   const set: Record<string, unknown> = {}
   for (const [field, column] of Object.entries(SENSITIVE_COLUMNS)) {
     const value = (body as Record<string, unknown>)[field]
     if (value === undefined) continue
     set[column] = field === 'address' ? jsonText(String(value)) : value
+  }
+  if (body.apaarId !== undefined) {
+    // The database only ever holds the sealed value and the last four digits
+    // the masked form shows; the key stays in the API configuration.
+    if (body.apaarId.length < 4) throw new ApiFailure('INVALID_REQUEST')
+    set.apaar_ciphertext = seal(body.apaarId, encryptionKey)
+    set.apaar_last4 = body.apaarId.slice(-4)
   }
   await bumpVersion(conn, 'students', {
     schoolId: context.schoolId,
@@ -308,10 +333,12 @@ export async function moveStudent(
     targetType: 'enrollment',
     targetId: enrollment.id,
     summary: 'Moved a student to another class in the same academic year.',
+    // The reason is free text a person typed, so it belongs in the note table
+    // that can be redacted, never in the structured changes.
+    note: body.reason,
     safeChanges: {
       fromSectionId: enrollment.sectionId,
       toSectionId: section.id,
-      reason: body.reason,
     },
   })
 }
@@ -337,12 +364,20 @@ export async function endEnrollment(
     sql`UPDATE enrollments SET left_on = ${body.leftOn}::date, outcome = 'left', updated_at = now()
          WHERE school_id = ${context.schoolId}::uuid AND id = ${enrollment.id}::uuid`,
   )
-  await writeAudit(conn, context, {
+  // The reason is free text a person typed, so it is a note beside the event
+  // rather than a value inside safe_changes.
+  await recordAuditEvent(conn, {
+    schoolId: context.schoolId,
+    actorUserId: context.userId,
+    actorMembershipId: context.membershipId,
     action: 'students.manage_enrollment',
     targetType: 'enrollment',
     targetId: enrollment.id,
+    result: 'allowed',
     summary: 'Ended a student enrolment and marked the student as left.',
-    safeChanges: { sectionId: enrollment.sectionId, reason: body.reason },
+    safeChanges: { sectionId: enrollment.sectionId },
+    requestId: context.requestId,
+    note: body.reason,
   })
 }
 

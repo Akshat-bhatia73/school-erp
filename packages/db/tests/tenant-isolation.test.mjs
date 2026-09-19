@@ -198,7 +198,7 @@ test('runtime catalogue is readable but immutable, and existing student identiti
   )
 })
 
-test('wrong-school writes fail while hidden rows cannot be updated or deleted', async () => {
+test('wrong-school writes fail while hidden rows cannot be updated and the runtime cannot delete', async () => {
   const a = crypto.randomUUID(),
     b = crypto.randomUUID()
   await admin.query(
@@ -245,11 +245,15 @@ test('wrong-school writes fail while hidden rows cannot be updated or deleted', 
       ).rowCount,
       0,
     )
-    assert.equal(
-      (await c.query(`DELETE FROM students WHERE school_id=$1`, [b])).rowCount,
-      0,
-    )
   })
+  // Removing a student is a status change plus anonymisation, so the runtime
+  // holds no DELETE at all: a hidden row cannot even be attempted.
+  await assert.rejects(
+    asRuntime(a, (c) =>
+      c.query(`DELETE FROM students WHERE school_id=$1`, [b]),
+    ),
+    { code: '42501' },
+  )
   const hidden = await asRuntime(b, (c) =>
     c.query(`SELECT first_name FROM students`),
   )

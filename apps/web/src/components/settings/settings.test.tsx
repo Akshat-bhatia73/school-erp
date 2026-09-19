@@ -21,11 +21,12 @@ const membersList = vi.hoisted(() => vi.fn())
 const listInvitations = vi.hoisted(() => vi.fn())
 const changeRoles = vi.hoisted(() => vi.fn())
 const auditList = vi.hoisted(() => vi.fn())
+const redactNote = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/api', () => ({
   api: {
     members: { list: membersList, listInvitations, changeRoles, suspend: vi.fn(), remove: vi.fn(), restore: vi.fn(), startRecovery: vi.fn(), accessExplanation: vi.fn(), invite: vi.fn(), resendInvitation: vi.fn(), revokeInvitation: vi.fn() },
-    audit: { list: auditList, export: vi.fn() },
+    audit: { list: auditList, export: vi.fn(), redactNote },
     staff: { search: vi.fn() },
     files: { exportJob: vi.fn() },
   },
@@ -152,6 +153,35 @@ describe('Audit log', () => {
     renderWithSession(<Page />, { capabilities: ['audit.read'], roleKeys: ['principal'] })
     await waitFor(() => expect(screen.getByText('Suspended Priya Nair')).toBeInTheDocument())
     expect(screen.queryByRole('button', { name: 'Export' })).not.toBeInTheDocument()
+  })
+
+  it('shows the note under the summary and offers Redact only to somebody who may redact', async () => {
+    const entry = {
+      id: 'a1', at: '2026-03-01T10:00:00.000Z', actorDisplayName: 'Asha Rao',
+      action: 'staff.update_pay', summary: 'Changed the pay of Priya Nair', outcome: 'allowed',
+      note: 'Annual increment agreed in the March meeting',
+    }
+    const { AuditDetailSheet } = await import('@/components/settings/audit-detail-sheet')
+
+    const reader = renderWithSession(
+      <AuditDetailSheet entry={entry as never} onOpenChange={() => {}} />,
+      { capabilities: ['audit.read'], roleKeys: ['principal'] },
+    )
+    expect(await screen.findByText('Annual increment agreed in the March meeting')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Redact' })).not.toBeInTheDocument()
+    reader.unmount()
+
+    const user = userEvent.setup()
+    redactNote.mockResolvedValue(undefined)
+    renderWithSession(
+      <AuditDetailSheet entry={entry as never} onOpenChange={() => {}} />,
+      { capabilities: ['audit.read', 'audit.redact_notes'], roleKeys: ['owner'] },
+    )
+    await user.click(await screen.findByRole('button', { name: 'Redact' }))
+    await user.type(await screen.findByPlaceholderText(/names somebody/i), 'Names an unrelated person')
+    await user.click(screen.getByRole('button', { name: 'Redact note' }))
+
+    await waitFor(() => expect(redactNote).toHaveBeenCalledWith(SCHOOL_ID, 'a1', { reason: 'Names an unrelated person' }))
   })
 })
 

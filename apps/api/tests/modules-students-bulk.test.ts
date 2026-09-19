@@ -728,7 +728,7 @@ test('a promotion preview lists only the students the caller may read', async ()
   assert.ok(mine)
   assert.deepEqual(
     Object.keys(mine).sort(),
-    ['admissionNumber', 'firstName', 'id', 'schoolId', 'status', 'version'],
+    ['admissionNumber', 'anonymised', 'firstName', 'id', 'schoolId', 'status', 'version'],
   )
 
   // A student of the neighbouring class is not on this roster, because the
@@ -853,11 +853,19 @@ test('an export of a set with one unreachable record is refused whole', async ()
   assert.equal(allowed.status, 202)
   const body = (await allowed.json()) as { id: string; status: string }
   assert.deepEqual(Object.keys(body).sort(), ['id', 'status'])
-  assert.equal(body.status, 'ready')
-  const job = await adminPool().query<{ row_count: number; permission: string; access_version: number }>(
-    `SELECT row_count, permission, access_version FROM export_jobs WHERE school_id = $1 AND id = $2`,
+  // Queued like the staff and audit exports: the file is built later, so the
+  // job never claims to be ready before anything has been written.
+  assert.equal(body.status, 'queued')
+  const job = await adminPool().query<{
+    row_count: number
+    permission: string
+    access_version: number
+    status: string
+  }>(
+    `SELECT row_count, permission, access_version, status FROM export_jobs WHERE school_id = $1 AND id = $2`,
     [schoolA, body.id],
   )
+  assert.equal(job.rows[0]?.status, 'queued')
   assert.equal(job.rows[0]?.row_count, 1)
   assert.equal(job.rows[0]?.permission, 'students.export')
   assert.ok((job.rows[0]?.access_version ?? 0) > 0)

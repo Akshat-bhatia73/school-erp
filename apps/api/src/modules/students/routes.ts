@@ -25,14 +25,18 @@ import {
   StudentsUpdateSensitiveRequest,
   UpdateStudentBasicRequest,
   EnrollmentSummaryList,
+  StudentApaarReveal,
 } from '@erp/contracts'
 import type { PermissionKey } from '@erp/contracts'
 import type { RequestContext } from '@erp/contracts/server'
 import {
   ApiFailure,
   allowedActionsFor,
+  assertUuidParam,
   authorizeResource,
   decideResource,
+  writeAudit,
+  open,
   protectedRoute,
   readPlan,
   requireFound,
@@ -47,6 +51,7 @@ import {
   siblingIds,
   enrollmentVisibility,
   type ModuleConnection,
+  type StudentReadOptions,
 } from './reads.ts'
 import {
   toGuardianContact,
@@ -59,7 +64,6 @@ import {
 import {
   addGuardian,
   admitStudent,
-  assertUuidParam,
   currentEnrollment,
   endEnrollment,
   loadGuardian,
@@ -85,10 +89,11 @@ async function requireVisibleStudent(
   conn: ModuleConnection,
   context: RequestContext,
   studentId: string,
+  options?: StudentReadOptions,
 ) {
   const plan = await readPlan(conn, context, 'students.read_basic', 'student')
   const visible = await enrollmentVisibility(conn, context)
-  return requireFound(await getStudent(conn, plan, visible, studentId))
+  return requireFound(await getStudent(conn, plan, visible, studentId, options))
 }
 
 export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependencies): void {
@@ -151,15 +156,19 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
     handler: async ({ context, param }) => {
       const studentId = assertUuidParam(param('studentId'))
       return inTransaction(context, async (conn) => {
-        const row = await requireVisibleStudent(conn, context, studentId)
         // Each block is a separate decision, so an audience that may read the
-        // roster does not thereby read health notes or a home address.
+        // roster does not thereby read health notes or a home address. The
+        // decisions come first because they choose the columns the statement
+        // is allowed to name at all.
         const may = async (permission: PermissionKey) =>
           (await decideResource(conn, context, permission, 'student', studentId)).allowed
-        const sensitive = (await may('students.read_sensitive'))
-          ? toStudentSensitive(row)
-          : undefined
-        const medical = (await may('students.read_medical')) ? toStudentMedical(row) : undefined
+        const options = {
+          sensitive: await may('students.read_sensitive'),
+          medical: await may('students.read_medical'),
+        }
+        const row = await requireVisibleStudent(conn, context, studentId, options)
+        const sensitive = options.sensitive ? toStudentSensitive(row) : undefined
+        const medical = options.medical ? toStudentMedical(row) : undefined
         const contacts = (await may('students.read_guardian_contact'))
           ? await loadGuardianRows(conn, context.schoolId, studentId)
           : undefined
@@ -180,6 +189,34 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
             id: studentId,
           }),
         }
+      })
+    },
+  })
+
+  protectedRoute(app, deps, {
+    method: 'GET',
+    path: '/api/schools/:schoolId/students/:studentId/apaar',
+    permission: 'students.read_sensitive',
+    response: StudentApaarReveal,
+    handler: async ({ context, param }) => {
+      const studentId = assertUuidParam(param('studentId'))
+      return inTransaction(context, async (conn) => {
+        await authorizeResource(conn, context, 'students.read_sensitive', 'student', studentId)
+        const row = await requireVisibleStudent(conn, context, studentId, {
+          sensitive: true,
+          medical: false,
+        })
+        const sealed = row.apaar_ciphertext
+        if (typeof sealed !== 'string' || sealed === '') throw new ApiFailure('RESOURCE_NOT_FOUND')
+        // Seeing the whole identifier is the event worth recording; the row is
+        // written before the value leaves, so there is no unaudited reveal.
+        await writeAudit(conn, context, {
+          action: 'students.read_sensitive',
+          targetType: 'student',
+          targetId: studentId,
+          summary: 'Revealed the full APAAR id.',
+        })
+        return { apaarId: open(sealed, deps.config.DATA_ENCRYPTION_KEY) }
       })
     },
   })
@@ -388,7 +425,7 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
           )
           if (!medical.allowed) throw new ApiFailure('ACCESS_DENIED')
         }
-        await updateSensitive(conn, context, studentId, body)
+        await updateSensitive(conn, context, studentId, body, deps.config.DATA_ENCRYPTION_KEY)
         const plan = await readPlan(conn, context, 'students.read_basic', 'student')
         const visible = await enrollmentVisibility(conn, context)
         return toStudentBasic(requireFound(await getStudent(conn, plan, visible, studentId)))
