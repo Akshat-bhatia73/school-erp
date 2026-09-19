@@ -37,7 +37,7 @@ export const apiEnv: Record<string, string> = {
   IDENTITY_DATABASE_URL: urlFor('erp_identity'),
   DATABASE_URL: urlFor('erp_runtime'),
   AUTH_SECRET: 'browser-test-secret-value-for-local-authentication-only',
-  DATA_ENCRYPTION_KEY: 'YnJvd3Nlci10ZXN0LWRhdGEtZW5jcnlwdGlvbi1rZXktMA==',
+  DATA_ENCRYPTION_KEY: 'YnJvd3Nlci10ZXN0LWRhdGEtZW5jcnlwdGlvbi1rMDA=',
   APP_ORIGIN,
   API_TRUST_PROXY: 'false',
   DELIVERY_MODE: 'sandbox',
