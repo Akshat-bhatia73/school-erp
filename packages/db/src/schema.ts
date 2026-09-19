@@ -839,6 +839,14 @@ export const exportJobs = pgTable(
       .default(sql`'{}'::jsonb`),
     rowCount: integer('row_count'),
     storageKey: text('storage_key'),
+    /** The name the file is delivered under, set when it becomes ready. */
+    fileName: text('file_name'),
+    /** The type the download route puts on the response. */
+    contentType: text('content_type'),
+    /** The assurance the request that asked for the file had reached. */
+    requestedAssurance: text('requested_assurance'),
+    /** When that request's second factor was checked, if it had one. */
+    requestedMfaVerifiedAt: timestamp('requested_mfa_verified_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     ...timestamps(),
   },

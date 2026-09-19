@@ -200,3 +200,8 @@ export function promote(schoolId: string, body: PromoteInput) {
 export function exportStudents(schoolId: string, body: ExportStudentsInput) {
   return request(base(schoolId, '/export'), { method: 'POST', body, schema: StudentExportJob })
 }
+
+/** One student's profile as a PDF. The record is named in the path, so there is no body to send. */
+export function exportProfile(schoolId: string, studentId: string) {
+  return request(base(schoolId, `/${seg(studentId)}/export-profile`), { method: 'POST', body: {}, schema: StudentExportJob })
+}

@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import test, { after, before } from 'node:test'
 import { FINANCE_AUDIT_ACTIONS, isFinanceAuditAction } from '@erp/contracts'
+import ExcelJS from 'exceljs'
 import { fixtureIds } from '@erp/db/fixtures'
 import {
   adminPool,
   closeAdminPool,
+  readExportFileBytes,
   seedDatabaseFixtures,
   setFixturePassword,
   signInWithMfa,
@@ -354,10 +356,12 @@ test('an export body may only name a window, and writes a job plus an audit row'
     body: JSON.stringify({ from: '2020-01-01T00:00:00Z', to: '2020-06-01T00:00:00Z' }),
   })
   assert.equal(response.status, 202)
-  const job = (await response.json()) as { id: string; status: string }
-  assert.deepEqual(Object.keys(job).sort(), ['id', 'status'])
-  // No file exists yet, so the job must not claim to be downloadable.
-  assert.equal(job.status, 'queued')
+  const job = (await response.json()) as { id: string; status: string; format: string }
+  assert.deepEqual(Object.keys(job).sort(), ['fileName', 'format', 'id', 'status'])
+  // The window is small, so the file is made in the same request and the job
+  // names it.
+  assert.equal(job.status, 'ready')
+  assert.equal(job.format, 'xlsx')
 
   const stored = await adminPool().query<{
     kind: string
@@ -375,6 +379,14 @@ test('an export body may only name a window, and writes a job plus an audit row'
   assert.equal(row?.criteria.from, '2020-01-01T00:00:00Z')
   // The window predates every fixture row, so the count is exact.
   assert.equal(row?.row_count, 0)
+
+  // The file exists in the store and holds the headings and no rows.
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load((await readExportFileBytes(server, job.id)) as unknown as ArrayBuffer)
+  const sheet = workbook.worksheets[0]
+  assert.ok(sheet)
+  assert.equal(sheet.getRow(1).getCell(1).value, 'Time (UTC)')
+  assert.equal(sheet.rowCount, 1)
 
   const audited = await owner.fetch(
     `/api/schools/${schoolA}/audit-events?action=audit.export&pageSize=5`,
@@ -499,7 +511,10 @@ test('a finance export counts only the finance rows and the owner export counts 
     `SELECT row_count FROM export_jobs WHERE id = $1`,
     [financeId],
   )
-  assert.equal(financeRow.rows[0]?.row_count, expected)
+  // The file is produced inside the same request, after this export has
+  // written its own audit row, so the finance reader sees one row more than
+  // the log held a moment ago.
+  assert.equal(financeRow.rows[0]?.row_count, expected + 1)
 
   const ownerJob = await owner.fetch(`/api/schools/${schoolA}/audit-events/export`, {
     method: 'POST',

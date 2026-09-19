@@ -555,7 +555,7 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
 }
 
 /** Guardian rows behind the minimal contact projection on a student detail. */
-async function loadGuardianRows(
+export async function loadGuardianRows(
   conn: ModuleConnection,
   schoolId: string,
   studentId: string,

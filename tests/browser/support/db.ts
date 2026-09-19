@@ -38,6 +38,16 @@ export async function restoreMembership(membershipId: string): Promise<void> {
   )
 }
 
+/**
+ * Undo an authenticator enrolment, so the next test that needs one starts from
+ * nothing exactly as the seed left it. A second enrolment for a person who
+ * already has one is refused, so a test that enrols must clear up after itself.
+ */
+export async function forgetSecondFactor(userId: string): Promise<void> {
+  await admin().query('DELETE FROM auth_two_factor WHERE user_id = $1', [userId])
+  await admin().query('UPDATE auth_user SET two_factor_enabled = false WHERE id = $1', [userId])
+}
+
 export async function closeDb(): Promise<void> {
   await pool?.end()
   pool = undefined

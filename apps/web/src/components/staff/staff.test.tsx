@@ -34,9 +34,10 @@ vi.mock('@/lib/api', () => ({
       updatePrivate: vi.fn(),
       updatePay: vi.fn(),
       export: vi.fn(),
+      exportProfile: vi.fn(),
     },
     setup: { sections: vi.fn(), grades: vi.fn(), subjects: vi.fn(), academicYears: vi.fn() },
-    files: { exportJob: vi.fn() },
+    files: { exportJob: vi.fn(), downloadExportFile: vi.fn() },
     members: { list: vi.fn() },
   },
 }))
@@ -75,7 +76,7 @@ describe('staff directory', () => {
 
     expect(await screen.findByText('Anita Sharma')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /add staff/i }).length).toBeGreaterThan(0)
-    expect(screen.getAllByRole('button', { name: /export/i }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: /export to excel/i }).length).toBeGreaterThan(0)
     expect(api.staff.list).toHaveBeenCalledWith(SCHOOL_ID, { page: 1, pageSize: 25, sort: 'name', search: undefined })
   })
 
@@ -84,7 +85,21 @@ describe('staff directory', () => {
 
     expect(await screen.findByText('Anita Sharma')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /add staff/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /export/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /export to excel/i })).not.toBeInTheDocument()
+  })
+
+  it('downloads the file itself once the export is ready', async () => {
+    vi.mocked(api.staff.export).mockResolvedValue({ id: 'job-1', status: 'ready', fileName: 'staff.xlsx' })
+    vi.mocked(api.files.exportJob).mockResolvedValue({ id: 'job-1', status: 'ready', fileName: 'staff.xlsx' })
+    vi.mocked(api.files.downloadExportFile).mockResolvedValue({ blob: new Blob(['x']), fileName: 'staff.xlsx' })
+
+    renderWithSession(<Directory />, { capabilities: ['staff.read_directory', 'staff.export'] })
+    await screen.findByText('Anita Sharma')
+    await userEvent.click(screen.getAllByRole('checkbox')[1] as HTMLElement)
+    await userEvent.click(screen.getAllByRole('button', { name: /export to excel/i })[0] as HTMLElement)
+
+    await waitFor(() => expect(api.staff.export).toHaveBeenCalledWith(SCHOOL_ID, { staffIds: ['staff-1'] }))
+    await waitFor(() => expect(api.files.downloadExportFile).toHaveBeenCalledWith(SCHOOL_ID, 'job-1'))
   })
 
   it('says one sentence when the directory is refused', async () => {
@@ -164,6 +179,24 @@ describe('staff record', () => {
     expect(screen.queryByRole('button', { name: /edit employment/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: /login/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /export pdf/i })).not.toBeInTheDocument()
+  })
+
+  it('exports the profile as a PDF when the record allows it', async () => {
+    vi.mocked(api.staff.get).mockResolvedValue({
+      staff: anita,
+      employment: { employeeCode: 'SVM-E001', joiningDate: '2020-06-01', employmentType: 'permanent' as const, status: 'active' as const },
+      allowedActions: ['staff.read_directory' as const, 'staff.export' as const],
+    })
+    vi.mocked(api.staff.exportProfile).mockResolvedValue({ id: 'job-2', status: 'queued' })
+    vi.mocked(api.files.exportJob).mockResolvedValue({ id: 'job-2', status: 'queued' })
+
+    renderWithSession(<StaffRecord />, { capabilities: ['staff.read_directory', 'staff.export'] })
+
+    await userEvent.click((await screen.findAllByRole('button', { name: /export pdf/i }))[0] as HTMLElement)
+
+    await waitFor(() => expect(api.staff.exportProfile).toHaveBeenCalledWith(SCHOOL_ID, 'staff-1'))
+    expect(await screen.findByText('Preparing your file…')).toBeInTheDocument()
   })
 })
 

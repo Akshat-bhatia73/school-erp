@@ -1,6 +1,6 @@
 # Next implementation plan: readiness and the first school modules
 
-Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Nothing in this document is started.
+Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Task 15 is built; nothing else in this document is started.
 
 ## 1. Where we are
 
@@ -21,9 +21,15 @@ These come from the repository guide and the auth plan and are not repeated per 
 
 ## 3. Readiness tasks
 
-### Task 15: Export files and downloads
+### Task 15: Export files and downloads — built, 19 September 2026
 
-Students, staff and the audit log already queue export jobs that record who asked, under which permission and at which access version, but no file is ever produced or served. Build the producer that runs at request time for small sets and through the daily maintenance route for the rest, writes a CSV to the private document store, and the download route that re-checks the access version before streaming, like documents do today. Include the fee, attendance and exam exports once those modules exist by giving the producer one interface per job kind. Retention: files expire with the job (already 24 hours). Exit check: an owner downloads a roster export; a teacher's export contains only their sections; a job made before a role change is refused on download; the file is gone after expiry.
+Students, staff and the audit log already queued export jobs that record who asked, under which permission and at which access version, but no file was ever produced or served. Built as one producer per job kind in `apps/api/src/exports`, run inside the request for sets of at most 5000 rows and through the daily maintenance route for the rest, with `GET /exports/:jobId/file` re-checking the owner, the expiry, the access version and the permission before it streams. Each producer re-reads its records under the requester's own plan when it makes the bytes, so a file never carries a row or a field its requester could not read on screen. Files are kept 24 hours from the moment they are ready and the daily sweep removes the bytes before the row.
+
+Two decisions taken while building it, on 19 September 2026. The files are Excel and PDF, not CSV: a spreadsheet is what an office opens, and a single record reads as a document. And two kinds of export beyond the queued lists were added, because the screens needed them: one student's or one staff member's record as a PDF (`POST /students/:studentId/export-profile`, `POST /staff/:staffId/export-profile`, under `students.export` and `staff.export`), and one week of the timetable as either format (`POST /timetable/export`, under `timetable.read`, because exporting a timetable is reading it in another format).
+
+Exit check met: an owner downloads a roster export and a record as a PDF (`tests/browser/tests/exports.spec.ts`); a teacher exports their own week and nothing beside it, another school's ids answer like missing records, a parent reaches none of it and one member's job is invisible to another (`tests/security/export-files.test.ts`); a job made before an access change is refused on download (`tests/security/lifecycle-and-concurrency.test.ts`); the file is gone after expiry, through the daily sweep.
+
+Still open: the fee, attendance and exam exports plug in as new job kinds once those modules exist.
 
 ### Task 16: Real delivery for parents
 

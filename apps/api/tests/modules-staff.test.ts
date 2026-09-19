@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import test, { after, before } from 'node:test'
+import ExcelJS from 'exceljs'
 import { fixtureIds } from '@erp/db/fixtures'
 import {
   adminPool,
   closeAdminPool,
+  readExportFileBytes,
   seedDatabaseFixtures,
   setFixturePassword,
   signInWithMfa,
@@ -541,14 +543,31 @@ test('one unreachable id rejects the whole export and writes nothing', async () 
     body: JSON.stringify({ staffIds: [staffA, colleagueId] }),
   })
   assert.equal(ok.status, 202)
-  const job = (await ok.json()) as { id: string; status: string }
-  assert.equal(job.status, 'queued')
+  const job = (await ok.json()) as { id: string; status: string; format: string }
+  // Two rows are well under the inline limit, so the file is already made.
+  assert.equal(job.status, 'ready')
+  assert.equal(job.format, 'xlsx')
   const stored = await adminPool().query(
     `SELECT kind, permission, requested_by_membership_id FROM export_jobs WHERE id = $1`,
     [job.id],
   )
   assert.equal(stored.rows[0].kind, 'staff')
   assert.equal(stored.rows[0].permission, 'staff.export')
+
+  // The file is real and holds the two people who were asked for, with the
+  // directory columns only: no salary, no private contact, no identifiers.
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load((await readExportFileBytes(server, job.id)) as unknown as ArrayBuffer)
+  const sheet = workbook.worksheets[0]
+  assert.ok(sheet)
+  assert.deepEqual((sheet.getRow(1).values as unknown[]).slice(1).map(String), [
+    'Employee code',
+    'Name',
+    'Role',
+    'Department',
+    'Status',
+  ])
+  assert.equal(sheet.rowCount, 3)
 })
 
 

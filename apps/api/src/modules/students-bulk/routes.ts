@@ -15,6 +15,7 @@ import {
   StudentsImportPreviewRequest,
   StudentsPromotePreviewQuery,
 } from '@erp/contracts'
+import { createAndMaybeProduce } from '../../exports/run.ts'
 import type { ModuleDependencies } from '../shared/route.ts'
 import { protectedRoute } from '../shared/route.ts'
 import { ApiFailure } from '../shared/errors.ts'
@@ -373,13 +374,13 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
           throw new ApiFailure('RESOURCE_NOT_FOUND')
         }
 
-        const job = await conn.client.query<{ id: string; status: string }>(
+        const job = await conn.client.query<{ id: string }>(
           `INSERT INTO export_jobs
              (school_id, requested_by_membership_id, kind, status, access_version,
               permission, criteria, row_count, expires_at)
            VALUES ($1, $2, 'students', 'queued', $3, 'students.export', $4::jsonb, $5,
                    now() + interval '1 day')
-           RETURNING id, status`,
+           RETURNING id`,
           [
             context.schoolId,
             context.membershipId,
@@ -398,7 +399,13 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
           summary: 'Requested an export of a chosen set of students.',
           safeChanges: { rowCount: body.studentIds.length },
         })
-        return { id: row.id, status: row.status as 'queued' | 'ready' | 'failed' | 'expired' }
+        // A small export is produced here, so the answer already names a file
+        // to download. A big one stays queued for the daily route. Either way
+        // this request wrote exactly one audit row, the one above.
+        return createAndMaybeProduce(deps, conn, context, {
+          id: row.id,
+          estimatedRows: body.studentIds.length,
+        })
       }),
   })
 }

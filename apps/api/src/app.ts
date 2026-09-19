@@ -198,7 +198,7 @@ export function buildApp({
   registerMembershipRoutes(app, { auth, pools, authz, delivery })
   registerInvitationRoutes(app, { auth, pools, authz, delivery })
   registerModuleRoutes(app, { config, auth, pools, authz, delivery, documents })
-  registerMaintenanceRoutes(app, { config, pools })
+  registerMaintenanceRoutes(app, { config, pools, documents })
 
   app.route({
     method: ['GET', 'POST'],

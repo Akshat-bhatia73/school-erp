@@ -102,3 +102,8 @@ export function anonymise(schoolId: string, staffId: string, body: AnonymiseStaf
 export function exportStaff(schoolId: string, body: ExportStaffInput) {
   return request(base(schoolId, '/export'), { method: 'POST', body, schema: StaffExportJob })
 }
+
+/** One person's profile as a PDF. The record is named in the path, so there is no body to send. */
+export function exportProfile(schoolId: string, staffId: string) {
+  return request(base(schoolId, `/${seg(staffId)}/export-profile`), { method: 'POST', body: {}, schema: StaffExportJob })
+}

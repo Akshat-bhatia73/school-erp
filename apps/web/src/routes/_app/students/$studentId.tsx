@@ -1,9 +1,11 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { ArrowRightLeft, ChevronDown, Pencil, UserMinus, Users } from 'lucide-react'
+import { toast } from 'sonner'
+import { ArrowRightLeft, ChevronDown, FileDown, Pencil, UserMinus, Users } from 'lucide-react'
 import { useState } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
 import { EmptyState, PageHeader } from '@/components/shared/page'
+import { useExportDownload } from '@/components/shared/export-download'
 import { colorFor, Tag } from '@/components/shared/tag'
 import { MarkLeftDialog, MoveSectionDialog } from '@/components/students/student-dialogs'
 import { classLabel, StudentStatusTag } from '@/components/students/student-columns'
@@ -29,6 +31,13 @@ function Page() {
   const [editSensitive, setEditSensitive] = useState(false)
   const [move, setMove] = useState(false)
   const [markLeft, setMarkLeft] = useState(false)
+  const exportFile = useExportDownload()
+
+  const startExport = useMutation({
+    mutationFn: () => api.students.exportProfile(schoolId, studentId),
+    onSuccess: (job) => exportFile.start(job),
+    onError: (error) => toast.error(describeError(error)),
+  })
 
   const detailQuery = useQuery({
     queryKey: qk.student(schoolId, studentId),
@@ -73,7 +82,8 @@ function Page() {
   const canReadEnrollments = hasPermission('students.read_enrollments')
   const canReadConsents = allows(allowedActions, 'students.read_consents')
   const canAnonymise = allows(allowedActions, 'students.anonymise')
-  const hasActions = canEditBasic || canEditSensitive || canManageEnrollment
+  const canExport = allows(allowedActions, 'students.export')
+  const hasActions = canEditBasic || canEditSensitive || canManageEnrollment || canExport
 
   const menuItems = (
     <>
@@ -90,6 +100,11 @@ function Page() {
         actions={
           hasActions ? (
             <>
+              {canExport && (
+                <Button size="sm" variant="outline" disabled={startExport.isPending} onClick={() => startExport.mutate()}>
+                  <FileDown />{startExport.isPending ? 'Preparing…' : 'Export PDF'}
+                </Button>
+              )}
               {canEditBasic && <Button size="sm" variant="outline" onClick={() => setEditBasic(true)}><Pencil />Edit name</Button>}
               {(canEditSensitive || canManageEnrollment) && (
                 <DropdownMenu>
@@ -109,6 +124,7 @@ function Page() {
                 <Button size="sm" variant="outline" className="h-9">Actions<ChevronDown /></Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-52">
+                {canExport && <DropdownMenuItem disabled={startExport.isPending} onClick={() => startExport.mutate()}><FileDown />Export PDF</DropdownMenuItem>}
                 {canEditBasic && <DropdownMenuItem onClick={() => setEditBasic(true)}><Pencil />Edit name</DropdownMenuItem>}
                 {menuItems}
               </DropdownMenuContent>
@@ -130,6 +146,7 @@ function Page() {
           <p className="mt-2 text-[13px] text-muted-foreground">
             <span className="font-mono">{student.admissionNumber}</span>
           </p>
+          {exportFile.status}
         </div>
       </div>
 
