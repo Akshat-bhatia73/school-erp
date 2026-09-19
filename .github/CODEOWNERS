@@ -1,0 +1,27 @@
+# Every pull request needs a review from the owner of the files it touches.
+# One person maintains this repository today, so every line names the same
+# login. When there is a team, split these lines before splitting anything else.
+#
+# Later lines win, so the specific paths below override the catch-all.
+
+*                                       @Akshat-bhatia73
+
+# Schema, constraints and row-level security. A wrong migration is the one
+# change that cannot be rolled back by redeploying.
+/packages/db/migrations/                @Akshat-bhatia73
+
+# The permission policy service. Every access decision in the product runs
+# through it.
+/packages/authz/                        @Akshat-bhatia73
+
+# The permission catalogue the API and the screens both read.
+/packages/contracts/src/permissions.ts  @Akshat-bhatia73
+
+# The data protection assessment, the incident runbook and the documents a
+# school signs.
+/docs/compliance/                       @Akshat-bhatia73
+
+# The gate itself: CI, the dependency exceptions and the disclosure policy.
+/.github/                               @Akshat-bhatia73
+/.audit-exceptions.json                 @Akshat-bhatia73
+/SECURITY.md                            @Akshat-bhatia73

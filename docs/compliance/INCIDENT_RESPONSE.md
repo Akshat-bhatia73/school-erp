@@ -164,7 +164,7 @@ screen under `audit.read`, which is the better route when a school asks.
 
 Also collect: the Sentry issue and its events, the Vercel deployment id running
 at the time, and the range of `auth_session` rows for the identity (`SELECT id,
-created_at, updated_at FROM auth_session WHERE user_id = '<user uuid>'`) before
+created_at, updated_at FROM auth_session WHERE user_id = '`<user uuid>`'`) before
 you disable it, because disabling deletes them.
 
 ## 7. Notice templates
@@ -173,48 +173,48 @@ Short on purpose. Fill the placeholders, send, then improve in the follow-up.
 
 **CERT-In, within six hours.**
 
-> Subject: Security incident report — School ERP — <DD Month YYYY>
+> Subject: Security incident report — School ERP — `<DD Month YYYY>`
 >
-> Reporting entity: <entity name, address, contact person, phone, email>.
-> Incident noticed at <time IST> on <date>; believed to have begun at <time IST>
-> on <date>. Type: <unauthorised access to personal data / account compromise /
+> Reporting entity: `<entity name, address, contact person, phone, email>`.
+> Incident noticed at `<time IST>` on `<date>`; believed to have begun at `<time IST>`
+> on `<date>`. Type: <unauthorised access to personal data / account compromise /
 > data leak>. Affected systems: the School ERP application hosted on Vercel and
 > its PostgreSQL database hosted on Neon (us-east-1). Data involved: <categories,
 > for example student register fields and dates of birth> for approximately
-> <count> people across <count> schools. Current status: <contained / under
+> `<count>` people across `<count>` schools. Current status: <contained / under
 > investigation>. Actions taken: <disabled identity, suspended memberships,
-> rotated AUTH_SECRET, …>. Contact for follow-up: <name, phone, email>.
+> rotated AUTH_SECRET, …>. Contact for follow-up: `<name, phone, email>`.
 
 **Data Protection Board, first notice and 72-hour report.**
 
-> We are reporting a personal data breach affecting <count> data principals,
-> mostly children, whose data we process on behalf of <school names>.
+> We are reporting a personal data breach affecting `<count>` data principals,
+> mostly children, whose data we process on behalf of `<school names>`.
 >
-> Nature and extent: <what happened, what was reached>. Timing: began <date,
-> time IST>, noticed <date, time IST>, contained <date, time IST>. Personal data
-> involved: <categories>. Likely consequences: <plainly stated>. Measures taken
-> and proposed: <containment steps, fixes, follow-up>. Intimation to affected
-> data principals: sent on <date> by <email / SMS through the school>; a copy is
-> attached. Root cause: <for the 72-hour report>. Contact: <name, email, phone>.
+> Nature and extent: `<what happened, what was reached>`. Timing: began <date,
+> time IST>, noticed `<date, time IST>`, contained `<date, time IST>`. Personal data
+> involved: `<categories>`. Likely consequences: `<plainly stated>`. Measures taken
+> and proposed: `<containment steps, fixes, follow-up>`. Intimation to affected
+> data principals: sent on `<date>` by `<email / SMS through the school>`; a copy is
+> attached. Root cause: `<for the 72-hour report>`. Contact: `<name, email, phone>`.
 
 **Affected person, without delay.**
 
-> Subject: An incident affecting your child's records at <school name>
+> Subject: An incident affecting your child's records at `<school name>`
 >
-> Dear <name>,
+> Dear `<name>`,
 >
-> On <date> we found that <plain description of what happened>. Information
-> about <child's name> that may have been seen includes <categories, in plain
+> On `<date>` we found that `<plain description of what happened>`. Information
+> about `<child's name>` that may have been seen includes <categories, in plain
 > words: name, class, date of birth>. It did not include <what was not
 > involved>.
 >
 > We have <what was done: ended the account's access, signed everyone out,
 > fixed the fault>. We have told CERT-In and the Data Protection Board.
 >
-> There is nothing you need to do / We suggest you <action>. If you have any
-> questions, write to <address> or contact the school office.
+> There is nothing you need to do / We suggest you `<action>`. If you have any
+> questions, write to `<address>` or contact the school office.
 >
-> <Name>, on behalf of <entity>
+> `<Name>`, on behalf of `<entity>`
 
 ## 8. After it is over
 
