@@ -39,6 +39,7 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `students.read_consents` | active | — | school | school | school | — | — | own_children | — |
 | `students.manage_consents` | active | school | school | school | school | — | — | own_children | — |
 | `students.anonymise` | active | school | school | school | — | — | — | — | — |
+| `students.export_subject` | active | school | school | school | — | — | — | own_children | — |
 | `staff.read_directory` | active | — | school | school | school | school | self | — | — |
 | `staff.read_employment` | active | — | school | school | school | school | self | — | — |
 | `staff.read_private` | active | school, finance | school | school | school | finance | self | — | — |

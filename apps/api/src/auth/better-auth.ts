@@ -23,6 +23,13 @@ import {
   stampSessionMfaVerified,
 } from './mfa.ts'
 import {
+  clearFailedSignIns,
+  identityIsBlocked,
+  invalidCredentialsError,
+  invalidOtpError,
+  recordFailedSignIn,
+} from './lockout.ts'
+import {
   GENERIC_SEND_RESPONSE,
   OTP_ALLOWED_ATTEMPTS,
   OTP_EXPIRY_SECONDS,
@@ -156,6 +163,25 @@ export function createAuth(
        * the cooldown, so the decision here is eligibility only.
        */
       before: createAuthMiddleware(async (ctx) => {
+        // A locked or disabled identity never reaches the provider, and is
+        // answered with the provider's own refusal for this door.
+        if (ctx.path === '/sign-in/email') {
+          const email = (ctx.body as { email?: unknown } | undefined)?.email
+          if (
+            typeof email === 'string' &&
+            (await identityIsBlocked(authPool, { email }))
+          )
+            throw invalidCredentialsError()
+          return
+        }
+        if (ctx.path === '/phone-number/verify') {
+          const phone = normalizeIndianPhone(
+            (ctx.body as { phoneNumber?: unknown } | undefined)?.phoneNumber,
+          )
+          if (phone && (await identityIsBlocked(authPool, { phone })))
+            throw invalidOtpError()
+          return
+        }
         if (ctx.path !== '/phone-number/send-otp') return
         const body = ctx.body as { phoneNumber?: unknown } | undefined
         const phone = normalizeIndianPhone(body?.phoneNumber)
@@ -178,6 +204,13 @@ export function createAuth(
        */
       after: createAuthMiddleware(async (ctx) => {
         const returned = (ctx.context as { returned?: unknown }).returned
+        if (ctx.path === '/sign-in/email') {
+          const email = (ctx.body as { email?: unknown } | undefined)?.email
+          if (typeof email !== 'string' || email.length === 0) return
+          if (returned instanceof Error) await recordFailedSignIn(authPool, email)
+          else await clearFailedSignIns(authPool, email)
+          return
+        }
         if (returned instanceof Error) return
         if (MFA_ENROLMENT_PATHS.includes(ctx.path)) {
           // The authenticator changed, so no earlier proof of it stands.

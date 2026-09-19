@@ -29,6 +29,7 @@ import {
   StudentListRequest,
   StudentRosterPage,
   StudentSearchResults,
+  SubjectAccessExport,
   StudentsAddGuardianRequest,
   StudentsAdmitRequest,
   StudentsImportPreviewRequest,
@@ -77,6 +78,7 @@ export type Consents = z.infer<typeof ConsentList>
 export type RecordConsentInput = z.input<typeof RecordConsentRequest>
 export type AnonymiseInput = z.input<typeof AnonymiseRequest>
 export type UnlinkGuardianInput = z.input<typeof UnlinkGuardianRequest>
+export type SubjectAccess = z.infer<typeof SubjectAccessExport>
 
 const base = (schoolId: string, suffix = '') => schoolPath(schoolId, `/students${suffix}`)
 
@@ -157,6 +159,14 @@ export function recordConsent(schoolId: string, studentId: string, body: RecordC
  */
 export function revealApaar(schoolId: string, studentId: string) {
   return request(base(schoolId, `/${seg(studentId)}/apaar`), { schema: StudentApaarReveal })
+}
+
+/**
+ * Everything the school holds about one student, in one audited read, for a subject-access
+ * request. Never cache this answer: the screen saves it to a file and forgets it.
+ */
+export function subjectAccess(schoolId: string, studentId: string) {
+  return request(base(schoolId, `/${seg(studentId)}/subject-access`), { schema: SubjectAccessExport })
 }
 
 export function anonymise(schoolId: string, studentId: string, body: AnonymiseInput) {

@@ -35,7 +35,6 @@ import {
   assertUuidParam,
   authorizeResource,
   decideResource,
-  writeAudit,
   open,
   protectedRoute,
   readPlan,
@@ -153,6 +152,20 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
     path: '/api/schools/:schoolId/students/:studentId',
     permission: 'students.read_basic',
     response: StudentDetailByAudience,
+    // Reading one child's record is the event a school may be asked about, so
+    // the row also names which blocks the reader actually received.
+    auditRead: {
+      targetType: 'student',
+      param: 'studentId',
+      summary: 'Opened the student record.',
+      detail: (result) => ({
+        blocks: [
+          ...('sensitive' in result ? ['sensitive'] : []),
+          ...('medical' in result ? ['medical'] : []),
+          ...('guardianContacts' in result ? ['guardianContacts'] : []),
+        ],
+      }),
+    },
     handler: async ({ context, param }) => {
       const studentId = assertUuidParam(param('studentId'))
       return inTransaction(context, async (conn) => {
@@ -183,11 +196,13 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
                   .map(toGuardianContact)
                   .filter((contact): contact is NonNullable<typeof contact> => contact !== undefined),
               }),
-          allowedActions: await allowedActionsFor(conn, context, {
-            schoolId: context.schoolId,
-            resourceType: 'student',
-            id: studentId,
-          }),
+          allowedActions: [
+            ...(await allowedActionsFor(conn, context, {
+              schoolId: context.schoolId,
+              resourceType: 'student',
+              id: studentId,
+            })),
+          ],
         }
       })
     },
@@ -198,6 +213,13 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
     path: '/api/schools/:schoolId/students/:studentId/apaar',
     permission: 'students.read_sensitive',
     response: StudentApaarReveal,
+    // Seeing the whole identifier is the event worth recording. It is the
+    // shared read audit, so a reveal leaves exactly one row.
+    auditRead: {
+      targetType: 'student',
+      param: 'studentId',
+      summary: 'Revealed the full APAAR id.',
+    },
     handler: async ({ context, param }) => {
       const studentId = assertUuidParam(param('studentId'))
       return inTransaction(context, async (conn) => {
@@ -208,14 +230,6 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
         })
         const sealed = row.apaar_ciphertext
         if (typeof sealed !== 'string' || sealed === '') throw new ApiFailure('RESOURCE_NOT_FOUND')
-        // Seeing the whole identifier is the event worth recording; the row is
-        // written before the value leaves, so there is no unaudited reveal.
-        await writeAudit(conn, context, {
-          action: 'students.read_sensitive',
-          targetType: 'student',
-          targetId: studentId,
-          summary: 'Revealed the full APAAR id.',
-        })
         return { apaarId: open(sealed, deps.config.DATA_ENCRYPTION_KEY) }
       })
     },
@@ -226,6 +240,11 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
     path: '/api/schools/:schoolId/students/:studentId/guardians',
     permission: 'students.read_guardians',
     response: GuardianDetailList,
+    auditRead: {
+      targetType: 'student',
+      param: 'studentId',
+      summary: 'Read the guardian details of the student.',
+    },
     handler: async ({ context, param }) => {
       const studentId = assertUuidParam(param('studentId'))
       return inTransaction(context, async (conn) => {

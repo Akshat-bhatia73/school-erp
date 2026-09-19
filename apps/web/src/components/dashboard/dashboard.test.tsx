@@ -153,6 +153,10 @@ describe('dashboard by audience', () => {
       capabilities: ['dashboard.read', 'students.read_basic', 'students.read_consents', 'students.manage_consents'],
     })
 
+    // The consent block is opened on request, so nothing reads the child's record on load.
+    await user.click(await screen.findByRole('button', { name: 'Manage consent' }))
+    expect(studentConsents).toHaveBeenCalledWith(SCHOOL, 'st-2')
+
     const row = (await screen.findByText('Photographs')).closest('li')!
     expect(within(row).getByText('Withdrawn')).toBeInTheDocument()
     await user.click(within(row).getByRole('button', { name: 'Give' }))
@@ -175,6 +179,9 @@ describe('dashboard by audience', () => {
       roleKeys: ['parent'],
       capabilities: ['dashboard.read', 'students.read_basic', 'students.read_consents', 'students.manage_consents'],
     })
+
+    expect(studentGet).not.toHaveBeenCalled()
+    await user.click(await screen.findByRole('button', { name: 'Manage consent' }))
 
     const row = (await screen.findByText('Photographs')).closest('li')!
     expect(within(row).getByText('Not asked')).toBeInTheDocument()

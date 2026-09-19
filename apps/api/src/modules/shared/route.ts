@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { PERMISSION_CATALOGUE, PermissionKey } from '@erp/contracts'
 import type { RequestContext } from '@erp/contracts/server'
 import { withTenantTransaction } from '@erp/db'
+import { AuthorizationError } from '@erp/authz'
 import { ApiFailure } from '../../http/errors.ts'
 import { requireMembership } from '../../auth/guards.ts'
 import { parseBody, requiredParam } from '../../memberships/lifecycle.ts'
@@ -10,6 +11,8 @@ import { authorizeSchoolAction } from '../../memberships/authorize.ts'
 import type { AccessDependencies } from '../../memberships/routes.ts'
 import type { DocumentStorage } from '../../files/storage.ts'
 import type { ApiConfig } from '../../config.ts'
+import { writeAudit } from './audit.ts'
+import { reportDenialBurst } from '../../observability.ts'
 
 export interface ModuleDependencies extends AccessDependencies {
   /** Read once at startup; modules use it for the data encryption key. */
@@ -46,6 +49,19 @@ export interface RouteDefinition<TQuery, TBody, TResponse> {
   readonly body?: z.ZodType<TBody>
   /** Every response is parsed through this before it is sent. */
   readonly response: z.ZodType<TResponse>
+  /**
+   * A read of one person's record. When the handler answered, one `allowed`
+   * audit row names that record, so a school can ask who read it. Lists carry
+   * no entry: the volume would be the roster, not the reading.
+   */
+  readonly auditRead?: {
+    readonly targetType: string
+    /** The path parameter naming the record that was read. */
+    readonly param: string
+    readonly summary: string
+    /** Safe facts about what was returned, for example which blocks. */
+    readonly detail?: (result: NoInfer<TResponse>) => Record<string, unknown>
+  }
   /** 200 for a read, 201 for a create, 202 for queued work. */
   readonly successStatus?: 200 | 201 | 202 | 204
   handler(input: RouteInput<TQuery, TBody>): Promise<TResponse>
@@ -98,6 +114,67 @@ function parseQuery<T>(schema: z.ZodType<T> | undefined, raw: unknown): T {
   return parsed.data
 }
 
+
+/** Denied rows in this window are what a burst is counted over. */
+const DENIAL_WINDOW = '10 minutes'
+const DENIAL_BURST = 20
+
+/** True for the gate's refusal and for a handler's own record refusal. */
+function isAccessDenied(error: unknown): boolean {
+  if (error instanceof ApiFailure) return error.code === 'ACCESS_DENIED'
+  return error instanceof AuthorizationError && error.code === 'ACCESS_DENIED'
+}
+
+const UUID_PARAM = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** The value of a path parameter when it is a well-formed uuid, else null. */
+function optionalUuidParam(params: unknown, name: string): string | null {
+  const value = (params as Record<string, unknown> | null)?.[name]
+  return typeof value === 'string' && UUID_PARAM.test(value) ? value : null
+}
+
+/**
+ * The refusal itself is a school event: it answers "who tried what" on the
+ * audit screen. It is written after the transaction that refused has rolled
+ * back, in a fresh one, so the row survives the refusal.
+ */
+async function recordDenial(
+  deps: ModuleDependencies,
+  context: RequestContext,
+  permission: PermissionKey,
+  request: FastifyRequest,
+  auditParam: string | undefined,
+): Promise<void> {
+  const route = request.routeOptions.url ?? request.url
+  await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+    await writeAudit(conn, context, {
+      action: permission,
+      targetType: PERMISSION_CATALOGUE[permission].resourceType,
+      // A refused read of one record names that record, so the person it is
+      // about sees who was turned away as well as who was let in.
+      targetId: auditParam === undefined ? null : optionalUuidParam(request.params, auditParam),
+      result: 'denied',
+      summary: `Refused: ${permission} on ${route}.`,
+      safeChanges: { route, method: request.method },
+    })
+    const counted = await conn.client.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM audit_events
+        WHERE school_id = $1 AND actor_membership_id = $2 AND result = 'denied'
+          AND created_at > now() - interval '${DENIAL_WINDOW}'`,
+      [context.schoolId, context.membershipId],
+    )
+    const count = Number(counted.rows[0]?.count ?? '0')
+    // Exactly at the threshold, never above it: one report per membership for
+    // each time a window crosses, not one for every refusal after that.
+    if (count === DENIAL_BURST)
+      reportDenialBurst({
+        schoolId: context.schoolId,
+        membershipId: context.membershipId,
+        count,
+      })
+  })
+}
+
 /**
  * One shape for every module route: a verified membership, the declared
  * permission decided before the handler runs, a parsed request and a response
@@ -127,24 +204,42 @@ export function protectedRoute<TQuery, TBody, TResponse>(
       const context = request.context
       if (!context) throw new ApiFailure('AUTHENTICATION_REQUIRED')
 
-      // The aggregate decision: the same evaluator, against the school as a
-      // whole, so a relationship scope answers when the member has that
-      // relationship at all. It runs in its own short transaction because the
-      // handler owns the one its reads and writes share.
-      await withTenantTransaction(deps.pools.runtime, context, (conn) =>
-        authorizeSchoolAction(conn, context, definition.permission),
-      )
+      let result: TResponse
+      try {
+        // The aggregate decision: the same evaluator, against the school as a
+        // whole, so a relationship scope answers when the member has that
+        // relationship at all. It runs in its own short transaction because the
+        // handler owns the one its reads and writes share.
+        await withTenantTransaction(deps.pools.runtime, context, (conn) =>
+          authorizeSchoolAction(conn, context, definition.permission),
+        )
 
-      const body = definition.body ? parseBody(request.body, definition.body) : (undefined as TBody)
-      const result = await definition.handler({
-        context,
-        query: parseQuery(definition.query, request.query),
-        body,
-        permission: definition.permission,
-        request,
-        reply,
-        param: (name: string) => requiredParam(request.params, name),
-      })
+        const body = definition.body ? parseBody(request.body, definition.body) : (undefined as TBody)
+        result = await definition.handler({
+          context,
+          query: parseQuery(definition.query, request.query),
+          body,
+          permission: definition.permission,
+          request,
+          reply,
+          param: (name: string) => requiredParam(request.params, name),
+        })
+      } catch (error) {
+        if (isAccessDenied(error)) {
+          // The refusal is recorded, never re-raised from the recording: a
+          // failed audit must not turn a 403 into a 500.
+          await recordDenial(
+            deps,
+            context,
+            definition.permission,
+            request,
+            definition.auditRead?.param,
+          ).catch((failure: unknown) =>
+            request.log.error({ requestId: request.id, err: failure }, 'denied audit row failed'),
+          )
+        }
+        throw error
+      }
 
       const checked = definition.response.safeParse(result)
       if (!checked.success) {
@@ -155,6 +250,25 @@ export function protectedRoute<TQuery, TBody, TResponse>(
         )
         throw new ApiFailure('SERVICE_UNAVAILABLE')
       }
+
+      const audit = definition.auditRead
+      if (audit) {
+        // After the answer, in its own transaction: a read never fails because
+        // its audit row did.
+        const targetId = requiredParam(request.params, audit.param)
+        await withTenantTransaction(deps.pools.runtime, context, (conn) =>
+          writeAudit(conn, context, {
+            action: definition.permission,
+            targetType: audit.targetType,
+            targetId,
+            summary: audit.summary,
+            safeChanges: audit.detail ? audit.detail(result) : {},
+          }),
+        ).catch((failure: unknown) =>
+          request.log.error({ requestId: request.id, err: failure }, 'read audit row failed'),
+        )
+      }
+
       const status = definition.successStatus ?? 200
       if (status === 204) return reply.status(204).send()
       return reply.status(status).send(checked.data)

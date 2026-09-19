@@ -7,7 +7,7 @@ import { api } from '@/lib/api'
 import type { AuditEvent } from '@/lib/api/audit'
 import { UserAvatar } from '@/components/shared/avatar'
 import { DataTable } from '@/components/shared/data-table'
-import { ToolbarButton } from '@/components/shared/filter-chip'
+import { FilterChip, ToolbarButton } from '@/components/shared/filter-chip'
 import { EmptyState, PageHeader, Toolbar } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
 import { Input } from '@/components/ui/input'
@@ -35,6 +35,7 @@ function Page() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [page, setPage] = useState(1)
+  const [outcome, setOutcome] = useState<'allowed' | 'denied' | undefined>()
   const [detail, setDetail] = useState<AuditEvent | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
 
@@ -51,6 +52,13 @@ function Page() {
     queryFn: () => api.audit.list(schoolId, params),
     enabled: hasPermission('audit.read'),
   })
+
+  // The list request has no outcome field, so this narrows the page in view rather than the query.
+  // The count in the footer says how many of the loaded entries match.
+  const rows = useMemo(
+    () => (outcome ? (data?.items ?? []).filter((row) => row.outcome === outcome) : data?.items ?? []),
+    [data, outcome],
+  )
 
   const columns = useMemo<ColumnDef<AuditEvent, unknown>[]>(() => [
     {
@@ -127,6 +135,12 @@ function Page() {
           ? <ToolbarButton icon={<Download />} onClick={() => setExportOpen(true)}>Export</ToolbarButton>
           : undefined}
       >
+        <FilterChip
+          label="Outcome"
+          value={outcome}
+          options={[{ value: 'allowed', label: 'Allowed' }, { value: 'denied', label: 'Refused' }]}
+          onChange={setOutcome}
+        />
         <div className="flex items-center gap-1.5">
           <Input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} className="h-9 w-[9.5rem]" aria-label="From date" />
           <span className="text-muted-foreground">to</span>
@@ -135,7 +149,7 @@ function Page() {
       </Toolbar>
       <DataTable
         columns={columns}
-        data={data?.items ?? []}
+        data={rows}
         isLoading={isLoading}
         dense
         getRowId={(row) => row.id}
@@ -146,7 +160,7 @@ function Page() {
           meta: <span className="truncate">{row.actorDisplayName} · {formatWhen(row.at).date}</span>,
         })}
         emptyState={<EmptyState icon={<History />} title="No entries match" description="Type the exact action name, like members.suspend, or try a wider date range." />}
-        footer={<span>{data?.total ?? 0} entries</span>}
+        footer={<span>{outcome ? `${rows.length} of this page match` : `${data?.total ?? 0} entries`}</span>}
         pagination={{ page, pageSize: PAGE_SIZE, total: data?.total ?? 0, onPageChange: setPage }}
       />
       <AuditDetailSheet entry={detail} onOpenChange={(open) => { if (!open) setDetail(null) }} />

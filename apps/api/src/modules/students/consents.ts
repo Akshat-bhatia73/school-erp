@@ -196,6 +196,11 @@ export function registerConsentRoutes(app: FastifyInstance, deps: ModuleDependen
     path: '/api/schools/:schoolId/students/:studentId/consents',
     permission: 'students.read_consents',
     response: ConsentList,
+    auditRead: {
+      targetType: 'student',
+      param: 'studentId',
+      summary: 'Read the consent records of the student.',
+    },
     handler: async ({ context, param }) => {
       const studentId = assertUuidParam(param('studentId'))
       return inTransaction(context, async (conn) => {

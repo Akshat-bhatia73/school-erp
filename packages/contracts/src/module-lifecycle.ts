@@ -1,7 +1,10 @@
 /** Task 12 contracts: guardian consent, APAAR reveal, anonymisation and audit notes. */
 import { z } from 'zod'
-import { AllowedActions } from './responses.ts'
-import { DisplayName, Id, Reason, Timestamp, Version } from './common.ts'
+import {
+  AllowedActions, DocumentSummary, EnrollmentSummary, GuardianPrivate,
+  StudentBasic, StudentMedical, StudentSensitive,
+} from './responses.ts'
+import { DisplayName, Id, Phone, Reason, Timestamp, Version } from './common.ts'
 
 /** The purposes a school may ask a guardian to consent to. */
 export const CONSENT_PURPOSES = [
@@ -73,6 +76,56 @@ export const UnlinkGuardianRequest = z.strictObject({ expectedVersion: Version, 
 export const RedactAuditNoteRequest = z.strictObject({ reason: Reason })
 
 /**
+ * The sensitive block of a subject access export. It is the ordinary sensitive
+ * block with the full APAAR id in place of the mask: answering a subject access
+ * request means handing the person what we actually hold about them.
+ */
+export const SubjectSensitive = StudentSensitive.omit({ apaarMasked: true }).extend({
+  apaarId: z.string().min(4).max(100).optional(),
+})
+
+/**
+ * One earlier read or refusal of this student's record, from the audit trail.
+ * Present only when the caller may read the audit log.
+ */
+export const SubjectAccessEvent = z.strictObject({
+  at: Timestamp,
+  action: z.string().min(1).max(100),
+  actorDisplayName: DisplayName,
+  outcome: z.enum(['allowed', 'denied']),
+})
+
+/**
+ * Everything the system holds about one student, in one audited document.
+ * A block is present only when the caller holds the read permission for it on
+ * this student, so the export says exactly what they could already read one
+ * screen at a time. An anonymised student exports the register fields only.
+ */
+/**
+ * A guardian as a subject access answer names them. Every linked guardian
+ * belongs in their child's record, so the telephone number is optional here:
+ * a blank or unusable number leaves the field out, never the person. The
+ * private fields are still only sent when the caller may read them.
+ */
+export const SubjectGuardian = GuardianPrivate.extend({
+  phone: Phone.optional(),
+  relation: z.enum(['father', 'mother', 'guardian', 'grandparent', 'sibling', 'other']),
+})
+
+export const SubjectAccessExport = z.strictObject({
+  generatedAt: Timestamp,
+  schoolId: Id,
+  student: StudentBasic,
+  sensitive: SubjectSensitive.optional(),
+  medical: StudentMedical.optional(),
+  guardians: z.array(SubjectGuardian).max(20),
+  enrollments: z.array(EnrollmentSummary).max(50),
+  documents: z.array(DocumentSummary).max(100),
+  consents: z.array(ConsentRecord).max(100),
+  accessHistory: z.array(SubjectAccessEvent).max(200).optional(),
+})
+
+/**
  * The retention schedule, in one place, so the API, the sweep and the screens
  * quote the same numbers. Anonymisation is still a decision by the school:
  * these are the earliest moments it may be taken, not an automatic deletion.
@@ -96,4 +149,8 @@ export type AdmitConsent = z.infer<typeof AdmitConsent>
 export type StudentApaarReveal = z.infer<typeof StudentApaarReveal>
 export type AnonymiseRequest = z.infer<typeof AnonymiseRequest>
 export type UnlinkGuardianRequest = z.infer<typeof UnlinkGuardianRequest>
+export type SubjectSensitive = z.infer<typeof SubjectSensitive>
+export type SubjectAccessEvent = z.infer<typeof SubjectAccessEvent>
+export type SubjectGuardian = z.infer<typeof SubjectGuardian>
+export type SubjectAccessExport = z.infer<typeof SubjectAccessExport>
 export type RedactAuditNoteRequest = z.infer<typeof RedactAuditNoteRequest>

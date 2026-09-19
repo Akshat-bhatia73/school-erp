@@ -80,7 +80,7 @@ export const ROLE_TEMPLATES = {
       grant('audit.export', 'school'),
       grant('students.read_consents', 'school'), grant('students.manage_consents', 'school'),
       grant('students.anonymise', 'school'), grant('staff.anonymise', 'school'),
-      grant('audit.redact_notes', 'school'),
+      grant('students.export_subject', 'school'), grant('audit.redact_notes', 'school'),
     ],
   },
   principal: {
@@ -95,6 +95,7 @@ export const ROLE_TEMPLATES = {
       grant('roles.assign', 'school'), grant('audit.read', 'school'),
       grant('students.read_consents', 'school'), grant('students.manage_consents', 'school'),
       grant('students.anonymise', 'school'), grant('staff.anonymise', 'school'),
+      grant('students.export_subject', 'school'),
     ],
   },
   admin: {
@@ -148,6 +149,7 @@ export const ROLE_TEMPLATES = {
       grant('dashboard.read', 'own_children'),
       grant('students.read_consents', 'own_children'),
       grant('students.manage_consents', 'own_children'),
+      grant('students.export_subject', 'own_children'),
     ],
   },
   student: { displayName: 'Student', enabled: false, requiredMfa: false, grants: [] },

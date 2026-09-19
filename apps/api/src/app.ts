@@ -11,6 +11,7 @@ import { isAllowedAuthRoute } from './auth/provider-routes.ts'
 import { registerIdentityRoutes } from './routes/identity.ts'
 import { registerDevRoutes, registerHeldSmsRoute } from './routes/dev.ts'
 import { reportDenial, reportError } from './observability.ts'
+import { registerAccessLog } from './http/access-log.ts'
 import {
   GENERIC_SEND_RESPONSE,
   consumeSendAllowance,
@@ -125,7 +126,12 @@ export function buildApp({
   )
 
   app.addHook('onSend', async (request, reply) => {
-    if (request.url.startsWith('/api')) reply.header('Cache-Control', 'no-store')
+    if (!request.url.startsWith('/api')) return
+    reply.header('Cache-Control', 'no-store')
+    // The same opaque id the access log and the error body carry, so a caller
+    // can quote one request to us. It is a random UUID, so it tells a client
+    // nothing it did not already send.
+    reply.header('x-request-id', request.id)
   })
 
   app.setErrorHandler((error: unknown, request, reply) => {
@@ -145,7 +151,14 @@ export function buildApp({
       { requestId: request.id, code: failure.code },
       'request failed',
     )
-    const where = { requestId: request.id, route: request.routeOptions.url }
+    // The access log reads this after the response: it records our own code,
+    // never the provider's message.
+    request.sentErrorCode = failure.code
+    const where = {
+      requestId: request.id,
+      route: request.routeOptions.url,
+      membershipId: request.context?.membershipId,
+    }
     if (failure.code === 'ACCESS_DENIED') reportDenial(failure.code, where)
     else if (!(error instanceof ApiFailure) && (statusCode ?? 500) >= 500)
       reportError(error, where)
@@ -161,6 +174,8 @@ export function buildApp({
     const { status, body } = apiError('RESOURCE_NOT_FOUND', request.id)
     reply.status(status).send(body)
   })
+
+  registerAccessLog(app, { config, pool: pools.runtime })
 
   app.get('/api/health', async () => ({ status: 'ok' }))
 

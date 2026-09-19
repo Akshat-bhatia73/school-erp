@@ -12,13 +12,15 @@ Out of scope, deliberately. There is no web UI: nothing in `apps/web` calls any 
 
 ## The route helper and the gate
 
-`protectedRoute(app, deps, definition)` in [`modules/shared/route.ts`](../../apps/api/src/modules/shared/route.ts) is the only way a module registers a route. A definition names a method, a path, one permission, an optional query schema, an optional body schema, a response schema and a handler. Five things happen around every handler, and none of them is a module's to skip.
+`protectedRoute(app, deps, definition)` in [`modules/shared/route.ts`](../../apps/api/src/modules/shared/route.ts) is the only way a module registers a route. A definition names a method, a path, one permission, an optional query schema, an optional body schema, a response schema and a handler. Six things happen around every handler, and none of them is a module's to skip.
 
 1. At startup the declared permission is checked against `PERMISSION_CATALOGUE`. An unknown or reserved key throws before the server listens, so a route that could never be authorized never exists.
 2. `requireMembership` runs as the preHandler, so a session, an active membership in the path school, the access version check and the role level MFA rule are already satisfied. An anonymous caller is `AUTHENTICATION_REQUIRED`; a member of another school using this school in the path is `SCHOOL_ACCESS_UNAVAILABLE`.
 3. The declared permission is decided against the school as a whole, in its own short transaction, before the handler starts. A member who holds it nowhere is refused with the evaluator's own code, usually `ACCESS_DENIED` and sometimes `MFA_REQUIRED`. This gate is the floor, never the ceiling.
 4. The query string and the body are parsed. Query values arrive as strings and only the keys the schema declares numeric are converted, so a schema stays the single description of a query. Every body and query contract is a `z.strictObject`, so an unknown key, including `schoolId`, is `INVALID_REQUEST` before the handler sees it.
 5. The handler's result is parsed through the response schema before it is sent. A mismatch is logged and answered `SERVICE_UNAVAILABLE`: an unexpected field is a leak, so the unchecked object is never sent. Optional fields are omitted rather than sent as null unless the contract says nullable.
+
+6. Two things are written afterwards, outside the handler's transaction. When the definition carries `auditRead` and the handler succeeded, one `allowed` audit row is written in a fresh `withTenantTransaction` after the response has been validated, so a read never fails because its audit failed to commit; a failure there is logged only. When the gate or the handler raises `ACCESS_DENIED`, one `denied` row is written the same way and the error is rethrown, so a refusal that rolled its transaction back still appears in the school's trail. See [read auditing and denials](#read-auditing-and-denials).
 
 Two routes are registered by hand instead, both in the files module, and both still run `requireMembership` and an aggregate decision of their own: the document download streams bytes and so has no parseable response contract, and the export status route cannot name one gate permission without excluding the staff or audit exporter.
 
@@ -103,7 +105,8 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `POST /students/:studentId/leave` | `students.manage_enrollment` | leaving date not before the joining date; reason stored and audited | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `POST /students/:studentId/guardians` | `students.manage_guardians` | named guardian decided per record; one primary per student | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `PUT /students/:studentId/guardians/:guardianId` | `students.manage_guardians` | the link must exist | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
-| `GET /students/:studentId/apaar` | `students.read_sensitive` | the record decided again; the sealed value is opened in the API and the reveal writes an audit row | 200 | `RESOURCE_NOT_FOUND` |
+| `GET /students/:studentId/apaar` | `students.read_sensitive` | the record decided again; the sealed value is opened in the API and the reveal is audited through `auditRead` | 200 | `RESOURCE_NOT_FOUND` |
+| `GET /students/:studentId/subject-access` | `students.export_subject` | the student decided under this key first; each block decided separately on this record; `accessHistory` needs `audit.read` | 200 | `RESOURCE_NOT_FOUND` |
 | `GET /students/:studentId/consents` | `students.read_consents` | the student decided under this key first; the newest row per guardian and purpose only | 200 | `RESOURCE_NOT_FOUND` |
 | `POST /students/:studentId/consents` | `students.manage_consents` | the guardian must be linked to that student in this school; a guardian recording through the portal is stored as `portal` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `POST /students/:studentId/anonymise` | `students.anonymise` | status `left` or `alumni`, the leaving date at least `RETENTION.studentSensitiveYears` old by the database clock, not already anonymised, `expectedVersion` | 200 | `NOT_ALLOWED_YET`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
@@ -224,6 +227,28 @@ Task 12 added five things to this module set. They are ordinary protected routes
 
 **The sweep is outside this module set.** `GET /api/maintenance/sweep` in `apps/api/src/maintenance/routes.ts` is not a `protectedRoute`: it has no session, no school and no audit row, and it exists only when `CRON_SECRET` is configured. It calls the three `SECURITY DEFINER` sweep functions described in [the database foundation](./DATABASE.md) and returns the counts. See [the release runbook](./RELEASE.md#61-the-daily-sweep).
 
+## Read auditing and denials
+
+Task 13 added two rows that no handler writes.
+
+**`auditRead`.** A definition may carry `auditRead: { targetType, param, summary, detail? }`. When the handler has answered and the response has parsed, `protectedRoute` opens a second, short tenant transaction and writes one `allowed` audit row: action is the route's permission, the target is the id in the named path parameter, and `safe_changes` is `detail(result)` or `{}`. It carries six routes today: the student detail (`detail` reports which of `sensitive`, `medical` and `guardianContacts` were in the answer), the student guardians list, the student consents list, the staff detail (`employment`, `private`, `pay`), the APAAR reveal, and the subject-access export. The reveal's handler-written row was removed when it gained `auditRead`, so a reveal leaves exactly one row. Document download keeps its own row inside its own transaction, because it commits before the bytes are attached.
+
+Only reads of one person's record are audited. Lists are not, so the volume follows the number of profiles someone opens rather than how far they page a roster, and the absence of a row means nobody opened that record.
+
+**Denials.** An `ACCESS_DENIED` from the gate or from a handler, raised for a caller whose membership is known, writes one `denied` row in its own transaction before the error is rethrown: action is the route's permission, `targetType` is that permission's resource type, `targetId` is null, the summary reads "Refused: `<permission>` on `<route pattern>`." and `safe_changes` carries the route and the method. The school's audit screen can then answer who tried what. An anonymous refusal has no school and so no row; it appears in the access log only.
+
+In the same transaction the API counts that membership's `denied` rows in the last ten minutes and, at twenty or more, calls `reportDenialBurst` in `apps/api/src/observability.ts`, which sends one Sentry event fingerprinted by membership id with ids as its only tags. See [the release runbook](./RELEASE.md#7-alerting-on-repeated-denied-access).
+
+**The access log** is not part of this module set: `apps/api/src/http/access-log.ts` writes one row per `/api` request, route pattern only, and is described in [the release runbook](./RELEASE.md#63-the-access-log).
+
+## Subject access
+
+`GET /students/:studentId/subject-access` (`students.export_subject`) answers a parent or the office asking for everything the system holds about one child, as one document, in one audited read. It is an ordinary protected route in `modules/students/subject-access.ts`: one tenant transaction, the student read through the same plan predicate as every other detail read, so an unreachable student is `RESOURCE_NOT_FOUND`.
+
+Inside, each block is decided separately on this record and included only if the caller could already have read it one screen at a time: `students.read_sensitive`, `students.read_medical`, `students.read_guardians` (falling back to `students.read_guardian_contact`), `students.read_enrollments`, `students.read_documents`, `students.read_consents`. `accessHistory` — the audit rows whose target is this student — needs `audit.read` at school scope and is **omitted, not emptied**, when the caller does not hold it, so an absent key is not evidence of an empty history. The sensitive block carries the full APAAR id, opened from the ciphertext, rather than the mask: that is what a subject-access request is for, and the export's own `auditRead` row records that it happened. An anonymised student exports the register fields and enrolments only, because nothing else is left.
+
+Owner and principal hold the permission at school scope; a parent holds it for their own children; no other role holds it.
+
 ## What is deliberately not built
 
 - No web UI and no change to the mock client. Tasks 6 to 8 own that.
@@ -305,5 +330,7 @@ Reset the schema before `test:db` and `test:authz`: the API suite leaves the fix
 `pnpm test:api` is 262 tests across 20 files. Task 5 added 159 of them, in ten files: 20 setup, 22 students, 18 students-bulk, 23 staff, 20 timetable, 9 dashboard, 11 search, 10 audit, 21 files and 5 foundation. Task 8 adds 14: five in `sequences.test.ts` (the formatters, and two transactions allocating from one counter at once), and the numbering cases in students (two admissions at once take consecutive numbers; the first admission into another year is 001; a sent number is refused), staff (a sent code is refused; the code comes from the school counter whoever creates the record) and students-bulk (a kept number beside a blank one; a kept number in the school format lifts the counter; a kept number too long for any counter is ignored by it). The other 89 are the Task 2 authentication tests and the Task 4 access tests.
 
 Every module file asserts the same seven shapes for at least its main list and its main detail read, wherever the shape has a meaning for that module: an anonymous caller is refused, a member of one school using the other school's id in the path is refused with `SCHOOL_ACCESS_UNAVAILABLE`, another school's record id through this school's path is not found and leaks nothing, a same-school caller with the wrong relationship gets not found and finds the row absent from the list, a permitted read returns exactly the contract fields, a write body carrying a forbidden field is refused with the database unchanged, and a bulk request with one bad id is rejected whole with nothing written.
+
+Task 13 adds three files: `read-audit.test.ts` (a detail read leaves one `allowed` row naming the blocks, a list leaves none, a refusal leaves one `denied` row the owner sees on `GET /audit-events`, twenty refusals raise exactly one burst report, the APAAR reveal leaves exactly one row), `subject-access.test.ts` (a parent gets their own child with no `accessHistory`, another family's child is not found, the owner gets `accessHistory`, a teacher is refused at the gate, one export leaves one audit row, an anonymised student exports the register fields only) and `access-log.test.ts` (one row per request holding the route pattern and no URL or query, a hashed address, our error code, and nothing at all for the health route).
 
 The scope assertions are built from real scopes rather than from a caller who holds nothing: a teacher with one teaching assignment, a parent of one child, an accountant at finance scope, an administrator whose role lost one key. Several tests were written specifically to fail if the plan predicate were removed from a query, which is what keeps "a list contains a row if and only if the detail read allows it" a property and not a claim.

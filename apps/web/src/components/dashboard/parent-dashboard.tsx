@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarClock } from 'lucide-react'
 import { toast } from 'sonner'
@@ -15,6 +16,7 @@ import { useSchoolContext } from '@/lib/session'
 import { PURPOSE_LABEL } from '@/lib/consent'
 import { allows } from '@/lib/permissions'
 import { fullName } from '@/lib/utils'
+import { ExportRecordButton } from '@/components/students/export-record-button'
 
 export type ParentChild = Extract<Dashboard, { audience: 'parent' }>['children'][number]
 
@@ -120,11 +122,23 @@ function ChildConsents({ studentId }: { studentId: string }) {
 function ChildCard({ child }: { child: ParentChild }) {
   const { hasPermission } = useSchoolContext()
   const enrollment = child.enrollment
+  // Consent is opened on request. Reading a child's record is an audited event, so the home page
+  // must not write one per child on every visit just to have the block ready.
+  const [consentOpen, setConsentOpen] = useState(false)
   return (
     <Panel
       title={fullName(child)}
       description={enrollment ? `${enrollment.grade.name} ${enrollment.section.name} · ${child.admissionNumber}` : child.admissionNumber}
-      actions={<Tag color={child.status === 'active' ? 'green' : 'grey'}>{STATUS_LABEL[child.status] ?? child.status}</Tag>}
+      actions={
+        <span className="flex items-center gap-2">
+          <Tag color={child.status === 'active' ? 'green' : 'grey'}>{STATUS_LABEL[child.status] ?? child.status}</Tag>
+          <ExportRecordButton
+            studentId={child.id}
+            admissionNumber={child.admissionNumber}
+            label="Download my child's record"
+          />
+        </span>
+      }
     >
       {enrollment ? (
         <>
@@ -139,7 +153,11 @@ function ChildCard({ child }: { child: ParentChild }) {
       {hasPermission('students.read_consents') && (
         <>
           <p className="mt-4 mb-1 text-[12px] font-medium tracking-wide text-muted-foreground">Consent</p>
-          <ChildConsents studentId={child.id} />
+          {consentOpen ? (
+            <ChildConsents studentId={child.id} />
+          ) : (
+            <Button size="sm" variant="outline" onClick={() => setConsentOpen(true)}>Manage consent</Button>
+          )}
         </>
       )}
     </Panel>

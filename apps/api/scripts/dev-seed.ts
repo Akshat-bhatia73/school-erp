@@ -15,7 +15,7 @@
  * secrets are encrypted with that secret), and set SEED_PASSWORD to a private
  * value and SEED_LOGINS_FILE to a separate file. See docs/auth/RELEASE.md.
  */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import net from 'node:net'
 import { randomUUID } from 'node:crypto'
@@ -1399,8 +1399,14 @@ async function main(): Promise<void> {
 
   const outputDir = path.resolve(import.meta.dirname, '..', '.dev')
   const csvPath = path.join(outputDir, process.env.SEED_LOGINS_FILE ?? 'sunrise-logins.csv')
-  await mkdir(outputDir, { recursive: true })
-  await writeFile(csvPath, `${csv}\n`, 'utf8')
+  // The file holds working passwords, so neither it nor its directory is
+  // readable by anyone but the owner of this machine account.
+  await mkdir(outputDir, { recursive: true, mode: 0o700 })
+  await writeFile(csvPath, `${csv}\n`, { encoding: 'utf8', mode: 0o600 })
+  // A directory or file left over from an earlier run keeps its old mode,
+  // so narrow both every time.
+  await chmod(outputDir, 0o700)
+  await chmod(csvPath, 0o600)
 
   const counts = await migrator.query<{ label: string; total: string }>(
     `SELECT 'students' AS label, count(*)::text AS total FROM students WHERE school_id = $1
