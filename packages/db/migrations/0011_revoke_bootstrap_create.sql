@@ -1,0 +1,11 @@
+-- The bootstrap grant is over. 0001_z_migrator_role_bootstrap.sql gave
+-- erp_identity_reader and erp_maintenance CREATE on schema public only so that
+-- ALTER FUNCTION ... OWNER TO would pass its schema check for a non-superuser
+-- migrator. Neither role should be able to create objects, so CREATE goes away
+-- again here. USAGE stays: both roles still have to reach the tables and
+-- functions they own.
+--
+-- Rule for later work: any migration that transfers ownership of an object to
+-- one of these roles must GRANT CREATE ON SCHEMA public to it first and REVOKE
+-- CREATE at its end, in the same file.
+REVOKE CREATE ON SCHEMA public FROM erp_identity_reader, erp_maintenance;
