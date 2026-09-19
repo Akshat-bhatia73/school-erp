@@ -10,6 +10,7 @@
     "test:contracts": "pnpm --filter @erp/contracts test",
     "build:web": "pnpm --filter @erp/web build",
     "db:migrate": "pnpm --filter @erp/db migrate",
+    "db:sync-roles": "pnpm --filter @erp/db sync-roles",
     "db:fixtures": "pnpm --filter @erp/db fixtures",
     "db:test:prepare": "pnpm --filter @erp/db test:prepare",
     "test:db": "pnpm --filter @erp/db test",

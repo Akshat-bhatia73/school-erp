@@ -208,6 +208,10 @@ query is slow.
 5. Apply the migrations: `MIGRATION_DATABASE_URL=... pnpm db:migrate`. This
    creates the schema, the row level security, the functions, the
    `erp_maintenance` role, and the grants to the logins from step 4.
+   On Neon the migrator is the database owner, not a superuser, and
+   `0001_z_migrator_role_bootstrap.sql` gives it the role membership and schema
+   grants the ownership transfers need, so no manual grant is required any
+   more.
 6. Restore the data with `pg_restore --data-only` if the schema came from the
    migrations, or restore the whole dump into an empty database and then check
    the migration table matches.

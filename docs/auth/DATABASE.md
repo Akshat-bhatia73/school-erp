@@ -27,6 +27,12 @@ The test suite writes fixtures and test rows, so point `TEST_DATABASE_URL` only 
 
 The migration runner requires `MIGRATION_DATABASE_URL`; it never falls back to the runtime `DATABASE_URL`. It records SHA-256 checksums and rejects changes to applied migration files. Apply new numbered migrations once this branch is merged or used beyond disposable databases. The initial migrations create database roles, so provision them with an appropriately privileged operator account before using a restricted deployment migrator on managed PostgreSQL.
 
+## Non-superuser migrators
+
+A managed PostgreSQL gives the migrator a database owner with `CREATEROLE`, not a superuser; on Neon that is `neondb_owner`. Migrations 0002, 0009 and 0010 hand SECURITY DEFINER functions to the `NOLOGIN` roles `erp_identity_reader` and `erp_maintenance`, and `ALTER FUNCTION ... OWNER TO` asks two things of the migrator: it must be a member of the new owner role (otherwise "must be able to SET ROLE"), and the new owner must hold `CREATE` on the function's schema (otherwise "permission denied for schema public"). A superuser satisfies both implicitly, which is why local runs and CI never saw the failure.
+
+`0001_z_migrator_role_bootstrap.sql` settles both before the first transfer: it creates the two roles idempotently, grants them `USAGE, CREATE ON SCHEMA public`, and grants their membership to `current_user`. Its name sorts after `0001_domain_integrity.sql` and before `0002_identity_bootstrap.sql`, because readdir order is the run order. `0011_revoke_bootstrap_create.sql` takes `CREATE` away again at the end; `USAGE` stays. Any later migration that transfers ownership of an object to one of these roles must `GRANT CREATE ON SCHEMA public` to it first and `REVOKE CREATE` at the end of the same file. `packages/db/tests/nonsuperuser-migrate.test.mjs` proves the whole run from empty against a fresh database owned by a `NOSUPERUSER` login.
+
 ## Credential boundaries
 
 | Role | Purpose | Database access |

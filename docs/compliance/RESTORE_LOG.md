@@ -35,6 +35,28 @@ copy of the API pointed at the restored database and opened one student.
 
 ## Entries
 
+### Operations note 19 September 2026
+
+Not a restore. Migrations `0009_data_lifecycle.sql` and `0010_observability.sql`
+were applied to the production Neon database by hand, because the migrator there
+(`neondb_owner`) has `CREATEROLE` but is not a superuser and both migrations
+transfer ownership of SECURITY DEFINER functions to `erp_maintenance`. The run
+failed twice, first with "must be able to SET ROLE erp_maintenance" and then with
+"permission denied for schema public". It was completed with temporary grants
+issued as the database owner:
+
+```sql
+GRANT erp_maintenance TO neondb_owner;
+GRANT USAGE, CREATE ON SCHEMA public TO erp_maintenance;
+-- migrations run here
+REVOKE CREATE ON SCHEMA public FROM erp_maintenance;
+```
+
+No data was read, changed or exported. The same grants are now part of the
+migration set (`0001_z_migrator_role_bootstrap.sql` and
+`0011_revoke_bootstrap_create.sql`), so a from-empty run by a non-superuser
+migrator needs no hand work; see [DATABASE.md](../auth/DATABASE.md).
+
 ### 2026-09-19 — no rehearsal has been performed
 
 No restore of this system has ever been rehearsed, and no weekly dump has ever
