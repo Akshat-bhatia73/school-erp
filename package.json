@@ -20,7 +20,7 @@
     "test:security": "pnpm --filter @erp/security-tests test",
     "test:browser": "pnpm --filter @erp/browser-tests test",
     "check:assets": "node scripts/check-production-assets.mjs",
-    "audit:deps": "pnpm audit --audit-level=high"
+    "audit:deps": "node scripts/audit-deps.mjs"
   },
   "packageManager": "pnpm@10.34.4"
 }

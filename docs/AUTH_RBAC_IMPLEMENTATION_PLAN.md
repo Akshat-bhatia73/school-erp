@@ -569,6 +569,31 @@ Tests in `apps/api/tests`: opening a student detail leaves one `allowed` audit r
 
 Exit check: for any student, the audit screen lists who read the record and who was refused, with the blocks read; a denial burst from one membership raises one Sentry event naming the membership; an identity can be locked by failed attempts and disabled by an operator, and its sessions end; a subject-access export for one student is produced and audited; every request leaves one access-log row and the health route none; the sweep removes access-log rows past 180 days; all suites pass.
 
+### Task 14: Governance
+
+**Delivered 19 September 2026.** F17 and F18 closed, F16 closed except repository visibility, the region half of F19 decided in `docs/compliance/HOSTING_REGION.md`. The weekly dump is scripted but not scheduled and no restore has been rehearsed against production; see `docs/compliance/DATA_PROTECTION.md` sections 5.3 and 8.
+
+Owner: one CI and repository agent, one backup agent, one school-documents agent, one hosting-decision agent, one docs agent. Added on 19 September 2026 to close findings F16, F17 and F18 of the data protection assessment and to decide the region half of F19. Depends on Task 13. Stacked on the Task 13 branch. No application code changes.
+
+**Decisions.**
+
+- The repository stays public for now. On GitHub Free, protected branches, rulesets and code owners are enforced only on public repositories, and secret scanning is available only there; a private repository on this plan would lose both. Vercel Hobby deploys from private repositories, so the switch needs only GitHub Pro or an organisation plan. Recorded as an open item with that price: GitHub Team is $4 per user per month and lists repository rules, code owners and GitHub Secret Protection for private repositories (github.com/pricing, read 19 September 2026). The repository is still public as delivered.
+- Applied directly on 19 September 2026, not through code: a ruleset "Protect main" on the default branch (pull request required, every CI check required and up to date, no force pushes, no deletion, zero required approvals because one person maintains the repository today, review threads must be resolved); secret scanning with push protection; Dependabot alerts and security updates.
+- Backups rely on Neon's own restore window plus a weekly logical dump procedure to an encrypted store in an Indian region that is documented and scripted but only scheduled once a real school signs, because the free tier has nowhere Indian to put it yet. A restore is rehearsed by creating a Neon branch at a point in time and running a checker against it; every rehearsal is written to a restore log.
+- The four school-facing documents are templates a school's counsel can sign off, written in plain English, marked as not legal advice.
+
+**Repository and CI (F16).** `.github/CODEOWNERS` naming the maintainer for everything, with `packages/db/migrations`, `packages/authz`, `packages/contracts/src/permissions.ts` and `docs/compliance` called out. `.github/dependabot.yml`: npm weekly, grouped minor and patch updates, security updates ungrouped, plus GitHub Actions. `SECURITY.md` at the root with the disclosure address and the response time promised in the incident runbook. CI: the `static` matrix entry is split so `typecheck`, `lint` and `contracts` are three separate required checks; the advisory step loses `continue-on-error` and runs `node scripts/audit-deps.mjs`, which runs `pnpm audit --json`, fails on any high or critical advisory not listed in `.audit-exceptions.json` (`{ id, package, reason, until }`), fails on an expired exception, and prints what it accepted. The ruleset's required checks are updated to the new names after the workflow file lands.
+
+**Backups (F17).** `docs/auth/BACKUPS.md`: what Neon keeps and for how long on the current plan (checked against Neon's documentation, with the date), how to restore to a point in time as a branch, how to promote or copy it, the weekly dump procedure (`scripts/backup-dump.sh`: `pg_dump` with the migrator login, encrypted with `age` to a recipient key, uploaded to a bucket in `ap-south-1`; never a GitHub Actions artifact), the quarterly rehearsal, and what to do when the primary is lost. `scripts/restore-rehearsal.mjs`: given a connection string to a restored branch, checks every migration is applied, every tenant table has RLS forced, the four logins exist, and prints row counts for the main tables in a form that can be pasted into `docs/compliance/RESTORE_LOG.md`, which starts with the template and one entry saying no rehearsal has been performed yet. `RELEASE.md` section 5 becomes a short pointer and checklist item 9 references the log.
+
+**School documents (F18).** In `docs/compliance/`: `DATA_PROCESSING_AGREEMENT.md` (parties, roles under the DPDP Act, processing instructions, security measures by reference to the auth docs, sub-processors by reference, breach notice duty with the two clocks, audit rights, deletion at term end via the anonymisation and sweep routes, liability placeholders), `SUB_PROCESSORS.md` (every third party that touches personal data: Vercel, Neon, Resend, Sentry, Better Stack, GitHub; purpose, data, region, and the date checked; the Vercel function region and the Neon region read from the deployment, not guessed), `PRIVACY_NOTICE.md` (for parents and staff, on behalf of the school: what is collected and why, who sees it, how long it is kept, their rights and how to exercise them through the school, the grievance contact, children's data and consent purposes matching `CONSENT_PURPOSES`), and `RETENTION_SCHEDULE.md` (the adopted schedule from `RELEASE.md` 6.2 in school-facing words).
+
+**Hosting region (F19).** `docs/compliance/HOSTING_REGION.md`: the requirement (CERT-In logs in India; DPDP has no transfer restriction today), the current state (Vercel function region and Neon `us-east-1`), options with an Indian region for PostgreSQL with rough monthly cost and what each changes in the runbook, a recommendation, and the migration steps (dump and restore, recreate the four logins, re-point the environment, set the function region to `bom1`, re-run the release checklist). The decision is recorded and left for the owner to take; nothing is provisioned.
+
+**Docs.** `DATA_PROTECTION.md`: F16 closed except visibility (with the reason), F17 and F18 closed, F19 decided; SOC 2 rows CC1, CC2, CC8, CC9 and Availability refreshed. `RELEASE.md` checklist items 9 and 15 updated. This plan's Task 14 marked delivered.
+
+Exit check: a push to `main` without a pull request and green checks is refused; `typecheck`, `lint` and `contracts` appear as separate checks; a high advisory without an exception fails CI and an expired exception fails CI; a restore rehearsal can be run from the documented steps and its result recorded; the four school documents exist and name real sub-processors and regions; the region decision is written with a recommendation.
+
 ### Suggested execution order
 
 | Wave | Work |
@@ -582,7 +607,8 @@ Exit check: for any student, the audit screen lists who read the record and who 
 | 6 | Integration owner completes deployment checks, review and production cutover |
 | 7 | Task 11 hosts the API beside the site and writes the data protection assessment |
 | 8 | Task 12 closes the data lifecycle findings |
-| 9 | Task 13 adds read auditing, denial records, the access log, lockout, subject access and the incident runbook; Task 14 follows |
+| 9 | Task 13 adds read auditing, denial records, the access log, lockout, subject access and the incident runbook |
+| 10 | Task 14 adds branch protection, dependency gating, backups with a rehearsed restore, the school-facing documents and the hosting-region decision |
 
 These are work packages, not a promise that all require separate permanent agents. With fewer agents, combine consecutive tasks while preserving ownership and review. Database migrations and shared contracts have one owner at a time.
 

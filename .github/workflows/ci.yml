@@ -26,7 +26,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: static
+          - name: typecheck
+            needs_db: 'false'
+          - name: lint
+            needs_db: 'false'
+          - name: contracts
             needs_db: 'false'
           - name: database
             needs_db: 'true'
@@ -83,17 +87,19 @@ jobs:
           TEST_DATABASE_URL: postgres://erp_migrator:erp_migrator@127.0.0.1:5432/erp_test
         run: pnpm db:test:prepare
 
-      # ---- static -----------------------------------------------------
+      # ---- typecheck, lint, contracts ---------------------------------
+      # Three separate entries so each is its own required check on main and a
+      # failure names itself in the pull request.
       - name: Typecheck
-        if: matrix.name == 'static'
+        if: matrix.name == 'typecheck'
         run: pnpm typecheck
 
       - name: Lint
-        if: matrix.name == 'static'
+        if: matrix.name == 'lint'
         run: pnpm --filter @erp/web lint
 
       - name: Contract tests
-        if: matrix.name == 'static'
+        if: matrix.name == 'contracts'
         run: pnpm test:contracts
 
       # ---- database and policy ----------------------------------------
@@ -173,10 +179,9 @@ jobs:
         if: matrix.name == 'release'
         run: pnpm check:assets
 
-      # Advisories are published independently of this change, and the step
-      # talks to the registry, so it reports rather than blocks the pull
-      # request. Checklist item 14 in docs/auth/RELEASE.md is the gate.
+      # Blocks the pull request. A high or critical advisory is either fixed
+      # or written into .audit-exceptions.json with a reason and a date to fix
+      # it by; an expired exception fails too.
       - name: Dependency advisories
         if: matrix.name == 'release'
-        continue-on-error: true
-        run: pnpm audit:deps
+        run: node scripts/audit-deps.mjs

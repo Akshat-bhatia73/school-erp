@@ -1,0 +1,51 @@
+# Dependency updates. Security updates arrive on their own, one pull request
+# per advisory, so they can be read and merged without a pile of unrelated
+# version bumps around them. Everything else is grouped and weekly, because a
+# single person reviews all of it.
+
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: deps
+      prefix-development: deps-dev
+    groups:
+      # One pull request a week for the safe half of the upgrades.
+      minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+    # Security updates are deliberately left out of every group above:
+    # `applies-to: version-updates` means Dependabot opens security fixes
+    # one at a time. Major version updates also stay ungrouped.
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        applies-to: version-updates
+        patterns:
+          - '*'

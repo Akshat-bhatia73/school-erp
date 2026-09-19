@@ -205,13 +205,15 @@ never holds that login.
 
 A backup nobody has restored is not a backup.
 
-- Managed PostgreSQL with daily snapshots and point-in-time recovery on.
-- Once before go-live, and once a quarter after: restore the newest snapshot
-  into a scratch database, run `pnpm --filter @erp/db migrate:check` against it
-  and sign in to a copy of the API pointed at it. Write down the date and how
-  long the restore took.
-- Keep snapshots in the same region and account boundary as the database, with
-  access limited to the people who already administer it.
+Everything about backups now lives in [BACKUPS.md](./BACKUPS.md): what Neon
+keeps and for how long on the current plan, how to restore to a point in time as
+a branch, the weekly encrypted dump (`scripts/backup-dump.sh`, never a GitHub
+Actions artifact), the quarterly rehearsal with `scripts/restore-rehearsal.mjs`,
+and what to do when the primary is lost.
+
+Two facts to carry away from it. Today the only backup that exists is Neon's
+six-hour history window on the Free plan. No restore has ever been rehearsed;
+every rehearsal goes in [the restore log](../compliance/RESTORE_LOG.md).
 
 ## 6. Audit retention and reading
 
@@ -360,19 +362,34 @@ before logging and must stay that way.
 Run from a clean checkout. CI runs all of these on every pull request and on
 `main`; the release manager re-runs them against the release commit.
 
-| Check | Command | What it proves |
-|---|---|---|
-| Types | `pnpm typecheck` | Nothing compiles by accident. |
-| Lint | `pnpm --filter @erp/web lint` | No unused or dead code in the app. |
-| Contracts | `pnpm test:contracts` | The permission catalogue and API schemas still agree. |
-| Database | `pnpm test:db` | Tenant isolation and row-level security hold in real PostgreSQL. |
-| Policy | `pnpm test:authz` | Every permission decision matches the matrix. |
-| API | `pnpm test:api` | The protected routes deny, allow and audit as specified. |
-| Web | `pnpm test:web` | The screens read what the server decided. |
-| Security | `pnpm test:security` | The adversarial cases in section 13 of the plan: cross-school reads, forged bodies, expired exceptions. |
-| Browser | `pnpm test:browser` | Session transitions in a real browser: login, school switch, suspension, sign-out. |
-| Assets | `pnpm build && pnpm check:assets` | The shipped site contains no fixture data, no development credentials, no sandbox outbox route, no mock store import and no source maps. |
-| Advisories | `pnpm audit:deps` | No dependency with a high or critical advisory. |
+The "CI check" column is the name the check reports under, which is also the
+name to require in the `main` ruleset.
+
+| Check | CI check | Command | What it proves |
+|---|---|---|---|
+| Types | `typecheck` | `pnpm typecheck` | Nothing compiles by accident. |
+| Lint | `lint` | `pnpm --filter @erp/web lint` | No unused or dead code in the app. |
+| Contracts | `contracts` | `pnpm test:contracts` | The permission catalogue and API schemas still agree. |
+| Database and policy | `database` | `pnpm test:db` then `pnpm test:authz` | Tenant isolation and row-level security hold in real PostgreSQL, and every permission decision matches the matrix. |
+| API | `api` | `pnpm test:api` | The protected routes deny, allow and audit as specified. |
+| Web | `web` | `pnpm test:web` | The screens read what the server decided. |
+| Security | `security` | `pnpm test:security` | The adversarial cases in section 13 of the plan: cross-school reads, forged bodies, expired exceptions. |
+| Browser | `browser` | `pnpm test:browser` | Session transitions in a real browser: login, school switch, suspension, sign-out. |
+| Assets and advisories | `release` | `pnpm build && pnpm check:assets`, then `pnpm audit:deps` | The shipped site contains no fixture data, no development credentials, no sandbox outbox route, no mock store import and no source maps; and no dependency carries a high or critical advisory. |
+
+Typecheck, lint and contracts were one `static` entry until Task 14. They are
+three now so a red pull request names what is red, and so the ruleset can
+require each by name.
+
+`pnpm audit:deps` runs `scripts/audit-deps.mjs`. It no longer only reports: the
+step blocks the pull request. A high or critical advisory passes only if
+`.audit-exceptions.json` holds an entry for it (`{ "id", "package", "reason",
+"until" }`, `id` being the numeric advisory id or the GitHub advisory id or its
+URL), and the run fails once that `until` date has passed. Every accepted
+exception is printed on a green run, so nobody has to open the file to see what
+was let through. Today the repository has no exceptions and one moderate
+advisory (`GHSA-67mh-4wv8-2f99` in `esbuild`, reached through `drizzle-kit`),
+which does not block.
 
 Each database suite needs `TEST_DATABASE_URL` pointing at a disposable database
 (`erp_test`), prepared with `pnpm db:test:prepare`. Never point one at `erp`.
@@ -391,12 +408,12 @@ Tick every line. "Verified by" is a person, not a team.
 | 6 | Sandbox delivery is off, or consciously accepted for staging | `ALLOW_SANDBOX_DELIVERY` and `HELD_SMS_TOKEN` unset in production; `GET /api/held-codes` returns 404; nobody is told "sent" when nothing was sent. During the MVP, SMS stays sandboxed by decision (section 0); email must be real before any outside tester is invited | Product owner |
 | 7 | `DEV_SANDBOX_OUTBOX` is unset | Startup refuses it under `NODE_ENV=production`; `GET /api/dev/outbox` returns 404 on the live site | Release manager |
 | 8 | Migrations applied | `pnpm db:migrate` then `pnpm --filter @erp/db migrate:check` reports nothing pending | Release manager |
-| 9 | Backup and a real restore | Restore date and duration written down in the operations log | Infrastructure owner |
+| 9 | Backup and a real restore | [docs/compliance/RESTORE_LOG.md](../compliance/RESTORE_LOG.md) has an entry against the production database with `Outcome: passed`, giving the date, the elapsed time and the checker output from `node scripts/restore-rehearsal.mjs`. See [BACKUPS.md](./BACKUPS.md) section 5 | Infrastructure owner |
 | 10 | Audit retention set | Retention policy configured and the audit API returns rows for a test change | Product owner |
 | 11 | Denied-access alerting live | Trigger one denial on staging and see the alert arrive | Infrastructure owner |
 | 12 | All suites green on the release commit | CI run linked in the release notes | Release manager |
 | 13 | Production assets clean | `pnpm build && pnpm check:assets` passes on the release commit | Release manager |
-| 14 | No high or critical advisories | `pnpm audit:deps` passes, or each exception is written down with a date to fix it | Release manager |
+| 14 | No high or critical advisories | `pnpm audit:deps` passes on the release commit. CI runs the same command in the `release` check, so a green CI run is the evidence; any exception in `.audit-exceptions.json` is read out loud in the release notes with its reason and its `until` date, and no `until` date is in the past | Release manager |
 | 15 | Independent access review done | [docs/auth/ACCESS_REVIEW.md](./ACCESS_REVIEW.md) is signed and its findings are closed or accepted in writing | Reviewer (not the implementer) |
 | 16 | The container accepts traffic from the proxy and from nowhere else | `HOST=0.0.0.0` in the image; `curl` the API from the proxy network and get a response; the same request from the internet is refused (see section 3) | Infrastructure owner |
 | 17 | The demo cannot come back | No route serves the old mock store; `pnpm check:assets` fails on any fixture data or `api/seed` / `api/store` import | Release manager |
