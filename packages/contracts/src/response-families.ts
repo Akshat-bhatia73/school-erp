@@ -4,8 +4,9 @@ import { Id, Timestamp, pageOf } from './common.ts'
 import { SchoolContextResponse, SchoolSummary } from './identity.ts'
 import { InvitationSummary, MemberSummary } from './memberships.ts'
 import { RoleKey } from './role-templates.ts'
+import { DashboardResponse } from './module-dashboard.ts'
 import {
-  AllowedActions, AuditListResponse, DashboardResponse, DocumentSummary, EnrollmentSummary,
+  AllowedActions, AuditListResponse, DocumentSummary, EnrollmentSummary,
   GuardianPrivate, NamedReference, StaffDetailResponse, StaffDirectory, StaffListResponse,
   StudentBasic, StudentDetailResponse, StudentListResponse, SubstitutionSummary,
   TeachingAssignmentSummary, TimetableCell, TimetableResponse,

@@ -1,21 +1,15 @@
 import { sql, type SQL } from 'drizzle-orm'
 import {
-  academicYears,
   enrollments as enrollmentsTable,
-  sections as sectionsTable,
-  staff as staffTable,
   students as studentsTable,
-  timetableEntries,
 } from '@erp/db/schema'
 import { planPredicate, scopedTableFor, type AuthzConnection } from '@erp/authz'
 import type { AuthorizedReadPlan } from '@erp/contracts/server'
 import type { z } from 'zod'
-import { EnrollmentSummary, NamedReference, StudentBasic, TimetableCell } from '@erp/contracts'
+import { EnrollmentSummary, StudentBasic } from '@erp/contracts'
 import { ApiFailure } from '../../http/errors.ts'
 import { photoMoment } from '../students/project.ts'
 
-type Named = z.infer<typeof NamedReference>
-type Cell = z.infer<typeof TimetableCell>
 type Basic = z.infer<typeof StudentBasic>
 type Enrollment = z.infer<typeof EnrollmentSummary>
 
@@ -24,7 +18,7 @@ type Enrollment = z.infer<typeof EnrollmentSummary>
  * and each row on a dashboard is exactly what the matching detail read would
  * allow. Nothing is counted school-wide and filtered afterwards.
  */
-function predicateFor(plan: AuthorizedReadPlan): SQL {
+export function predicateFor(plan: AuthorizedReadPlan): SQL {
   const table = scopedTableFor(plan.resourceType)
   // A resource type with no scoped table cannot be filtered safely, so the
   // dashboard refuses rather than answering with unfiltered rows.
@@ -32,7 +26,7 @@ function predicateFor(plan: AuthorizedReadPlan): SQL {
   return planPredicate(plan, table)
 }
 
-async function rows<T extends Record<string, unknown>>(
+export async function rows<T extends Record<string, unknown>>(
   conn: AuthzConnection,
   query: SQL,
 ): Promise<T[]> {
@@ -48,109 +42,12 @@ async function rows<T extends Record<string, unknown>>(
  */
 const NAME_LIMIT = 160
 
-function label(...parts: (string | null)[]): string {
+export function label(...parts: (string | null)[]): string {
   const text = parts.filter((part) => part !== null && part.trim() !== '').join(' ').trim()
   if (text === '') return 'Unnamed'
   return text.length > NAME_LIMIT ? text.slice(0, NAME_LIMIT).trim() : text
 }
 
-export async function countActiveStudents(conn: AuthzConnection, plan: AuthorizedReadPlan): Promise<number> {
-  const [row] = await rows<{ total: number }>(
-    conn,
-    sql`SELECT count(*)::int AS total FROM ${studentsTable}
-         WHERE ${predicateFor(plan)} AND ${studentsTable.status} = 'active'`,
-  )
-  return row?.total ?? 0
-}
-
-/**
- * Staff on the rolls: active plus on leave, which is the headcount the screen
- * this replaces showed. Only people who left (resigned, retired) drop out.
- */
-export async function countActiveStaff(conn: AuthzConnection, plan: AuthorizedReadPlan): Promise<number> {
-  const [row] = await rows<{ total: number }>(
-    conn,
-    sql`SELECT count(*)::int AS total FROM ${staffTable}
-         WHERE ${predicateFor(plan)} AND ${staffTable.status} IN ('active', 'on_leave')`,
-  )
-  return row?.total ?? 0
-}
-
-/** Sections of the current year the caller both teaches and is allowed to read. */
-export async function listAssignedSections(
-  conn: AuthzConnection,
-  plan: AuthorizedReadPlan,
-  staffId: string,
-  now: string,
-): Promise<Named[]> {
-  const found = await rows<{ id: string; grade_name: string; section_name: string }>(
-    conn,
-    sql`SELECT ${sectionsTable.id} AS id, grd.name AS grade_name, ${sectionsTable.name} AS section_name
-          FROM ${sectionsTable}
-          JOIN ${academicYears} yr
-            ON yr.school_id = ${sectionsTable.schoolId} AND yr.id = ${sectionsTable.academicYearId}
-          JOIN grades grd
-            ON grd.school_id = ${sectionsTable.schoolId} AND grd.id = ${sectionsTable.gradeId}
-         WHERE ${predicateFor(plan)}
-           AND yr.status = 'current'
-           AND EXISTS (SELECT 1 FROM teaching_assignments ta
-                        WHERE ta.school_id = ${sectionsTable.schoolId}
-                          AND ta.section_id = ${sectionsTable.id}
-                          AND ta.academic_year_id = ${sectionsTable.academicYearId}
-                          AND ta.staff_id = ${staffId}::uuid
-                          AND ta.effective_from <= ${now}::date
-                          AND (ta.effective_to IS NULL OR ta.effective_to >= ${now}::date))
-         ORDER BY grd.sort_order, section_name`,
-  )
-  return found.map((row) => ({ id: row.id, name: label(row.grade_name, row.section_name) }))
-}
-
-/** The caller's own periods: allowed by the plan and taught by them. */
-export async function listOwnTimetable(
-  conn: AuthzConnection,
-  plan: AuthorizedReadPlan,
-  staffId: string,
-): Promise<Cell[]> {
-  const found = await rows<{
-    section_id: string
-    grade_name: string
-    section_name: string
-    subject_id: string
-    subject_name: string
-    teacher_id: string
-    teacher_first: string
-    teacher_last: string | null
-    day_of_week: number
-    period_index: number
-    room_number: string | null
-  }>(
-    conn,
-    sql`SELECT sct.id AS section_id, grd.name AS grade_name, sct.name AS section_name,
-               sbj.id AS subject_id, sbj.name AS subject_name,
-               stf.id AS teacher_id, stf.first_name AS teacher_first, stf.last_name AS teacher_last,
-               ${timetableEntries.dayOfWeek} AS day_of_week,
-               ${timetableEntries.periodIndex} AS period_index,
-               ${timetableEntries.roomNumber} AS room_number
-          FROM ${timetableEntries}
-          JOIN sections sct
-            ON sct.school_id = ${timetableEntries.schoolId} AND sct.id = ${timetableEntries.sectionId}
-          JOIN grades grd ON grd.school_id = sct.school_id AND grd.id = sct.grade_id
-          JOIN subjects sbj
-            ON sbj.school_id = ${timetableEntries.schoolId} AND sbj.id = ${timetableEntries.subjectId}
-          JOIN staff stf
-            ON stf.school_id = ${timetableEntries.schoolId} AND stf.id = ${timetableEntries.staffId}
-         WHERE ${predicateFor(plan)} AND ${timetableEntries.staffId} = ${staffId}::uuid
-         ORDER BY day_of_week, period_index`,
-  )
-  return found.map((row) => ({
-    section: { id: row.section_id, name: label(row.grade_name, row.section_name) },
-    subject: { id: row.subject_id, name: label(row.subject_name) },
-    teacher: { id: row.teacher_id, name: label(row.teacher_first, row.teacher_last) },
-    dayOfWeek: row.day_of_week,
-    periodIndex: row.period_index,
-    ...(row.room_number === null ? {} : { roomNumber: row.room_number }),
-  }))
-}
 
 /**
  * The caller's own children: the read plan decides what may be read at all, and

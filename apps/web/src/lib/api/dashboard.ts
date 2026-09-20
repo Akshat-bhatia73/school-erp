@@ -2,10 +2,13 @@
 import { DashboardByAudience } from '@erp/contracts'
 import type { z } from 'zod'
 import { request } from '@/lib/http'
-import { schoolPath } from './shared'
+import { schoolPath, withQuery } from './shared'
 
 export type Dashboard = z.infer<typeof DashboardByAudience>
 
-export function get(schoolId: string) {
-  return request(schoolPath(schoolId, '/dashboard'), { schema: DashboardByAudience })
+/** The date only moves the calendar; it never widens what the server reads. */
+export function get(schoolId: string, params?: { date?: string }) {
+  return request(withQuery(schoolPath(schoolId, '/dashboard'), params ?? {}), {
+    schema: DashboardByAudience,
+  })
 }
