@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { HolidayInput, SetupHolidayUpdateRequest } from '@erp/contracts'
 import { Field, FORM_ERROR, validate, type FieldErrors } from '@/components/setup/field'
+import { focusFirstInvalid, type FieldLabels } from '@/lib/validation'
 import { FormSheet } from '@/components/setup/form-sheet'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -15,6 +16,13 @@ import { humanize } from '@/lib/utils'
 export const HOLIDAY_TYPES = ['national', 'festival', 'school', 'vacation'] as const
 
 interface Form { academicYearId: string; name: string; startDate: string; endDate: string; type: (typeof HOLIDAY_TYPES)[number] }
+
+const LABELS: FieldLabels = {
+  name: 'holiday name',
+  startDate: 'start date',
+  endDate: 'end date',
+  type: { label: 'holiday type', kind: 'select' },
+}
 
 export function HolidaySheet({ open, onOpenChange, holiday, academicYearId }: {
   open: boolean
@@ -53,9 +61,13 @@ export function HolidaySheet({ open, onOpenChange, holiday, academicYearId }: {
   function submit() {
     const next = { ...form, endDate: form.endDate || form.startDate }
     const checked = holiday
-      ? validate(SetupHolidayUpdateRequest, { ...next, expectedVersion: holiday.version })
-      : validate(HolidayInput, next)
-    if (!checked.ok) return setErrors(checked.errors)
+      ? validate(SetupHolidayUpdateRequest, { ...next, expectedVersion: holiday.version }, LABELS)
+      : validate(HolidayInput, next, LABELS)
+    if (!checked.ok) {
+      setErrors(checked.errors)
+      requestAnimationFrame(() => focusFirstInvalid())
+      return
+    }
     setErrors({})
     save.mutate(next)
   }

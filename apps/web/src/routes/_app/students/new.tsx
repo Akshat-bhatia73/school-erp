@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { describeError } from '@/lib/api-errors'
 import { useSchoolContext } from '@/lib/session'
+import { CHECK_FIELDS, focusFirstInvalid } from '@/lib/validation'
 import { useAcademicYear } from '@/lib/use-academic-year'
 
 export const Route = createFileRoute('/_app/students/new')({ component: Page })
@@ -62,7 +63,11 @@ function Page() {
     const found = validateDraft(draft)
     setErrors(found)
     const onThisStep = errorsForStep(step, found)
-    if (Object.keys(onThisStep).length === 0) setStep((current) => Math.min(current + 1, STEPS.length - 1))
+    if (Object.keys(onThisStep).length === 0) {
+      setStep((current) => Math.min(current + 1, STEPS.length - 1))
+      return
+    }
+    requestAnimationFrame(() => focusFirstInvalid())
   }
 
   const submit = () => {
@@ -71,7 +76,8 @@ function Page() {
     const paths = Object.keys(found)
     if (paths.length > 0) {
       setStep(Math.min(...paths.map(stepOfError)))
-      toast.error('Some details are still missing')
+      toast.error(CHECK_FIELDS)
+      requestAnimationFrame(() => focusFirstInvalid())
       return
     }
     admit.mutate()

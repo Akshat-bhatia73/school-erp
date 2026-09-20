@@ -185,7 +185,7 @@ test('an office reader sees the directory and nothing beyond the contract', asyn
   assert.equal(ids.includes(staffBId), false)
   for (const item of body.items) {
     assert.deepEqual(
-      Object.keys(item).filter((key) => !['id', 'schoolId', 'version', 'displayName', 'designation', 'department', 'anonymised'].includes(key)),
+      Object.keys(item).filter((key) => !['id', 'schoolId', 'version', 'displayName', 'designation', 'department', 'anonymised', 'hasPhoto', 'photoUpdatedAt'].includes(key)),
       [],
     )
   }
@@ -289,7 +289,7 @@ test('a permitted create answers with the directory projection only', async () =
   assert.equal(response.status, 201)
   const body = (await response.json()) as Record<string, unknown>
   assert.deepEqual(Object.keys(body).sort(), [
-    'anonymised', 'department', 'designation', 'displayName', 'employeeCode', 'id', 'schoolId', 'version',
+    'anonymised', 'department', 'designation', 'displayName', 'employeeCode', 'hasPhoto', 'id', 'schoolId', 'version',
   ])
   assert.equal(body.displayName, 'Newly Hired')
   // The create response names the assigned code, so the screen shows it without a second read.

@@ -19,13 +19,19 @@ import {
   allowedActionsFor,
   assertUuidParam,
   decideResource,
+  decideSchoolAction,
   open,
   protectedRoute,
   readPlan,
   requireFound,
 } from '../shared/index.ts'
 import type { ModuleDependencies } from '../shared/route.ts'
-import { enrollmentVisibility, getStudent, type ModuleConnection } from './reads.ts'
+import {
+  enrollmentVisibility,
+  getStudent,
+  guardianColumns,
+  type ModuleConnection,
+} from './reads.ts'
 import {
   toStudentBasic,
   toStudentMedical,
@@ -101,10 +107,7 @@ async function loadGuardians(
         // guardian, exactly as the student detail route decides it.
         sql`guardians.school_id = ${context.schoolId}::uuid`
   const rows = await conn.db.execute<GuardianRow>(
-    sql`SELECT guardians.id, guardians.first_name, guardians.last_name, guardians.phone,
-               guardians.occupation, guardians.annual_income::text AS annual_income,
-               COALESCE(guardians.address #>> '{}', guardians.address::text) AS address,
-               sg.relation, guardians.version
+    sql`SELECT ${guardianColumns}
           FROM guardians
           JOIN student_guardians sg ON sg.school_id = guardians.school_id
            AND sg.guardian_id = guardians.id
@@ -336,20 +339,36 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
         const sensitiveBlock = options.sensitive && !anonymised ? toStudentSensitive(row) : undefined
         let sensitive: SubjectSensitive | undefined
         if (sensitiveBlock !== undefined) {
-          const { apaarMasked: _masked, ...rest } = sensitiveBlock
+          const { apaarMasked: _masked, aadhaarLast4: _last4, ...rest } = sensitiveBlock
           const sealed = row.apaar_ciphertext
           const apaarId =
             typeof sealed === 'string' && sealed !== ''
               ? open(sealed, deps.config.DATA_ENCRYPTION_KEY)
               : undefined
-          sensitive = { ...rest, ...(apaarId === undefined ? {} : { apaarId }) }
+          // This copy goes to the person the record is about, so their own
+          // Aadhaar number is opened in full, exactly as the APAAR id is. A
+          // guardian's own number stays masked below: a guardian is a
+          // different person, and this request is not theirs.
+          const sealedAadhaar = row.aadhaar_ciphertext
+          const aadhaar =
+            typeof sealedAadhaar === 'string' && sealedAadhaar !== ''
+              ? open(sealedAadhaar, deps.config.DATA_ENCRYPTION_KEY)
+              : undefined
+          sensitive = {
+            ...rest,
+            ...(apaarId === undefined ? {} : { apaarId }),
+            ...(aadhaar === undefined ? {} : { aadhaar }),
+          }
         }
         const medical = options.medical && !anonymised ? toStudentMedical(row) : undefined
 
         const guardianPermission: 'students.read_guardians' | 'students.read_guardian_contact' | null =
           anonymised
             ? null
-            : (await may('students.read_guardians'))
+            // A guardian record is its own kind of record, so the full block
+            // is decided for the school and then narrowed guardian by guardian
+            // by the read plan below, exactly as the guardian list route does.
+            : (await decideSchoolAction(conn, context, 'students.read_guardians')).allowed
               ? 'students.read_guardians'
               : (await may('students.read_guardian_contact'))
                 ? 'students.read_guardian_contact'

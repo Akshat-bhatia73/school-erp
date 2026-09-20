@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GradeInput, SetupGradeUpdateRequest } from '@erp/contracts'
 import { Field, FORM_ERROR, validate, type FieldErrors } from '@/components/setup/field'
+import { focusFirstInvalid, type FieldLabels } from '@/lib/validation'
 import { FormSheet } from '@/components/setup/form-sheet'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -16,6 +17,13 @@ const NONE = '__none__'
 const STREAMS = ['science', 'commerce', 'arts'] as const
 
 interface Form { name: string; shortName: string; order: number; stream?: (typeof STREAMS)[number] }
+
+const LABELS: FieldLabels = {
+  name: 'class name',
+  shortName: 'short name',
+  order: { label: 'order', kind: 'number' },
+  stream: { label: 'stream', kind: 'select' },
+}
 
 export function GradeSheet({ open, onOpenChange, grade, nextOrder }: {
   open: boolean
@@ -53,9 +61,13 @@ export function GradeSheet({ open, onOpenChange, grade, nextOrder }: {
 
   function submit() {
     const checked = grade
-      ? validate(SetupGradeUpdateRequest, { ...form, expectedVersion: grade.version })
-      : validate(GradeInput, form)
-    if (!checked.ok) return setErrors(checked.errors)
+      ? validate(SetupGradeUpdateRequest, { ...form, expectedVersion: grade.version }, LABELS)
+      : validate(GradeInput, form, LABELS)
+    if (!checked.ok) {
+      setErrors(checked.errors)
+      requestAnimationFrame(() => focusFirstInvalid())
+      return
+    }
     setErrors({})
     save.mutate(form)
   }

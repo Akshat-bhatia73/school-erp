@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { describeError } from '@/lib/api-errors'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
+import { CHECK_FIELDS, focusFirstInvalid } from '@/lib/validation'
 import { EmploymentFields, PersonalFields, emptyDraft, validateDraft, type FieldErrors, type StaffDraft } from '@/components/staff/form'
 
 export const Route = createFileRoute('/_app/staff/new')({ component: Page })
@@ -49,7 +50,8 @@ function Page() {
     const result = validateDraft(draft)
     if (!result.ok) {
       setErrors(result.errors)
-      toast.error('Check the highlighted fields')
+      toast.error(CHECK_FIELDS)
+      requestAnimationFrame(() => focusFirstInvalid())
       return
     }
     setErrors({})

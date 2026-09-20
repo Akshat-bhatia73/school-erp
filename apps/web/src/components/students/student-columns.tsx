@@ -1,5 +1,6 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { UserAvatar } from '@/components/shared/avatar'
+import { api } from '@/lib/api'
 import { EntityCell } from '@/components/shared/data-table'
 import { colorFor, Tag } from '@/components/shared/tag'
 import type { StudentSummary } from '@/lib/api/students'
@@ -29,14 +30,20 @@ export function StudentStatusTag({ status }: { status: StudentSummary['status'] 
  * gets the row without one.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const studentColumns: ColumnDef<StudentSummary, any>[] = [
+export const studentColumns = (schoolId: string): ColumnDef<StudentSummary, any>[] => [
   {
     id: 'student',
     header: 'Student',
     size: 280,
     cell: ({ row }) => (
       <EntityCell
-        avatar={<UserAvatar name={fullName(row.original)} size="sm" />}
+        avatar={(
+          <UserAvatar
+            name={fullName(row.original)}
+            src={row.original.hasPhoto ? api.students.photoUrl(schoolId, row.original.id, row.original.photoUpdatedAt) : undefined}
+            size="sm"
+          />
+        )}
         name={fullName(row.original)}
         sub={row.original.admissionNumber}
       />

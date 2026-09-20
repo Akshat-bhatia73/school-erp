@@ -2,6 +2,11 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import test, { after, before } from 'node:test'
 import { fixtureIds } from '@erp/db/fixtures'
+import { withTenantTransaction } from '@erp/db'
+import type { RequestContext } from '@erp/contracts/server'
+import type { RoleKey } from '@erp/contracts'
+import { createRequestContext } from '../src/auth/request-context.ts'
+import { buildStudentProfileModel } from '../src/exports/producers/student-profile.ts'
 import {
   adminPool,
   closeAdminPool,
@@ -363,4 +368,82 @@ test('a file stops being downloadable when its record leaves the reader', async 
     [job.id],
   )
   assert.equal(stored.rows[0]?.status, 'expired')
+})
+
+/**
+ * The same context the membership guard builds for a signed in person, read
+ * straight from the membership row. It lets a test ask the producer what a
+ * reader is given rather than search a PDF for glyphs.
+ */
+async function contextFor(userId: string): Promise<RequestContext> {
+  const found = await adminPool().query<{
+    id: string
+    kind: 'adult' | 'student'
+    access_version: number
+    keys: string[]
+  }>(
+    `SELECT m.id, m.kind, m.access_version,
+            coalesce(array_agg(r.key) FILTER (WHERE r.key IS NOT NULL), '{}') AS keys
+       FROM school_memberships m
+       LEFT JOIN membership_roles mr ON mr.membership_id = m.id
+       LEFT JOIN roles r ON r.id = mr.role_id
+      WHERE m.school_id = $1 AND m.user_id = $2
+      GROUP BY m.id`,
+    [schoolA, userId],
+  )
+  const row = found.rows[0]
+  assert.ok(row, 'the person is a member of this school')
+  return createRequestContext({
+    requestId: randomUUID(),
+    userId,
+    sessionId: randomUUID(),
+    schoolId: schoolA,
+    membershipId: row.id,
+    membershipKind: row.kind,
+    accessVersion: row.access_version,
+    roleKeys: row.keys as RoleKey[],
+    assurance: 'mfa',
+    mfaVerifiedAt: new Date().toISOString(),
+  })
+}
+
+test("the printed record holds the guardian's private block only for a reader who may have it", async () => {
+  const pool = adminPool()
+  const guardian = randomUUID()
+  await pool.query(
+    `INSERT INTO guardians (id, school_id, first_name, last_name, phone, occupation, pan_last4)
+     VALUES ($1, $2, 'Meera', 'Nair', '+919812300077', 'Accountant', '234F')`,
+    [guardian, schoolA],
+  )
+  await pool.query(
+    `INSERT INTO student_guardians (school_id, student_id, guardian_id, relation, is_primary)
+     VALUES ($1, $2, $3, 'mother', true)`,
+    [schoolA, taughtStudent, guardian],
+  )
+
+  // The model is read first and asserted afterwards, so an assertion never
+  // fails inside an open transaction.
+  const read = async (userId: string) => {
+    const context = await contextFor(userId)
+    return withTenantTransaction(server.pools.runtime, context, async (conn) =>
+      buildStudentProfileModel(conn, context, taughtStudent),
+    )
+  }
+
+  const forOwner = await read(fixtureIds.ownerAUser as string)
+  assert.equal(forOwner.guardians.length, 1)
+  assert.equal(forOwner.guardianPrivate.length, 1)
+  assert.equal(forOwner.guardianPrivate[0]?.occupation, 'Accountant')
+  assert.equal(forOwner.guardianPrivate[0]?.panLast4, '234F')
+
+  // The teacher may export this class and nothing else about the family: the
+  // private guardian block never appears in her copy.
+  const forTeacher = await read(fixtureIds.adultUser as string)
+  assert.deepEqual(forTeacher.guardianPrivate, [])
+  // She still sees the contact card, which is decided on the pupil she teaches.
+  assert.equal(forTeacher.guardians.length, 1)
+  assert.equal(forTeacher.sensitive, undefined)
+
+  await pool.query('DELETE FROM student_guardians WHERE guardian_id = $1', [guardian])
+  await pool.query('DELETE FROM guardians WHERE id = $1', [guardian])
 })

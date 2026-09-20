@@ -30,9 +30,14 @@ export const TeachingAssignmentRequest = z.strictObject({
 }).refine((value) => value.validUntil === null || value.validUntil >= value.validFrom, 'Assignment end precedes start')
 export const PromoteStudentsRequest = z.strictObject({
   fromAcademicYearId: Id, toAcademicYearId: Id, fromSectionId: Id, toSectionId: Id,
-  studentIds: IdList, detainedStudentIds: z.array(Id).max(100), reason: Reason,
+  // A student of the section may be in neither list: the office can leave
+  // somebody out of this run and decide later. Either list may therefore be
+  // empty, but a request that names nobody at all does nothing and is refused.
+  studentIds: z.array(Id).max(100), detainedStudentIds: z.array(Id).max(100), reason: Reason,
 }).superRefine((value, ctx) => {
   if (value.fromAcademicYearId === value.toAcademicYearId) ctx.addIssue({ code: 'custom', message: 'Promotion needs a different academic year' })
+  if (value.studentIds.length + value.detainedStudentIds.length === 0) ctx.addIssue({ code: 'custom', message: 'Choose at least one student to promote or detain' })
+  if (new Set(value.studentIds).size !== value.studentIds.length) ctx.addIssue({ code: 'custom', message: 'Promoted and detained sets must be unique and disjoint' })
   if (new Set(value.detainedStudentIds).size !== value.detainedStudentIds.length || value.detainedStudentIds.some((id) => value.studentIds.includes(id))) {
     ctx.addIssue({ code: 'custom', message: 'Promoted and detained sets must be unique and disjoint' })
   }

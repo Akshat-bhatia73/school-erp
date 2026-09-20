@@ -355,6 +355,29 @@ describe('Substitutions', () => {
     })))
   })
 
+  it('lists who is free period by period, with the load for that day', async () => {
+    timetable.freeTeachers.mockResolvedValue([{ teacher: { id: 'staff-3', name: 'Third Teacher' }, teachesSubject: false, periodsPerWeek: 3 }])
+    searchParams = { date: '2026-09-15' }
+    const { Page } = await import('@/routes/_app/timetable/substitutions')
+    renderWithSession(<Page />, {
+      capabilities: ['academic_years.read', 'timetable.read', 'staff.read_directory', 'timetable.manage_entries'],
+    })
+
+    expect(await screen.findByText('Free teachers today')).toBeInTheDocument()
+    expect(await screen.findByText('Third Teacher')).toBeInTheDocument()
+    // The day holds one period and the teacher is free in it, so nothing is taught today.
+    expect(screen.getByText('0 periods today')).toBeInTheDocument()
+  })
+
+  it('does not show the free teacher panel without the permission that read needs', async () => {
+    const { Page } = await import('@/routes/_app/timetable/substitutions')
+    renderWithSession(<Page />, { capabilities: ['academic_years.read', 'timetable.read', 'staff.read_directory'] })
+
+    expect(await screen.findByText('No one is away')).toBeInTheDocument()
+    expect(screen.queryByText('Free teachers today')).not.toBeInTheDocument()
+    expect(timetable.freeTeachers).not.toHaveBeenCalled()
+  })
+
   it('shows one sentence when the day is refused', async () => {
     timetable.substitutions.mockRejectedValue(refusal())
     const { Page } = await import('@/routes/_app/timetable/substitutions')

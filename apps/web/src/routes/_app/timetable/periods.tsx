@@ -21,6 +21,19 @@ import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
 import { useAcademicYear } from '@/lib/use-academic-year'
 import { cn } from '@/lib/utils'
+import { CHECK_FIELDS, friendlyIssues, type FieldLabels } from '@/lib/validation'
+
+/** The words the bell schedule form uses, so a refused change names the row it is in. */
+const BELL_LABELS: FieldLabels = {
+  name: 'schedule name',
+  gradeIds: { label: 'class', kind: 'list' },
+  workingDays: { label: 'working day', kind: 'list' },
+  periods: { label: 'period', kind: 'list' },
+  'periods.*.name': 'period name',
+  'periods.*.startsAt': 'start time',
+  'periods.*.endsAt': 'end time',
+  saturdayPeriodCount: { label: 'number of Saturday periods', kind: 'number' },
+}
 
 export const Route = createFileRoute('/_app/timetable/periods')({ component: Page })
 
@@ -146,7 +159,7 @@ export function Page() {
     mutationFn: () => {
       const parsed = TimetableBellScheduleUpdateRequest.safeParse({ ...bodyFrom(draft!), expectedVersion: bell!.version })
       if (!parsed.success) {
-        setFormError(parsed.error.issues[0]?.message ?? 'Some details were not right.')
+        setFormError(friendlyIssues(parsed.error, BELL_LABELS)[0]?.message ?? CHECK_FIELDS)
         return Promise.reject(new Error('invalid'))
       }
       setFormError(null)

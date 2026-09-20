@@ -10,6 +10,7 @@ import type { Invitation } from '@/lib/api/members'
 type AssignableRole = Exclude<RoleKey, 'owner' | 'student'>
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
+import { validate, type FieldLabels } from '@/components/setup/field'
 import { describeError } from '@/lib/api-errors'
 import { assignableRolesFor, roleLabel } from '@/lib/permissions'
 import { formatDate } from '@/lib/utils'
@@ -26,6 +27,13 @@ import { roleColor } from './settings-tabs'
 
 /** Ten digits, the way an Indian mobile is typed. The contract wants +91 in front of it. */
 const TEN_DIGITS = /^\d{10}$/
+
+const LABELS: FieldLabels = {
+  displayName: 'name',
+  identifier: { label: 'email address or mobile number', kind: 'text' },
+  roleKeys: { label: 'role', kind: 'list' },
+  staffId: { label: 'staff member', kind: 'select' },
+}
 
 function identifierFor(contact: string) {
   const trimmed = contact.trim()
@@ -100,16 +108,12 @@ export function InviteSheet({ open, onOpenChange, prefill }: InviteSheetProps) {
       roleKeys: selectedRoles,
       ...(needsStaff && staffId ? { staffId } : {}),
     }
-    const parsed = InviteMemberRequest.safeParse(candidate)
-    if (!parsed.success) {
-      const next: Record<string, string> = {}
-      for (const issue of parsed.error.issues) {
-        const field = String(issue.path[0] ?? 'form')
-        next[field] ??= issue.message
-      }
-      if (next.identifier) next.identifier = 'Enter an email address or a 10 digit mobile number.'
-      if (next.roleKeys) next.roleKeys = 'Pick at least one role.'
-      setErrors(next)
+    const checked = validate(InviteMemberRequest, candidate, LABELS)
+    if (!checked.ok) {
+      // The identifier is one field holding either kind of contact, so it needs its own sentence.
+      const errors = { ...checked.errors }
+      if (errors.identifier) errors.identifier = 'Enter an email address or a 10 digit mobile number'
+      setErrors(errors)
       return
     }
     setErrors({})

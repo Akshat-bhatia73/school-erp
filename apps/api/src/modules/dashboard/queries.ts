@@ -12,6 +12,7 @@ import type { AuthorizedReadPlan } from '@erp/contracts/server'
 import type { z } from 'zod'
 import { EnrollmentSummary, NamedReference, StudentBasic, TimetableCell } from '@erp/contracts'
 import { ApiFailure } from '../../http/errors.ts'
+import { photoMoment } from '../students/project.ts'
 
 type Named = z.infer<typeof NamedReference>
 type Cell = z.infer<typeof TimetableCell>
@@ -179,6 +180,8 @@ export async function listOwnChildren(
     admission_number: string
     status: Basic['status']
     anonymised_at: string | null
+    has_photo: boolean
+    photo_updated_at: string | null
   }>(
     conn,
     sql`SELECT ${studentsTable.id} AS id, ${studentsTable.schoolId} AS school_id,
@@ -186,7 +189,9 @@ export async function listOwnChildren(
                ${studentsTable.lastName} AS last_name,
                ${studentsTable.admissionNumber} AS admission_number,
                ${studentsTable.status} AS status,
-               ${studentsTable.anonymisedAt}::text AS anonymised_at
+               ${studentsTable.anonymisedAt}::text AS anonymised_at,
+               (${studentsTable.photoStorageKey} IS NOT NULL) AS has_photo,
+               ${studentsTable.photoUpdatedAt}::text AS photo_updated_at
           FROM ${studentsTable}
          WHERE ${predicateFor(plan)} AND ${studentsTable.id} IN (${idList})
          ORDER BY first_name, admission_number
@@ -201,6 +206,11 @@ export async function listOwnChildren(
     admissionNumber: row.admission_number,
     status: row.status,
     anonymised: row.anonymised_at !== null,
+    // Whether there is a photograph, never where its bytes live.
+    hasPhoto: row.has_photo === true,
+    ...(photoMoment(row.photo_updated_at) === undefined
+      ? {}
+      : { photoUpdatedAt: photoMoment(row.photo_updated_at) as string }),
   }))
 }
 

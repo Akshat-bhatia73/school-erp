@@ -200,6 +200,51 @@ async function main(): Promise<void> {
     rollNumber: 12,
   })
 
+  // The promotion pair: a next year, a section in each year and two students
+  // nobody teaches, so a promotion run disturbs no other test.
+  await q(
+    `INSERT INTO academic_years (id, school_id, name, start_date, end_date, status)
+     VALUES ($1, $2, '2027-28', '2027-04-01', '2028-03-31', 'upcoming')
+     ON CONFLICT (school_id, name) DO NOTHING`,
+    [ids.yearANext, SCHOOL_A],
+  )
+  await q(
+    `INSERT INTO sections (id, school_id, academic_year_id, grade_id, name)
+     VALUES ($1, $2, $3, $4, 'P') ON CONFLICT (id) DO NOTHING`,
+    [ids.sectionPromoteFrom, SCHOOL_A, YEAR_A, GRADE_A],
+  )
+  await q(
+    `INSERT INTO sections (id, school_id, academic_year_id, grade_id, name)
+     VALUES ($1, $2, $3, $4, 'Q') ON CONFLICT (id) DO NOTHING`,
+    [ids.sectionPromoteTo, SCHOOL_A, ids.yearANext, GRADE_A],
+  )
+  // A re-run must find these two where it left them, whatever the last
+  // promotion did to their enrolments.
+  await q(
+    `DELETE FROM enrollments WHERE school_id = $1 AND student_id = ANY($2::uuid[])`,
+    [SCHOOL_A, [ids.studentPromoteOne, ids.studentPromoteTwo]],
+  )
+  await student({
+    id: ids.studentPromoteOne,
+    schoolId: SCHOOL_A,
+    academicYearId: YEAR_A,
+    sectionId: ids.sectionPromoteFrom,
+    admissionNumber: 'BR/2026-27/103',
+    firstName: 'Promote',
+    lastName: 'Learner',
+    rollNumber: 13,
+  })
+  await student({
+    id: ids.studentPromoteTwo,
+    schoolId: SCHOOL_A,
+    academicYearId: YEAR_A,
+    sectionId: ids.sectionPromoteFrom,
+    admissionNumber: 'BR/2026-27/104',
+    firstName: 'Stayput',
+    lastName: 'Learner',
+    rollNumber: 14,
+  })
+
   await member(SCHOOL_A, teacherAlpha, teacherAlpha.membershipId, ['teacher'])
   await member(SCHOOL_A, teacherBeta, teacherBeta.membershipId, ['teacher'])
   await member(SCHOOL_A, teacherGamma, teacherGamma.membershipId, ['teacher'])

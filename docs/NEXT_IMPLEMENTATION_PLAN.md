@@ -103,3 +103,31 @@ The readiness tasks are the release gate for the first paying school; the module
 | Online payment gateway, or none for now | Product owner | Task 19 |
 | Which school is first, and its fee structure and grading scheme, to shape the fixtures | Product owner | Tasks 19 and 21 |
 | Named holders for the backup key and the security contact address | Product owner | Task 17 |
+
+## 7. Office feedback, September 2026
+
+Six small items the school office asked for, built on `feat/office-feedback` on top of the export
+files work. None of them is a new module; each one is a change to a screen and, where it needed one,
+to the API behind it.
+
+1. **Plain English validation.** Every form names the field and says what to do: "Enter the first
+   name", "Choose a class", "Enter a 10 digit phone number". One layer, `apps/web/src/lib/validation.ts`,
+   turns a schema's issue into that sentence, and no screen shows a raw message any more.
+2. **Aadhaar, PAN and an office address.** A pupil may have an Aadhaar number, and each guardian an
+   office address, a PAN and an Aadhaar number. All optional and marked so.
+3. **How those numbers are held.** The whole number is encrypted with the application key exactly as
+   the APAAR identifier already was, with the last four digits beside it. Screens, lists, export
+   files and PDFs show "ending 1234" and nothing more, and each number has one audited reveal route,
+   the pupil's behind `students.read_sensitive` and the guardian's behind `students.read_guardians`.
+4. **Photographs.** Pupils and staff have a picture in the private document store, served only by a
+   permission-checked route, at most 1 MB, type decided by the first bytes, with the camera's own
+   metadata stripped before it is stored. A pupil's picture needs the `photographs` consent;
+   withdrawing it removes the picture, and anonymising a record removes it too.
+5. **Promotion.** A third choice, "Leave out", with "all promote / all detain / all leave out" bulk
+   controls and a count summary. A student left out is in neither list and is not touched.
+6. **Free teachers today.** The substitutions screen shows, period by period, which teachers are
+   free on the chosen day and what their load is, reusing the free-teacher read that already existed.
+
+Automatic birthday greetings were asked for in the same round and are **deferred to Task 22
+(communication)**: a greeting is a message, and messages, their templates, their delivery and their
+consent belong to that task rather than to a one-off job here.

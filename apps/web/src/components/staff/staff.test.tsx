@@ -35,6 +35,10 @@ vi.mock('@/lib/api', () => ({
       updatePay: vi.fn(),
       export: vi.fn(),
       exportProfile: vi.fn(),
+      uploadPhoto: vi.fn(),
+      removePhoto: vi.fn(),
+      photoUrl: (schoolId: string, staffId: string, v?: string) =>
+        `/api/schools/${schoolId}/staff/${staffId}/photo${v ? `?v=${v}` : ''}`,
     },
     setup: { sections: vi.fn(), grades: vi.fn(), subjects: vi.fn(), academicYears: vi.fn() },
     files: { exportJob: vi.fn(), downloadExportFile: vi.fn() },
@@ -51,7 +55,7 @@ const { Route: AddStaffRoute } = await import('@/routes/_app/staff/new')
 
 const SCHOOL_ID = '10000000-0000-4000-8000-000000000001'
 
-const anita = { id: 'staff-1', schoolId: SCHOOL_ID, version: 4, displayName: 'Anita Sharma', designation: 'TGT Science', department: 'Science', anonymised: false }
+const anita = { id: 'staff-1', schoolId: SCHOOL_ID, version: 4, displayName: 'Anita Sharma', designation: 'TGT Science', department: 'Science', anonymised: false, hasPhoto: false }
 
 function directoryPage() {
   return { items: [anita], total: 1, page: 1, pageSize: 25 }
@@ -243,5 +247,27 @@ describe('add staff', () => {
     expect(body).toMatchObject({ firstName: 'Ravi', designation: 'TGT Science', phone: '+919876543210' })
     expect(body).not.toHaveProperty('employeeCode')
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Added Ravi Kumar as SVM-E007'))
+  })
+})
+
+/** The staff photograph. The controls belong to whoever may change the private details. */
+describe('staff photo', () => {
+  it('shows the picture on the record when the person has one', async () => {
+    vi.mocked(api.staff.get).mockResolvedValue({
+      staff: { ...anita, hasPhoto: true, photoUpdatedAt: '2026-04-02T10:00:00.000Z' },
+      allowedActions: ['staff.read_directory'],
+    } as never)
+    renderWithSession(<StaffRecord />, { capabilities: ['staff.read_directory'] })
+
+    const image = await screen.findByAltText('Anita Sharma')
+    expect(image).toHaveAttribute('src', expect.stringContaining('/staff/staff-1/photo?v=2026-04-02'))
+  })
+
+  it('offers no photo controls to somebody who may only read the record', async () => {
+    vi.mocked(api.staff.get).mockResolvedValue({ staff: anita, allowedActions: ['staff.read_directory'] } as never)
+    renderWithSession(<StaffRecord />, { capabilities: ['staff.read_directory'] })
+
+    expect(await screen.findByRole('heading', { name: 'Anita Sharma' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Add photo')).not.toBeInTheDocument()
   })
 })

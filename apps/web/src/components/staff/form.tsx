@@ -6,12 +6,14 @@
  */
 import { cloneElement, isValidElement, useId, type ReactElement, type ReactNode } from 'react'
 import { StaffCreateRequest } from '@erp/contracts'
+import type { core } from 'zod'
 import type { CreateStaffInput } from '@/lib/api/staff'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { fieldErrors, type FieldLabels } from '@/lib/validation'
 import { employmentOptions, staffTypeOptions, type EmploymentTypeValue, type StaffTypeValue } from './shared'
 
 export interface StaffDraft {
@@ -64,21 +66,42 @@ export function draftToCreateRequest(d: StaffDraft): unknown {
 
 export type FieldErrors = Record<string, string>
 
-/** Zod issues keyed by field path, so each input can show its own message. */
-export function fieldErrorsFrom(issues: ReadonlyArray<{ path: PropertyKey[]; message: string }>): FieldErrors {
-  const errors: FieldErrors = {}
-  for (const issue of issues) {
-    const key = issue.path.map(String).join('.') || 'form'
-    if (!errors[key]) errors[key] = issue.message
-  }
-  return errors
+/** The words each staff field goes by on the screen, so no message reads like a schema. */
+export const STAFF_LABELS: FieldLabels = {
+  firstName: 'first name',
+  lastName: 'last name',
+  gender: { label: 'gender', kind: 'select' },
+  dateOfBirth: 'date of birth',
+  phone: 'phone number',
+  email: 'email address',
+  address: 'address',
+  employeeCode: 'employee code',
+  staffType: { label: 'staff type', kind: 'select' },
+  designation: 'designation',
+  department: 'department',
+  employmentType: { label: 'employment type', kind: 'select' },
+  status: { label: 'status', kind: 'select' },
+  joiningDate: 'joining date',
+  leavingDate: 'leaving date',
+  qualification: 'qualification',
+  monthlySalary: { label: 'monthly salary', kind: 'number' },
+  reason: 'reason for this change',
+  sectionId: { label: 'class', kind: 'select' },
+  subjectId: { label: 'subject', kind: 'select' },
+  validFrom: 'from date',
+  validUntil: 'until date',
+}
+
+/** Plain-English messages keyed by field path, so each input can show its own. */
+export function fieldErrorsFrom(error: { issues: readonly core.$ZodIssue[] }, labels: FieldLabels = STAFF_LABELS): FieldErrors {
+  return fieldErrors(error, labels)
 }
 
 /** Validate the draft with the contract request schema, never with a model schema. */
 export function validateDraft(d: StaffDraft): { ok: true; value: CreateStaffInput } | { ok: false; errors: FieldErrors } {
   const parsed = StaffCreateRequest.safeParse(draftToCreateRequest(d))
   if (parsed.success) return { ok: true, value: parsed.data }
-  return { ok: false, errors: fieldErrorsFrom(parsed.error.issues) }
+  return { ok: false, errors: fieldErrorsFrom(parsed.error) }
 }
 
 /** Same label/error wiring as the admission `Field`. */

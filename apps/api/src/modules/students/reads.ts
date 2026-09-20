@@ -46,6 +46,19 @@ export async function enrollmentVisibility(
   }
 }
 
+/**
+ * The columns every guardian read names, so the detail route, the export and
+ * the subject access answer all describe a person the same way. The sealed
+ * identity numbers are never among them: a read selects the last digits only,
+ * which is all any screen, list or file is allowed to show.
+ */
+export const guardianColumns = sql`guardians.id, guardians.first_name, guardians.last_name,
+       guardians.phone, guardians.occupation, guardians.annual_income::text AS annual_income,
+       COALESCE(guardians.address #>> '{}', guardians.address::text) AS address,
+       COALESCE(guardians.office_address #>> '{}', guardians.office_address::text) AS office_address,
+       guardians.pan_last4, guardians.aadhaar_last4,
+       sg.relation, guardians.version`
+
 export interface StudentRow extends Record<string, unknown> {
   id: string
   school_id: string
@@ -64,6 +77,9 @@ export interface StudentRow extends Record<string, unknown> {
   section_name: string | null
   grade_id: string | null
   grade_name: string | null
+  /** Whether a photograph is stored. The key itself is never selected here. */
+  has_photo: boolean
+  photo_updated_at: Date | string | null
   /** Present only when the caller asked for the sensitive block. */
   date_of_birth?: string | null
   gender?: string | null
@@ -73,6 +89,7 @@ export interface StudentRow extends Record<string, unknown> {
   apaar_last4?: string | null
   apaar_ciphertext?: string | null
   aadhaar_last4?: string | null
+  aadhaar_ciphertext?: string | null
   address?: string | null
   /** Present only when the caller asked for the medical block. */
   blood_group?: string | null
@@ -123,7 +140,8 @@ export function studentProjection(options: StudentReadOptions): SQL {
   const sensitive = options.sensitive
     ? sql`, students.date_of_birth::text AS date_of_birth, students.gender, students.category,
       students.admission_type, students.admission_date::text AS admission_date,
-      students.apaar_last4, students.apaar_ciphertext, students.aadhaar_last4,
+      students.apaar_last4, students.apaar_ciphertext,
+      students.aadhaar_last4, students.aadhaar_ciphertext,
       COALESCE(students.address #>> '{}', students.address::text) AS address`
     : sql``
   const medical = options.medical
@@ -132,6 +150,7 @@ export function studentProjection(options: StudentReadOptions): SQL {
   return sql`SELECT students.id, students.school_id, students.version,
       students.first_name, students.last_name, students.admission_number, students.status,
       students.anonymised_at::text AS anonymised_at,
+      (students.photo_storage_key IS NOT NULL) AS has_photo, students.photo_updated_at,
       current_enrollment.id AS enrollment_id, current_enrollment.roll_number, current_enrollment.outcome,
       ay.id AS year_id, ay.name AS year_name, sec.id AS section_id, sec.name AS section_name,
       gr.id AS grade_id, gr.name AS grade_name${sensitive}${medical} `

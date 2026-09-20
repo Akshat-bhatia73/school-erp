@@ -68,6 +68,25 @@ describe('admit form', () => {
     expect(screen.getByText('Assigned when you save')).toBeInTheDocument()
   })
 
+  it('names the new identity numbers on the review step without showing them', async () => {
+    const draft = filledDraft()
+    draft.aadhaar = '2345 6789 0124'
+    draft.guardians = [{ ...draft.guardians[0]!, pan: 'ABCDE1234F', aadhaar: '345678901234', officeAddress: '4 Mill Road' }]
+    renderWithSession(
+      <ReviewStep draft={draft} onEdit={() => {}} academicYearId="year-1" yearName="2026-27" />,
+      { capabilities: [...CAPABILITIES] },
+    )
+
+    expect(await screen.findByText('ending 0124')).toBeInTheDocument()
+    expect(screen.getByText('ending 234F')).toBeInTheDocument()
+    expect(screen.getByText('ending 1234')).toBeInTheDocument()
+    expect(screen.getByText('4 Mill Road')).toBeInTheDocument()
+    // The whole numbers are never on the screen the office reads before saving.
+    expect(screen.queryByText(/234567890124/)).not.toBeInTheDocument()
+    expect(screen.queryByText('ABCDE1234F')).not.toBeInTheDocument()
+    expect(screen.queryByText(/345678901234/)).not.toBeInTheDocument()
+  })
+
   it('lists what each guardian agreed to on the review step', async () => {
     const draft = filledDraft()
     draft.guardians = [{ ...draft.guardians[0]!, consentPurposes: ['photographs'], consentMethod: 'signed_form' }]
