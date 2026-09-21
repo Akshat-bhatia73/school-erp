@@ -22,6 +22,7 @@ import {
 } from '@erp/contracts'
 import type { z } from 'zod'
 import { request } from '@/lib/http'
+import { deletePhoto, photoSrc, putPhoto } from './photo'
 import { schoolPath, seg, withQuery } from './shared'
 
 export type StaffListParams = z.input<typeof StaffListRequest>
@@ -94,6 +95,23 @@ export async function unassign(schoolId: string, staffId: string, assignmentId: 
   await request(base(schoolId, `/${seg(staffId)}/assignments/${seg(assignmentId)}`), { method: 'DELETE' })
 }
 
+// ---------- photograph ----------
+
+const photoPath = (schoolId: string, staffId: string) => base(schoolId, `/${seg(staffId)}/photo`)
+
+/** The address of this person's photograph, for an `<img>` on a screen this person may see. */
+export function photoUrl(schoolId: string, staffId: string, photoUpdatedAt?: string): string {
+  return photoSrc(photoPath(schoolId, staffId), photoUpdatedAt)
+}
+
+export function uploadPhoto(schoolId: string, staffId: string, file: Blob, expectedVersion: number) {
+  return putPhoto(photoPath(schoolId, staffId), file, expectedVersion)
+}
+
+export function removePhoto(schoolId: string, staffId: string, expectedVersion: number) {
+  return deletePhoto(photoPath(schoolId, staffId), expectedVersion)
+}
+
 /** Clears the private and pay fields of a person who left long enough ago. */
 export function anonymise(schoolId: string, staffId: string, body: AnonymiseStaffInput) {
   return request(base(schoolId, `/${seg(staffId)}/anonymise`), { method: 'POST', body, schema: StaffDetailResponse })
@@ -101,4 +119,9 @@ export function anonymise(schoolId: string, staffId: string, body: AnonymiseStaf
 
 export function exportStaff(schoolId: string, body: ExportStaffInput) {
   return request(base(schoolId, '/export'), { method: 'POST', body, schema: StaffExportJob })
+}
+
+/** One person's profile as a PDF. The record is named in the path, so there is no body to send. */
+export function exportProfile(schoolId: string, staffId: string) {
+  return request(base(schoolId, `/${seg(staffId)}/export-profile`), { method: 'POST', body: {}, schema: StaffExportJob })
 }

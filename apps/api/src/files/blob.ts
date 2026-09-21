@@ -1,8 +1,10 @@
-import { del, get } from '@vercel/blob'
-import { isSafeStorageKey, type DocumentFile, type DocumentStorage } from './storage.ts'
-
-/** Bytes are typed by the caller's own record, never by what the store says. */
-const DEFAULT_CONTENT_TYPE = 'application/octet-stream'
+import { del, get, put } from '@vercel/blob'
+import {
+  DEFAULT_CONTENT_TYPE,
+  isSafeStorageKey,
+  type DocumentFile,
+  type DocumentStorage,
+} from './storage.ts'
 
 /**
  * Private Vercel Blob store. The bytes are fetched by the API with its own
@@ -26,6 +28,21 @@ export function createBlobDocumentStorage(token: string): DocumentStorage {
         // difference cannot be probed.
         return null
       }
+    },
+    /**
+     * The key the server chose is the whole key: no random suffix, so a job
+     * row always names its own file, and an overwrite is allowed so producing
+     * the same job twice leaves one file rather than two.
+     */
+    async write(storageKey: string, bytes: Uint8Array, contentType: string): Promise<void> {
+      if (!isSafeStorageKey(storageKey)) throw new Error('unsafe storage key')
+      await put(storageKey, Buffer.from(bytes), {
+        access: 'private',
+        token,
+        contentType,
+        addRandomSuffix: false,
+        allowOverwrite: true,
+      })
     },
     async remove(storageKey: string): Promise<void> {
       if (!isSafeStorageKey(storageKey)) return

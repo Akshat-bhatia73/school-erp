@@ -18,9 +18,9 @@
 import { chmod, mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import net from 'node:net'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import pg from 'pg'
-import { ROLE_TEMPLATES } from '@erp/contracts'
+import { CONSENT_PURPOSES, ROLE_TEMPLATES } from '@erp/contracts'
 import { loadConfig } from '../src/config.ts'
 import { createPools } from '../src/db.ts'
 import { createSandboxDelivery } from '../src/delivery/index.ts'
@@ -1256,6 +1256,172 @@ async function main(): Promise<void> {
       linkedTo: `student ${studentRecord.admissionNumber}`,
       expect: 'student sign-in is disabled: every attempt is refused',
     })
+
+
+    // ------------------------------------------------- dashboard sample data
+    // Every dashboard card needs something to show on the day the seed is run,
+    // so the rows below are placed relative to that date rather than a fixed
+    // one. Everything else in this seed stays deterministic.
+    const runDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())
+    const shiftDays = (date: string, days: number): string => {
+      const moved = new Date(`${date}T00:00:00Z`)
+      moved.setUTCDate(moved.getUTCDate() + days)
+      return moved.toISOString().slice(0, 10)
+    }
+    const weekdayOf = (date: string): number => new Date(`${date}T00:00:00Z`).getUTCDay()
+    const onHoliday = (date: string): boolean =>
+      holidays.some(([, start, end]) => start <= date && end >= date)
+    const schoolDays: string[] = []
+    for (let ahead = 0; ahead < 20 && schoolDays.length < 3; ahead += 1) {
+      const candidate = shiftDays(runDate, ahead)
+      if (weekdayOf(candidate) === 0 || onHoliday(candidate)) continue
+      schoolDays.push(candidate)
+    }
+
+    // Substitutions: some covered by the teachers who have a login, so their
+    // dashboard shows a cover duty, and two left without a stand-in.
+    const coverStaff = teacherLogins.slice(0, 4)
+    let placedSubstitutions = 0
+    let uncovered = 0
+    for (const date of schoolDays) {
+      const isoDay = weekdayOf(date)
+      const periods = await client.query<{ section_id: string; period_index: number; subject_id: string; staff_id: string }>(
+        `SELECT section_id, period_index, subject_id, staff_id FROM timetable_entries
+          WHERE school_id = $1 AND academic_year_id = $2 AND day_of_week = $3 AND staff_id IS NOT NULL
+          ORDER BY period_index, section_id LIMIT 40`,
+        [schoolId, yearNow.id, isoDay],
+      )
+      for (const row of periods.rows) {
+        if (placedSubstitutions >= 6) break
+        const stand = coverStaff[placedSubstitutions % coverStaff.length] as StaffSeed | undefined
+        const substitute =
+          uncovered < 2 && placedSubstitutions % 3 === 2
+            ? null
+            : stand && stand.id !== row.staff_id
+              ? stand.id
+              : null
+        if (substitute === null) uncovered += 1
+        await client.query(
+          `INSERT INTO substitutions (id, school_id, date, section_id, period_index, subject_id,
+                                      absent_staff_id, substitute_staff_id, reason, notified)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [
+            randomUUID(), schoolId, date, row.section_id, row.period_index, row.subject_id,
+            row.staff_id, substitute, 'Teacher on leave', substitute !== null,
+          ],
+        )
+        placedSubstitutions += 1
+      }
+    }
+
+    // Two invitations still waiting, one of them about to run out.
+    // A staff invitation must name the staff record it is for, so these go to
+    // two teachers who have no login yet.
+    const uninvited = activeTeachers.filter((member) => !teacherLogins.includes(member))
+    const invitationPlan: [string, string, number, string[], StaffSeed | undefined][] = [
+      ['anita.new' + EMAIL_DOMAIN, 'a***@sunrise.test', 18, ['teacher'], uninvited[0]],
+      ['vikram.new' + EMAIL_DOMAIN, 'v***@sunrise.test', 60, ['teacher'], uninvited[1]],
+    ]
+    for (const [identifier, masked, hours, roles, member] of invitationPlan) {
+      if (!member) continue
+      await client.query(
+        `INSERT INTO school_invitations (id, school_id, identifier_type, identifier_normalized,
+                                         destination_masked, token_digest, status, proposed_role_keys,
+                                         display_name, staff_id, inviter_membership_id, expires_at)
+         VALUES ($1, $2, 'email', $3, $4, $5, 'pending', $6::text[], $7, $8, $9, now() + ($10 || ' hours')::interval)`,
+        [
+          randomUUID(), schoolId, identifier, masked,
+          createHash('sha256').update(randomBytes(32)).digest('hex'),
+          roles, identifier.split('@')[0], member.id, ownerMembershipId, String(hours),
+        ],
+      )
+    }
+
+    // Consent on record for about three in five children, so the "waiting on"
+    // card has something to wait for and something to show as done.
+    for (const [index, student] of students.entries()) {
+      if (index % 5 >= 3) continue
+      const family = guardiansOf.get(student.id) ?? []
+      const guardian = family[0]
+      if (!guardian) continue
+      for (const purpose of CONSENT_PURPOSES) {
+        await client.query(
+          `INSERT INTO guardian_consents (id, school_id, student_id, guardian_id, purpose, status,
+                                          method, recorded_by_membership_id)
+           VALUES ($1, $2, $3, $4, $5, 'given', 'signed_form', $6)`,
+          [randomUUID(), schoolId, student.id, guardian.id, purpose, ownerMembershipId],
+        )
+      }
+    }
+
+    // Three families the office has no phone number for.
+    const withoutPhone = students.filter((student) => student.status === 'active').slice(0, 3)
+    for (const student of withoutPhone) {
+      for (const guardian of guardiansOf.get(student.id) ?? []) {
+        await client.query('UPDATE guardians SET phone = NULL WHERE school_id = $1 AND id = $2', [
+          schoolId, guardian.id,
+        ])
+      }
+    }
+
+    // One class still waiting for a class teacher.
+    const teacherless = sectionsNow[sectionsNow.length - 1] as SectionSeed
+    await client.query(
+      'UPDATE sections SET class_teacher_staff_id = NULL WHERE school_id = $1 AND id = $2',
+      [schoolId, teacherless.id],
+    )
+
+    // Birthdays on the day the seed is run and inside the week after it.
+    const birthdayStudents = students.filter((student) => student.status === 'active').slice(3, 6)
+    for (const [index, student] of birthdayStudents.entries()) {
+      const when = shiftDays(runDate, index === 0 ? 0 : index * 2)
+      const born = `${student.dateOfBirth.slice(0, 4)}${when.slice(4)}`
+      await client.query('UPDATE students SET date_of_birth = $3 WHERE school_id = $1 AND id = $2', [
+        schoolId, student.id, born,
+      ])
+    }
+    const birthdayStaff = activeTeachers[activeTeachers.length - 1] as StaffSeed
+    await client.query(
+      `UPDATE staff SET date_of_birth = (to_char(date_of_birth, 'YYYY') || $3)::date
+        WHERE school_id = $1 AND id = $2`,
+      [schoolId, birthdayStaff.id, runDate.slice(4)],
+    )
+
+    // Admissions spread across the months of this session, with four of them
+    // in the month the seed is run and one child who left this month.
+    const admissionMonths = Array.from({ length: 12 }, (_, index) => {
+      const cursor = new Date(`${yearNow.start.slice(0, 8)}01T00:00:00Z`)
+      cursor.setUTCMonth(cursor.getUTCMonth() + index)
+      return cursor.toISOString().slice(0, 7)
+    })
+    const spread = students.filter((student) => student.status === 'active').slice(6, 6 + 24)
+    for (const [index, student] of spread.entries()) {
+      const month = admissionMonths[index % admissionMonths.length] as string
+      await client.query(
+        'UPDATE students SET admission_date = $3::date WHERE school_id = $1 AND id = $2',
+        [schoolId, student.id, `${month}-10`],
+      )
+    }
+    const thisMonth = students.filter((student) => student.status === 'active').slice(40, 44)
+    for (const student of thisMonth) {
+      await client.query(
+        'UPDATE students SET admission_date = $3::date WHERE school_id = $1 AND id = $2',
+        [schoolId, student.id, `${runDate.slice(0, 7)}-05`],
+      )
+    }
+    const leftThisMonth = students.filter((student) => student.status === 'active').slice(50, 51)
+    for (const student of leftThisMonth) {
+      await client.query(
+        `UPDATE students SET status = 'left', left_on = $3::date, left_reason = 'Family relocated'
+          WHERE school_id = $1 AND id = $2`,
+        [schoolId, student.id, `${runDate.slice(0, 7)}-08`],
+      )
+      await client.query(
+        `UPDATE enrollments SET left_on = $3::date, outcome = 'left'
+          WHERE school_id = $1 AND student_id = $2 AND left_on IS NULL`,
+        [schoolId, student.id, `${runDate.slice(0, 7)}-08`],
+      )
+    }
 
     await client.query('COMMIT')
   } catch (error) {

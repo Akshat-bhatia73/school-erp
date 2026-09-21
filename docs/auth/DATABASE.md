@@ -80,6 +80,18 @@ Students, guardians and staff gain `anonymised_at`. Students keep only `apaar_la
 
 Three `SECURITY DEFINER` functions owned by `erp_maintenance` do the cross-school work that no request-scoped login may do. `sweep_tenant_transients()` clears expired import previews, finished export jobs and old outbox rows, blanks the contact on a spent invitation and deletes it after 90 days; only `erp_runtime` may execute it. `sweep_auth_transients()` clears expired verifications, sessions, throttle rows and held text messages, and `sweep_orphaned_credentials(grace)` deletes the sessions, accounts and second factor of an identity whose last membership ended longer ago than the grace and blanks its contact while keeping `id` and `name` for audit attribution; only `erp_auth` may execute those two. None is executable by `PUBLIC`. The invitation trigger allows exactly one change to a terminal row, blanking `identifier_normalized`, and still refuses any change of status.
 
+## Export files
+
+Migration 0012 widens `export_jobs.kind` to the six kinds a file can be produced for (`students`, `staff`, `audit`, `student_profile`, `staff_profile`, `timetable`) and adds `file_name` and `content_type`, both set only when the file becomes ready. Two more `SECURITY DEFINER` functions owned by `erp_maintenance` and executable by `erp_runtime` alone serve the daily route: `list_queued_export_jobs()` returns the jobs still waiting to be produced across every school, and `list_expired_export_files()` returns the storage keys of jobs past the sweep's deletion threshold, so the bytes are removed before `sweep_tenant_transients()` deletes the rows that name them.
+
+## Office feedback: identity numbers and photographs
+
+Migration `0013_office_feedback.sql` adds no table and no policy: RLS and the table-level grants already cover `students`, `guardians` and `staff`, so the new columns inherit both.
+
+Students gain `aadhaar_ciphertext`, guardians gain `office_address`, `pan_ciphertext`, `pan_last4`, `aadhaar_ciphertext` and `aadhaar_last4`. Every identity number follows the APAAR id: the API seals the value with `DATA_ENCRYPTION_KEY` and the database holds only the ciphertext and the last digits a screen may show. Check constraints fix those shapes, four digits for an Aadhaar number and three digits and a letter for a PAN, so the masked form can never be stored as the whole number.
+
+Students and staff gain `photo_storage_key`, `photo_content_type` and `photo_updated_at`. The bytes live in the private document store and are served only by a permission-checked route; the row never holds a public URL. A check constraint keeps the three columns written and cleared together, and a second limits the type to the three image types the API decides from the file's own first bytes.
+
 ## Observability
 
 Migration `0010_observability.sql` (Task 13) adds the access log and durable account lockout.

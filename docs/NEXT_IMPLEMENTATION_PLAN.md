@@ -1,6 +1,6 @@
 # Next implementation plan: readiness and the first school modules
 
-Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Nothing in this document is started.
+Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Task 15 is built; nothing else in this document is started.
 
 ## 1. Where we are
 
@@ -21,9 +21,15 @@ These come from the repository guide and the auth plan and are not repeated per 
 
 ## 3. Readiness tasks
 
-### Task 15: Export files and downloads
+### Task 15: Export files and downloads — built, 19 September 2026
 
-Students, staff and the audit log already queue export jobs that record who asked, under which permission and at which access version, but no file is ever produced or served. Build the producer that runs at request time for small sets and through the daily maintenance route for the rest, writes a CSV to the private document store, and the download route that re-checks the access version before streaming, like documents do today. Include the fee, attendance and exam exports once those modules exist by giving the producer one interface per job kind. Retention: files expire with the job (already 24 hours). Exit check: an owner downloads a roster export; a teacher's export contains only their sections; a job made before a role change is refused on download; the file is gone after expiry.
+Students, staff and the audit log already queued export jobs that record who asked, under which permission and at which access version, but no file was ever produced or served. Built as one producer per job kind in `apps/api/src/exports`, run inside the request for sets of at most 5000 rows and through the daily maintenance route for the rest, with `GET /exports/:jobId/file` re-checking the owner, the expiry, the access version and the permission before it streams. Each producer re-reads its records under the requester's own plan when it makes the bytes, so a file never carries a row or a field its requester could not read on screen. Files are kept 24 hours from the moment they are ready and the daily sweep removes the bytes before the row.
+
+Two decisions taken while building it, on 19 September 2026. The files are Excel and PDF, not CSV: a spreadsheet is what an office opens, and a single record reads as a document. And two kinds of export beyond the queued lists were added, because the screens needed them: one student's or one staff member's record as a PDF (`POST /students/:studentId/export-profile`, `POST /staff/:staffId/export-profile`, under `students.export` and `staff.export`), and one week of the timetable as either format (`POST /timetable/export`, under `timetable.read`, because exporting a timetable is reading it in another format).
+
+Exit check met: an owner downloads a roster export and a record as a PDF (`tests/browser/tests/exports.spec.ts`); a teacher exports their own week and nothing beside it, another school's ids answer like missing records, a parent reaches none of it and one member's job is invisible to another (`tests/security/export-files.test.ts`); a job made before an access change is refused on download (`tests/security/lifecycle-and-concurrency.test.ts`); the file is gone after expiry, through the daily sweep.
+
+Still open: the fee, attendance and exam exports plug in as new job kinds once those modules exist.
 
 ### Task 16: Real delivery for parents
 
@@ -97,3 +103,175 @@ The readiness tasks are the release gate for the first paying school; the module
 | Online payment gateway, or none for now | Product owner | Task 19 |
 | Which school is first, and its fee structure and grading scheme, to shape the fixtures | Product owner | Tasks 19 and 21 |
 | Named holders for the backup key and the security contact address | Product owner | Task 17 |
+
+## 7. Office feedback, September 2026
+
+Six small items the school office asked for, built on `feat/office-feedback` on top of the export
+files work. None of them is a new module; each one is a change to a screen and, where it needed one,
+to the API behind it.
+
+1. **Plain English validation.** Every form names the field and says what to do: "Enter the first
+   name", "Choose a class", "Enter a 10 digit phone number". One layer, `apps/web/src/lib/validation.ts`,
+   turns a schema's issue into that sentence, and no screen shows a raw message any more.
+2. **Aadhaar, PAN and an office address.** A pupil may have an Aadhaar number, and each guardian an
+   office address, a PAN and an Aadhaar number. All optional and marked so.
+3. **How those numbers are held.** The whole number is encrypted with the application key exactly as
+   the APAAR identifier already was, with the last four digits beside it. Screens, lists, export
+   files and PDFs show "ending 1234" and nothing more, and each number has one audited reveal route,
+   the pupil's behind `students.read_sensitive` and the guardian's behind `students.read_guardians`.
+4. **Photographs.** Pupils and staff have a picture in the private document store, served only by a
+   permission-checked route, at most 1 MB, type decided by the first bytes, with the camera's own
+   metadata stripped before it is stored. A pupil's picture needs the `photographs` consent;
+   withdrawing it removes the picture, and anonymising a record removes it too.
+5. **Promotion.** A third choice, "Leave out", with "all promote / all detain / all leave out" bulk
+   controls and a count summary. A student left out is in neither list and is not touched.
+6. **Free teachers today.** The substitutions screen shows, period by period, which teachers are
+   free on the chosen day and what their load is, reusing the free-teacher read that already existed.
+
+Automatic birthday greetings were asked for in the same round and are **deferred to Task 22
+(communication)**: a greeting is a message, and messages, their templates, their delivery and their
+consent belong to that task rather than to a one-off job here.
+
+## 8. Dashboard redesign, September 2026
+
+Built on `feat/dashboard-redesign` on top of the office feedback branch. The old dashboard showed two
+counts, twenty bars and three plain lists. This replaces the dashboard API and the four screens with
+one meaningful, calm view per audience, built only from data the school already keeps (students,
+guardians, consents, documents, staff, sections, timetable, bell schedules, substitutions, holidays,
+invitations, memberships, audit events). Fees, attendance and exams do not exist yet; the layouts
+leave room for their cards.
+
+### 8.1 Rules for this task
+
+- One route, `GET /api/schools/:schoolId/dashboard`, permission `dashboard.read`, audience fixed from
+  the caller's roles by `audienceFor` (office = owner, principal, admin; then teacher, parent,
+  accountant). Optional query `?date=YYYY-MM-DD`; otherwise the date is today in the school's
+  timezone (`schools.timezone`, default `Asia/Kolkata`). The date only moves the calendar; it never
+  widens what is read.
+- Every block of the response is read inside one `withTenantTransaction`, through
+  `readPlan(conn, context, <permission>, <resourceType>)` and `planPredicate(plan, scopedTableFor(...))`
+  ANDed into the WHERE clause, exactly as `apps/api/src/modules/dashboard/queries.ts` does today. No
+  school-wide fetch filtered in JavaScript. Aggregating rows that are already predicate-scoped
+  (summing counts by class, grouping by month) is fine.
+- A block whose permission the caller does not hold is **omitted** from the response (the field is
+  optional in the contract), never sent as zero. `readPlan` throws `AuthorizationError` with code
+  `ACCESS_DENIED` when the caller may not read that resource at all: catch exactly that, omit the
+  block, rethrow anything else (a mis-wired permission must fail loudly).
+- Tables without a scoped table in `@erp/authz` (`school_invitations`, `membership_staff_links`,
+  `school_memberships`) are read only after `decideSchoolAction(conn, context, 'members.read')` (or
+  `members.invite` for invitations) allowed, and only for `context.schoolId`.
+- Birthdays carry name and class only, for people the caller's plan already lets them read.
+- No new permission, no migration, no new dependency. No personal data in logs; the route writes no
+  audit row (it is a read).
+- Teacher: `loadRelationshipFactsFor(...).selfStaffId`; a teacher with no staff record gets an
+  empty, honest response (`staffLinked: false`). Parent: `ownChildStudentIds`, then the student plan.
+- Gender, admission date, leaving date and date of birth belong to the sensitive block of a
+  record, so the figures built from them (gender mix, admissions and leavers, birthdays) are gated
+  on `students.read_sensitive` and `staff.read_private`, not on the basic read. A plain teacher
+  therefore gets no birthday list for their class.
+- `dashboard.read` is decided against the whole school before the handler runs, so a teacher with
+  no staff link and a parent with no approved child are refused (403) rather than answered empty.
+- Cover duty for a teacher is a substitution whose `substitute_staff_id` is their own staff id
+  **and** which their `timetable.read` substitution plan allows (the absent teacher owns the row, so
+  a cover in a section they do not teach is not shown; that limit is written in the docs).
+
+### 8.2 Contract, `packages/contracts/src/module-dashboard.ts`
+
+Replaces the `DashboardResponse` union in `responses.ts` (keep the export name `DashboardResponse`
+and `DashboardByAudience` pointing at the new union so nothing else breaks). All objects are
+`z.strictObject`. Shared pieces:
+
+```
+DashboardDay = { date: CalendarDate, dayOfWeek: 0..6 (0 = Sunday), kind: 'school_day' | 'holiday' | 'sunday',
+                 holidayName?: Name, nextSchoolDay?: { date: CalendarDate, dayOfWeek: 1..6 } }
+HolidayAhead = { id, name, startDate, endDate, type }                      // next 30 days from date
+Birthday = { kind: 'student' | 'staff', id, name: DisplayName, className?: string, date: CalendarDate }
+AttentionItem = { key: 'periods_without_cover' | 'invitations_expiring' | 'students_without_guardian_phone'
+                       | 'students_without_consent' | 'sections_without_class_teacher'
+                       | 'empty_timetable_slots' | 'staff_without_login', count: int >= 0 }
+ClassStrength = { grade: NamedReference, sections: [{ id, name, count }] }   // grade sort order
+Lesson = { section: NamedReference, subject: NamedReference, roomNumber?: string,
+           cover: boolean,                    // true when this is a cover duty given to the caller
+           coveredBy?: NamedReference }       // set when the caller is away and someone else covers
+TimelineSlot = { periodIndex, name, startTime 'HH:MM', endTime 'HH:MM', type: 'period'|'break'|'lunch'|'assembly',
+                 lesson?: Lesson }            // no lesson on a 'period' = free
+```
+
+Audiences:
+
+```
+office: { audience: 'office', day, academicYear: NamedReference | null,
+  today?: { teachersAway: int, periodsWithoutCover: int },          // timetable.read (substitution plan)
+  attention: AttentionItem[],                                        // only the keys the caller may read
+  glance?: { students: { total }, mix?: { boys, girls, other }, admittedThisMonth?, leftThisMonth? },   // total: students.read_basic; mix and movement: students.read_sensitive
+  studentsPerTeacher?: number (one decimal, null-free; omit when no teachers),               // + staff.read_directory
+  classStrength?: ClassStrength[],                                   // sections.read_strengths (enrollment plan)
+  admissionsByMonth?: [{ month: 'YYYY-MM', count }] (12, April..March of the current year),   // students.read_sensitive (admission_date is a sensitive field)
+  holidays: HolidayAhead[],                                          // holidays.read; [] when not allowed
+  birthdays?: { today: Birthday[], thisWeek: Birthday[] },           // students.read_sensitive / staff.read_private (date of birth is a sensitive field)
+  recentActivity?: AuditEventSummary[] (8),                          // audit.read
+  securityEvents?: AuditEventSummary[] (8, result = 'denied' or action starting 'roles.' / 'members.' / 'ownership.'),  // audit.read AND role owner
+  setup?: { steps: [{ key: 'school'|'years'|'grades'|'sections'|'subjects', done: boolean }] } }   // per setup read permission
+teacher: { audience: 'teacher', day, staffLinked: boolean, academicYearId: Id | null,
+  timeline: TimelineSlot[],          // for `day` when it is a school day, else for day.nextSchoolDay; [] otherwise
+  timelineDate: CalendarDate | null, // which date the timeline is for
+  week: [{ dayOfWeek: 1..6, periodIndex, section, subject, roomNumber? }],  // own periods, whole week
+  periods: [{ index, name, startTime, endTime, type }],                     // bell periods for the grid columns
+  myClass?: { section: NamedReference, strength: int, birthdaysThisWeek?: Birthday[] },   // class teacher only; birthdays need students.read_sensitive
+  holidays: HolidayAhead[] }
+parent: { audience: 'parent', day, children: [{ student: StudentBasic, enrollment?: EnrollmentSummary,
+  classTeacher?: NamedReference, todayLessons?: TimelineSlot[], nextHoliday?: HolidayAhead,
+  waitingOn: [{ kind: 'consent', purpose: ConsentPurpose }] }] }              // consents: students.read_consents
+accountant: { audience: 'accountant', day, glance?: { students: { total }, mix?, admittedThisMonth?, leftThisMonth? },
+  classStrength?: ClassStrength[], feesNote: 'Fee cards arrive with the fees module' }
+```
+
+Definitions the API must follow:
+
+- `today.teachersAway` = distinct `absent_staff_id` in substitutions dated `date`;
+  `periodsWithoutCover` = those rows with `substitute_staff_id IS NULL`. Both through the
+  substitution plan.
+- `invitations_expiring` = pending invitations expiring within 24 hours of `context.now`.
+- `students_without_guardian_phone` = active students with no linked guardian whose `phone` is set
+  (student plan for `students.read_guardian_contact`).
+- `students_without_consent` = active students with no `guardian_consents` row at all
+  (`students.read_consents`).
+- `sections_without_class_teacher` = current-year sections with `class_teacher_staff_id IS NULL`
+  (`sections.read`).
+- `empty_timetable_slots` = over current-year sections the caller may read: for each section, the
+  number of `period`-type periods in its grade's bell schedule × working days (Saturday uses
+  `saturday_period_count` when set) minus its timetable entries, floored at 0, summed.
+- `staff_without_login` = active staff with no `membership_staff_links` row and no pending invitation
+  with their `staff_id` (staff plan + `members.read`).
+- Bell times for a section come from the bell schedule whose `grade_ids` (or `bell_schedule_grades`)
+  contains the section's grade in the current year; with none, the slot list is the section's period
+  indexes with no times and the screen says "Period 3". The teacher `periods` list is the schedule of
+  the grade they teach most; if it has none, indexes only.
+- Birthdays: month and day of `date_of_birth` equal to `date` (today) or within the seven days from
+  `date` (this week, excluding today). Students: active, with their current section as `className`.
+  Staff: active or on leave, no class.
+- `admissionsByMonth` counts `students.admission_date` per month of the current academic year.
+  `admittedThisMonth` and `leftThisMonth` use `admission_date` and `left_on` in the calendar month of
+  `date`.
+- `securityEvents` is only built when `context.roleKeys` includes `owner`.
+
+### 8.3 Screens
+
+`apps/web/src/routes/_app/dashboard.tsx` keeps its route id and picks the screen by
+`data.audience`. Building blocks live in `apps/web/src/components/dashboard/blocks/`; each audience
+has one file (`office-dashboard.tsx`, `teacher-dashboard.tsx`, `parent-dashboard.tsx`,
+`accountant-dashboard.tsx`). Every card has a skeleton, an empty state and an error state; the
+layout holds together at 1024px wide. Semantic tokens only, lucide icons only, `Panel`, `Facts`,
+`Tag`, `EmptyState`, `UserAvatar` from the shared components. The one chart (admissions by month) is
+a hand-made SVG bar chart; no chart library. Copy is plain English with Indian date formats.
+
+### 8.4 Tests and docs
+
+API tests in `apps/api/tests/modules-dashboard.test.ts`: the day wording for a school day, a holiday
+and a Sunday (using `?date=`); the teacher response holds only their own sections and cover duty
+they were given; the parent response holds only their children; a member without a permission gets
+the block omitted rather than zero; every attention key. Security tests in
+`tests/security/dashboard.test.ts`: cross-school date probe, a teacher of school A asking with a
+school B date, a parent with no children, a suspended member. Web tests per screen. Docs:
+`docs/auth/PROTECTED_APIS.md` (dashboard section and route table), `docs/auth/OPERATION_COVERAGE.md`
+(dashboard rows), `docs/auth/WEB_SCREENS.md` (dashboard row and role table).

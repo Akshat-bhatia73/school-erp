@@ -1,6 +1,6 @@
 import { createReadStream } from 'node:fs'
-import { stat, unlink } from 'node:fs/promises'
-import { isAbsolute, join, normalize, sep } from 'node:path'
+import { mkdir, stat, unlink, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute, join, normalize, sep } from 'node:path'
 
 /**
  * A private document is fetched by its storage key, which is server state and
@@ -17,6 +17,13 @@ export interface DocumentStorage {
   /** The file, or null when the key names nothing this storage holds. */
   read(storageKey: string): Promise<DocumentFile | null>
   /**
+   * Store bytes the API produced itself, such as an export file. The key is
+   * server state, never a caller's path, and writing the same key twice
+   * replaces what was there: a job produced a second time must not leave the
+   * first attempt behind. An unsafe key is refused rather than cleaned up.
+   */
+  write(storageKey: string, bytes: Uint8Array, contentType: string): Promise<void>
+  /**
    * Destroy the bytes behind a key. Anonymisation has to reach the object
    * store as well as the row, so a key that no longer exists is not an error:
    * the outcome asked for is already true.
@@ -24,8 +31,13 @@ export interface DocumentStorage {
   remove(storageKey: string): Promise<void>
 }
 
-/** Bytes are typed by the caller's own record, never sniffed from the file. */
-const DEFAULT_CONTENT_TYPE = 'application/octet-stream'
+/**
+ * Bytes are typed by the caller's own record, never sniffed from the file and
+ * never guessed from the key. A stored document is typed by its document row
+ * and an export file by its job row, so reading hands back the neutral type
+ * for everything and the route decides what the response says.
+ */
+export const DEFAULT_CONTENT_TYPE = 'application/octet-stream'
 
 /**
  * A key is an opaque name, not a path. Anything that could climb out of the
@@ -41,12 +53,18 @@ export function isSafeStorageKey(storageKey: string): boolean {
 
 export function createLocalDocumentStorage(rootDir: string): DocumentStorage {
   const root = normalize(rootDir)
+  /** The absolute path a key names, or null when the key escapes the root. */
+  function resolve(storageKey: string): string | null {
+    if (!isSafeStorageKey(storageKey)) return null
+    const full = normalize(join(root, storageKey))
+    // Normalising twice is cheap; this is the check that actually matters.
+    if (full !== root && !full.startsWith(root.endsWith(sep) ? root : `${root}${sep}`)) return null
+    return full
+  }
   return {
     async read(storageKey: string): Promise<DocumentFile | null> {
-      if (!isSafeStorageKey(storageKey)) return null
-      const full = normalize(join(root, storageKey))
-      // Normalising twice is cheap; this is the check that actually matters.
-      if (full !== root && !full.startsWith(root.endsWith(sep) ? root : `${root}${sep}`)) return null
+      const full = resolve(storageKey)
+      if (full === null) return null
       try {
         const info = await stat(full)
         if (!info.isFile()) return null
@@ -61,10 +79,17 @@ export function createLocalDocumentStorage(rootDir: string): DocumentStorage {
         return null
       }
     },
+    async write(storageKey: string, bytes: Uint8Array): Promise<void> {
+      const full = resolve(storageKey)
+      // A key the server did not build is a bug here, not a caller error, so
+      // it fails loudly instead of writing somewhere else.
+      if (full === null) throw new Error('unsafe storage key')
+      await mkdir(dirname(full), { recursive: true })
+      await writeFile(full, bytes)
+    },
     async remove(storageKey: string): Promise<void> {
-      if (!isSafeStorageKey(storageKey)) return
-      const full = normalize(join(root, storageKey))
-      if (full !== root && !full.startsWith(root.endsWith(sep) ? root : `${root}${sep}`)) return
+      const full = resolve(storageKey)
+      if (full === null) return
       try {
         await unlink(full)
       } catch {
@@ -77,6 +102,8 @@ export function createLocalDocumentStorage(rootDir: string): DocumentStorage {
 export interface MemoryDocumentStorage extends DocumentStorage {
   put(storageKey: string, bytes: Uint8Array, contentType?: string): void
   clear(): void
+  /** How many objects the store holds, so a test can prove nothing was added. */
+  count(): number
 }
 
 /** In-memory storage for tests. It applies exactly the same key rules. */
@@ -88,6 +115,13 @@ export function createMemoryDocumentStorage(): MemoryDocumentStorage {
     },
     clear() {
       files.clear()
+    },
+    count() {
+      return files.size
+    },
+    async write(storageKey, bytes, contentType) {
+      if (!isSafeStorageKey(storageKey)) throw new Error('unsafe storage key')
+      files.set(storageKey, { bytes, contentType })
     },
     async read(storageKey) {
       if (!isSafeStorageKey(storageKey)) return null

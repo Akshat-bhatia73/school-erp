@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { UpdateSchoolRequest } from '@erp/contracts'
 import { Facts, Panel } from '@/components/shared/page'
 import { Field, toE164, validate, type FieldErrors } from '@/components/setup/field'
+import { CHECK_FIELDS, type FieldLabels } from '@/lib/validation'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -26,6 +27,17 @@ type Form = {
   email: string
   affiliationNumber: string
   udiseCode: string
+}
+
+const LABELS: FieldLabels = {
+  name: 'school name',
+  shortName: 'short name',
+  board: { label: 'board', kind: 'select' },
+  affiliationNumber: 'affiliation number',
+  udiseCode: 'UDISE code',
+  phone: 'phone number',
+  email: 'email address',
+  address: 'address',
 }
 
 function toForm(school: SchoolProfile): Form {
@@ -80,10 +92,10 @@ export function useSchoolProfile() {
       udiseCode: form.udiseCode.trim() || undefined,
       expectedVersion: data.version,
     }
-    const checked = validate(UpdateSchoolRequest, candidate)
+    const checked = validate(UpdateSchoolRequest, candidate, LABELS)
     if (!checked.ok) {
       setErrors(checked.errors)
-      toast.error('Please fix the highlighted fields')
+      toast.error(CHECK_FIELDS)
       return
     }
     setErrors({})

@@ -10,6 +10,7 @@ import type { StaffPage } from '@/lib/api/staff'
 import { DataTable, EntityCell } from '@/components/shared/data-table'
 import { FilterChip } from '@/components/shared/filter-chip'
 import { EmptyState, PageHeader, Toolbar } from '@/components/shared/page'
+import { useExportDownload } from '@/components/shared/export-download'
 import { Tag, colorFor } from '@/components/shared/tag'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Button } from '@/components/ui/button'
@@ -34,7 +35,7 @@ function Page() {
   const [page, setPage] = useState(1)
   const [department, setDepartment] = useState<string | undefined>()
   const [selection, setSelection] = useState<RowSelectionState>({})
-  const [exportJobId, setExportJobId] = useState<string | null>(null)
+  const exportFile = useExportDownload()
 
   const term = search.trim().slice(0, SEARCH_MAX)
   const params = { page, pageSize: PAGE_SIZE, sort: 'name' as const, search: term === '' ? undefined : term }
@@ -54,17 +55,10 @@ function Page() {
     [items, department],
   )
 
-  const exportJob = useQuery({
-    queryKey: qk.exportJob(schoolId, exportJobId ?? 'none'),
-    queryFn: () => api.files.exportJob(schoolId, exportJobId as string),
-    enabled: exportJobId !== null,
-    refetchInterval: (query) => (query.state.data?.status === 'queued' ? 3000 : false),
-  })
-
   const startExport = useMutation({
     mutationFn: (staffIds: string[]) => api.staff.export(schoolId, { staffIds }),
     onSuccess: (job) => {
-      setExportJobId(job.id)
+      exportFile.start(job)
       toast.success('Export started')
     },
     onError: (error) => toast.error(describeError(error)),
@@ -78,7 +72,16 @@ function Page() {
       header: 'Staff',
       size: 260,
       cell: ({ row }) => (
-        <EntityCell avatar={<UserAvatar name={row.original.displayName} size="sm" />} name={row.original.displayName} />
+        <EntityCell
+          avatar={(
+            <UserAvatar
+              name={row.original.displayName}
+              src={row.original.hasPhoto ? api.staff.photoUrl(schoolId, row.original.id, row.original.photoUpdatedAt) : undefined}
+              size="sm"
+            />
+          )}
+          name={row.original.displayName}
+        />
       ),
     },
     { id: 'designation', header: 'Designation', cell: ({ row }) => row.original.designation },
@@ -89,7 +92,7 @@ function Page() {
         ? <Tag color={colorFor(row.original.department)}>{row.original.department}</Tag>
         : <span className="text-muted-foreground/60">—</span>),
     },
-  ], [])
+  ], [schoolId])
 
   if (isApiError(staffQuery.error, 'ACCESS_DENIED')) {
     return (
@@ -132,7 +135,7 @@ function Page() {
                 }
                 onClick={() => startExport.mutate(selectedIds)}
               >
-                <Download />Export
+                <Download />Export to Excel
               </Button>
             )}
             {hasPermission('staff.create') && (
@@ -165,16 +168,8 @@ function Page() {
         />
       </Toolbar>
 
-      {exportJobId !== null && (
-        <div className="border-b bg-card px-3 py-2 text-[12.5px] text-muted-foreground md:px-5">
-          {exportJob.data?.status === 'ready'
-            ? 'Your export is ready. Downloading is not built yet, so ask the office for the file.'
-            : exportJob.data?.status === 'failed'
-              ? 'The export did not finish. Try again.'
-              : exportJob.data?.status === 'expired'
-                ? 'That export has expired. Start a new one.'
-                : 'Preparing your export…'}
-        </div>
+      {exportFile.job && (
+        <div className="border-b bg-card px-3 py-2 md:px-5">{exportFile.status}</div>
       )}
 
       <DataTable

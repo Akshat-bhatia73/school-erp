@@ -97,6 +97,14 @@ const REDACT = [
   'req.body.code',
   'req.body.token',
   'req.body.otp',
+  // Government identifiers. They arrive on the admission and edit routes, on
+  // a guardian inside them, and on every guardian of a bulk admission row.
+  'req.body.aadhaar',
+  'req.body.pan',
+  'req.body.guardian.aadhaar',
+  'req.body.guardian.pan',
+  'req.body.guardians[*].guardian.aadhaar',
+  'req.body.guardians[*].guardian.pan',
 ]
 
 export function buildApp({
@@ -127,7 +135,13 @@ export function buildApp({
 
   app.addHook('onSend', async (request, reply) => {
     if (!request.url.startsWith('/api')) return
-    reply.header('Cache-Control', 'no-store')
+    // A route that already said "no-store" in its own words keeps them: the
+    // photograph routes send "private, no-store", which is stricter than the
+    // default here. Anything else is overwritten, so a route cannot make an
+    // answer cacheable by accident.
+    const own = reply.getHeader('cache-control')
+    const keepsOwn = typeof own === 'string' && own.includes('no-store')
+    if (!keepsOwn) reply.header('Cache-Control', 'no-store')
     // The same opaque id the access log and the error body carry, so a caller
     // can quote one request to us. It is a random UUID, so it tells a client
     // nothing it did not already send.
@@ -198,7 +212,7 @@ export function buildApp({
   registerMembershipRoutes(app, { auth, pools, authz, delivery })
   registerInvitationRoutes(app, { auth, pools, authz, delivery })
   registerModuleRoutes(app, { config, auth, pools, authz, delivery, documents })
-  registerMaintenanceRoutes(app, { config, pools })
+  registerMaintenanceRoutes(app, { config, pools, documents })
 
   app.route({
     method: ['GET', 'POST'],

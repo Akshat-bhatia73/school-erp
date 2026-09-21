@@ -1,5 +1,4 @@
 import type { FastifyInstance } from 'fastify'
-import type { Pool } from 'pg'
 import { and, desc, eq, sql, type SQL } from 'drizzle-orm'
 import {
   AUDIT_EXPORT_MAX_DAYS,
@@ -13,7 +12,8 @@ import {
 import { withTenantTransaction } from '@erp/db'
 import { auditEventNotes, auditEvents } from '@erp/db/schema'
 import { planPredicate, scopedTableFor, type AuthzConnection } from '@erp/authz'
-import { resolveDisplayNames, type MemberRow } from '../../memberships/directory.ts'
+import { createAndMaybeProduce } from '../../exports/run.ts'
+import { actorDisplayName, actorLabels } from './actors.ts'
 import { ApiFailure, assertUuidParam, lockSchool, readPlan, writeAudit } from '../shared/index.ts'
 import type { ModuleDependencies } from '../shared/route.ts'
 import { protectedRoute } from '../shared/route.ts'
@@ -37,87 +37,6 @@ interface EventRow {
   readonly result: string
   /** Null when no note was written, or when the note has been redacted. */
   readonly note: string | null
-}
-
-/**
- * The name to show beside each event. A membership is resolved exactly like
- * the member directory does it, so the audit log and the directory never
- * disagree about who somebody is. Some real actions are written before a
- * membership exists (accepting an invitation, for instance) and carry only a
- * user id: those must not be labelled "System", or the log would misreport a
- * person as the machine, so the login profile is read for them as a fallback.
- */
-async function actorLabels(
-  conn: AuthzConnection,
-  authPool: Pool,
-  schoolId: string,
-  rows: readonly EventRow[],
-): Promise<{ byMembership: Map<string, string>; byUser: Map<string, string> }> {
-  const membershipIds = [
-    ...new Set(rows.map((row) => row.actorMembershipId).filter((id): id is string => id !== null)),
-  ]
-  const byMembership = new Map<string, string>()
-  if (membershipIds.length > 0) {
-    const result = await conn.client.query<{ id: string; user_id: string }>(
-      `SELECT id, user_id FROM school_memberships WHERE school_id = $1 AND id = ANY($2::uuid[])`,
-      [schoolId, membershipIds],
-    )
-    // resolveDisplayNames reads only the identity of a row, so the remaining
-    // membership fields are filled with harmless placeholders rather than being
-    // queried: nothing here is returned to the caller.
-    const memberRows: MemberRow[] = result.rows.map((row) => ({
-      id: row.id,
-      schoolId,
-      userId: row.user_id,
-      status: 'active',
-      kind: 'adult',
-      version: 1,
-      accessVersion: 1,
-      roleKeys: [],
-      staffId: null,
-    }))
-    for (const [id, name] of await resolveDisplayNames(conn, authPool, schoolId, memberRows)) {
-      byMembership.set(id, name)
-    }
-  }
-
-  const userIds = [
-    ...new Set(
-      rows
-        .filter((row) => row.actorMembershipId === null && row.actorUserId !== null)
-        .map((row) => row.actorUserId as string),
-    ),
-  ]
-  const byUser = new Map<string, string>()
-  if (userIds.length > 0) {
-    const users = await authPool.query<{ id: string; name: string }>(
-      `SELECT id, name FROM auth_user WHERE id = ANY($1::uuid[])`,
-      [userIds],
-    )
-    for (const row of users.rows) {
-      const name = (row.name ?? '').trim()
-      if (name.length > 0) byUser.set(row.id, name)
-    }
-  }
-  return { byMembership, byUser }
-}
-
-/** The label for one row, given the names that were resolved for the page. */
-function actorDisplayName(
-  row: EventRow,
-  labels: { byMembership: Map<string, string>; byUser: Map<string, string> },
-): string {
-  const name =
-    row.actorMembershipId !== null
-      ? (labels.byMembership.get(row.actorMembershipId) ?? 'Unnamed member')
-      : row.actorUserId !== null
-        ? (labels.byUser.get(row.actorUserId) ?? 'Unnamed member')
-        : // Only a row with neither actor was written by the system itself.
-          'System'
-  // A login profile name is not length-bounded by the database, and the
-  // contract's DisplayName is; clamping keeps a long name from turning a
-  // readable page into a 503.
-  return name.slice(0, 160)
 }
 
 /** A window that is ordered and no longer than a year. */
@@ -280,10 +199,10 @@ export function registerAuditRoutes(app: FastifyInstance, deps: ModuleDependenci
           summary: 'Requested an export of audit events for a date window',
           safeChanges: { rowCount, days: Math.round((Date.parse(window.to) - Date.parse(window.from)) / 86_400_000) },
         })
-        // The job is queued, not ready: no file and no storage key exist yet.
-        // Saying 'ready' here would let the files module hand back a download
-        // with nothing behind it.
-        return { id: jobId, status: 'queued' as const }
+        // A short window is produced now and comes back ready; a long one
+        // stays queued until the daily route builds it. The status is never
+        // claimed here, it is whatever the run actually reached.
+        return createAndMaybeProduce(deps, conn, context, { id: jobId, estimatedRows: rowCount })
       })
     },
   })

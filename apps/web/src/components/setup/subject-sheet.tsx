@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { SetupSubjectUpdateRequest, SubjectInput } from '@erp/contracts'
 import { Field, FORM_ERROR, validate, type FieldErrors } from '@/components/setup/field'
+import { focusFirstInvalid, type FieldLabels } from '@/lib/validation'
 import { FormSheet } from '@/components/setup/form-sheet'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -15,6 +16,12 @@ import { humanize } from '@/lib/utils'
 export const SUBJECT_TYPES = ['scholastic', 'co_scholastic', 'language', 'elective'] as const
 
 interface Form { name: string; code: string; type: (typeof SUBJECT_TYPES)[number] }
+
+const LABELS: FieldLabels = {
+  name: 'subject name',
+  code: 'code',
+  type: { label: 'subject type', kind: 'select' },
+}
 
 export function SubjectSheet({ open, onOpenChange, subject }: { open: boolean; onOpenChange: (v: boolean) => void; subject?: SubjectRecord }) {
   const { schoolId } = useSchoolContext()
@@ -45,9 +52,13 @@ export function SubjectSheet({ open, onOpenChange, subject }: { open: boolean; o
 
   function submit() {
     const checked = subject
-      ? validate(SetupSubjectUpdateRequest, { ...form, expectedVersion: subject.version })
-      : validate(SubjectInput, form)
-    if (!checked.ok) return setErrors(checked.errors)
+      ? validate(SetupSubjectUpdateRequest, { ...form, expectedVersion: subject.version }, LABELS)
+      : validate(SubjectInput, form, LABELS)
+    if (!checked.ok) {
+      setErrors(checked.errors)
+      requestAnimationFrame(() => focusFirstInvalid())
+      return
+    }
     setErrors({})
     save.mutate(form)
   }

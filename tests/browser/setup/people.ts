@@ -27,6 +27,14 @@ export const ids = {
   studentAlpha: b('3'),
   studentBeta: b('4'),
 
+  // The promotion screen needs a second year and a pair of sections nobody
+  // teaches, so moving those students never changes what another test sees.
+  yearANext: b('20'),
+  sectionPromoteFrom: b('21'),
+  sectionPromoteTo: b('22'),
+  studentPromoteOne: b('23'),
+  studentPromoteTwo: b('24'),
+
   yearB: b('10'),
   gradeB: b('11'),
   sectionB1: b('12'),
@@ -79,6 +87,13 @@ export const teacherDualSchoolB = {
 export const STUDENT_ALPHA = { id: ids.studentAlpha, name: 'Alpha Learner' }
 export const STUDENT_BETA = { id: ids.studentBeta, name: 'Beta Learner' }
 export const STUDENT_BRAVO = { id: ids.studentBravo, name: 'Bravo Learner' }
+/** The two students the promotion screen decides about. */
+export const STUDENT_PROMOTE_ONE = { id: ids.studentPromoteOne, name: 'Promote Learner' }
+export const STUDENT_PROMOTE_TWO = { id: ids.studentPromoteTwo, name: 'Stayput Learner' }
+/** The labels the section chips show for the promotion pair: class and section. */
+export const PROMOTE_FROM_LABEL = 'Six - P'
+export const PROMOTE_TO_LABEL = 'Six - Q'
+export const NEXT_YEAR_NAME = '2027-28'
 
 export const people = [
   teacherAlpha,

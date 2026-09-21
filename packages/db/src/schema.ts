@@ -344,6 +344,10 @@ export const staff = pgTable(
     monthlySalary: numeric('monthly_salary'),
     bankAccountLast4: text('bank_account_last4'),
     panLast4: text('pan_last4'),
+    /** The photograph in the private document store; never a public URL. */
+    photoStorageKey: text('photo_storage_key'),
+    photoContentType: text('photo_content_type'),
+    photoUpdatedAt: timestamp('photo_updated_at', { withTimezone: true }),
     anonymisedAt: timestamp('anonymised_at', { withTimezone: true }),
     version: integer('version').notNull().default(1),
     ...timestamps(),
@@ -439,6 +443,8 @@ export const students = pgTable(
     motherTongue: text('mother_tongue'),
     nationality: text('nationality'),
     aadhaarLast4: text('aadhaar_last4'),
+    /** The Aadhaar number sealed by the API, like the APAAR id below. */
+    aadhaarCiphertext: text('aadhaar_ciphertext'),
     /** Last four digits of the APAAR id: all a screen is ever shown. */
     apaarLast4: text('apaar_last4'),
     /** The APAAR id sealed by the API; the key never reaches the database. */
@@ -450,6 +456,10 @@ export const students = pgTable(
     leftOn: date('left_on'),
     leftReason: text('left_reason'),
     house: text('house'),
+    /** The photograph in the private document store; never a public URL. */
+    photoStorageKey: text('photo_storage_key'),
+    photoContentType: text('photo_content_type'),
+    photoUpdatedAt: timestamp('photo_updated_at', { withTimezone: true }),
     medicalNotes: text('medical_notes'),
     usesTransport: boolean('uses_transport').notNull().default(false),
     anonymisedAt: timestamp('anonymised_at', { withTimezone: true }),
@@ -479,6 +489,12 @@ export const guardians = pgTable(
     qualification: text('qualification'),
     annualIncome: numeric('annual_income'),
     address: jsonb('address'),
+    officeAddress: jsonb('office_address'),
+    /** PAN and Aadhaar sealed by the API, with the digits a screen may show. */
+    panCiphertext: text('pan_ciphertext'),
+    panLast4: text('pan_last4'),
+    aadhaarCiphertext: text('aadhaar_ciphertext'),
+    aadhaarLast4: text('aadhaar_last4'),
     anonymisedAt: timestamp('anonymised_at', { withTimezone: true }),
     version: integer('version').notNull().default(1),
     ...timestamps(),
@@ -839,6 +855,14 @@ export const exportJobs = pgTable(
       .default(sql`'{}'::jsonb`),
     rowCount: integer('row_count'),
     storageKey: text('storage_key'),
+    /** The name the file is delivered under, set when it becomes ready. */
+    fileName: text('file_name'),
+    /** The type the download route puts on the response. */
+    contentType: text('content_type'),
+    /** The assurance the request that asked for the file had reached. */
+    requestedAssurance: text('requested_assurance'),
+    /** When that request's second factor was checked, if it had one. */
+    requestedMfaVerifiedAt: timestamp('requested_mfa_verified_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     ...timestamps(),
   },

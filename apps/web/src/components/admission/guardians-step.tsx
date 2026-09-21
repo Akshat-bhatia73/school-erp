@@ -1,5 +1,6 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { Panel } from '@/components/shared/page'
+import { cleanPan, groupAadhaar } from '@/components/students/identity-fields'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
@@ -73,6 +74,24 @@ export function GuardiansStep({ draft, set, errors, canAttachExisting }: {
                 />
                 <TextField label="Occupation" value={guardian.occupation} onChange={(v) => update(index, { occupation: v })} error={err(index, 'occupation')} />
                 <TextField label="Address" className="col-span-2" value={guardian.address} onChange={(v) => update(index, { address: v })} error={err(index, 'address')} />
+                <TextField
+                  label="Office address" className="col-span-2" hint="Optional"
+                  value={guardian.officeAddress}
+                  onChange={(v) => update(index, { officeAddress: v })}
+                  error={err(index, 'officeAddress')}
+                />
+                <TextField
+                  label="PAN" hint="Optional" placeholder="AAAAA9999A"
+                  value={guardian.pan}
+                  onChange={(v) => update(index, { pan: cleanPan(v) })}
+                  error={err(index, 'pan')}
+                />
+                <TextField
+                  label="Aadhaar number" hint="Optional" placeholder="1234 5678 9012"
+                  value={guardian.aadhaar}
+                  onChange={(v) => update(index, { aadhaar: groupAadhaar(v) })}
+                  error={err(index, 'aadhaar')}
+                />
               </>
             )}
 

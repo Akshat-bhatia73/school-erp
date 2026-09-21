@@ -24,7 +24,8 @@ Last updated: `[date]`.
 - **The register.** Name, admission number, roll number, the classes and sections your child has
   been in, admission and leaving dates, and the previous school.
 - **Personal details.** Date of birth, gender, blood group, category, religion, mother tongue,
-  nationality, home address, the last four digits of the Aadhaar number, and the APAAR identifier.
+  nationality, home address, the Aadhaar number, and the APAAR identifier.
+- **A photograph**, if you have agreed to one. See "Photographs" below.
 - **Health notes.** Allergies, conditions and anything you have told us the school should know in
   an emergency.
 - **Documents.** Certificates and other papers you or we have uploaded, such as a birth
@@ -36,8 +37,34 @@ Last updated: `[date]`.
 
 Your name, phone number, an alternate phone number, your email address, your home address, your
 relation to the child, and, where you have given it to us on the admission form, your occupation,
-qualification and annual income. If you use the parent portal, we also keep your login and the
-record of your sign-ins.
+qualification, annual income, your office address, your PAN and your Aadhaar number. If you use the
+parent portal, we also keep your login and the record of your sign-ins.
+
+## Aadhaar, PAN and the office address are optional
+
+You do not have to give us an Aadhaar number, a PAN or an office address, for your child or for
+yourself. We ask for them because a school is often required to quote a pupil's Aadhaar number for
+a scholarship, a board registration or a government scheme, and because a PAN is sometimes needed
+for a fee receipt. If you would rather not give them, say so: your child's admission does not
+depend on it, and the office will leave the boxes empty.
+
+If you do give one, this is what happens to it:
+
+- The whole number is encrypted before it is stored. Nobody reading the database can see it.
+- Screens, lists, spreadsheets and printed records show only the last four digits, like
+  "ending 1234", so the office can tell one number from another without the number being on show.
+- Only the small number of office people who hold the key for sensitive details can ask to see a
+  whole number, and every time somebody does, the system records who looked and when.
+- You can ask us to remove it, and we will.
+
+## Photographs
+
+We only take or keep a photograph of your child if you have agreed to it on the consent form. If
+you withdraw that agreement, the photograph is removed at once and no new one can be added until
+you agree again. A photograph is never on a public address: it is only ever shown to somebody at
+the school who is allowed to open your child's record, and no browser or search engine keeps a
+copy. When a picture is uploaded, the hidden details a camera writes into a photo file, including
+where it was taken, are stripped out before it is stored. Staff photographs work the same way.
 
 ## Why we keep it
 

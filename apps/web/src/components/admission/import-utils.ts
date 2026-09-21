@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 import { StudentsBulkImportRow } from '@erp/contracts'
+import { messageForIssue, type FieldLabels } from '@/lib/validation'
 
 export const IMPORT_HEADERS = [
   'Admission Number', 'First Name', 'Last Name', 'Date of Birth', 'Gender', 'Class', 'Section', 'Roll Number',
@@ -81,6 +82,27 @@ export interface MappedSheet {
   problems: SheetProblem[]
 }
 
+/** A column of the spreadsheet by the heading the office typed it under. */
+const IMPORT_LABELS: FieldLabels = {
+  admissionNumber: 'admission number',
+  firstName: 'first name',
+  lastName: 'last name',
+  dateOfBirth: 'date of birth',
+  gender: { label: 'gender', kind: 'select' },
+  grade: { label: 'class', kind: 'select' },
+  section: { label: 'section', kind: 'select' },
+  rollNumber: { label: 'roll number', kind: 'number' },
+  fatherName: 'father name',
+  motherName: 'mother name',
+  guardianPhone: 'guardian phone number',
+  guardianEmail: 'guardian email address',
+  city: 'city',
+  state: 'state',
+  pincode: 'pincode',
+  category: { label: 'category', kind: 'select' },
+  admissionType: { label: 'admission type', kind: 'select' },
+}
+
 /**
  * Turn the spreadsheet into import rows. A row the contract cannot describe at all is reported as
  * a problem in the file rather than sent; nothing here decides that a row is valid — only the
@@ -119,7 +141,7 @@ export function mapSheetRows(sheetRows: Record<string, unknown>[]): MappedSheet 
       return
     }
     for (const issue of parsed.error.issues) {
-      problems.push({ row: rowNumber, field: issue.path.map(String).join('.') || 'row', message: issue.message })
+      problems.push({ row: rowNumber, field: issue.path.map(String).join('.') || 'row', message: messageForIssue(issue, IMPORT_LABELS) })
     }
   })
 

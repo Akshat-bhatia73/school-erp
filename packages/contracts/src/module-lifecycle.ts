@@ -66,6 +66,20 @@ export const StudentApaarReveal = z.strictObject({
   apaarId: z.string().min(4).max(100),
 })
 
+/** The whole Aadhaar number, returned only by the audited reveal route. */
+export const StudentAadhaarReveal = z.strictObject({
+  aadhaar: z.string().regex(/^\d{12}$/),
+})
+
+/**
+ * A guardian's own identity numbers, whole, from the audited reveal route.
+ * A number the record does not carry is left out rather than sent as empty.
+ */
+export const GuardianIdentityReveal = z.strictObject({
+  pan: z.string().regex(/^[A-Z]{5}\d{4}[A-Z]$/).optional(),
+  aadhaar: z.string().regex(/^\d{12}$/).optional(),
+})
+
 /** Anonymisation and guardian unlink are version-checked writes with a stated reason. */
 export const AnonymiseRequest = z.strictObject({ expectedVersion: Version, reason: Reason })
 
@@ -77,11 +91,16 @@ export const RedactAuditNoteRequest = z.strictObject({ reason: Reason })
 
 /**
  * The sensitive block of a subject access export. It is the ordinary sensitive
- * block with the full APAAR id in place of the mask: answering a subject access
- * request means handing the person what we actually hold about them.
+ * block with the full APAAR id and the full Aadhaar number in place of their
+ * masks: answering a subject access request means handing the person what we
+ * actually hold about them.
  */
-export const SubjectSensitive = StudentSensitive.omit({ apaarMasked: true }).extend({
+export const SubjectSensitive = StudentSensitive.omit({
+  apaarMasked: true,
+  aadhaarLast4: true,
+}).extend({
   apaarId: z.string().min(4).max(100).optional(),
+  aadhaar: z.string().regex(/^\d{12}$/).optional(),
 })
 
 /**
@@ -147,6 +166,8 @@ export type ConsentList = z.infer<typeof ConsentList>
 export type RecordConsentRequest = z.infer<typeof RecordConsentRequest>
 export type AdmitConsent = z.infer<typeof AdmitConsent>
 export type StudentApaarReveal = z.infer<typeof StudentApaarReveal>
+export type StudentAadhaarReveal = z.infer<typeof StudentAadhaarReveal>
+export type GuardianIdentityReveal = z.infer<typeof GuardianIdentityReveal>
 export type AnonymiseRequest = z.infer<typeof AnonymiseRequest>
 export type UnlinkGuardianRequest = z.infer<typeof UnlinkGuardianRequest>
 export type SubjectSensitive = z.infer<typeof SubjectSensitive>

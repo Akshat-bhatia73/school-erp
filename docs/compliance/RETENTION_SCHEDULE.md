@@ -25,12 +25,18 @@ record that disappears by itself is a record nobody chose to lose.
 |---|---|---|
 | **The admission register**: name, admission number, admission and leaving dates, class and section history, outcome | Permanently | Nothing. This is the register a school must keep. The software cannot delete these rows at all |
 | **Pupil personal and sensitive details**: date of birth, Aadhaar fragment, APAAR identifier, category, religion, mother tongue, nationality, address, medical notes, reason for leaving | While enrolled, plus 3 years after leaving | The school runs the anonymisation step. The fields are cleared and cannot be recovered |
+| **Pupil Aadhaar number**: the whole 12 digit number, kept encrypted, with the last four digits alongside it so a screen can name the number without showing it | The same period as the other pupil details: while enrolled, plus 3 years after leaving | The anonymisation step clears the encrypted number. The last four digits go with it |
+| **Pupil photograph** | While the photographs consent stands, and no longer than the pupil period above | Withdrawing the consent removes the picture the same day, and the anonymisation step removes it in any case |
+| **Guardian PAN and Aadhaar numbers**: kept encrypted, with the last four characters alongside | While any linked child is still within the pupil period | Cleared with the rest of the guardian record when the last link ends |
+| **Guardian office address** | The same period as the guardian's home address | Cleared with the rest of the guardian record |
+| **Staff photograph** | While employed, plus the 8 year staff period below | Removed with the rest of the private staff details |
 | **Pupil documents**: certificates and uploaded files | The same 3 years | Deleted from the document store with the same step |
 | **Guardian records**: name, phone, email, address, occupation, qualification, income | While any linked child is still within the period above | Anonymised when the last link ends |
 | **Staff records**: salary, PAN and bank account fragments, private contact details, absence and substitution notes | While employed, plus 8 years after leaving, because payroll records must be kept | Contact details and identifiers are cleared. Employment dates and designation stay, so the school can still confirm someone worked there |
 | **Logins and credentials**: password, second factor, backup codes | While the person holds an active membership at the school | Sessions end the moment the last membership is removed. The credentials themselves are deleted 30 days later. The identity's id and name are kept so old audit entries still say who did something |
 | **Sign-in sessions, one-time codes, password reset links, rate-limit counters, held text messages** | Until they expire, usually minutes to days | Deleted every night |
 | **Uploaded admission spreadsheets waiting to be confirmed** | 24 hours | Deleted every night, whether or not they were used |
+| **Files a person exported**: a spreadsheet or document made from a list, a record or a timetable | 24 hours from the moment the file is ready | The file is deleted from the document store every night, and the record of who asked for it stays in the audit trail |
 | **Invitations to join the school** | Until accepted, revoked or expired. An invitation expires 48 hours after it is sent | The email address or phone number in it is blanked at that point. The row itself is removed after 90 days |
 | **Sent and failed messages**: the record that an email went out, with the address masked | 90 days | Deleted every night |
 | **The audit trail**: who changed what, and who opened a sensitive record | 7 years. That covers a child's whole time at the school plus the year the law requires | Whole years are moved to cold storage. Nothing in it is ever edited |
@@ -65,3 +71,4 @@ software changes what it enforces.
 | Date | Change |
 |---|---|
 | 19 Sep 2026 | First version, taken from release runbook section 6.2. |
+| 19 Sep 2026 | Added the line for files a person exported. |

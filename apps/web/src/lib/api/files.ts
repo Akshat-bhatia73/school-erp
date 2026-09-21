@@ -27,16 +27,11 @@ function fileNameFrom(disposition: string | null): string {
 }
 
 /**
- * The only route that answers with bytes rather than JSON, so it cannot go through `request()`.
- * It repeats the same rules by hand: same-origin credentials, and an ApiError envelope turned
+ * The two routes that answer with bytes rather than JSON cannot go through `request()`.
+ * This repeats the same rules by hand: same-origin credentials, and an ApiError envelope turned
  * into the ApiRequestError every screen already knows how to describe.
  */
-export async function downloadStudentDocument(
-  schoolId: string,
-  studentId: string,
-  documentId: string,
-): Promise<DownloadedDocument> {
-  const path = schoolPath(schoolId, `/students/${seg(studentId)}/documents/${seg(documentId)}/content`)
+async function downloadBytes(path: string): Promise<DownloadedDocument> {
   let response: Response
   try {
     response = await fetch(path, { credentials: 'same-origin' })
@@ -63,4 +58,21 @@ export async function downloadStudentDocument(
     blob: await response.blob(),
     fileName: fileNameFrom(response.headers.get('content-disposition')),
   }
+}
+
+/** One private student document. */
+export function downloadStudentDocument(
+  schoolId: string,
+  studentId: string,
+  documentId: string,
+): Promise<DownloadedDocument> {
+  return downloadBytes(schoolPath(schoolId, `/students/${seg(studentId)}/documents/${seg(documentId)}/content`))
+}
+
+/**
+ * The file a ready export job produced. The server checks the job belongs to this member and is
+ * still fresh, so a job someone else started or one that has expired is simply not found.
+ */
+export function downloadExportFile(schoolId: string, jobId: string): Promise<DownloadedDocument> {
+  return downloadBytes(schoolPath(schoolId, `/exports/${seg(jobId)}/file`))
 }

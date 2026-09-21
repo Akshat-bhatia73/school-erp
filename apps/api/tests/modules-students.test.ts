@@ -398,8 +398,8 @@ test('admission writes the student, the enrolment, the guardian and one audit ro
   // Assigned by the server from the counter of the section's academic year.
   assert.match(created.admissionNumber, /^A\/2026-27\/\d{3,}$/)
   assert.deepEqual(Object.keys(created).sort(), [
-    'admissionNumber', 'anonymised', 'enrollment', 'firstName', 'id', 'lastName', 'schoolId',
-    'status', 'version',
+    'admissionNumber', 'anonymised', 'enrollment', 'firstName', 'hasPhoto', 'id', 'lastName',
+    'schoolId', 'status', 'version',
   ])
 
   const pool = adminPool()
