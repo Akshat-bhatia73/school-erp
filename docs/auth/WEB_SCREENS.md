@@ -135,7 +135,7 @@ where the row says so.
 | Screen | Endpoints | What each role sees | Not yet |
 |---|---|---|---|
 | Sidebar, mobile nav, command menu | `students/count`, `staff/count` (office only), `search`, academic years or sections through `useAcademicYear` | Office: every destination its permission allows, plus student and staff counts and the year name. Teacher: Dashboard, Students, Staff, Timetable. Parent: "My children" and Timetable, no quick actions, no year tag. Accountant: Dashboard, Students, Staff, School setup reads, Audit log | No count for a role without `students.read_basic` / `staff.read_directory`; no year name for a teacher or parent |
-| `/dashboard` | `dashboard` (one of four audiences), then office only: `sections/strengths`, `sections`, `grades`, `subjects`, `school`, `academic-years`, `audit-events?pageSize=8`; teacher: `timetable/bell-schedules`; parent: `timetable/sections/:id` per child | Office: active students, staff count, strength per section, setup checklist, recent activity. Teacher: assigned classes and today's periods. Parent: one card per child with class and today's timetable, a "Manage consent" button that opens that child's consents on request, with Give and Withdraw when the list allows `students.manage_consents` (recorded through the portal), and a "Download my child's record" button for `students.export_subject` that fetches the subject-access export on click and saves it as `<admission number>-record.json`. Accountant: the server's message and two links | The consent block costs an audited read of the child's record, so it is only fetched once the parent asks for it. Attendance and fee panels, gender split, admitted-this-year and teaching/non-teaching sub-lines: no endpoint carries them |
+| `/dashboard` | `dashboard` only: one request, `api.dashboard.get(schoolId)`. The screen calls no other endpoint; the parent consent block asks for a child's consents when the parent opens it | Office: one sentence about today (school day, holiday or Sunday, teachers away and periods without cover), the things needing a person with a link to each, the student mix and students per teacher, class strength per section, admissions by month, holidays and birthdays ahead, recent activity with a security list for an owner, and a setup checklist that disappears once all five steps are done. Teacher: what they are teaching now and next from the browser clock, today's timeline with cover duty marked, the whole week, their own class and the holidays ahead; an honest empty state when the login is not linked to a staff record. Parent: one card per child with class, class teacher, today's lessons, the next holiday and what the school is waiting on, plus "Manage consent" (Give and Withdraw when the list allows `students.manage_consents`, recorded through the portal) and "Download my child's record" for `students.export_subject`, saved as `<admission number>-record.json`. Accountant: the day, the student tiles and a note where fee cards will go (the accountant role holds no `sections.read_strengths`, so no class strength card is drawn) | A block the caller may not read is absent from the answer, so the screen says nothing rather than showing a zero. A teacher's export of their own week is not offered: nothing on the web side knows their staff id. Attendance, exam and fee cards: no table carries them yet |
 
 ### Students
 
@@ -215,12 +215,12 @@ mirrors the server's own audience rule.
 
 | Role | Navigation | Dashboard | Actions |
 |---|---|---|---|
-| Owner (61 grants) | Everything: Students, Staff, Timetable, all five School setup screens, Users and logins, Roles and permissions, Audit log | Office | Every write in the app: admit, import, promote, export students; add and edit staff including pay; edit the timetable, periods and substitutions; all setup writes; invite, change roles, suspend, remove, restore, send a sign-in reset, explain access; read and export the audit log |
+| Owner (61 grants) | Everything: Students, Staff, Timetable, all five School setup screens, Users and logins, Roles and permissions, Audit log | Office, with the security list | Every write in the app: admit, import, promote, export students; add and edit staff including pay; edit the timetable, periods and substitutions; all setup writes; invite, change roles, suspend, remove, restore, send a sign-in reset, explain access; read and export the audit log |
 | Principal (55) | Same as owner | Office | Same as owner except staff pay (no `staff.read_pay`/`update_pay`), ownership transfer and audit export. Can read the audit log |
 | Admin (52) | Same as principal, without Audit log | Office | Same as principal, minus the audit log entirely |
-| Accountant (17) | Dashboard, Students, Staff, School profile, Academic years, Classes, Subjects, Holidays, Audit log. No Timetable | Accountant — the server's message and links to Staff and the audit log | Read-only everywhere, plus staff pay, staff export and audit export. No student, setup or member write |
-| Teacher (14) | Dashboard, Students, Staff, Timetable | Teacher — assigned classes and today's periods | None. Reads their own pupils, the staff directory, the timetable, classes, subjects and holidays. No Users, no audit log, no academic years |
-| Parent (9) | My children, Timetable | Parent — one card per child with class and today's timetable | None. Reads their own children and the timetable of their class |
+| Accountant (17) | Dashboard, Students, Staff, School profile, Academic years, Classes, Subjects, Holidays, Audit log. No Timetable | Accountant — the day, the student tiles and a note where fee cards will go; no class strength | Read-only everywhere, plus staff pay, staff export and audit export. No student, setup or member write |
+| Teacher (14) | Dashboard, Students, Staff, Timetable | Teacher — now and next, today's timeline, the week, their own class and the holidays ahead | None. Reads their own pupils, the staff directory, the timetable, classes, subjects and holidays. No Users, no audit log, no academic years |
+| Parent (9) | My children, Timetable | Parent — one card per child: class, class teacher, today's lessons, the next holiday and what the school is waiting on | None. Reads their own children and the timetable of their class |
 
 The student role has no grants at all and cannot sign in; the server refuses the session and the
 app sends the person to `/access-unavailable?reason=student`.
@@ -258,11 +258,16 @@ one marked current, while a teacher or a parent infers it from the sections they
 
 ## Tests
 
-`pnpm --filter @erp/web test -- --run` — 25 files, 228 tests. The screen files added in Task 7, with the data lifecycle cases Task 12 added to them:
+`pnpm --filter @erp/web test -- --run` — 31 files, 328 tests. The screen files added in Task 7, with the data lifecycle cases Task 12 added to them:
 
 | File | Tests | What they prove |
 |---|---|---|
-| `components/dashboard/dashboard.test.tsx` | 7 | Office renders both counts, the joined section strengths and recent activity; a principal without `students.create`, `audit.read` or `sections.read_strengths` sees none of those and neither query fires; teacher and parent variants; a parent without `students.read_enrollments` is not told their child has no class; a 403 is one sentence |
+| `components/dashboard/office-dashboard.test.tsx` | 17 | The sentence about today in the singular and the plural, with cover and without, on a holiday and on a Sunday; each attention row with the link it points at and "All clear" when every key is zero; the glance tiles, the section pills and the twelve bars; holidays and birthdays; recent activity, and the security list only when the server sent one; the checklist shown at three of five steps and hidden at five; no "Admit student" without `students.create` |
+| `components/dashboard/teacher-dashboard.test.tsx` | 12 | Now and next against a fixed clock: the class being taught, the one after it, a free period, before school, after the last class and a cover duty; no school on a Sunday with what Monday starts with; a named holiday; the not-linked empty state; the class list link; empty states for a week with no periods |
+| `components/dashboard/parent-dashboard.test.tsx` | 7 | One card per child with class, class teacher and today's lessons; what the school is waiting on and "All done." when nothing is; no school today instead of an empty timetable; nothing claimed about a class or a holiday the server did not send; the no-children empty state; consents fetched only when the parent asks |
+| `components/dashboard/accountant-dashboard.test.tsx` | 7 | The day, the student tiles and the fees note; the class strength card left out when the block was not sent, and empty and filled told apart when it was; the mix and movement tiles left out when only the roll was sent; when school reopens; only the links the person may follow |
+| `components/dashboard/dashboard-route.test.tsx` | 6 | The skeleton while the first read is in flight; a refused read is one sentence; one request and the screen for the audience the server answered with, for all four audiences |
+| `components/dashboard/blocks/format.test.ts` | 15 | The date, time and month wording the blocks use, the twelve months of an academic year, the plural helper and `subjectColor`, which never picks an alert hue |
 | `components/layout/nav.test.tsx` | 5 | Every allowed destination plus the counts and the year name; a teacher loses Staff and both section labels and never calls the count endpoints; a parent sees "My children" and no quick actions; the command menu hides actions it lacks and searches through `api.search.run`; a parent without `students.read_basic` never searches |
 | `components/students/student-screens.test.tsx` | 13 | The roster sends the exact params and no `academicYearId`; the admit, import and promote actions disappear without their keys; a refused roster is one sentence; the record shows only the blocks the server allowed; the edit sheet sends the version the person was shown and invalidates the prefix; the bulk bar hides Export and polls the job |
 | `components/admission/admit-state.test.ts` | 6 | The draft becomes a request the contract accepts, with `+91` E.164 phones; each contract problem lands on the step that can fix it; the import mapper only sends rows the contract can describe; every sample row carries a distinct admission number |
@@ -352,9 +357,11 @@ Screen gaps — known and deliberate for now.
 - Section strengths are not shown on the admit and promote pickers, so there is no capacity
   warning.
 - Printing a timetable is still a disabled "Phase 2" control.
-- The dashboard figures on `/dashboard` itself (`qk.dashboard`) are not invalidated by a write, so
-  they refresh on navigation rather than immediately. The sidebar counts do refresh, because they
-  come from `students/count` and `staff/count` under the module prefixes.
+- The dashboard figures on `/dashboard` itself (`qk.dashboard`) are not invalidated by a write made
+  on another screen, so they refresh on navigation rather than immediately. A parent answering a
+  consent is the one exception: it invalidates the dashboard so "waiting on you" is right at once.
+  The sidebar counts do refresh, because they come from `students/count` and `staff/count` under the
+  module prefixes.
 - The roster search sends one request per keystroke, clamped to 100 characters. A shared debounce
   hook in `lib/` would be better.
 - The browser pass covered the owner only: dashboard, navigation, roster, student record (all

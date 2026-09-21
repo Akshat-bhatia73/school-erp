@@ -119,12 +119,7 @@ export const AuditEventSummary = z.strictObject({
   note: z.string().max(1000).optional(),
 })
 export const AuditListResponse = pageOf(AuditEventSummary)
-export const DashboardResponse = z.discriminatedUnion('audience', [
-  z.strictObject({ audience: z.literal('office'), activeStudents: z.number().int().nonnegative(), staffCount: z.number().int().nonnegative() }),
-  z.strictObject({ audience: z.literal('teacher'), assignedSections: z.array(NamedReference), ownTimetable: z.array(TimetableCell) }),
-  z.strictObject({ audience: z.literal('parent'), children: z.array(StudentBasic) }),
-  z.strictObject({ audience: z.literal('accountant'), message: z.literal('Financial modules are not enabled yet') }),
-])
+/** The dashboard response union lives in module-dashboard.ts. */
 
 export type StudentBasic = z.infer<typeof StudentBasic>
 export type StaffDirectory = z.infer<typeof StaffDirectory>

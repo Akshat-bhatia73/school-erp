@@ -32,6 +32,7 @@ Owner or permission changed:
 - `students.list`, `students.count`, `students.search` and the search endpoint select no sensitive or medical column at all, rather than selecting them and dropping them in the projection.
 - `auditLogs.list` also carries the note attached to an event, joined under the same predicate and omitted once it has been redacted.
 - `dashboard.summary` has no `clerk` audience, because there is no `clerk` role key in this build; the office audience is owner, principal and admin.
+- `dashboard.summary` answers a whole home screen per audience rather than a couple of counts, and takes an optional `?date=YYYY-MM-DD` that moves the calendar without widening what is read. Every block sits behind the permission of the data it is made of, and a block the caller may not read is left out of the response instead of being sent as zero.
 
 ## Routes
 
@@ -50,7 +51,7 @@ Owner or permission changed:
 | `/account/security` | authenticated session; no school context needed | `MeResponse`, `SessionSummary` | Task 6 |
 | `/access-unavailable` | authenticated or public failure state | none | Task 6 |
 | `/_app` shell | authenticated active membership | `AuthenticatedContext` | Task 6 |
-| `/dashboard` | `dashboard.read` / matched template scope | `DashboardByAudience` | Tasks 5, 7 |
+| `/dashboard` | `dashboard.read` / matched template scope, then every block through its own plan | `DashboardByAudience` | Tasks 5, 7, dashboard redesign |
 | `/settings/audit-log` | `audit.read` / school or finance | `AuditEventPage` | Tasks 5, 7 |
 | `/settings/roles` | `roles.read` / school; mutations also `roles.assign` plus delegation | `FixedRoleSummaryList` | Tasks 4, 7 |
 | `/settings/users` | `members.read` / school; lifecycle action permission per action | `MembershipDirectory` | Tasks 4, 7 |
@@ -132,7 +133,7 @@ Owner or permission changed:
 | `timetable.substitutions`, `timetable.absentTeacherPeriods` | `timetable.read` / school | `SubstitutionDay`, `AbsentTeacherPeriodList` | Task 5 |
 | `timetable.addSubstitution`, `timetable.removeSubstitution` | `timetable.manage_substitutions` / school | `Substitution`, `EmptySuccess` | Task 5 |
 | `timetable.markNotified` | `timetable.notify_substitutions` / school | `NotificationMarkResult` | Task 5 |
-| `dashboard.summary` | `dashboard.read` / matched audience scope | `DashboardByAudience` | Task 5 |
+| `dashboard.summary` | `dashboard.read` / matched audience scope; optional `?date=`, blocks omitted rather than zeroed | `DashboardByAudience` | Task 5, dashboard redesign |
 
 ## Operations added after this inventory
 

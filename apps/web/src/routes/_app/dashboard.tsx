@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { LayoutDashboard } from 'lucide-react'
+import { BentoGrid, Cell } from '@/components/dashboard/blocks/card'
 import { AccountantDashboard } from '@/components/dashboard/accountant-dashboard'
 import { OfficeDashboard } from '@/components/dashboard/office-dashboard'
 import { ParentDashboard } from '@/components/dashboard/parent-dashboard'
@@ -19,7 +20,7 @@ import { formatDate } from '@/lib/utils'
 export const Route = createFileRoute('/_app/dashboard')({ component: Page })
 
 function Page() {
-  const { schoolId, school, roleKeys } = useSchoolContext()
+  const { schoolId, roleKeys } = useSchoolContext()
   const { current } = useAcademicYear()
   const { data, isLoading, error } = useQuery({
     queryKey: qk.dashboard(schoolId),
@@ -40,29 +41,31 @@ function Page() {
         }
       />
 
-      <div className="flex-1 overflow-y-auto p-3 md:p-5">
-        <div className="mx-auto flex max-w-[1400px] flex-col gap-4">
-          {error ? (
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4 p-4 md:p-5">
+          {data?.audience === 'office' && <OfficeDashboard data={data} isLoading={isLoading} error={error} />}
+          {data?.audience === 'teacher' && <TeacherDashboard data={data} isLoading={isLoading} error={error} />}
+          {data?.audience === 'parent' && <ParentDashboard data={data} isLoading={isLoading} error={error} />}
+          {data?.audience === 'accountant' && <AccountantDashboard data={data} isLoading={isLoading} error={error} />}
+          {!data && error && (
             <EmptyState icon={<LayoutDashboard />} title="We could not open your dashboard" description={describeError(error)} />
-          ) : (
-            <>
-              {audience !== 'parent' && (
-                <p className="text-[13.5px] text-muted-foreground">Overview for {school.name}</p>
-              )}
-
-              {data?.audience === 'office' && <OfficeDashboard data={data} isLoading={isLoading} />}
-              {data?.audience === 'teacher' && <TeacherDashboard data={data} />}
-              {data?.audience === 'parent' && <ParentDashboard students={data.children} />}
-              {data?.audience === 'accountant' && <AccountantDashboard message={data.message} />}
-              {!data && isLoading && (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}
-                </div>
-              )}
-            </>
           )}
+          {!data && !error && <DashboardSkeleton />}
         </div>
       </div>
     </>
+  )
+}
+
+/** One calm layout while the first read is on its way: the office spans, so nothing jumps. */
+function DashboardSkeleton() {
+  return (
+    <BentoGrid dense>
+      <Cell col={8} rows={2}><Skeleton className="h-full min-h-[180px] w-full rounded-xl" /></Cell>
+      <Cell col={4} rows={2}><Skeleton className="h-full min-h-[180px] w-full rounded-xl" /></Cell>
+      <Cell col={4} rows={4}><Skeleton className="h-full min-h-[240px] w-full rounded-xl" /></Cell>
+      <Cell col={4} rows={4}><Skeleton className="h-full min-h-[240px] w-full rounded-xl" /></Cell>
+      <Cell col={4} rows={4}><Skeleton className="h-full min-h-[240px] w-full rounded-xl" /></Cell>
+    </BentoGrid>
   )
 }

@@ -179,7 +179,7 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 
 | Method and path | Permission | Extra checks | Success | Error codes |
 |---|---|---|---|---|
-| `GET /dashboard` | `dashboard.read` | audience fixed from the caller's roles; every figure through its own plan | 200 | — |
+| `GET /dashboard` | `dashboard.read` | audience fixed from the caller's roles; optional `?date=YYYY-MM-DD`, otherwise today in the school's timezone; every block through its own plan | 200 | `INVALID_REQUEST` |
 | `GET /search?q=` | `students.read_basic` | student rows through `students.read_basic`, staff rows through `staff.read_directory`, the class through `students.read_enrollments` | 200 | `INVALID_REQUEST` |
 | `GET /audit-events` | `audit.read` | plan predicate on `audit_event`; filters only narrow it; the note is joined under the same predicate and omitted once redacted | 200 | `INVALID_REQUEST` |
 | `POST /audit-events/export` | `audit.export` | window ordered and at most 366 days | 202 | `INVALID_REQUEST` |
@@ -187,6 +187,62 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `GET /students/:studentId/documents/:documentId/content` | `students.download_documents` | record decided again; the document must belong to that student | 200, a byte stream | `RESOURCE_NOT_FOUND` |
 | `GET /exports/:jobId` | one of `students.export`, `staff.export`, `audit.export`, `timetable.read` | the job's own recorded permission re-decided, plus freshness | 200 | `RESOURCE_NOT_FOUND` |
 | `GET /exports/:jobId/file` | the same floor | the same checks as the status route, then the job must be ready; one audit row per download | 200, a byte stream | `RESOURCE_NOT_FOUND` |
+
+### What the dashboard answers
+
+One read builds the whole home screen, inside one tenant transaction. The audience comes from the
+caller's own roles through `audienceFor` (office = owner, principal, admin; then teacher, parent,
+accountant); the browser never asks for an audience and cannot pick one. `?date=` only moves the
+calendar the answer is about. It never widens what is read, and a date outside a `YYYY-MM-DD` shape
+or any other query parameter is `INVALID_REQUEST`.
+
+Blocks and the permission each one needs:
+
+| Audience | Block | Permission it needs |
+|---|---|---|
+| all | `day` (school day, holiday or Sunday, and the next school day) | none beyond `dashboard.read`; the holidays it is built from come through the `holidays.read` plan, so it is built from Sundays alone when `holidays.read` is not held |
+| office | `today` (teachers away, periods without cover) | `timetable.read`, through the substitution plan |
+| office | `attention` rows | per key: `periods_without_cover` `timetable.read`; `invitations_expiring` `members.invite`; `students_without_guardian_phone` `students.read_guardian_contact`; `students_without_consent` `students.read_consents`; `sections_without_class_teacher` `sections.read`; `empty_timetable_slots` `sections.read` and `timetable.read`; `staff_without_login` `staff.read_directory` and `members.read` |
+| office, accountant | `glance.students.total` (the roll) | `students.read_basic` |
+| office, accountant | `glance.mix`, `glance.admittedThisMonth`, `glance.leftThisMonth` | `students.read_sensitive`: gender, admission date and the date a child left are the sensitive block of a student record, so the mix and the movements are absent without it |
+| office | `studentsPerTeacher` | `students.read_basic` and `staff.read_directory`; omitted when the school has no teaching staff |
+| office | `classStrength` | `sections.read_strengths`, counted over the sections the section plan allows and through the `students.read_enrollments` plan; the accountant role holds no `sections.read_strengths`, so the block is absent for that audience and the card is not drawn |
+| office | `admissionsByMonth` (twelve months, April to March) | `students.read_sensitive`, because it counts admission dates |
+| office | `birthdays` (today and this week) | `students.read_sensitive` for pupils and `staff.read_private` for staff: a birth date lives in those blocks, so a caller who may not read it on one record may not rebuild it from the calendar either |
+| office | `recentActivity` | `audit.read` |
+| office | `securityEvents` | `audit.read`, and only for a member holding the `owner` role |
+| office | `setup` steps | the read permission of each step; a step the caller may not read is not listed |
+| all | `holidays` | `holidays.read`; an empty list when it is not held |
+| teacher | `timeline`, `week`, `periods` | `timetable.read` on their own entries; `staffLinked: false` when the login has no staff record |
+| teacher | `myClass` (strength and birthdays) | class teacher of that section, plus `sections.read_strengths` and the `students.read_enrollments` plan for the strength; `birthdaysThisWeek` needs `students.read_sensitive` and is absent otherwise, which the plain teacher role does not hold |
+| parent | one entry per child | `students.read_basic` over their own children; `enrollment` needs `students.read_enrollments`, `todayLessons` needs `timetable.read`, `waitingOn` needs `students.read_consents` |
+| accountant | `feesNote` | none; it is a fixed sentence until the fees module exists |
+
+Three rules hold across all of it:
+
+- **Omission, not zero.** A block whose permission the caller does not hold is absent from the
+  response. `readPlan` refusing with `ACCESS_DENIED` is caught for that block alone and anything
+  else is rethrown, so a mis-wired permission fails loudly instead of reading as "none". A screen
+  can therefore tell "you may not see this" from "there are none".
+- **Cover duty has a limit.** A teacher sees a cover period only when the substitution names them as
+  the stand-in *and* their own `timetable.read` substitution plan allows the covering entry. The
+  absent teacher owns that row, so a cover in a section the stand-in does not otherwise teach is not
+  shown. Widening it needs a scope term for substitutions, not a change here.
+- **Four tables are read for this school alone.** `school_invitations`, `membership_staff_links` and
+  `school_memberships` have no scoped table in `@erp/authz` and are read only behind
+  `decideSchoolAction`. Three more are read with a bare `school_id` and no decision at all:
+  `schools` (its timezone), `academic_years` (which year "now" is) and `bell_schedules` with
+  `bell_schedule_grades` (when the bells ring). They are school setup rather than anybody's record,
+  a teacher and a parent hold no grant over them, and every other block would be meaningless without
+  them. Nothing of them leaves the response beyond an id, a name and a bell time, and the reads are
+  inside the tenant transaction, so no row can cross a school. Any new table read this way belongs
+  in this list with its reason.
+- **One timezone, the school's.** "Today", "this month" and "this week" are worked out in
+  `schools.timezone` (default `Asia/Kolkata`), not in the server's clock or the browser's, so a
+  request at half past midnight UTC still reads as the Indian school day it belongs to.
+
+The route writes no audit row: it is a read. No block carries personal data beyond a name and a
+class, and nothing is logged.
 
 ## Projection rules per field group
 
@@ -301,7 +357,7 @@ Coverage and behaviour:
 - `audit.read` and `audit.export` at the `finance` scope select only rows whose action is in `FINANCE_AUDIT_ACTIONS` from `@erp/contracts`, so an accountant's list, count and export are the money trail and an owner's are the whole log.
 - The promotion roster is capped at 200 rows with no total, because `PromotionPreview` cannot carry one. A promote request can only act on 200 pupils anyway.
 - The command-menu search returns at most 10 hits of each kind with no count, so a caller cannot tell ten matches from four hundred. It also merges two coverage rows, so a caller without `staff.read_directory` gets `staff: []` rather than a refusal, and a caller denied `students.read_basic` is refused the whole endpoint even if they may read staff.
-- The office dashboard returns two integers. `DashboardResponse` carries no academic year name, per-grade strength, setup checklist, recent activity, attendance or fees, so Task 7 cannot rebuild the office screen from it. The office audience is `owner`, `principal` and `admin`; there is no `clerk` role in this build.
+- The dashboard now answers a whole home screen per audience, not two integers: the day, what needs attention, the school in numbers, class strength, admissions by month, holidays, birthdays, recent activity and the setup checklist. Attendance, exams and fees still have no tables, so the accountant view carries a fixed note where fee cards will go. The office audience is `owner`, `principal` and `admin`; there is no `clerk` role in this build.
 - The promotion reason is validated and then not persisted: operator free text routinely names a child, and audit rows must stay free of personal detail.
 - `GET /exports/:jobId` and `GET /exports/:jobId/file` are not in the coverage inventory; their floor is a set of permissions chosen here rather than a documented one, and it is written down as a difference in [operation coverage](./OPERATION_COVERAGE.md).
 - `PUT /grades/:gradeId/subjects` answers `GradeSubjectList` where the inventory says `Subject` or `EmptySuccess`, because the request replaces a set and returning the set saves a re-read.
