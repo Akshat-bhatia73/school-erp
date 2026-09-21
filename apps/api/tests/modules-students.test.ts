@@ -510,6 +510,33 @@ test('a move stays inside the academic year and a leave ends the enrolment', asy
   assert.equal(stored.rows[0].left_on, '2026-09-01')
 })
 
+test('a pupil who left still carries the class they left, and stays out of a teacher scope', async () => {
+  const created = await body<Basic>(await admit())
+  const left = await owner.fetch(`/api/schools/${schoolA}/students/${created.id}/leave`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ expectedVersion: created.version, leftOn: '2026-09-01', reason: 'Family moved city' }),
+  })
+  assert.equal(left.status, 204)
+
+  const filtered = await owner.fetch(
+    `/api/schools/${schoolA}/students?status=left&sectionId=${sectionA}&pageSize=100`,
+  )
+  assert.equal(filtered.status, 200)
+  const roster = await body<Roster>(filtered)
+  const row = roster.items.find((item) => item.id === created.id)
+  assert.ok(row, 'the pupil who left is found by the class they left')
+  assert.equal(row.enrollment?.section.id, sectionA)
+
+  // A teacher's scope needs an open enrolment in one of their sections, so the
+  // pupil who left is gone from their roster even with the same filter.
+  const theirs = await teacher.fetch(
+    `/api/schools/${schoolA}/students?status=left&sectionId=${sectionA}&pageSize=100`,
+  )
+  assert.equal(theirs.status, 200)
+  assert.equal((await body<Roster>(theirs)).items.some((item) => item.id === created.id), false)
+})
+
 test('guardians are linked and edited through their own permission', async () => {
   const created = await body<Basic>(await admit())
   const added = await owner.fetch(`/api/schools/${schoolA}/students/${created.id}/guardians`, {

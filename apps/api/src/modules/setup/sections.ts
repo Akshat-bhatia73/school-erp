@@ -121,9 +121,11 @@ export function registerSectionRoutes(app: FastifyInstance, deps: ModuleDependen
     handler: async ({ context, query }) =>
       withTenantTransaction(deps.pools.runtime, context, async (conn) => {
         const plan = await readPlan(conn, context, 'sections.read_strengths', 'section')
-        // Only sections the plan allows are counted, and only pupils who have
-        // not left them, so a count never describes a class the caller may not
-        // open.
+        // Only sections the plan allows are counted, so a count never
+        // describes a class the caller may not open. A pupil counts while
+        // their enrolment is open, and also when it was closed by finishing
+        // the year (promoted or detained), so a closed year still shows who
+        // was in each class. A pupil who simply left is not counted.
         const rows = await conn.db
           .select({
             sectionId: sections.id,
@@ -132,7 +134,8 @@ export function registerSectionRoutes(app: FastifyInstance, deps: ModuleDependen
             // against its own table instead of this one.
             count: sql<number>`(SELECT count(*)::int FROM enrollments e
                 WHERE e.school_id = sections.school_id AND e.section_id = sections.id
-                  AND e.academic_year_id = sections.academic_year_id AND e.left_on IS NULL)`,
+                  AND e.academic_year_id = sections.academic_year_id
+                  AND (e.left_on IS NULL OR e.outcome IN ('promoted', 'detained')))`,
           })
           .from(sections)
           .where(

@@ -214,6 +214,25 @@ test('search and departments answer from the same authorized rows', async () => 
   assert.deepEqual(await teacherDepartments.json(), ['Science'])
 })
 
+test('the directory can be filtered to one department', async () => {
+  const response = await owner.fetch(`/api/schools/${schoolA}/staff?pageSize=100&department=Maths`)
+  assert.equal(response.status, 200)
+  const body = (await response.json()) as { items: { id: string }[]; total: number }
+  assert.deepEqual(
+    body.items.map((item) => item.id),
+    [colleagueId],
+  )
+  // The total describes the filtered rows, not the whole directory.
+  assert.equal(body.total, 1)
+
+  // A teacher reads their own record only, so another department is empty.
+  const theirs = await teacher.fetch(`/api/schools/${schoolA}/staff?pageSize=100&department=Maths`)
+  assert.equal(theirs.status, 200)
+  const mine = (await theirs.json()) as { items: { id: string }[]; total: number }
+  assert.deepEqual(mine.items, [])
+  assert.equal(mine.total, 0)
+})
+
 test('a teacher sees only their own record in the directory', async () => {
   const response = await teacher.fetch(`/api/schools/${schoolA}/staff?pageSize=100`)
   assert.equal(response.status, 200)

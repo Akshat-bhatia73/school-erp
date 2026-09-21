@@ -9,6 +9,7 @@ export const StudentListRequest = PageRequest.extend({
 })
 export const StaffListRequest = PageRequest.extend({
   search: z.string().trim().max(100).optional(),
+  department: z.string().trim().max(100).optional(),
   sort: z.enum(['name', 'employee_code']).default('name'),
 })
 export const UpdateStudentBasicRequest = z.strictObject({

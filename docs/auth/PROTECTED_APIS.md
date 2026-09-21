@@ -62,7 +62,7 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `GET /school` | `school.read` | none | 200 | — |
 | `PUT /school` | `school.update` | derived version from the last save | 200 | `INVALID_REQUEST`, `VERSION_CONFLICT` |
 | `GET /academic-years` | `academic_years.read` | plan predicate | 200 | — |
-| `GET /academic-years/current` | `academic_years.read` | plan predicate | 200 | `RESOURCE_NOT_FOUND` |
+| `GET /academic-years/current` | `holidays.read` | filtered to this school; no plan predicate | 200 | `RESOURCE_NOT_FOUND` |
 | `POST /academic-years` | `academic_years.manage` | dates ordered, one current year | 201 | `INVALID_REQUEST` |
 | `PUT /academic-years/:academicYearId` | `academic_years.manage` | the same, plus `expectedVersion` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `GET /grades` | `grades.read` | plan predicate | 200 | — |
@@ -85,6 +85,18 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `POST /holidays` | `holidays.manage` | year in this school | 201 | `INVALID_REQUEST` |
 | `PUT /holidays/:holidayId` | `holidays.manage` | derived version from the last save | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `DELETE /holidays/:holidayId` | `holidays.manage` | none | 204 | `RESOURCE_NOT_FOUND` |
+
+`GET /academic-years/current` is the one setup read that is not decided by
+`academic_years.read`. Which year the school is in now is school calendar
+setup, the same kind of fact as a holiday, and every role holds `holidays.read`
+across the whole school. A teacher or a parent holds no `academic_years.read`
+grant, so without this every screen would have to guess the year from the
+sections it can see, and a teacher still carrying last year's classes would
+guess a closed year. The year LIST stays behind `academic_years.read`.
+
+`GET /sections/strengths` counts an enrolment while it is open, and also when
+it was closed by finishing the year (`promoted` or `detained`), so a closed
+year still shows who was in each class. A pupil who left is not counted.
 
 ### Students
 

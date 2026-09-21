@@ -1,12 +1,13 @@
 /**
  * The academic year a screen should work in.
  *
- * Office roles read the year list and take the one marked current. A teacher or a parent holds no
- * `academic_years.read` grant, so for them the year is inferred from the sections the server lets
- * them see: an assignment or a guardian link is only effective in the year it belongs to, so those
- * sections all sit in the current year in practice. When several years show up the first is used,
- * and `yearIds` carries the rest so a screen can offer a choice. A better answer is the server
- * naming the current year in the school context; until then this is the one place that guesses.
+ * The school calendar is setup, not a person's record, so the server names the current year to
+ * everybody who may read holidays: `GET /academic-years/current`. That answer is the year every
+ * screen works in, for an office role and a teacher alike. Office roles also read the whole year
+ * list, which the year chips need.
+ *
+ * Only when the current-year call is refused or answers null does this fall back to the old
+ * behaviour: the list's current year for office roles, else the year of the first visible section.
  */
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -17,7 +18,7 @@ import { useSchoolContext } from '@/lib/session'
 export interface AcademicYearChoice {
   /** Every year this person may read. Empty for a teacher or a parent. */
   years: AcademicYearRecord[]
-  /** The current year record, when this person may read years. */
+  /** The current year record, when the server named one. */
   current: AcademicYearRecord | null
   /** The year id a screen should use, however it was found. Null while loading or when unknown. */
   currentYearId: string | null
@@ -29,24 +30,44 @@ export interface AcademicYearChoice {
 export function useAcademicYear(): AcademicYearChoice {
   const { schoolId, hasPermission } = useSchoolContext()
   const canReadYears = hasPermission('academic_years.read')
+  const canReadCurrent = hasPermission('holidays.read')
 
+  const currentQuery = useQuery({
+    queryKey: qk.currentAcademicYear(schoolId),
+    queryFn: () => api.setup.currentAcademicYear(schoolId),
+    enabled: canReadCurrent,
+  })
   const yearsQuery = useQuery({
     queryKey: qk.academicYears(schoolId),
     queryFn: () => api.setup.academicYears(schoolId),
     enabled: canReadYears,
   })
+  // Sections only matter as a fallback, so they are asked for only once the current-year call has
+  // settled without an answer.
+  const currentSettled = !canReadCurrent || currentQuery.isError || (currentQuery.isSuccess && currentQuery.data === null)
   const sectionsQuery = useQuery({
     queryKey: qk.sections(schoolId),
     queryFn: () => api.setup.sections(schoolId),
-    enabled: !canReadYears && hasPermission('sections.read'),
+    enabled: currentSettled && !canReadYears && hasPermission('sections.read'),
   })
 
-  if (canReadYears) {
-    const years = yearsQuery.data ?? []
-    const current = years.find((year) => year.status === 'current') ?? years[years.length - 1] ?? null
-    return { years, current, currentYearId: current?.id ?? null, yearIds: years.map((year) => year.id), isLoading: yearsQuery.isLoading }
+  const years = canReadYears ? yearsQuery.data ?? [] : []
+  const yearIds = canReadYears
+    ? years.map((year) => year.id)
+    : [...new Set((sectionsQuery.data ?? []).map((section) => section.academicYearId))]
+
+  const served = canReadCurrent ? currentQuery.data ?? null : null
+  if (served) {
+    return { years, current: served, currentYearId: served.id, yearIds, isLoading: canReadYears && yearsQuery.isLoading }
   }
 
-  const yearIds = [...new Set((sectionsQuery.data ?? []).map((section) => section.academicYearId))]
-  return { years: [], current: null, currentYearId: yearIds[0] ?? null, yearIds, isLoading: sectionsQuery.isLoading }
+  // Fallback: no current year came back.
+  if (canReadYears) {
+    const current = years.find((year) => year.status === 'current') ?? years[years.length - 1] ?? null
+    const isLoading = yearsQuery.isLoading || (canReadCurrent && currentQuery.isLoading)
+    return { years, current, currentYearId: current?.id ?? null, yearIds, isLoading }
+  }
+
+  const isLoading = (canReadCurrent && currentQuery.isLoading) || sectionsQuery.isLoading
+  return { years: [], current: null, currentYearId: yearIds[0] ?? null, yearIds, isLoading }
 }

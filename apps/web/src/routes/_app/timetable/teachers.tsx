@@ -13,7 +13,7 @@ import { TimetableTabs } from '@/components/timetable/timetable-tabs'
 import { TimetableExportMenu } from '@/components/timetable/export-menu'
 import { TimetableGrid, mergeBellSchedules } from '@/components/timetable/timetable-grid'
 import { DAY_LABELS, DaySelector, defaultDay } from '@/components/timetable/day-selector'
-import { NoAcademicYearState, RefusedState } from '@/components/timetable/states'
+import { NoAcademicYearState } from '@/components/timetable/states'
 import { MobilePicker } from '@/components/shared/mobile-picker'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -34,6 +34,18 @@ export function Page() {
   const { currentYearId, isLoading: yearLoading } = useAcademicYear()
   const yearId = currentYearId ?? ''
   const canReadLoads = hasPermission('timetable.read_teacher_loads')
+  const canReadDirectory = hasPermission('staff.read_directory')
+
+  // Without the teacher loads grant this screen shows the person's own week. Their staff.read_directory
+  // grant is scoped to themselves, so the directory answers with exactly their own record.
+  const selfParams = { page: 1, pageSize: 25 as const, sort: 'name' as const }
+  const selfQuery = useQuery({
+    queryKey: qk.staff(schoolId, selfParams),
+    queryFn: () => api.staff.list(schoolId, selfParams),
+    enabled: !canReadLoads && canReadDirectory,
+  })
+  // Exactly one row means the directory is scoped to this person. Anything else is not "me".
+  const self = selfQuery.data?.total === 1 ? selfQuery.data.items[0] : undefined
 
   const loadParams = { academicYearId: yearId }
   const loadsQuery = useQuery({
@@ -47,13 +59,15 @@ export function Page() {
   const { data: schedules = [], isLoading: bellLoading } = useQuery({
     queryKey: qk.bellSchedules(schoolId, bellParams),
     queryFn: () => api.timetable.bellSchedules(schoolId, bellParams),
-    enabled: !!yearId && canReadLoads,
+    enabled: !!yearId && hasPermission('timetable.read'),
   })
 
+  // The teacher picker drives the id when loads can be read; otherwise it is always the person's own.
+  const shownStaffId = canReadLoads ? staffId : self?.id
   const gridQuery = useQuery({
-    queryKey: qk.timetableStaff(schoolId, staffId ?? '', { academicYearId: yearId }),
-    queryFn: () => api.timetable.forStaff(schoolId, staffId!, { academicYearId: yearId }),
-    enabled: !!staffId && !!yearId,
+    queryKey: qk.timetableStaff(schoolId, shownStaffId ?? '', { academicYearId: yearId }),
+    queryFn: () => api.timetable.forStaff(schoolId, shownStaffId!, { academicYearId: yearId }),
+    enabled: !!shownStaffId && !!yearId,
   })
   const cells = useMemo(() => gridQuery.data?.cells ?? [], [gridQuery.data])
   // A teacher's week can span wings, so the rows are every schedule's periods, not the first's.
@@ -107,12 +121,51 @@ export function Page() {
     )
   })
 
+  // One week grid, shown either for the picked teacher or for the person's own record.
+  const weekGrid = bellLoading || gridQuery.isLoading ? (
+    <div className="grid gap-2 p-4">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
+  ) : isApiError(gridQuery.error) ? (
+    <EmptyState icon={<CalendarDays />} title={describeError(gridQuery.error)} />
+  ) : !bell ? (
+    <EmptyState icon={<CalendarDays />} title="No periods set up yet" description="Set up periods on the Bell schedule tab to see the week." />
+  ) : (
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto scrollbar-thin">
+      <DaySelector days={workingDays} value={shownDay} onChange={setDay} />
+      <TimetableGrid bell={bell} cells={cells} mode="staff" highlightFree dayFilter={isMobile ? shownDay : undefined} />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t bg-card px-4 py-2.5 text-[13px] text-muted-foreground">
+        <span className="text-[12px] font-medium tracking-wide">Per day</span>
+        {workingDays.map((d) => (
+          <span key={d}>{DAY_LABELS[d]} <span className="tabular-nums text-foreground">{perDay[d] ?? 0}</span></span>
+        ))}
+      </div>
+    </div>
+  )
+
   if (!canReadLoads) {
     return (
       <>
-        <PageHeader crumbs={[{ label: 'Timetable' }, { label: 'Teachers' }]} hideOnMobile />
+        <PageHeader crumbs={[{ label: 'Timetable' }, { label: 'My timetable' }]} hideOnMobile />
         <TimetableTabs />
-        <RefusedState sentence="You can only see your own week, which is on your dashboard." />
+        {yearLoading || selfQuery.isLoading ? (
+          <div className="grid gap-2 p-4">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
+        ) : !yearId ? (
+          <NoAcademicYearState />
+        ) : !self ? (
+          <EmptyState icon={<UserRound />} title="You do not have a week here" description="Only a member of staff who teaches classes has a timetable." />
+        ) : (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-card px-4 py-3">
+              <UserAvatar name={self.displayName} size="lg" />
+              <div className="min-w-0">
+                <div className="text-[15px] font-semibold">{self.displayName}</div>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
+                <TimetableExportMenu academicYearId={yearId} view={{ kind: 'teacher', staffId: self.id }} />
+              </div>
+            </div>
+            {weekGrid}
+          </div>
+        )}
       </>
     )
   }
@@ -165,24 +218,7 @@ export function Page() {
                     <TimetableExportMenu academicYearId={yearId} view={{ kind: 'teacher', staffId: load.teacher.id }} />
                   </div>
                 </div>
-                {bellLoading || gridQuery.isLoading ? (
-                  <div className="grid gap-2 p-4">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
-                ) : isApiError(gridQuery.error) ? (
-                  <EmptyState icon={<CalendarDays />} title={describeError(gridQuery.error)} />
-                ) : !bell ? (
-                  <EmptyState icon={<CalendarDays />} title="No periods set up yet" description="Set up periods on the Bell schedule tab to see the week." />
-                ) : (
-                  <div className="flex min-h-0 flex-1 flex-col overflow-auto scrollbar-thin">
-                    <DaySelector days={workingDays} value={shownDay} onChange={setDay} />
-                    <TimetableGrid bell={bell} cells={cells} mode="staff" highlightFree dayFilter={isMobile ? shownDay : undefined} />
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t bg-card px-4 py-2.5 text-[13px] text-muted-foreground">
-                      <span className="text-[12px] font-medium tracking-wide">Per day</span>
-                      {workingDays.map((d) => (
-                        <span key={d}>{DAY_LABELS[d]} <span className="tabular-nums text-foreground">{perDay[d] ?? 0}</span></span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {weekGrid}
               </>
             )}
           </div>

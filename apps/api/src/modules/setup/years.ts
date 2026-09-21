@@ -108,12 +108,18 @@ export function registerAcademicYearRoutes(app: FastifyInstance, deps: ModuleDep
   protectedRoute(app, deps, {
     method: 'GET',
     path: '/api/schools/:schoolId/academic-years/current',
-    permission: 'academic_years.read',
+    // Which year the school is in now is school calendar setup, the same kind
+    // of fact as a holiday, not a record belonging to one person. Every role
+    // holds holidays.read across the whole school, so this one read is decided
+    // by that key and is deliberately not planned under academic_years.read:
+    // a teacher or a parent holds no grant there, and without an answer here
+    // every screen would have to guess the year from what it can see and a
+    // teacher still carrying last year's classes would guess the closed one.
+    // The year LIST stays under academic_years.read.
+    permission: 'holidays.read',
     response: CurrentAcademicYear,
     handler: async ({ context }) =>
       withTenantTransaction(deps.pools.runtime, context, async (conn) => {
-        const plan = await readPlan(conn, context, 'academic_years.read', 'academic_year')
-        const predicate = planPredicate(plan, scopedTable('academic_year'))
         const chosen = await conn.db
           .select({ id: schools.currentAcademicYearId })
           .from(schools)
@@ -121,10 +127,12 @@ export function registerAcademicYearRoutes(app: FastifyInstance, deps: ModuleDep
           .limit(1)
         const pointed = chosen[0]?.id ?? null
         // The school's own pointer wins; a school that has never set one falls
-        // back to whichever year still calls itself current.
+        // back to whichever year still calls itself current. Both are filtered
+        // to this school, which is the only scope this read ever has.
+        const ours = eq(academicYears.schoolId, context.schoolId)
         const match = pointed
-          ? and(predicate, eq(academicYears.id, pointed))
-          : and(predicate, eq(academicYears.status, 'current'))
+          ? and(ours, eq(academicYears.id, pointed))
+          : and(ours, eq(academicYears.status, 'current'))
         const rows = await conn.db.select(columns).from(academicYears).where(match).limit(1)
         const row = rows[0]
         return row ? toYear(row) : null

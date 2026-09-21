@@ -114,6 +114,12 @@ const BASIC: StudentReadOptions = { sensitive: false, medical: false }
  * a student appears in a list exactly when the detail read would return it.
  * The plan predicate is the only thing that decides which rows exist at all;
  * the filters below narrow that set and can never widen it.
+ *
+ * The enrolment carried along is the open one when there is one, and the
+ * latest closed one otherwise, so a pupil who has left still shows the class
+ * they were last in and the Class filter can still find them. It is never
+ * proof that the enrolment is open: a write that needs that reads its own
+ * current enrolment in writes.ts.
  */
 function studentSource(predicate: SQL, enrollmentPredicate: SQL, filters: SQL[]): SQL {
   const where = filters.reduce((carry, part) => sql`${carry} AND ${part}`, predicate)
@@ -123,8 +129,8 @@ function studentSource(predicate: SQL, enrollmentPredicate: SQL, filters: SQL[])
                enrollments.section_id, enrollments.academic_year_id
           FROM enrollments
          WHERE enrollments.school_id = students.school_id AND enrollments.student_id = students.id
-           AND enrollments.left_on IS NULL AND (${enrollmentPredicate})
-         ORDER BY enrollments.joined_on DESC, enrollments.id
+           AND (${enrollmentPredicate})
+         ORDER BY (enrollments.left_on IS NULL) DESC, enrollments.joined_on DESC, enrollments.id
          LIMIT 1
       ) current_enrollment ON TRUE
       LEFT JOIN sections sec ON sec.school_id = students.school_id

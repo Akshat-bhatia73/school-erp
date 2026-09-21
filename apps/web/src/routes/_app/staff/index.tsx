@@ -1,16 +1,16 @@
-/** The staff directory. The server bounds the list; this screen only pages, searches and sorts it. */
+/** The staff directory. The server bounds the list; this screen only pages, searches and filters it. */
 import { useMemo, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef, RowSelectionState } from '@tanstack/react-table'
-import { Download, Plus, Search, Users } from 'lucide-react'
-import { toast } from 'sonner'
+import { Plus, Search, Users } from 'lucide-react'
+import { z } from 'zod'
 import { api } from '@/lib/api'
 import type { StaffPage } from '@/lib/api/staff'
 import { DataTable, EntityCell } from '@/components/shared/data-table'
 import { FilterChip } from '@/components/shared/filter-chip'
 import { EmptyState, PageHeader, Toolbar } from '@/components/shared/page'
-import { useExportDownload } from '@/components/shared/export-download'
+import { StaffBulkBar } from '@/components/staff/staff-bulk-bar'
 import { Tag, colorFor } from '@/components/shared/tag'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Button } from '@/components/ui/button'
@@ -19,26 +19,45 @@ import { describeError, isApiError } from '@/lib/api-errors'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
 
-export const Route = createFileRoute('/_app/staff/')({ component: Page })
+const searchSchema = z.object({
+  q: z.string().max(100).optional().catch(undefined),
+  department: z.string().max(100).optional().catch(undefined),
+  page: z.number().int().min(1).default(1),
+})
+type StaffSearch = z.infer<typeof searchSchema>
+
+export const Route = createFileRoute('/_app/staff/')({ component: Page, validateSearch: searchSchema })
 
 type StaffRow = StaffPage['items'][number]
 
 const PAGE_SIZE = 25
 const SEARCH_MAX = 100
-const EXPORT_MAX = 100
 
 function Page() {
-  const navigate = useNavigate()
+  const search = Route.useSearch()
+  const navigate = useNavigate({ from: Route.fullPath })
   const { schoolId, hasPermission } = useSchoolContext()
-
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
-  const [department, setDepartment] = useState<string | undefined>()
   const [selection, setSelection] = useState<RowSelectionState>({})
-  const exportFile = useExportDownload()
+  const canExport = hasPermission('staff.export')
 
-  const term = search.trim().slice(0, SEARCH_MAX)
-  const params = { page, pageSize: PAGE_SIZE, sort: 'name' as const, search: term === '' ? undefined : term }
+  // A filter always starts again from the first page; the page itself keeps a history entry.
+  const setSearch = (patch: Partial<StaffSearch>) => {
+    setSelection({})
+    void navigate({ search: (old) => ({ ...old, page: 1, ...patch }), replace: true })
+  }
+  const setPage = (page: number) => {
+    setSelection({})
+    void navigate({ search: (old) => ({ ...old, page }) })
+  }
+
+  const term = search.q?.trim()
+  const params = {
+    page: search.page,
+    pageSize: PAGE_SIZE,
+    sort: 'name' as const,
+    search: term === '' ? undefined : term,
+    department: search.department,
+  }
   const staffQuery = useQuery({
     queryKey: qk.staff(schoolId, params),
     queryFn: () => api.staff.list(schoolId, params),
@@ -48,23 +67,10 @@ function Page() {
     queryFn: () => api.staff.departments(schoolId),
   })
 
-  const items = useMemo(() => staffQuery.data?.items ?? [], [staffQuery.data])
-  // The server has no department filter, so this narrows the page already loaded and nothing more.
-  const rows = useMemo(
-    () => (department ? items.filter((row) => row.department === department) : items),
-    [items, department],
-  )
-
-  const startExport = useMutation({
-    mutationFn: (staffIds: string[]) => api.staff.export(schoolId, { staffIds }),
-    onSuccess: (job) => {
-      exportFile.start(job)
-      toast.success('Export started')
-    },
-    onError: (error) => toast.error(describeError(error)),
-  })
-
+  const rows = staffQuery.data?.items ?? []
   const selectedIds = Object.keys(selection).filter((id) => selection[id])
+  const hasFilters = Boolean(search.q || search.department)
+  const clearFilters = () => { setSelection({}); void navigate({ search: { page: 1 } }) }
 
   const columns = useMemo<ColumnDef<StaffRow, any>[]>(() => [
     {
@@ -120,28 +126,9 @@ function Page() {
         crumbs={[{ label: 'Staff', icon: <Users /> }]}
         badge={<Tag className="ml-2">{total}</Tag>}
         actions={
-          <>
-            {hasPermission('staff.export') && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={selectedIds.length === 0 || selectedIds.length > EXPORT_MAX || startExport.isPending}
-                title={
-                  selectedIds.length === 0
-                    ? 'Select staff to export'
-                    : selectedIds.length > EXPORT_MAX
-                      ? `You can export up to ${EXPORT_MAX} staff at a time`
-                      : undefined
-                }
-                onClick={() => startExport.mutate(selectedIds)}
-              >
-                <Download />Export to Excel
-              </Button>
-            )}
-            {hasPermission('staff.create') && (
-              <Button size="sm" onClick={() => navigate({ to: '/staff/new' })}><Plus />Add staff</Button>
-            )}
-          </>
+          hasPermission('staff.create')
+            ? <Button size="sm" onClick={() => void navigate({ to: '/staff/new' })}><Plus />Add staff</Button>
+            : undefined
         }
       />
       <Toolbar
@@ -149,8 +136,8 @@ function Page() {
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              value={search}
-              onChange={(event) => { setSearch(event.target.value.slice(0, SEARCH_MAX)); setPage(1); setSelection({}) }}
+              value={search.q ?? ''}
+              onChange={(event) => setSearch({ q: event.target.value.slice(0, SEARCH_MAX) || undefined })}
               maxLength={SEARCH_MAX}
               placeholder="Search name or employee code"
               aria-label="Search staff"
@@ -161,41 +148,46 @@ function Page() {
       >
         <FilterChip
           label="Department"
-          value={department}
+          value={search.department}
           options={(departmentsQuery.data ?? []).map((name) => ({ value: name, label: name }))}
-          onChange={(value) => { setDepartment(value); setSelection({}) }}
+          onChange={(value) => setSearch({ department: value })}
           allLabel="All departments"
         />
       </Toolbar>
 
-      {exportFile.job && (
-        <div className="border-b bg-card px-3 py-2 md:px-5">{exportFile.status}</div>
-      )}
-
-      <DataTable
-        columns={columns}
-        data={rows}
-        isLoading={staffQuery.isLoading}
-        selectable
-        rowSelection={selection}
-        onRowSelectionChange={setSelection}
-        getRowId={(row: StaffRow) => row.id}
-        rowLink={(row: StaffRow) => `/staff/${row.id}`}
-        mobileRow={(row: StaffRow) => ({
-          title: row.displayName,
-          subtitle: row.designation,
-          trailing: row.department ? <Tag color={colorFor(row.department)}>{row.department}</Tag> : undefined,
-        })}
-        emptyState={<EmptyState icon={<Users />} title="No staff to show" description="Try another search, or clear the department filter." />}
-        pagination={{ page, pageSize: PAGE_SIZE, total, onPageChange: (next: number) => { setPage(next); setSelection({}) } }}
-        footer={
-          <>
-            <span>{rows.length} staff in view</span>
-            {department && <span>filtered on this page</span>}
-            <span>{total} in the school</span>
-          </>
-        }
-      />
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <DataTable
+          columns={columns}
+          data={rows}
+          isLoading={staffQuery.isLoading}
+          selectable={canExport}
+          rowSelection={selection}
+          onRowSelectionChange={setSelection}
+          getRowId={(row: StaffRow) => row.id}
+          rowLink={(row: StaffRow) => `/staff/${row.id}`}
+          mobileRow={(row: StaffRow) => ({
+            title: row.displayName,
+            subtitle: row.designation,
+            trailing: row.department ? <Tag color={colorFor(row.department)}>{row.department}</Tag> : undefined,
+          })}
+          emptyState={
+            <EmptyState
+              icon={<Users />}
+              title="No staff to show"
+              description="Try another search, or a different department."
+              action={hasFilters ? <Button variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button> : undefined}
+            />
+          }
+          pagination={{ page: search.page, pageSize: PAGE_SIZE, total, onPageChange: setPage }}
+          footer={
+            <>
+              <span>{rows.length} staff in view</span>
+              <span>{total} in total</span>
+            </>
+          }
+        />
+        {canExport && <StaffBulkBar ids={selectedIds} onClear={() => setSelection({})} />}
+      </div>
     </>
   )
 }

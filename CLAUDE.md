@@ -22,6 +22,7 @@ Monorepo (pnpm). The web app runs on the real backend: `apps/api` serves the pro
 - `apps/web/src/components/shared/*` — app-level building blocks. USE THESE, do not reinvent:
   - `page.tsx`: `PageHeader` (breadcrumb + actions), `Toolbar` (filter row), `PageTabs`, `Panel`, `Facts` (label/value grid), `EmptyState`, `SectionLabel`
   - `data-table.tsx`: `DataTable` (TanStack Table wrapper: checkbox column, sortable headers, skeleton loading, footer summary, pagination) and `EntityCell` (icon + dotted-underline name)
+  - `bulk-bar.tsx`: `BulkBar` (floating "N selected" bar with the bulk action buttons, a clear button and an optional status line under them)
   - `filter-chip.tsx`: `FilterChip` (label + value dropdown chip), `ToolbarButton` (dashed-border button)
   - `tag.tsx`: `Tag` (outline pill, `color` prop), `colorFor(key)` stable colour, `StatusDot`
   - `avatar.tsx`: `UserAvatar`

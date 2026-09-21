@@ -77,6 +77,7 @@ function Page() {
   const selectedIds = useMemo(() => Object.keys(rowSelection).filter((id) => rowSelection[id]), [rowSelection])
   // The columns need the school to address a row's photograph.
   const columns = useMemo(() => studentColumns(schoolId), [schoolId])
+  const canExport = hasPermission('students.export')
   const hasFilters = Boolean(search.q || search.sectionId || search.status !== 'active')
   const clearFilters = () => void navigate({ search: { status: 'active', sort: search.sort, page: 1 } })
 
@@ -179,7 +180,7 @@ function Page() {
           columns={columns}
           data={rows}
           isLoading={roster.isLoading}
-          selectable
+          selectable={canExport}
           getRowId={(row) => row.id}
           rowSelection={rowSelection}
           onRowSelectionChange={setRowSelection}
@@ -201,17 +202,11 @@ function Page() {
             <>
               <span>{rows.length} students in view</span>
               <span>{roster.data?.total ?? 0} in total</span>
-              {selectedIds.length > 0 && (
-                <span className="flex items-center gap-2">
-                  {selectedIds.length} selected
-                  <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => setRowSelection({})}>Clear</button>
-                </span>
-              )}
             </>
           }
           pagination={{ page: search.page, pageSize: PAGE_SIZE, total: roster.data?.total ?? 0, onPageChange: setPage }}
         />
-        <StudentBulkBar ids={selectedIds} onClear={() => setRowSelection({})} />
+        {canExport && <StudentBulkBar ids={selectedIds} onClear={() => setRowSelection({})} />}
       </div>
     </>
   )

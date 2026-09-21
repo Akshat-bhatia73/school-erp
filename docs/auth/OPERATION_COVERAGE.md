@@ -56,7 +56,7 @@ Owner or permission changed:
 | `/settings/roles` | `roles.read` / school; mutations also `roles.assign` plus delegation | `FixedRoleSummaryList` | Tasks 4, 7 |
 | `/settings/users` | `members.read` / school; lifecycle action permission per action | `MembershipDirectory` | Tasks 4, 7 |
 | `/setup/school` | `school.read` / school; update `school.update` | `SchoolProfile` | Tasks 5, 7 |
-| `/setup/academic-years` | `academic_years.read` / school; writes `academic_years.manage` | `AcademicYearList` | Tasks 5, 7 |
+| `/setup/academic-years` | `academic_years.read` / school; writes `academic_years.manage`; the current-year read is `holidays.read` so every role can ask which year it is | `AcademicYearList` | Tasks 5, 7 |
 | `/setup/classes` | `grades.read`, `sections.read` / school; counts `sections.read_strengths`; writes respective manage key | `ClassSectionSetup` | Tasks 5, 7 |
 | `/setup/subjects` | `subjects.read` / school; writes `subjects.manage` | `SubjectSetup` | Tasks 5, 7 |
 | `/setup/holidays` | `holidays.read` / school; writes `holidays.manage` | `HolidayList` | Tasks 5, 7 |
