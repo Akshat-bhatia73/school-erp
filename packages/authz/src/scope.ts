@@ -213,6 +213,14 @@ export function createReadPlan(
     }
     pairs.push({ sectionId: assignment.sectionId, academicYearId: assignment.academicYearId })
   }
+  // A class teacher's own sections are in the list for the same reason they
+  // are in the decision: the list and the detail read must agree.
+  for (const section of facts.classTeacherSections ?? []) {
+    if (pairs.some((p) => p.sectionId === section.sectionId && p.academicYearId === section.academicYearId)) {
+      continue
+    }
+    pairs.push({ sectionId: section.sectionId, academicYearId: section.academicYearId })
+  }
 
   const plan = Object.freeze({
     schoolId: context.schoolId,

@@ -50,7 +50,7 @@ Every method opens one `withTenantTransaction` on the runtime pool, so all reads
 |---|---|
 | `school` | Always. School equality was already checked in step 3. |
 | `self` | The resource carries a `staffId` equal to the caller's own staff record. |
-| `assigned_sections` | The caller has a teaching assignment effective now whose section and academic year both match the resource. |
+| `assigned_sections` | The caller has a teaching assignment effective now whose section and academic year both match the resource, or is the class teacher of that section in a year that is not closed. The class teacher post names no subject, so it never counts for `assigned_subjects`. |
 | `assigned_subjects` | The same assignment also matches one of the resource's subjects. |
 | `own_children` | The resource's `studentId` is one of the caller's approved children. |
 | `own_record` | Never. Student login is disabled. |
@@ -58,7 +58,7 @@ Every method opens one `withTenantTransaction` on the runtime pool, so all reads
 
 Section and year always travel together. An assignment to section 6A in the previous academic year does not open 6A in the current year. Children come from `membership_guardian_links` joined to `guardian_student_access` with status `approved` and no `revoked_at`; `receives_notifications` and a plain `student_guardians` row are contact details, not access.
 
-Resources that summarise a whole dataset rather than one row, such as the dashboard or the resource `capabilities` asks about, are marked `aggregate`. For those, `assigned_sections` matches when the caller has any assignment, `own_children` when the caller has any child, and `self` when the caller has a staff record of their own. Shared rows such as a section or a grade answer `own_children` through a current enrollment of one of the caller's own children, so a list and a detail read agree.
+Resources that summarise a whole dataset rather than one row, such as the dashboard or the resource `capabilities` asks about, are marked `aggregate`. For those, `assigned_sections` matches when the caller has any assignment or is the class teacher of any open section, `own_children` when the caller has any child, and `self` when the caller has a staff record of their own. Shared rows such as a section or a grade answer `own_children` through a current enrollment of one of the caller's own children, so a list and a detail read agree.
 
 Relationship facts are loaded once per request in `src/snapshot.ts`: the staff link, the teaching assignments effective at `context.now`, and the approved children. `loadResourceFacts` maps each resource type to the attributes the predicates need, and returns null for reserved types such as fees, attendance and exams.
 
