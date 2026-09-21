@@ -233,6 +233,24 @@ test('a section assignment for another academic year does not match', () => {
   assert.equal(matchesScope('own_record', facts, lastYear), false)
 })
 
+test('a class teacher matches assigned_sections for their own section, never assigned_subjects', () => {
+  const facts: RelationshipFacts = {
+    selfStaffId: 'staff-1',
+    assignments: [],
+    classTeacherSections: [{ sectionId: 'section-1', academicYearId: 'year-1' }],
+    ownChildStudentIds: [],
+  }
+  const pupil: ResourceFacts = { resourceType: 'student', id: 'pupil-1', studentId: 'pupil-1', sectionIds: ['section-1'], academicYearId: 'year-1' }
+  assert.equal(matchesScope('assigned_sections', facts, pupil), true)
+  assert.equal(matchesScope('assigned_sections', facts, { ...pupil, sectionIds: ['section-2'] }), false)
+  assert.equal(matchesScope('assigned_sections', facts, { ...pupil, academicYearId: 'year-0' }), false)
+  // The post names no subject, so it never stands in for teaching one.
+  assert.equal(matchesScope('assigned_subjects', facts, { ...pupil, subjectIds: ['subject-1'] }), false)
+  const dashboard: ResourceFacts = { resourceType: 'dashboard', id: 'school-1', aggregate: true }
+  assert.equal(matchesScope('assigned_sections', facts, dashboard), true)
+  assert.equal(matchesScope('assigned_subjects', facts, dashboard), false)
+})
+
 test('aggregate resources match a relationship scope when any relationship exists', () => {
   const dashboard: ResourceFacts = { resourceType: 'dashboard', id: 'dashboard', aggregate: true }
   assert.equal(matchesScope('assigned_sections', relatedFacts, dashboard), true)

@@ -44,7 +44,7 @@ Everything that keeps the platform running when something goes wrong, most of it
 - Perform and log the first restore rehearsal against a production branch.
 - Create the Sentry alert on the denial burst and confirm it arrives.
 - Move the database to an Indian region as `docs/compliance/HOSTING_REGION.md` recommends, and set the function region to `bom1`, before the first real school, so the CERT-In log requirement is met.
-- Pin `xlsx` to a registry version so Dependabot's lockfile regeneration installs.
+- Done, 21 September 2026: `xlsx` is pinned to the registry as `npm:@e965/xlsx@0.20.3`, a mirror of the official SheetJS 0.20.3 tarball. The npm package named `xlsx` stopped at 0.18.5 and carries two high advisories, so it was never an option. Before accepting a version bump, unpack the mirror and the tarball from `cdn.sheetjs.com` and compare them: for 0.20.3 only `README.md` and the name and repository in `package.json` differ, and there are no install scripts.
 - Move the repository to a paid GitHub plan and make it private without losing branch protection.
 
 Exit check: every release checklist line is signed; the restore log has one passed production entry; the sub-processor list names an Indian database region.

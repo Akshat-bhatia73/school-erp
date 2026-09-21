@@ -14,6 +14,13 @@ export interface RelationshipFacts {
   readonly selfStaffId: string | null
   /** Already filtered to assignments effective at context.now. */
   readonly assignments: readonly { sectionId: string; subjectId: string; academicYearId: string }[]
+  /**
+   * The sections this member is the class teacher of, in a year that is not
+   * closed. A class teacher looks after the whole class, so these count for the
+   * assigned_sections scope exactly like a teaching assignment. They name no
+   * subject, so they never count for assigned_subjects.
+   */
+  readonly classTeacherSections?: readonly { sectionId: string; academicYearId: string }[]
   /** Approved, unrevoked guardian_student_access reached through a verified membership_guardian_link. */
   readonly ownChildStudentIds: readonly string[]
 }
@@ -94,9 +101,14 @@ export function matchesScope(scope: AccessScope, facts: RelationshipFacts, resou
       // a staff record of their own can exercise the scope somewhere in it.
       if (resourceFacts.aggregate === true) return true
       return resourceFacts.staffId === facts.selfStaffId
-    case 'assigned_sections':
-      if (resourceFacts.aggregate === true) return facts.assignments.length > 0
-      return facts.assignments.some((assignment) => sectionMatches(assignment, resourceFacts))
+    case 'assigned_sections': {
+      const looksAfter = facts.classTeacherSections ?? []
+      if (resourceFacts.aggregate === true) return facts.assignments.length > 0 || looksAfter.length > 0
+      return (
+        facts.assignments.some((assignment) => sectionMatches(assignment, resourceFacts)) ||
+        looksAfter.some((section) => sectionMatches(section, resourceFacts))
+      )
+    }
     case 'assigned_subjects':
       if (resourceFacts.aggregate === true) return facts.assignments.length > 0
       return facts.assignments.some(

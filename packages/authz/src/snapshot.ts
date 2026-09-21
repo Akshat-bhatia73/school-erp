@@ -255,6 +255,23 @@ export async function loadRelationshipFactsFor(
     }
   }
 
+  // Being the class teacher of a section is a relationship of its own: the
+  // person looks after that class whether or not they teach a subject in it.
+  // A closed year is history, so it no longer counts.
+  const classTeacherSections: { sectionId: string; academicYearId: string }[] = []
+  if (selfStaffId !== null) {
+    const rows = await conn.client.query<{ id: string; academic_year_id: string }>(
+      `SELECT s.id, s.academic_year_id
+         FROM sections s
+         JOIN academic_years y ON y.school_id = s.school_id AND y.id = s.academic_year_id
+        WHERE s.school_id = $1 AND s.class_teacher_staff_id = $2 AND y.status <> 'closed'`,
+      [schoolId, selfStaffId],
+    )
+    for (const row of rows.rows) {
+      classTeacherSections.push({ sectionId: row.id, academicYearId: row.academic_year_id })
+    }
+  }
+
   const children = await conn.client.query<{ student_id: string }>(
     `SELECT gsa.student_id
        FROM membership_guardian_links mgl
@@ -268,6 +285,7 @@ export async function loadRelationshipFactsFor(
   return {
     selfStaffId,
     assignments,
+    classTeacherSections,
     ownChildStudentIds: [...new Set(children.rows.map((row) => row.student_id))],
   }
 }
