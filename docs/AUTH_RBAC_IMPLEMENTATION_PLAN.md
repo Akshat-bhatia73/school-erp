@@ -1,6 +1,6 @@
 # Authentication and access control implementation plan
 
-Date: 13 September 2026. Status: proposed architecture, ready for review and agent handover. No authentication or backend implementation is included in this document.
+Date: 13 September 2026. Status: **complete.** Tasks 0 to 14 were delivered and merged between 14 and 19 September 2026 and are live at erp.akshat-bhatia.com with test data; the data protection findings F1 to F19 are closed or decided in [compliance/DATA_PROTECTION.md](compliance/DATA_PROTECTION.md). New work is planned in [NEXT_IMPLEMENTATION_PLAN.md](NEXT_IMPLEMENTATION_PLAN.md). The text below is kept as written, as the record of what was decided and why.
 
 ## 1. Recommended decision
 

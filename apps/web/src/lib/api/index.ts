@@ -30,7 +30,10 @@ export const api = {
     ...staff,
     export: staff.exportStaff,
   },
-  timetable,
+  timetable: {
+    ...timetable,
+    export: timetable.exportTimetable,
+  },
   dashboard,
   search: {
     ...searchModule,

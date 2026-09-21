@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { SectionInput, SetupSectionUpdateRequest } from '@erp/contracts'
 import { Field, FORM_ERROR, validate, type FieldErrors } from '@/components/setup/field'
+import { focusFirstInvalid, type FieldLabels } from '@/lib/validation'
 import { FormSheet } from '@/components/setup/form-sheet'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -21,6 +22,13 @@ interface Form {
   classTeacherId?: string
   roomNumber?: string
   capacity?: number
+}
+
+const LABELS: FieldLabels = {
+  name: 'section name',
+  roomNumber: 'room',
+  capacity: { label: 'capacity', kind: 'number' },
+  classTeacherId: { label: 'class teacher', kind: 'select' },
 }
 
 export function SectionSheet({ open, onOpenChange, section, gradeId, academicYearId }: {
@@ -68,9 +76,13 @@ export function SectionSheet({ open, onOpenChange, section, gradeId, academicYea
 
   function submit() {
     const checked = section
-      ? validate(SetupSectionUpdateRequest, { ...form, expectedVersion: section.version })
-      : validate(SectionInput, form)
-    if (!checked.ok) return setErrors(checked.errors)
+      ? validate(SetupSectionUpdateRequest, { ...form, expectedVersion: section.version }, LABELS)
+      : validate(SectionInput, form, LABELS)
+    if (!checked.ok) {
+      setErrors(checked.errors)
+      requestAnimationFrame(() => focusFirstInvalid())
+      return
+    }
     setErrors({})
     save.mutate(form)
   }

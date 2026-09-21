@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { AcademicYearInput, SetupAcademicYearUpdateRequest } from '@erp/contracts'
 import { Field, FORM_ERROR, validate, type FieldErrors } from '@/components/setup/field'
+import { focusFirstInvalid, type FieldLabels } from '@/lib/validation'
 import { FormSheet } from '@/components/setup/form-sheet'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -16,6 +17,13 @@ import { humanize } from '@/lib/utils'
 const STATUSES = ['upcoming', 'current', 'closed'] as const
 
 interface Form { name: string; startDate: string; endDate: string; status: (typeof STATUSES)[number] }
+
+const LABELS: FieldLabels = {
+  name: 'academic year name',
+  startDate: 'start date',
+  endDate: 'end date',
+  status: { label: 'status', kind: 'select' },
+}
 
 function blank(): Form {
   const year = new Date().getFullYear()
@@ -51,9 +59,13 @@ export function AcademicYearSheet({ open, onOpenChange, year }: { open: boolean;
 
   function submit() {
     const checked = year
-      ? validate(SetupAcademicYearUpdateRequest, { ...form, expectedVersion: year.version })
-      : validate(AcademicYearInput, form)
-    if (!checked.ok) return setErrors(checked.errors)
+      ? validate(SetupAcademicYearUpdateRequest, { ...form, expectedVersion: year.version }, LABELS)
+      : validate(AcademicYearInput, form, LABELS)
+    if (!checked.ok) {
+      setErrors(checked.errors)
+      requestAnimationFrame(() => focusFirstInvalid())
+      return
+    }
     setErrors({})
     save.mutate(form)
   }

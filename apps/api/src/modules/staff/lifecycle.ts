@@ -30,9 +30,9 @@ export function registerStaffLifecycleRoutes(app: FastifyInstance, deps: ModuleD
     permission: 'staff.anonymise',
     body: AnonymiseRequest,
     response: StaffDetailByAudience,
-    handler: async ({ context, body, param }) => {
+    handler: async ({ context, body, param, request }) => {
       const staffId = recordId(param('staffId'))
-      return withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+      const { response, photoKey } = await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
         await lockSchool(conn, context.schoolId)
         await authorizeResource(conn, context, 'staff.anonymise', 'staff', staffId)
 
@@ -59,6 +59,9 @@ export function registerStaffLifecycleRoutes(app: FastifyInstance, deps: ModuleD
             bank_account_last4: null,
             pan_last4: null,
             qualification: null,
+            photo_storage_key: null,
+            photo_content_type: null,
+            photo_updated_at: null,
             anonymised_at: new Date(),
           },
         })
@@ -72,8 +75,22 @@ export function registerStaffLifecycleRoutes(app: FastifyInstance, deps: ModuleD
           note: body.reason,
         })
 
-        return staffDetail(conn, context, await reloadStaff(conn, context.schoolId, staffId))
+        return {
+          response: await staffDetail(conn, context, await reloadStaff(conn, context.schoolId, staffId)),
+          // The photograph is bytes in the private store, so the row is
+          // cleared here and the bytes go after the commit.
+          photoKey: current.photoStorageKey,
+        }
       })
+
+      if (photoKey !== null) {
+        try {
+          await deps.documents.remove(photoKey)
+        } catch (error) {
+          request.log.warn({ err: error }, 'a photograph could not be removed after anonymisation')
+        }
+      }
+      return response
     },
   })
 }

@@ -1,9 +1,10 @@
-# Browser tests for session transitions
+# Browser tests for session transitions and downloads
 
-Six Playwright tests that drive the real web app against the real API, in
+Seven Playwright tests that drive the real web app against the real API, in
 Chromium. They cover the moments where one identity's data could leak into the
-next one's screen: sign-out, school switch, suspension, a typed address outside
-a teacher's sections, and tampered browser storage.
+next one's screen — sign-out, school switch, suspension, a typed address outside
+a teacher's sections, and tampered browser storage — and the one place the app
+hands a person a file to keep.
 
 Nothing here decides access. Every assertion is about what the server allowed
 and what the browser then showed.
@@ -85,6 +86,7 @@ over the base32 secret the enrolment published.
 | `school-switch-in-flight.spec.ts` | The same, across a school switch by a person with two memberships |
 | `suspension.spec.ts` | An owner suspends a teacher who is signed in at that moment, in another browser context; the teacher's next navigation lands on the refusal ("No school yet", whose copy names suspension, because `/api/me` lists active memberships only), never on the roster |
 | `tampering.spec.ts` | `localStorage`, `sessionStorage` and readable cookies that look like a role or a school override change no role, no school and no control |
+| `exports.spec.ts` | An owner picks rows on the roster and "Export to Excel" saves a real `.xlsx`; "Export PDF" on one student's record saves a real `.pdf`. It enrols a second factor for the owner and hands it back afterwards, so the suspension test still starts from nothing |
 
 Two halves of the plan row for production output live elsewhere, on purpose:
 the shipped bundle is checked by the release track's `pnpm check:assets`

@@ -1,19 +1,11 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { Download, X } from 'lucide-react'
-import { useState } from 'react'
 import { toast } from 'sonner'
+import { useExportDownload } from '@/components/shared/export-download'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { describeError } from '@/lib/api-errors'
-import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
-
-const STATUS_TEXT: Record<'queued' | 'ready' | 'failed' | 'expired', string> = {
-  queued: 'Preparing your export…',
-  ready: 'Export ready. Downloading a file is not built yet, so ask the office for it.',
-  failed: 'The export could not be prepared. Try again.',
-  expired: 'That export is no longer available. Ask for a new one.',
-}
 
 /**
  * Floating bar shown when roster rows are selected. Export is the only bulk action the server
@@ -21,20 +13,13 @@ const STATUS_TEXT: Record<'queued' | 'ready' | 'failed' | 'expired', string> = {
  */
 export function StudentBulkBar({ ids, onClear }: { ids: string[]; onClear: () => void }) {
   const { schoolId, hasPermission } = useSchoolContext()
-  const [jobId, setJobId] = useState<string | null>(null)
+  const exportFile = useExportDownload({ className: 'px-2 pb-1' })
   const canExport = hasPermission('students.export')
-
-  const job = useQuery({
-    queryKey: qk.exportJob(schoolId, jobId ?? ''),
-    queryFn: () => api.files.exportJob(schoolId, jobId!),
-    enabled: jobId !== null,
-    refetchInterval: (query) => (query.state.data?.status === 'queued' ? 3000 : false),
-  })
 
   const start = useMutation({
     mutationFn: () => api.students.export(schoolId, { studentIds: ids }),
     onSuccess: (created) => {
-      setJobId(created.id)
+      exportFile.start(created)
       toast.success('Export started')
     },
     onError: (error) => toast.error(describeError(error)),
@@ -50,12 +35,12 @@ export function StudentBulkBar({ ids, onClear }: { ids: string[]; onClear: () =>
           {canExport && (
             <Button variant="ghost" size="sm" disabled={start.isPending} onClick={() => start.mutate()}>
               <Download />
-              {start.isPending ? 'Starting…' : 'Export selected'}
+              {start.isPending ? 'Starting…' : 'Export to Excel'}
             </Button>
           )}
           <Button variant="ghost" size="icon-sm" aria-label="Clear selection" onClick={onClear}><X /></Button>
         </div>
-        {job.data && <p className="px-2 pb-1 text-[12.5px] text-muted-foreground">{STATUS_TEXT[job.data.status]}</p>}
+        {exportFile.status}
       </div>
     </div>
   )

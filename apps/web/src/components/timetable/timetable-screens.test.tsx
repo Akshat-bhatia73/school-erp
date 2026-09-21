@@ -48,11 +48,13 @@ const timetable = {
   createSubstitution: vi.fn(),
   deleteSubstitution: vi.fn(),
   notifySubstitutions: vi.fn(),
+  export: vi.fn(),
 }
 const setup = { academicYears: vi.fn(), grades: vi.fn(), sections: vi.fn(), gradeSubjects: vi.fn() }
 const staff = { search: vi.fn() }
+const files = { exportJob: vi.fn(), downloadExportFile: vi.fn() }
 
-vi.mock('@/lib/api', () => ({ api: { timetable, setup, staff } }))
+vi.mock('@/lib/api', () => ({ api: { timetable, setup, staff, files } }))
 
 const SCHOOL_ID = '10000000-0000-4000-8000-000000000001'
 const YEAR = { id: 'year-1', schoolId: SCHOOL_ID, name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', status: 'current' as const, version: 1 }
@@ -104,6 +106,25 @@ describe('Class timetable', () => {
     expect((await screen.findAllByText('Mathematics')).length).toBeGreaterThan(0)
     expect(screen.getByText('Meera Joshi')).toBeInTheDocument()
     expect(timetable.forSection).toHaveBeenCalledWith(SCHOOL_ID, SECTION.id, { academicYearId: YEAR.id })
+  })
+
+  it('exports the week on screen as Excel', async () => {
+    searchParams = { gradeId: GRADE.id, sectionId: SECTION.id }
+    timetable.export.mockResolvedValue({ id: 'job-1', status: 'queued' })
+    files.exportJob.mockResolvedValue({ id: 'job-1', status: 'queued' })
+    const { Page } = await import('@/routes/_app/timetable/index')
+    renderWithSession(<TooltipProvider><Page /></TooltipProvider>, {
+      capabilities: ['academic_years.read', 'grades.read', 'sections.read', 'timetable.read'],
+    })
+
+    // The toolbar renders its actions twice, once for the phone strip and once for wide screens.
+    const [exportButton] = await screen.findAllByRole('button', { name: /export/i })
+    await userEvent.click(exportButton!)
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Excel' }))
+
+    await waitFor(() => expect(timetable.export).toHaveBeenCalledWith(SCHOOL_ID, {
+      academicYearId: YEAR.id, format: 'xlsx', view: { kind: 'section', sectionId: SECTION.id },
+    }))
   })
 
   it('hides Generate when the section does not allow it', async () => {
@@ -248,6 +269,24 @@ describe('Teacher loads', () => {
     expect(await screen.findByText('22 periods / week')).toBeInTheDocument()
     await waitFor(() => expect(timetable.forStaff).toHaveBeenCalledWith(SCHOOL_ID, 'staff-1', { academicYearId: YEAR.id }))
   })
+
+  it('exports the teacher week on screen as a PDF', async () => {
+    searchParams = { staffId: 'staff-1' }
+    timetable.teacherLoads.mockResolvedValue([{ teacher: { id: 'staff-1', name: 'Meera Joshi' }, periodsPerWeek: 22, sectionsCount: 4, subjectsCount: 2 }])
+    timetable.export.mockResolvedValue({ id: 'job-2', status: 'queued' })
+    files.exportJob.mockResolvedValue({ id: 'job-2', status: 'queued' })
+    const { Page } = await import('@/routes/_app/timetable/teachers')
+    renderWithSession(<Page />, {
+      capabilities: ['academic_years.read', 'timetable.read', 'timetable.read_teacher_loads'],
+    })
+
+    await userEvent.click(await screen.findByRole('button', { name: /export/i }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'PDF' }))
+
+    await waitFor(() => expect(timetable.export).toHaveBeenCalledWith(SCHOOL_ID, {
+      academicYearId: YEAR.id, format: 'pdf', view: { kind: 'teacher', staffId: 'staff-1' },
+    }))
+  })
 })
 
 describe('Substitutions', () => {
@@ -314,6 +353,29 @@ describe('Substitutions', () => {
     await waitFor(() => expect(timetable.createSubstitution).toHaveBeenCalledWith(SCHOOL_ID, expect.objectContaining({
       date: '2026-09-15', sectionId: SECTION.id, periodIndex: 0, substituteStaffId: 'staff-3',
     })))
+  })
+
+  it('lists who is free period by period, with the load for that day', async () => {
+    timetable.freeTeachers.mockResolvedValue([{ teacher: { id: 'staff-3', name: 'Third Teacher' }, teachesSubject: false, periodsPerWeek: 3 }])
+    searchParams = { date: '2026-09-15' }
+    const { Page } = await import('@/routes/_app/timetable/substitutions')
+    renderWithSession(<Page />, {
+      capabilities: ['academic_years.read', 'timetable.read', 'staff.read_directory', 'timetable.manage_entries'],
+    })
+
+    expect(await screen.findByText('Free teachers today')).toBeInTheDocument()
+    expect(await screen.findByText('Third Teacher')).toBeInTheDocument()
+    // The day holds one period and the teacher is free in it, so nothing is taught today.
+    expect(screen.getByText('0 periods today')).toBeInTheDocument()
+  })
+
+  it('does not show the free teacher panel without the permission that read needs', async () => {
+    const { Page } = await import('@/routes/_app/timetable/substitutions')
+    renderWithSession(<Page />, { capabilities: ['academic_years.read', 'timetable.read', 'staff.read_directory'] })
+
+    expect(await screen.findByText('No one is away')).toBeInTheDocument()
+    expect(screen.queryByText('Free teachers today')).not.toBeInTheDocument()
+    expect(timetable.freeTeachers).not.toHaveBeenCalled()
   })
 
   it('shows one sentence when the day is refused', async () => {

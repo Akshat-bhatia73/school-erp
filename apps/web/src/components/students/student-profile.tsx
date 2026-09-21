@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { Download, Eye, FileText, Plus, ShieldOff, Users } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { AnonymiseRequest, CONSENT_PURPOSES, ConsentMethod, UnlinkGuardianRequest, type ConsentPurpose } from '@erp/contracts'
 import { UserAvatar } from '@/components/shared/avatar'
 import { EmptyState, Facts, Panel } from '@/components/shared/page'
+import { PhotoField } from '@/components/shared/photo-field'
 import { colorFor, StatusDot, Tag, type TagColor } from '@/components/shared/tag'
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -33,25 +34,85 @@ function Refused({ what }: { what: string }) {
   return <p className="text-[13px] text-muted-foreground">You do not have permission to see {what}.</p>
 }
 
+/** How long a revealed number stays on screen before it goes back to the mask. */
+const REVEAL_SECONDS = 30
+
 /**
- * The masked id, and the full one only after an explicit, audited request. The answer is held in
- * this component and never put in the query cache, so it disappears when the record is closed.
+ * The masked id, and the full one only after an explicit, audited request.
+ *
+ * The answer lives in this component's own state and nowhere else: it is never put in the query
+ * cache, it goes when the panel or sheet holding it unmounts, and it goes on its own after
+ * thirty seconds even if the screen stays open.
  */
-function ApaarField({ studentId, masked, canReveal }: { studentId: string; masked: string; canReveal: boolean }) {
-  const { schoolId } = useSchoolContext()
-  const reveal = useMutation({
-    mutationFn: () => api.students.revealApaar(schoolId, studentId),
-    onError: (error) => toast.error(describeError(error)),
-  })
+function RevealField({ masked, canReveal, read }: { masked: string; canReveal: boolean; read: () => Promise<string> }) {
+  const [shown, setShown] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (shown === null) return
+    const timer = window.setTimeout(() => setShown(null), REVEAL_SECONDS * 1000)
+    return () => { window.clearTimeout(timer); setShown(null) }
+  }, [shown])
+
+  const onReveal = async () => {
+    setBusy(true)
+    try {
+      setShown(await read())
+    } catch (error) {
+      toast.error(describeError(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <span className="flex items-center gap-2">
-      <span className="font-mono">{reveal.data?.apaarId ?? masked}</span>
-      {canReveal && !reveal.data && (
-        <Button size="sm" variant="ghost" disabled={reveal.isPending} onClick={() => reveal.mutate()}>
-          <Eye />{reveal.isPending ? 'Getting…' : 'Reveal'}
+      <span className="font-mono">{shown ?? masked}</span>
+      {canReveal && shown === null && (
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void onReveal()}>
+          <Eye />{busy ? 'Getting…' : 'Reveal'}
         </Button>
       )}
     </span>
+  )
+}
+
+/**
+ * The student's photograph. A photo may only be held while the family has said yes to it, so when
+ * this screen can see the consent answers and none of them is a yes, the controls are replaced by
+ * a plain sentence. Somebody who cannot read consents still sees the controls: the server checks
+ * the same rule and refuses.
+ */
+function StudentPhotoPanel({ student, canReadConsents }: { student: StudentDetail['student']; canReadConsents: boolean }) {
+  const { schoolId } = useSchoolContext()
+  const queryClient = useQueryClient()
+  const consents = useQuery({
+    queryKey: qk.studentConsents(schoolId, student.id),
+    queryFn: () => api.students.consents(schoolId, student.id),
+    enabled: canReadConsents,
+  })
+
+  const answers = (consents.data?.items ?? []).filter((row) => row.purpose === 'photographs')
+  const photographsGranted = answers.some((row) => row.status === 'given') && !answers.some((row) => row.status === 'withdrawn')
+  const known = canReadConsents && consents.isSuccess
+  const refresh = () => queryClient.invalidateQueries({ queryKey: [schoolId, 'students'] })
+
+  return (
+    <Panel title="Photo" description="Shown on the class list and on this record.">
+      <PhotoField
+        name={fullName(student)}
+        src={student.hasPhoto ? api.students.photoUrl(schoolId, student.id, student.photoUpdatedAt) : undefined}
+        note={known && !photographsGranted ? 'Photo upload needs the photographs consent from the parent.' : undefined}
+        onUpload={async (file) => {
+          await api.students.uploadPhoto(schoolId, student.id, file, student.version)
+          await refresh()
+        }}
+        onRemove={async () => {
+          await api.students.removePhoto(schoolId, student.id, student.version)
+          await refresh()
+        }}
+      />
+    </Panel>
   )
 }
 
@@ -60,6 +121,7 @@ function ApaarField({ studentId, masked, canReveal }: { studentId: string; maske
  * medical, guardian contacts) is simply not rendered: there is no placeholder for private data.
  */
 export function OverviewTab({ detail, showGuardianContacts }: { detail: StudentDetail; showGuardianContacts: boolean }) {
+  const { schoolId } = useSchoolContext()
   const { student, sensitive, medical, guardianContacts, allowedActions } = detail
   return (
     <div className="grid gap-4">
@@ -80,6 +142,10 @@ export function OverviewTab({ detail, showGuardianContacts }: { detail: StudentD
         />
       </Panel>
 
+      {allows(allowedActions, 'students.update_basic') && (
+        <StudentPhotoPanel student={student} canReadConsents={allows(allowedActions, 'students.read_consents')} />
+      )}
+
       {sensitive && (
         <Panel title="Personal details">
           <Facts
@@ -90,11 +156,28 @@ export function OverviewTab({ detail, showGuardianContacts }: { detail: StudentD
               { label: 'Category', value: sensitive.category },
               { label: 'Admission type', value: sensitive.admissionType },
               { label: 'Admission date', value: formatDate(sensitive.admissionDate) },
-              { label: 'Aadhaar last 4', value: sensitive.aadhaarLast4 ? <span className="font-mono">•••• {sensitive.aadhaarLast4}</span> : undefined },
+              {
+                label: 'Aadhaar',
+                value: sensitive.aadhaarLast4
+                  ? (
+                      <RevealField
+                        masked={`ending ${sensitive.aadhaarLast4}`}
+                        canReveal={allows(allowedActions, 'students.read_sensitive')}
+                        read={async () => (await api.students.revealAadhaar(schoolId, student.id)).aadhaar}
+                      />
+                    )
+                  : undefined,
+              },
               {
                 label: 'APAAR ID',
                 value: sensitive.apaarMasked
-                  ? <ApaarField studentId={student.id} masked={sensitive.apaarMasked} canReveal={allows(allowedActions, 'students.read_sensitive')} />
+                  ? (
+                      <RevealField
+                        masked={sensitive.apaarMasked}
+                        canReveal={allows(allowedActions, 'students.read_sensitive')}
+                        read={async () => (await api.students.revealApaar(schoolId, student.id)).apaarId}
+                      />
+                    )
                   : undefined,
               },
               { label: 'Address', value: sensitive.address },
@@ -127,7 +210,13 @@ export function OverviewTab({ detail, showGuardianContacts }: { detail: StudentD
   )
 }
 
-export function GuardiansTab({ studentId, studentVersion, canManage }: { studentId: string; studentVersion: number; canManage: boolean }) {
+export function GuardiansTab({ studentId, studentVersion, canManage, allowedActions }: {
+  studentId: string
+  studentVersion: number
+  canManage: boolean
+  /** The student record's own actions: the guardian list carries none of its own. */
+  allowedActions: StudentDetail['allowedActions']
+}) {
   const { schoolId } = useSchoolContext()
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
@@ -135,6 +224,8 @@ export function GuardiansTab({ studentId, studentVersion, canManage }: { student
   const [unlinking, setUnlinking] = useState<{ id: string; name: string } | null>(null)
   const [unlinkReason, setUnlinkReason] = useState('')
   const [unlinkError, setUnlinkError] = useState<string | null>(null)
+  // Reading a guardian record is what the reveal asks for again, one guardian at a time.
+  const canReveal = allows(allowedActions, 'students.read_guardians')
 
   const unlink = useMutation({
     mutationFn: (body: { expectedVersion: number; reason: string }) =>
@@ -190,6 +281,40 @@ export function GuardiansTab({ studentId, studentVersion, canManage }: { student
                       <div className="mt-1 font-mono text-[12.5px] text-muted-foreground">{guardian.phone}</div>
                       {guardian.occupation && <div className="text-[12.5px] text-muted-foreground">{guardian.occupation}</div>}
                       {guardian.address && <div className="text-[12.5px] text-muted-foreground">{guardian.address}</div>}
+                      {guardian.officeAddress && <div className="text-[12.5px] text-muted-foreground">Office: {guardian.officeAddress}</div>}
+                      {/*
+                        Identity numbers are never echoed back with the record: the list carries
+                        the last digits only, and the whole number comes from its own audited
+                        read, held here and forgotten again.
+                      */}
+                      {guardian.panLast4 && (
+                        <div className="mt-1 text-[12.5px] text-muted-foreground">
+                          PAN{' '}
+                          <RevealField
+                            masked={`ending ${guardian.panLast4}`}
+                            canReveal={canReveal}
+                            read={async () => {
+                              const revealed = await api.students.revealGuardianIdentity(schoolId, studentId, guardian.id)
+                              if (!revealed.pan) throw new Error('no pan')
+                              return revealed.pan
+                            }}
+                          />
+                        </div>
+                      )}
+                      {guardian.aadhaarLast4 && (
+                        <div className="text-[12.5px] text-muted-foreground">
+                          Aadhaar{' '}
+                          <RevealField
+                            masked={`ending ${guardian.aadhaarLast4}`}
+                            canReveal={canReveal}
+                            read={async () => {
+                              const revealed = await api.students.revealGuardianIdentity(schoolId, studentId, guardian.id)
+                              if (!revealed.aadhaar) throw new Error('no aadhaar')
+                              return revealed.aadhaar
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                     {canManage && version !== undefined && (
                       <Button
@@ -202,6 +327,9 @@ export function GuardiansTab({ studentId, studentVersion, canManage }: { student
                           phone: guardian.phone,
                           occupation: guardian.occupation,
                           address: guardian.address,
+                          officeAddress: guardian.officeAddress,
+                          panLast4: guardian.panLast4,
+                          aadhaarLast4: guardian.aadhaarLast4,
                         })}
                       >
                         Edit

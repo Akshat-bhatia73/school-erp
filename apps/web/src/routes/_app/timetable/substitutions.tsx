@@ -15,6 +15,7 @@ import { DataTable } from '@/components/shared/data-table'
 import { EmptyState, PageHeader, Panel, Toolbar } from '@/components/shared/page'
 import { Tag, colorFor } from '@/components/shared/tag'
 import { AbsentTeacherPanel } from '@/components/timetable/absent-teacher-panel'
+import { FreeTeachersToday } from '@/components/timetable/free-teachers-today'
 import { TimetableTabs } from '@/components/timetable/timetable-tabs'
 import { dayOfWeekFor } from '@/components/timetable/day-selector'
 import { NoAcademicYearState } from '@/components/timetable/states'
@@ -49,7 +50,7 @@ export function Page() {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const queryClient = useQueryClient()
-  const { schoolId } = useSchoolContext()
+  const { schoolId, hasPermission } = useSchoolContext()
   const { currentYearId, isLoading: yearLoading } = useAcademicYear()
   const yearId = currentYearId ?? ''
 
@@ -88,6 +89,10 @@ export function Page() {
     for (const id of dismissed) byId.delete(id)
     return [...byId.values()]
   }, [subs, extraAbsent, dismissed])
+
+  // The free-teacher read is gated on this permission, so people without it
+  // are not shown a panel they cannot fill.
+  const canSeeFreeTeachers = hasPermission('timetable.manage_entries')
 
   const pending = subs.filter((s) => !s.notified).length
 
@@ -168,6 +173,10 @@ export function Page() {
                 ? <p className="text-[13px] text-muted-foreground">Nobody marked away yet.{canManage ? ' Add a teacher to plan arrangements.' : ''}</p>
                 : <p className="text-[13px] text-muted-foreground">{absentTeachers.length} {absentTeachers.length === 1 ? 'teacher is' : 'teachers are'} away on {weekday}.</p>}
             </Panel>
+
+            {canSeeFreeTeachers && yearId ? (
+              <FreeTeachersToday academicYearId={yearId} dayOfWeek={dayOfWeek} bell={bell} weekday={weekday} />
+            ) : null}
 
             {absentTeachers.length === 0 ? (
               <EmptyState icon={<UserMinus />} title="No one is away" description={canManage ? 'Pick a teacher above to arrange cover for their periods.' : 'Nothing has been arranged for this day.'} />

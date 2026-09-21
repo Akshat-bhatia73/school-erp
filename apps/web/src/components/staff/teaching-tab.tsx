@@ -23,6 +23,7 @@ import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
 import { useAcademicYear } from '@/lib/use-academic-year'
 import { formatDate } from '@/lib/utils'
+import { focusFirstInvalid } from '@/lib/validation'
 import { Field, SelectField, TextField, fieldErrorsFrom, type FieldErrors } from './form'
 import { sectionLabel } from './shared'
 
@@ -199,7 +200,8 @@ function AssignmentEditor({ staffId, staffVersion }: { staffId: string; staffVer
       reason,
     })
     if (!parsed.success) {
-      setErrors(fieldErrorsFrom(parsed.error.issues))
+      setErrors(fieldErrorsFrom(parsed.error))
+      requestAnimationFrame(() => focusFirstInvalid())
       return
     }
     setErrors({})

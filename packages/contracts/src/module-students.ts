@@ -1,6 +1,7 @@
 /** Task 5 request and response contracts owned by the students module. */
 import { z } from 'zod'
 import { CalendarDate, DisplayName, Id, Phone, Version } from './common.ts'
+import { AadhaarNumber, PanNumber } from './identifiers.ts'
 import { AdmitConsent } from './module-lifecycle.ts'
 
 /** The relationship vocabulary a guardian link may use. Mirrors GuardianContact. */
@@ -13,13 +14,20 @@ export const StudentsGuardianRelation = z.enum([
   'other',
 ])
 
-/** A guardian the caller wants created. No income, no photo, no free identifiers. */
+/**
+ * A guardian the caller wants created. No income and no photo. The identity
+ * numbers are optional and are sealed by the server on the way in, exactly as
+ * the student's are: nothing here is ever read back whole.
+ */
 export const StudentsNewGuardian = z.strictObject({
   firstName: DisplayName,
   lastName: DisplayName.optional(),
   phone: Phone,
   occupation: z.string().trim().max(200).optional(),
   address: z.string().trim().max(1000).optional(),
+  officeAddress: z.string().trim().max(1000).optional(),
+  pan: PanNumber.optional(),
+  aadhaar: AadhaarNumber.optional(),
 })
 
 /**
@@ -55,6 +63,8 @@ export const StudentsAdmitRequest = z.strictObject({
   admissionType: z.string().trim().max(50).optional(),
   admissionDate: CalendarDate,
   address: z.string().trim().max(1000).optional(),
+  // Optional at admission: the office often has the form before the number.
+  aadhaar: AadhaarNumber.optional(),
   sectionId: Id,
   rollNumber: z.number().int().positive().optional(),
   guardians: z.array(StudentsAdmitGuardian).min(1).max(5),
@@ -70,7 +80,9 @@ export const StudentsUpdateSensitiveRequest = z
     category: z.string().trim().max(50).optional(),
     admissionType: z.string().trim().max(50).optional(),
     address: z.string().trim().max(1000).optional(),
-    aadhaarLast4: z.string().regex(/^\d{4}$/).optional(),
+    // The whole number, or null to clear it. The last four digits are derived
+    // by the server, so a caller can never set the masked form by hand.
+    aadhaar: AadhaarNumber.nullable().optional(),
     apaarId: z.string().trim().max(100).optional(),
     bloodGroup: z.string().trim().max(20).optional(),
     medicalNotes: z.string().trim().max(4000).optional(),
@@ -92,6 +104,10 @@ export const StudentsUpdateGuardianRequest = z
     phone: Phone.optional(),
     occupation: z.string().trim().max(200).optional(),
     address: z.string().trim().max(1000).optional(),
+    // Null clears the field; leaving it out changes nothing.
+    officeAddress: z.string().trim().max(1000).nullable().optional(),
+    pan: PanNumber.nullable().optional(),
+    aadhaar: AadhaarNumber.nullable().optional(),
     relation: StudentsGuardianRelation.optional(),
     isPrimary: z.boolean().optional(),
     receivesNotifications: z.boolean().optional(),

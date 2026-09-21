@@ -139,11 +139,16 @@ describe('Export this record', () => {
 
 describe("Download my child's record", () => {
   const child = { ...STUDENT, id: 'st-1', firstName: 'Student', lastName: 'B' }
+  const PARENT_DATA = {
+    audience: 'parent',
+    day: { date: '2026-09-21', dayOfWeek: 1, kind: 'school_day' },
+    children: [{ student: child, waitingOn: [] }],
+  }
 
   it('is offered on the child card when the parent may export, without reading the record first', async () => {
     const user = userEvent.setup()
     const { ParentDashboard } = await import('@/components/dashboard/parent-dashboard')
-    renderWithSession(<ParentDashboard students={[child] as never} />, { roleKeys: ['parent'], capabilities: ['students.read_basic', 'students.export_subject'] })
+    renderWithSession(<ParentDashboard data={PARENT_DATA as never} isLoading={false} error={null} />, { roleKeys: ['parent'], capabilities: ['students.read_basic', 'students.export_subject'] })
 
     await user.click(await screen.findByRole('button', { name: /download my child's record/i }))
 
@@ -155,7 +160,7 @@ describe("Download my child's record", () => {
 
   it('is not offered when the parent may not export', async () => {
     const { ParentDashboard } = await import('@/components/dashboard/parent-dashboard')
-    renderWithSession(<ParentDashboard students={[child] as never} />, { roleKeys: ['parent'], capabilities: ['students.read_basic'] })
+    renderWithSession(<ParentDashboard data={PARENT_DATA as never} isLoading={false} error={null} />, { roleKeys: ['parent'], capabilities: ['students.read_basic'] })
 
     expect(await screen.findByText('Student B')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /download my child's record/i })).not.toBeInTheDocument()

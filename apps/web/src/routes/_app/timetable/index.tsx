@@ -12,6 +12,7 @@ import { FilterChip, ToolbarButton } from '@/components/shared/filter-chip'
 import { EmptyState, PageHeader, Panel, Toolbar } from '@/components/shared/page'
 import { Tag, colorFor } from '@/components/shared/tag'
 import { TimetableTabs } from '@/components/timetable/timetable-tabs'
+import { TimetableExportMenu } from '@/components/timetable/export-menu'
 import { TimetableGrid, periodNameFor } from '@/components/timetable/timetable-grid'
 import { DAY_LABELS, DaySelector, defaultDay } from '@/components/timetable/day-selector'
 import { NoAcademicYearState } from '@/components/timetable/states'
@@ -187,6 +188,9 @@ export function Page() {
           <>
             {canGenerate && (
               <ToolbarButton icon={<Wand2 />} onClick={() => setConfirmGenerate(true)}>Generate from assignments</ToolbarButton>
+            )}
+            {sectionId && yearId && (
+              <TimetableExportMenu academicYearId={yearId} view={{ kind: 'section', sectionId }} />
             )}
             <Tooltip>
               <TooltipTrigger asChild>

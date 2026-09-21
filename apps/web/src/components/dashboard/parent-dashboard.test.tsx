@@ -1,0 +1,145 @@
+/**
+ * The parent home: one card per child, today's classes, the next holiday and anything the school
+ * is still waiting for.
+ */
+import type { ReactNode } from 'react'
+import { screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ParentDashboard as ParentDashboardData } from '@erp/contracts'
+import { ParentDashboard } from '@/components/dashboard/parent-dashboard'
+import { renderWithSession } from '@/test/session'
+
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>()
+  return {
+    ...actual,
+    createFileRoute: () => (options: unknown) => options,
+    Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
+    useNavigate: () => vi.fn(),
+  }
+})
+
+const photoUrl = vi.fn(() => 'blob:photo')
+const consents = vi.fn()
+const studentGet = vi.fn()
+
+vi.mock('@/lib/api', () => ({
+  api: {
+    students: {
+      photoUrl: (...args: unknown[]) => photoUrl(...(args as [])),
+      consents: (...args: unknown[]) => consents(...args),
+      get: (...args: unknown[]) => studentGet(...args),
+      recordConsent: vi.fn(),
+      subjectAccess: vi.fn(),
+    },
+  },
+}))
+
+const SCHOOL = '10000000-0000-4000-8000-000000000001'
+
+function child(patch: Partial<ParentDashboardData['children'][number]> = {}): ParentDashboardData['children'][number] {
+  return {
+    student: {
+      id: 'st-1', schoolId: SCHOOL, version: 1, firstName: 'Aarav', lastName: 'Sharma',
+      admissionNumber: 'SVM/2026/101', status: 'active', anonymised: false, hasPhoto: false,
+    },
+    enrollment: {
+      id: 'e1', academicYear: { id: 'year-1', name: '2026-27' },
+      section: { id: 'sec-1', name: 'A' }, grade: { id: 'g1', name: 'Six' },
+      rollNumber: 7, outcome: 'ongoing',
+    },
+    classTeacher: { id: 'sf-1', name: 'Meena Iyer' },
+    todayLessons: [
+      { periodIndex: 1, name: 'Period 1', startTime: '08:00', endTime: '08:45', type: 'period', lesson: { section: { id: 'sec-1', name: 'Six A' }, subject: { id: 'sub-1', name: 'Mathematics' }, cover: false } },
+    ],
+    nextHoliday: { id: 'h1', name: 'Diwali', startDate: '2026-11-08', endDate: '2026-11-12', type: 'festival' },
+    waitingOn: [],
+    ...patch,
+  } as ParentDashboardData['children'][number]
+}
+
+function parent(patch: Partial<ParentDashboardData> = {}): ParentDashboardData {
+  return {
+    audience: 'parent',
+    day: { date: '2026-09-21', dayOfWeek: 1, kind: 'school_day' },
+    children: [child()],
+    ...patch,
+  } as ParentDashboardData
+}
+
+function renderParent(data: ParentDashboardData) {
+  return renderWithSession(<ParentDashboard data={data} isLoading={false} error={undefined} />, {
+    roleKeys: ['parent'],
+    capabilities: ['dashboard.read', 'students.read_basic', 'students.read_consents'],
+  })
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  consents.mockResolvedValue({ items: [], allowedActions: [] })
+  studentGet.mockResolvedValue({ student: null, guardianContacts: [], allowedActions: [] })
+})
+
+describe('parent dashboard', () => {
+  it('shows one card per child with the class, the class teacher and today', () => {
+    renderParent(parent({
+      children: [
+        child(),
+        child({ student: { id: 'st-2', schoolId: SCHOOL, version: 1, firstName: 'Diya', admissionNumber: 'SVM/2026/102', status: 'active', anonymised: false, hasPhoto: false } }),
+      ],
+    }))
+    expect(screen.getByText('Aarav Sharma')).toBeInTheDocument()
+    expect(screen.getByText('Diya')).toBeInTheDocument()
+    // Per child: the header tag and the Class fact. Today's rows lead with the subject.
+    expect(screen.getAllByText('Six A')).toHaveLength(4)
+    expect(screen.getAllByText('Roll 7')).toHaveLength(2)
+    expect(screen.getAllByText('Meena Iyer')).toHaveLength(2)
+    expect(screen.getAllByText('Mathematics')).toHaveLength(2)
+    expect(screen.getAllByText('Diwali, 8 Nov 2026 to 12 Nov 2026')).toHaveLength(2)
+  })
+
+  it('says all done when nothing is waiting, and names each consent when something is', () => {
+    const { unmount } = renderParent(parent())
+    expect(screen.getByText('All done.')).toBeInTheDocument()
+    unmount()
+
+    renderParent(parent({
+      children: [child({ waitingOn: [{ kind: 'consent', purpose: 'photographs' }, { kind: 'consent', purpose: 'health_information' }] })],
+    }))
+    expect(screen.getByText('Consent for photographs')).toBeInTheDocument()
+    expect(screen.getByText('Consent for health information')).toBeInTheDocument()
+    expect(screen.getAllByText('Waiting')).toHaveLength(2)
+  })
+
+  it('says there is no school today instead of an empty timetable', () => {
+    renderParent(parent({
+      day: { date: '2026-10-02', dayOfWeek: 5, kind: 'holiday', holidayName: 'Gandhi Jayanti' },
+      children: [child({ todayLessons: [] })],
+    }))
+    expect(screen.getByText('No school today. Gandhi Jayanti.')).toBeInTheDocument()
+  })
+
+  it('says nothing is on the timetable when a school day has no lessons', () => {
+    renderParent(parent({ children: [child({ todayLessons: [] })] }))
+    expect(screen.getByText('Nothing on the timetable today.')).toBeInTheDocument()
+  })
+
+  it('does not claim a class or a holiday the server did not send', () => {
+    renderParent(parent({ children: [child({ enrollment: undefined, classTeacher: undefined, nextHoliday: undefined })] }))
+    expect(screen.getByText('Not in a class this year')).toBeInTheDocument()
+    expect(screen.getByText('Not set yet')).toBeInTheDocument()
+    expect(screen.getByText('No holiday in the next 30 days.')).toBeInTheDocument()
+  })
+
+  it('says so plainly when no child is linked to the login', () => {
+    renderParent(parent({ children: [] }))
+    expect(screen.getByText('No child is linked to your login yet')).toBeInTheDocument()
+    expect(screen.getByText('Ask the school office to link your children to your account.')).toBeInTheDocument()
+  })
+
+  it('opens the consent block only when the parent asks for it', () => {
+    renderParent(parent())
+    expect(screen.getByRole('button', { name: 'Manage consent' })).toBeInTheDocument()
+    expect(consents).not.toHaveBeenCalled()
+  })
+})

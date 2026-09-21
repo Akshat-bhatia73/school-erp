@@ -9,6 +9,7 @@ import { academicYears, enrollments, grades, sections, staff, students } from '@
 import { AuthorizationError, planPredicate, scopedTableFor } from '@erp/authz'
 import type { AuthzConnection } from '@erp/authz'
 import { protectedRoute, readPlan } from '../shared/index.ts'
+import { photoMoment } from '../students/project.ts'
 import type { ModuleDependencies } from '../shared/route.ts'
 
 /** The command menu never shows more than this many rows of either kind. */
@@ -69,6 +70,8 @@ async function findStudents(conn: AuthzConnection, context: RequestContext, term
       admissionNumber: students.admissionNumber,
       status: students.status,
       anonymisedAt: students.anonymisedAt,
+      hasPhoto: sql<boolean>`(${students.photoStorageKey} IS NOT NULL)`,
+      photoUpdatedAt: students.photoUpdatedAt,
     })
     .from(students)
     .where(and(planPredicate(plan, table), matches))
@@ -84,6 +87,11 @@ async function findStudents(conn: AuthzConnection, context: RequestContext, term
     admissionNumber: row.admissionNumber,
     status: row.status as Student['status'],
     anonymised: row.anonymisedAt !== null,
+    // A hit says whether there is a photograph, never where its bytes live.
+    hasPhoto: row.hasPhoto === true,
+    ...(photoMoment(row.photoUpdatedAt) === undefined
+      ? {}
+      : { photoUpdatedAt: photoMoment(row.photoUpdatedAt) as string }),
   }))
   if (found.length === 0) return found
 
@@ -175,6 +183,8 @@ async function findStaff(conn: AuthzConnection, context: RequestContext, term: s
       designation: staff.designation,
       department: staff.department,
       anonymisedAt: staff.anonymisedAt,
+      hasPhoto: sql<boolean>`(${staff.photoStorageKey} IS NOT NULL)`,
+      photoUpdatedAt: staff.photoUpdatedAt,
     })
     .from(staff)
     .where(and(planPredicate(plan, table), matches))
@@ -188,6 +198,10 @@ async function findStaff(conn: AuthzConnection, context: RequestContext, term: s
     displayName: row.lastName === null ? row.firstName : `${row.firstName} ${row.lastName}`,
     designation: row.designation,
     anonymised: row.anonymisedAt !== null,
+    hasPhoto: row.hasPhoto === true,
+    ...(photoMoment(row.photoUpdatedAt) === undefined
+      ? {}
+      : { photoUpdatedAt: photoMoment(row.photoUpdatedAt) as string }),
     ...(row.department === null ? {} : { department: row.department }),
   }))
 }

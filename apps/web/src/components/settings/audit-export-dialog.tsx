@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { AUDIT_EXPORT_MAX_DAYS, AuditExportRequest } from '@erp/contracts'
 import { api } from '@/lib/api'
-import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
 import { describeError } from '@/lib/api-errors'
 import { Tag } from '@/components/shared/tag'
+import { useExportDownload } from '@/components/shared/export-download'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -29,20 +29,15 @@ export function AuditExportDialog({ open, onOpenChange }: { open: boolean; onOpe
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [jobId, setJobId] = useState<string | null>(null)
+  const exportFile = useExportDownload()
 
   const start = useMutation({
     mutationFn: (body: { from: string; to: string }) => api.audit.export(schoolId, body),
-    onSuccess: (job) => { setJobId(job.id); toast.success('We are preparing the export') },
+    onSuccess: (job) => { exportFile.start(job); toast.success('We are preparing the export') },
     onError: (caught) => toast.error(describeError(caught)),
   })
 
-  const { data: job } = useQuery({
-    queryKey: qk.exportJob(schoolId, jobId ?? 'none'),
-    queryFn: () => api.files.exportJob(schoolId, jobId!),
-    enabled: jobId !== null,
-    refetchInterval: (query) => (query.state.data?.status === 'queued' ? 3000 : false),
-  })
+  const job = exportFile.job
 
   const submit = () => {
     const fromIso = isoFrom(from, false)
@@ -79,13 +74,13 @@ export function AuditExportDialog({ open, onOpenChange }: { open: boolean; onOpe
           {job && (
             <div className="grid gap-1.5 rounded-xl border p-3">
               <Tag color={STATUS_COLOR[job.status]} dot>{STATUS_LABEL[job.status]}</Tag>
-              <p className="text-[12.5px] text-muted-foreground">Downloading the file comes in a later build.</p>
+              {exportFile.status}
             </div>
           )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button disabled={start.isPending} onClick={submit}>Start export</Button>
+          <Button disabled={start.isPending} onClick={submit}>Export to Excel</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

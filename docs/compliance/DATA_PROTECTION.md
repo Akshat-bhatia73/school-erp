@@ -55,9 +55,9 @@ These apply to every service provider and body corporate in India and are often 
 
 ### 2.4 Identifiers with their own rules
 
-- **Aadhaar.** The Aadhaar Act and UIDAI circulars restrict storing Aadhaar numbers. The schema keeps only the last four digits, which is the accepted masking pattern. Keep it that way; never add a full-number column.
+- **Aadhaar.** The Aadhaar Act and UIDAI circulars restrict storing Aadhaar numbers. Since the office feedback work (September 2026) the whole number may be kept, because a school has to quote it for scholarships and board registrations, but only under the conditions in section 10: it is optional, it is encrypted with the application key, no screen or file shows more than the last four digits, and the only way to the whole number is one audited route behind the sensitive key. A plain-text Aadhaar column is still forbidden.
 - **APAAR.** The Automated Permanent Academic Account Registry number is a lifelong identifier for a child issued through DigiLocker. It is not regulated like Aadhaar, but it is a persistent child identifier that unlocks academic records elsewhere. The schema stores it in full and returns it in full. Treat it like Aadhaar: masked by default, revealed only under the sensitive read, encrypted at rest at the application level.
-- **PAN and bank account.** Last four digits only, correctly. Salary and guardian income are stored in full and are behind their own permissions.
+- **PAN and bank account.** A staff PAN and bank account are still last four digits only. A guardian's PAN, added in September 2026, is optional and is held the same way as the Aadhaar number above: encrypted, shown as its last four characters, revealed only through an audited route. Salary and guardian income are stored in full and are behind their own permissions.
 
 ### 2.5 SOC 2 and ISO 27001
 
@@ -75,9 +75,9 @@ The full column-level inventory was produced by reading every migration, contrac
 
 | Data subject | Identifiers and contact | Sensitive | Credentials and behaviour |
 |---|---|---|---|
-| **Student (a child)** | name, admission number, roll number, address, admission history, previous school | date of birth, gender, blood group, caste category, religion, mother tongue, nationality, Aadhaar last four, **APAAR in full**, medical notes (free text), reason for leaving (free text), document types (a caste certificate is itself sensitive), photo URL column (unused), custody and guardian-access links | none: student login is disabled by design |
-| **Guardian** | name, phone, alternate phone, email, address | occupation, qualification, **annual income**, relation to the child, photo URL column (unused) | login identity below, if they have one |
-| **Staff** | employee code, name, phone, email, address, designation, employment dates | gender, date of birth, blood group, **monthly salary**, PAN last four, bank account last four, absence and substitution records with free-text reasons | login identity below |
+| **Student (a child)** | name, admission number, roll number, address, admission history, previous school | date of birth, gender, blood group, caste category, religion, mother tongue, nationality, Aadhaar last four, **APAAR in full**, medical notes (free text), reason for leaving (free text), document types (a caste certificate is itself sensitive), **the whole Aadhaar number, encrypted**, a photograph in the private document store, custody and guardian-access links | none: student login is disabled by design |
+| **Guardian** | name, phone, alternate phone, email, address | occupation, qualification, **annual income**, relation to the child, office address, **PAN and Aadhaar number, both encrypted** | login identity below, if they have one |
+| **Staff** | employee code, name, phone, email, address, designation, employment dates | gender, date of birth, blood group, **monthly salary**, PAN last four, bank account last four, a photograph in the private document store, absence and substitution records with free-text reasons | login identity below |
 | **Login identity** (any adult) | name, email, phone | | password hash (scrypt, library default), TOTP secret and backup codes (stored as the library writes them), session tokens in clear, IP address and user agent per session, OTP and reset tokens in `auth_verification`, throttle keys that contain raw phone numbers and one raw IP |
 
 Three tables hold copies of the above outside their home rows and have no sweeper: `student_import_previews.rows` (a full copy of an uploaded admission sheet, up to 500 children with guardian phone and email), `school_invitations.identifier_normalized` (the invitee's raw email or phone, kept after acceptance), and `audit_events.safe_changes` (which carries whatever an office user typed into a "reason" box).
@@ -124,7 +124,7 @@ Ranked by what would matter most in a breach or an audit. Each has a file to tou
 | F12 | **No subject-access export.** A parent asking for everything held about their child cannot be served without direct database access, which the runbook forbids. | A `subject.export` permission and a route that assembles one student's full record through the existing read plans, audited. **Closed** by the `students.export_subject` permission, `SubjectAccessExport` in `packages/contracts/src/module-lifecycle.ts` and `apps/api/src/modules/students/subject-access.ts`; the export is audited through `auditRead`. |
 | F13 | **The runtime login can `DELETE` from every child table.** Application code never does, but nothing in SQL stops it. | Revoke `DELETE` on `students`, `guardians`, `staff`, `student_documents` and `audit_events` from the runtime; make removal a status change plus the anonymisation workflow above. A migration. **Closed** by the `REVOKE DELETE` in `packages/db/migrations/0009_data_lifecycle.sql`, with a test in `packages/db/tests/lifecycle.test.mjs`. |
 | F14 | **Dormant photo columns.** `photo_url` exists on students, guardians and staff with no upload path, no projection and no access rule. | Drop the columns until a photo feature exists with its own permission and consent purpose. **Closed**: the three `photo_url` columns are dropped in `packages/db/migrations/0009_data_lifecycle.sql`. |
-| F15 | **A student export claims to be ready with nothing behind it.** Harmless today because no download exists; a hole the moment one is added. | Insert `queued` like the other two exports. `apps/api/src/modules/students-bulk/routes.ts`. **Closed**: the job is inserted as `queued` in `apps/api/src/modules/students-bulk/routes.ts`. |
+| F15 | **A student export claims to be ready with nothing behind it.** Harmless while no download existed; a hole the moment one was added. | Insert `queued` like the other two exports. `apps/api/src/modules/students-bulk/routes.ts`. **Closed**: the job is inserted as `queued` in `apps/api/src/modules/students-bulk/routes.ts`. Task 15 added the download, so a job only reports `ready` once its bytes are stored, and the download route re-decides the caller, the access version and, for a job naming one record, that record itself (`apps/api/src/modules/files/routes.ts`). |
 
 ### 5.3 Governance and repository
 
@@ -189,3 +189,53 @@ The three tasks are done. The remaining distance to a SOC 2 Type I is organisati
 ## 9. What was checked
 
 The inventory was built by reading every migration in `packages/db/migrations`, every contract in `packages/contracts/src`, every read projection and write path in `apps/api/src/modules`, the delivery and invitation services, the audit helper and all fifty-six audit call sites, the request logger and error handler, the development seed scripts, and the browser session and HTTP client. The controls map was built from the auth handover documents, the CI workflow, the auth service, the tenant helper, the grants and triggers in the migrations, the security suite, and the GitHub repository settings readable to the author. The eight sharpest claims were re-verified line by line before this document was written.
+
+## 10. Office feedback, September 2026: identifiers and photographs
+
+A short assessment of the two new kinds of personal data, written when they were built.
+
+**What changed.** A pupil may now have a whole Aadhaar number on file, a guardian may have an
+office address, a PAN and an Aadhaar number, and a pupil or a staff member may have a photograph.
+Every one of them is optional and every form says so.
+
+**Why it is asked for.** Schools are asked for a pupil's Aadhaar number for scholarships, board
+registrations and government schemes, and for a PAN on fee receipts; the office was keeping them on
+paper or in a spreadsheet instead, which is worse for the family than keeping them here. A
+photograph is what makes a roster usable at a glance.
+
+**How the numbers are held.** The whole number is sealed with the application encryption key
+(`DATA_ENCRYPTION_KEY`) exactly as the APAAR identifier already was, and stored beside the last four
+digits. Nothing else keeps a copy: not a log line, not an audit row, not an export file. Screens,
+lists, spreadsheets and PDFs print "ending 1234" and no more. The whole number can be read back only
+through one route per number, behind `students.read_sensitive` for the pupil's and
+`students.read_guardians` for the guardian's, and every read writes an audit row naming who looked.
+The database refuses a last-four value that is not the right shape. Anonymising a record clears the
+encrypted number and the last four digits together.
+
+One copy is deliberately different. A subject access export is the answer to a person asking what we
+hold about them, so their own Aadhaar number is opened in full there, exactly as their APAAR
+identifier already was. A guardian's own PAN and Aadhaar stay as their last four characters even in
+that file: a guardian is a different person from the child the request is about, and a request made
+about a child is not a request for a parent's identity documents. A guardian who wants their own
+copy asks for it in their own name.
+
+**How photographs are held.** The bytes go to the private document store under a key no response
+ever names, and are served only by a streaming route that decides the same permission as opening the
+record. The answer carries `cache-control: private, no-store` and `x-content-type-options: nosniff`, so
+nothing keeps a copy and no browser guesses a different type. The file type is decided by reading
+the first bytes, never by the name or the claimed type, and only JPEG, PNG and WebP up to one
+megabyte are accepted. The blocks a camera writes into a photo, including where it was taken, are
+stripped before the file is stored, and the file is rebuilt from the parts that were actually read,
+so a picture whose own structure does not add up is refused instead of half stored. Nothing reaches
+the store until the caller has been allowed to change that exact record. A pupil's photograph needs the `photographs` consent: withdrawing
+it removes the picture in the same transaction and refuses the next upload. Anonymisation removes
+the bytes.
+
+**What is proved.** `tests/security/office-feedback.test.ts` (matrix rows `photo-record-scope`,
+`identifier-field-masking`, `identifier-never-whole`) submits a number once and then hunts for it in
+every detail, list, search, subject-access, spreadsheet, PDF and audit row, and drives every refusal
+around a photograph. `apps/api/tests/images.test.ts` proves the metadata stripping.
+
+**What is left.** The reveal routes have no second factor of their own; they inherit the session's,
+which for an office role means MFA at sign-in. If a school wants a fresh second factor at the moment
+of a reveal, that is a change to make once and for APAAR at the same time.

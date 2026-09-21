@@ -13,11 +13,13 @@ import {
   ExportStudentsRequest,
   GuardianDetail,
   GuardianDetailList,
+  GuardianIdentityReveal,
   MoveStudentRequest,
   PromoteStudentsRequest,
   PromotionPreview,
   PromotionResult,
   RecordConsentRequest,
+  StudentAadhaarReveal,
   StudentApaarReveal,
   StudentBasicDetail,
   StudentCreated,
@@ -40,6 +42,7 @@ import {
 } from '@erp/contracts'
 import type { z } from 'zod'
 import { request } from '@/lib/http'
+import { deletePhoto, photoSrc, putPhoto } from './photo'
 import { schoolPath, seg, withQuery } from './shared'
 
 export type StudentListParams = z.input<typeof StudentListRequest>
@@ -162,6 +165,36 @@ export function revealApaar(schoolId: string, studentId: string) {
 }
 
 /**
+ * The whole Aadhaar number, on demand and audited, exactly like the APAAR id above. Never cache
+ * this answer: the screen shows it once and forgets it when the record is closed.
+ */
+export function revealAadhaar(schoolId: string, studentId: string) {
+  return request(base(schoolId, `/${seg(studentId)}/aadhaar`), { schema: StudentAadhaarReveal })
+}
+
+/** One guardian's PAN and Aadhaar in full, on demand and audited. Never cache this answer. */
+export function revealGuardianIdentity(schoolId: string, studentId: string, guardianId: string) {
+  return request(base(schoolId, `/${seg(studentId)}/guardians/${seg(guardianId)}/identity`), { schema: GuardianIdentityReveal })
+}
+
+// ---------- photograph ----------
+
+const photoPath = (schoolId: string, studentId: string) => base(schoolId, `/${seg(studentId)}/photo`)
+
+/** The address of this student's photograph, for an `<img>` on a screen this person may see. */
+export function photoUrl(schoolId: string, studentId: string, photoUpdatedAt?: string): string {
+  return photoSrc(photoPath(schoolId, studentId), photoUpdatedAt)
+}
+
+export function uploadPhoto(schoolId: string, studentId: string, file: Blob, expectedVersion: number) {
+  return putPhoto(photoPath(schoolId, studentId), file, expectedVersion)
+}
+
+export function removePhoto(schoolId: string, studentId: string, expectedVersion: number) {
+  return deletePhoto(photoPath(schoolId, studentId), expectedVersion)
+}
+
+/**
  * Everything the school holds about one student, in one audited read, for a subject-access
  * request. Never cache this answer: the screen saves it to a file and forgets it.
  */
@@ -199,4 +232,9 @@ export function promote(schoolId: string, body: PromoteInput) {
 /** Queues an export and returns the job to poll through api.files.exportJob. */
 export function exportStudents(schoolId: string, body: ExportStudentsInput) {
   return request(base(schoolId, '/export'), { method: 'POST', body, schema: StudentExportJob })
+}
+
+/** One student's profile as a PDF. The record is named in the path, so there is no body to send. */
+export function exportProfile(schoolId: string, studentId: string) {
+  return request(base(schoolId, `/${seg(studentId)}/export-profile`), { method: 'POST', body: {}, schema: StudentExportJob })
 }

@@ -1,8 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { cloneElement, isValidElement, useState, type ReactElement } from 'react'
 import { toast } from 'sonner'
 import { StudentsUpdateSensitiveRequest, UpdateStudentBasicRequest } from '@erp/contracts'
 import { SectionLabel } from '@/components/shared/page'
+import { IdentityField } from '@/components/students/identity-fields'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -14,23 +15,34 @@ import { describeError } from '@/lib/api-errors'
 import type { StudentDetail } from '@/lib/api/students'
 import { useSchoolContext } from '@/lib/session'
 import { fullName, humanize } from '@/lib/utils'
+import { FORM_ERROR, fieldErrors, focusFirstInvalid, type FieldLabels } from '@/lib/validation'
 
 type FieldErrors = Record<string, string>
 
-function issuesOf(error: { issues: Array<{ path: PropertyKey[]; message: string }> }): FieldErrors {
-  const found: FieldErrors = {}
-  for (const issue of error.issues) {
-    const key = issue.path.map(String).join('.') || 'form'
-    if (!found[key]) found[key] = issue.message
-  }
-  return found
+const LABELS: FieldLabels = {
+  firstName: 'first name',
+  lastName: 'last name',
+  dateOfBirth: 'date of birth',
+  gender: { label: 'gender', kind: 'select' },
+  category: { label: 'category', kind: 'select' },
+  admissionType: { label: 'admission type', kind: 'select' },
+  address: 'address',
+  aadhaar: 'Aadhaar number',
+  apaarId: 'APAAR id',
+  bloodGroup: { label: 'blood group', kind: 'select' },
+  medicalNotes: 'medical notes',
 }
 
+/** A rejected `Input` or `Textarea` is marked invalid, which is what the focus helper looks for. */
 function Field({ label, error, hint, children, className }: { label: string; error?: string; hint?: string; children: React.ReactNode; className?: string }) {
+  const injectable = isValidElement(children) && (children.type === Input || children.type === Textarea)
+  const control = injectable && error
+    ? cloneElement(children as ReactElement<Record<string, unknown>>, { 'aria-invalid': true })
+    : children
   return (
     <div className={`grid gap-1.5 ${className ?? ''}`}>
       <Label className="text-[12.5px] text-muted-foreground">{label}</Label>
-      {children}
+      {control}
       {error ? <p className="text-[12px] text-destructive">{error}</p> : hint ? <p className="text-[12px] text-muted-foreground">{hint}</p> : null}
     </div>
   )
@@ -77,7 +89,8 @@ export function StudentBasicSheet({ open, onOpenChange, student }: {
       lastName: trimmed(lastName),
     })
     if (!parsed.success) {
-      setErrors(issuesOf(parsed.error))
+      setErrors(fieldErrors(parsed.error, LABELS))
+      requestAnimationFrame(() => focusFirstInvalid())
       return
     }
     setErrors({})
@@ -94,7 +107,7 @@ export function StudentBasicSheet({ open, onOpenChange, student }: {
         <div className="grid flex-1 grid-cols-2 content-start gap-3 overflow-y-auto px-4 scrollbar-thin">
           <Field label="First name" error={errors.firstName}><Input value={firstName} onChange={(e) => setFirstName(e.target.value)} /></Field>
           <Field label="Last name" error={errors.lastName}><Input value={lastName} onChange={(e) => setLastName(e.target.value)} /></Field>
-          {errors.form && <p className="col-span-2 text-[12px] text-destructive">{errors.form}</p>}
+          {errors[FORM_ERROR] && <p className="col-span-2 text-[12px] text-destructive">{errors[FORM_ERROR]}</p>}
         </div>
         <SheetFooter className="flex-row justify-end gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -125,8 +138,9 @@ export function StudentSensitiveSheet({ open, onOpenChange, student, sensitive, 
   const [category, setCategory] = useState(sensitive?.category ?? '')
   const [admissionType, setAdmissionType] = useState(sensitive?.admissionType ?? '')
   const [address, setAddress] = useState(sensitive?.address ?? '')
-  const [aadhaarLast4, setAadhaarLast4] = useState(sensitive?.aadhaarLast4 ?? '')
-  // The server only ever sends the mask, so the box starts empty and an untouched box changes nothing.
+  // The server only ever sends the last digits, so both identity boxes start
+  // empty and an untouched box changes nothing.
+  const [aadhaar, setAadhaar] = useState('')
   const [apaarId, setApaarId] = useState('')
   const [bloodGroup, setBloodGroup] = useState(medical?.bloodGroup ?? '')
   const [medicalNotes, setMedicalNotes] = useState(medical?.medicalNotes ?? '')
@@ -150,15 +164,15 @@ export function StudentSensitiveSheet({ open, onOpenChange, student, sensitive, 
       category: cleared(category, sensitive?.category),
       admissionType: cleared(admissionType, sensitive?.admissionType),
       address: cleared(address, sensitive?.address),
-      // The contract wants exactly four digits, so an emptied Aadhaar cannot be sent as ''.
-      aadhaarLast4: trimmed(aadhaarLast4),
+      aadhaar: trimmed(aadhaar),
       apaarId: trimmed(apaarId),
       ...(medical
         ? { bloodGroup: cleared(bloodGroup, medical.bloodGroup), medicalNotes: cleared(medicalNotes, medical.medicalNotes) }
         : {}),
     })
     if (!parsed.success) {
-      setErrors(issuesOf(parsed.error))
+      setErrors(fieldErrors(parsed.error, LABELS))
+      requestAnimationFrame(() => focusFirstInvalid())
       return
     }
     setErrors({})
@@ -184,13 +198,7 @@ export function StudentSensitiveSheet({ open, onOpenChange, student, sensitive, 
             </Field>
             <Field label="Category" error={errors.category}><Input value={category} onChange={(e) => setCategory(e.target.value)} /></Field>
             <Field label="Admission type" error={errors.admissionType}><Input value={admissionType} onChange={(e) => setAdmissionType(e.target.value)} /></Field>
-            <Field
-              label="Aadhaar last 4"
-              error={errors.aadhaarLast4}
-              hint={sensitive?.aadhaarLast4 && aadhaarLast4.trim() === '' ? 'Clearing this is not supported yet.' : undefined}
-            >
-              <Input value={aadhaarLast4} inputMode="numeric" maxLength={4} onChange={(e) => setAadhaarLast4(e.target.value.replace(/\D/g, '').slice(0, 4))} />
-            </Field>
+            <IdentityField kind="aadhaar" label="Aadhaar number" value={aadhaar} onChange={setAadhaar} onFile={sensitive?.aadhaarLast4} error={errors.aadhaar} />
             <Field
               label="APAAR ID"
               error={errors.apaarId}
@@ -210,7 +218,7 @@ export function StudentSensitiveSheet({ open, onOpenChange, student, sensitive, 
               </div>
             </>
           )}
-          {errors.form && <p className="mt-3 text-[12px] text-destructive">{errors.form}</p>}
+          {errors[FORM_ERROR] && <p className="mt-3 text-[12px] text-destructive">{errors[FORM_ERROR]}</p>}
         </div>
         <SheetFooter className="flex-row justify-end gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

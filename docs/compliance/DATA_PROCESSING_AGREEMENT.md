@@ -38,7 +38,7 @@ Nothing in the services makes the Provider a fiduciary of the School's data.
 | Duration | The term of the services agreement, plus the deletion window in clause 10 |
 | Nature and purpose | Storing, organising, displaying and deleting school records so School staff can do their jobs |
 | Categories of data subject | Pupils (children), their parents and guardians, School staff, and any other person the School gives a login |
-| Categories of personal data | As set out in section 3 of the Provider's data protection assessment: pupil identifiers and register fields; sensitive pupil fields including date of birth, category, religion, an Aadhaar fragment, the APAAR identifier and free-text medical notes; guardian contact and income; staff salary, identifier fragments and bank account fragment; and login credentials |
+| Categories of personal data | As set out in section 3 of the Provider's data protection assessment: pupil identifiers and register fields; sensitive pupil fields including date of birth, category, religion, an encrypted Aadhaar number, the APAAR identifier, a photograph and free-text medical notes; guardian contact, office address, income and encrypted PAN and Aadhaar numbers; staff salary, identifier fragments, bank account fragment and a photograph; and login credentials |
 
 The Provider does not sell personal data, does not use it to train any model, and does not use it
 for its own purposes.

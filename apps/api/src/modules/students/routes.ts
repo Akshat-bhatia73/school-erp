@@ -26,6 +26,8 @@ import {
   UpdateStudentBasicRequest,
   EnrollmentSummaryList,
   StudentApaarReveal,
+  StudentAadhaarReveal,
+  GuardianIdentityReveal,
 } from '@erp/contracts'
 import type { PermissionKey } from '@erp/contracts'
 import type { RequestContext } from '@erp/contracts/server'
@@ -49,6 +51,7 @@ import {
   searchStudents,
   siblingIds,
   enrollmentVisibility,
+  guardianColumns,
   type ModuleConnection,
   type StudentReadOptions,
 } from './reads.ts'
@@ -237,6 +240,76 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
 
   protectedRoute(app, deps, {
     method: 'GET',
+    path: '/api/schools/:schoolId/students/:studentId/aadhaar',
+    permission: 'students.read_sensitive',
+    response: StudentAadhaarReveal,
+    // Seeing the whole number is the event worth recording, exactly as it is
+    // for the APAAR id, so a reveal leaves one row and a screen leaves none.
+    auditRead: {
+      targetType: 'student',
+      param: 'studentId',
+      summary: 'Revealed the full Aadhaar number of a student.',
+    },
+    handler: async ({ context, param }) => {
+      const studentId = assertUuidParam(param('studentId'))
+      return inTransaction(context, async (conn) => {
+        await authorizeResource(conn, context, 'students.read_sensitive', 'student', studentId)
+        const row = await requireVisibleStudent(conn, context, studentId, {
+          sensitive: true,
+          medical: false,
+        })
+        const sealed = row.aadhaar_ciphertext
+        if (typeof sealed !== 'string' || sealed === '') throw new ApiFailure('RESOURCE_NOT_FOUND')
+        return { aadhaar: open(sealed, deps.config.DATA_ENCRYPTION_KEY) }
+      })
+    },
+  })
+
+  protectedRoute(app, deps, {
+    method: 'GET',
+    path: '/api/schools/:schoolId/students/:studentId/guardians/:guardianId/identity',
+    permission: 'students.read_guardians',
+    response: GuardianIdentityReveal,
+    auditRead: {
+      targetType: 'guardian',
+      param: 'guardianId',
+      summary: 'Revealed the full identity numbers of a guardian.',
+    },
+    handler: async ({ context, param }) => {
+      const studentId = assertUuidParam(param('studentId'))
+      const guardianId = assertUuidParam(param('guardianId'))
+      return inTransaction(context, async (conn) => {
+        // The student must be readable and must actually hold this link, so a
+        // guardian cannot be read through a child who is not theirs.
+        await requireVisibleStudent(conn, context, studentId)
+        await authorizeResource(conn, context, 'students.read_guardians', 'guardian', guardianId)
+        requireFound(await loadGuardian(conn, context.schoolId, studentId, guardianId))
+        // The sealed columns are named only here, in the one route allowed to
+        // open them.
+        const rows = await conn.db.execute<{
+          pan_ciphertext: string | null
+          aadhaar_ciphertext: string | null
+        }>(
+          sql`SELECT pan_ciphertext, aadhaar_ciphertext FROM guardians
+               WHERE school_id = ${context.schoolId}::uuid AND id = ${guardianId}::uuid`,
+        )
+        const row = requireFound(rows.rows[0] ?? null)
+        const key = deps.config.DATA_ENCRYPTION_KEY
+        const pan = row.pan_ciphertext === null ? undefined : open(row.pan_ciphertext, key)
+        const aadhaar =
+          row.aadhaar_ciphertext === null ? undefined : open(row.aadhaar_ciphertext, key)
+        // A guardian who carries neither number has nothing to reveal.
+        if (pan === undefined && aadhaar === undefined) throw new ApiFailure('RESOURCE_NOT_FOUND')
+        return {
+          ...(pan === undefined ? {} : { pan }),
+          ...(aadhaar === undefined ? {} : { aadhaar }),
+        }
+      })
+    },
+  })
+
+  protectedRoute(app, deps, {
+    method: 'GET',
     path: '/api/schools/:schoolId/students/:studentId/guardians',
     permission: 'students.read_guardians',
     response: GuardianDetailList,
@@ -251,10 +324,7 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
         await requireVisibleStudent(conn, context, studentId)
         const plan = await readPlan(conn, context, 'students.read_guardians', 'guardian')
         const rows = await conn.db.execute<GuardianRow>(
-          sql`SELECT guardians.id, guardians.first_name, guardians.last_name, guardians.phone,
-                     guardians.occupation, guardians.annual_income::text AS annual_income,
-                     COALESCE(guardians.address #>> '{}', guardians.address::text) AS address,
-                     sg.relation, guardians.version
+          sql`SELECT ${guardianColumns}
                 FROM guardians
                 JOIN student_guardians sg ON sg.school_id = guardians.school_id
                  AND sg.guardian_id = guardians.id
@@ -397,7 +467,7 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
     successStatus: 201,
     handler: async ({ context, body }) =>
       inTransaction(context, async (conn) => {
-        const studentId = await admitStudent(conn, context, body)
+        const studentId = await admitStudent(conn, context, body, deps.config.DATA_ENCRYPTION_KEY)
         const plan = await readPlan(conn, context, 'students.read_basic', 'student')
         const visible = await enrollmentVisibility(conn, context)
         return toStudentBasic(requireFound(await getStudent(conn, plan, visible, studentId)))
@@ -520,7 +590,13 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
             body.guardianId,
           )
         }
-        const guardianId = await addGuardian(conn, context, studentId, body)
+        const guardianId = await addGuardian(
+          conn,
+          context,
+          studentId,
+          body,
+          deps.config.DATA_ENCRYPTION_KEY,
+        )
         const row = requireFound(await loadGuardian(conn, context.schoolId, studentId, guardianId))
         // A guardian with no usable telephone number cannot be described by
         // the contract, so the request is rejected rather than half answered.
@@ -544,7 +620,14 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
         await requireVisibleStudent(conn, context, studentId)
         await authorizeResource(conn, context, 'students.manage_guardians', 'guardian', guardianId)
         requireFound(await loadGuardian(conn, context.schoolId, studentId, guardianId))
-        await updateGuardian(conn, context, studentId, guardianId, body)
+        await updateGuardian(
+          conn,
+          context,
+          studentId,
+          guardianId,
+          body,
+          deps.config.DATA_ENCRYPTION_KEY,
+        )
         const row = requireFound(await loadGuardian(conn, context.schoolId, studentId, guardianId))
         const guardian = toGuardianPrivate(row)
         if (!guardian) throw new ApiFailure('INVALID_REQUEST')
@@ -555,16 +638,13 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
 }
 
 /** Guardian rows behind the minimal contact projection on a student detail. */
-async function loadGuardianRows(
+export async function loadGuardianRows(
   conn: ModuleConnection,
   schoolId: string,
   studentId: string,
 ): Promise<GuardianRow[]> {
   const rows = await conn.db.execute<GuardianRow>(
-    sql`SELECT guardians.id, guardians.first_name, guardians.last_name, guardians.phone,
-               guardians.occupation, guardians.annual_income::text AS annual_income,
-               COALESCE(guardians.address #>> '{}', guardians.address::text) AS address,
-               sg.relation, guardians.version
+    sql`SELECT ${guardianColumns}
           FROM guardians
           JOIN student_guardians sg ON sg.school_id = guardians.school_id
            AND sg.guardian_id = guardians.id
