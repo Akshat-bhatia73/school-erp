@@ -9,12 +9,18 @@ import {
   Subject,
   SubjectInput,
   SubjectList,
+  type PermissionKey,
 } from '@erp/contracts'
 import { AuthorizationError, planPredicate } from '@erp/authz'
 import { gradeSubjects, grades, subjects } from '@erp/db/schema'
 import { withTenantTransaction } from '@erp/db'
 import { protectedRoute, type ModuleDependencies } from '../shared/route.ts'
-import { authorizeSchoolAction, readPlan } from '../shared/authorize.ts'
+import {
+  allowedActionsFor,
+  allowedActionsForMany,
+  authorizeSchoolAction,
+  readPlan,
+} from '../shared/authorize.ts'
 import { lockSchool, writeAudit } from '../shared/audit.ts'
 import { bumpVersion } from '../shared/version.ts'
 import { ApiFailure, requireFound } from '../shared/errors.ts'
@@ -39,25 +45,28 @@ const columns = {
 
 const TYPES = ['scholastic', 'co_scholastic', 'language', 'elective'] as const
 
-function toSubject(row: {
-  id: string
-  schoolId: string
-  name: string
-  code: string
-  type: string
-  version: number
-}): SubjectResponse {
+function toSubject(
+  row: {
+    id: string
+    schoolId: string
+    name: string
+    code: string
+    type: string
+    version: number
+  },
+  allowedActions: readonly PermissionKey[],
+): SubjectResponse {
   const type = TYPES.find((value) => value === row.type)
   if (!type) throw new ApiFailure('SERVICE_UNAVAILABLE')
-  return { ...row, type }
+  return { ...row, type, allowedActions: [...allowedActions] }
 }
 
 /** A subject cannot go while a class, timetable or substitution names it. */
 const SUBJECT_REFERENCES = [
-  { table: 'grade_subjects', column: 'subject_id' },
-  { table: 'teaching_assignments', column: 'subject_id' },
-  { table: 'timetable_entries', column: 'subject_id' },
-  { table: 'substitutions', column: 'subject_id' },
+  { table: 'grade_subjects', column: 'subject_id', reason: 'subject_has_classes' },
+  { table: 'teaching_assignments', column: 'subject_id', reason: 'subject_has_teachers' },
+  { table: 'timetable_entries', column: 'subject_id', reason: 'subject_has_timetable' },
+  { table: 'substitutions', column: 'subject_id', reason: 'subject_has_substitutions' },
 ] as const
 
 export function registerSubjectRoutes(app: FastifyInstance, deps: ModuleDependencies): void {
@@ -74,7 +83,8 @@ export function registerSubjectRoutes(app: FastifyInstance, deps: ModuleDependen
           .from(subjects)
           .where(planPredicate(plan, scopedTable('subject')))
           .orderBy(subjects.name)
-        return rows.map(toSubject)
+        const actions = await allowedActionsForMany(conn, context, 'subject', rows.map((row) => row.id))
+        return rows.map((row) => toSubject(row, actions.get(row.id) ?? []))
       }),
   })
 
@@ -156,7 +166,12 @@ export function registerSubjectRoutes(app: FastifyInstance, deps: ModuleDependen
           summary: 'Created a subject.',
         })
         const rows = await conn.db.select(columns).from(subjects).where(eq(subjects.id, id)).limit(1)
-        return toSubject(requireFound(rows[0]))
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'subject',
+          id,
+        })
+        return toSubject(requireFound(rows[0]), actions)
       }),
   })
 
@@ -190,7 +205,12 @@ export function registerSubjectRoutes(app: FastifyInstance, deps: ModuleDependen
           summary: 'Updated a subject.',
         })
         const rows = await conn.db.select(columns).from(subjects).where(eq(subjects.id, id)).limit(1)
-        return toSubject(requireFound(rows[0]))
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'subject',
+          id,
+        })
+        return toSubject(requireFound(rows[0]), actions)
       }),
   })
 

@@ -7,12 +7,18 @@ import {
   AcademicYearList,
   CurrentAcademicYear,
   SetupAcademicYearUpdateRequest,
+  type PermissionKey,
 } from '@erp/contracts'
 import { planPredicate } from '@erp/authz'
 import { academicYears, schools } from '@erp/db/schema'
 import { withTenantTransaction } from '@erp/db'
 import { protectedRoute, type ModuleDependencies } from '../shared/route.ts'
-import { authorizeSchoolAction, readPlan } from '../shared/authorize.ts'
+import {
+  allowedActionsFor,
+  allowedActionsForMany,
+  authorizeSchoolAction,
+  readPlan,
+} from '../shared/authorize.ts'
 import { lockSchool, writeAudit, type TenantConnection } from '../shared/audit.ts'
 import { bumpVersion } from '../shared/version.ts'
 import { ApiFailure, requireFound } from '../shared/errors.ts'
@@ -48,8 +54,8 @@ interface YearRow {
   version: number
 }
 
-function toYear(row: YearRow): Year {
-  return { ...row, status: statusOf(row.status) }
+function toYear(row: YearRow, allowedActions: readonly PermissionKey[]): Year {
+  return { ...row, status: statusOf(row.status), allowedActions: [...allowedActions] }
 }
 
 /**
@@ -101,7 +107,13 @@ export function registerAcademicYearRoutes(app: FastifyInstance, deps: ModuleDep
           .from(academicYears)
           .where(planPredicate(plan, scopedTable('academic_year')))
           .orderBy(academicYears.startDate)
-        return rows.map(toYear)
+        const actions = await allowedActionsForMany(
+          conn,
+          context,
+          'academic_year',
+          rows.map((row) => row.id),
+        )
+        return rows.map((row) => toYear(row, actions.get(row.id) ?? []))
       }),
   })
 
@@ -135,7 +147,15 @@ export function registerAcademicYearRoutes(app: FastifyInstance, deps: ModuleDep
           : and(ours, eq(academicYears.status, 'current'))
         const rows = await conn.db.select(columns).from(academicYears).where(match).limit(1)
         const row = rows[0]
-        return row ? toYear(row) : null
+        if (!row) return null
+        // The actions are still decided per record, even though the gate of
+        // this read is holidays.read: a teacher sees the year and no action.
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'academic_year',
+          id: row.id,
+        })
+        return toYear(row, actions)
       }),
   })
 
@@ -175,7 +195,12 @@ export function registerAcademicYearRoutes(app: FastifyInstance, deps: ModuleDep
           .from(academicYears)
           .where(eq(academicYears.id, id))
           .limit(1)
-        return toYear(requireFound(rows[0]))
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'academic_year',
+          id,
+        })
+        return toYear(requireFound(rows[0]), actions)
       }),
   })
 
@@ -223,7 +248,12 @@ export function registerAcademicYearRoutes(app: FastifyInstance, deps: ModuleDep
           .from(academicYears)
           .where(eq(academicYears.id, id))
           .limit(1)
-        return toYear(requireFound(rows[0]))
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'academic_year',
+          id,
+        })
+        return toYear(requireFound(rows[0]), actions)
       }),
   })
 }

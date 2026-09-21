@@ -45,7 +45,8 @@ function Page() {
     action: action.trim() || undefined,
     from: isoFrom(from, false),
     to: isoFrom(to, true),
-  }), [page, action, from, to])
+    outcome,
+  }), [page, action, from, to, outcome])
 
   const { data, isLoading, error } = useQuery({
     queryKey: qk.auditEvents(schoolId, params),
@@ -53,12 +54,7 @@ function Page() {
     enabled: hasPermission('audit.read'),
   })
 
-  // The list request has no outcome field, so this narrows the page in view rather than the query.
-  // The count in the footer says how many of the loaded entries match.
-  const rows = useMemo(
-    () => (outcome ? (data?.items ?? []).filter((row) => row.outcome === outcome) : data?.items ?? []),
-    [data, outcome],
-  )
+  const rows = data?.items ?? []
 
   const columns = useMemo<ColumnDef<AuditEvent, unknown>[]>(() => [
     {
@@ -139,7 +135,7 @@ function Page() {
           label="Outcome"
           value={outcome}
           options={[{ value: 'allowed', label: 'Allowed' }, { value: 'denied', label: 'Refused' }]}
-          onChange={setOutcome}
+          onChange={(value) => { setOutcome(value); setPage(1) }}
         />
         <div className="flex items-center gap-1.5">
           <Input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} className="h-9 w-[9.5rem]" aria-label="From date" />
@@ -160,7 +156,7 @@ function Page() {
           meta: <span className="truncate">{row.actorDisplayName} · {formatWhen(row.at).date}</span>,
         })}
         emptyState={<EmptyState icon={<History />} title="No entries match" description="Type the exact action name, like members.suspend, or try a wider date range." />}
-        footer={<span>{outcome ? `${rows.length} of this page match` : `${data?.total ?? 0} entries`}</span>}
+        footer={<span>{data?.total === 1 ? '1 entry' : `${data?.total ?? 0} entries`}</span>}
         pagination={{ page, pageSize: PAGE_SIZE, total: data?.total ?? 0, onPageChange: setPage }}
       />
       <AuditDetailSheet entry={detail} onOpenChange={(open) => { if (!open) setDetail(null) }} />

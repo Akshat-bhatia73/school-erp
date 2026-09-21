@@ -41,6 +41,8 @@ export function describeError(error: unknown): string {
     if (error.code === 'RATE_LIMITED' && error.retryAfterSeconds) {
       return `Too many tries. ${describeWait(error.retryAfterSeconds)}`
     }
+    // A named reason comes with the server's own sentence, which says what is in the way.
+    if (error.reason) return error.message
     return MESSAGES[error.code] ?? MESSAGES.UNEXPECTED_RESPONSE
   }
   return MESSAGES.UNEXPECTED_RESPONSE

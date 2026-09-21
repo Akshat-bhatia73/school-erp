@@ -21,10 +21,32 @@ export const ERROR_STATUS = {
 export const ErrorCode = z.enum(Object.keys(ERROR_STATUS) as [keyof typeof ERROR_STATUS, ...(keyof typeof ERROR_STATUS)[]])
 export type ErrorCode = z.infer<typeof ErrorCode>
 
+/**
+ * Why a request the caller was allowed to make was still refused, for the few
+ * refusals a person can act on. The list is closed: a reason names a kind of
+ * blocker ("this class still has sections"), never a record, a count or a name.
+ */
+export const ErrorReason = z.enum([
+  'grade_has_sections',
+  'grade_has_subjects',
+  'grade_has_bell_schedule',
+  'section_has_students',
+  'section_has_teachers',
+  'section_has_timetable',
+  'section_has_substitutions',
+  'section_has_access_rules',
+  'subject_has_classes',
+  'subject_has_teachers',
+  'subject_has_timetable',
+  'subject_has_substitutions',
+])
+export type ErrorReason = z.infer<typeof ErrorReason>
+
 /** Do not include database errors, rejected values, records or tokens in this envelope. */
 export const ApiError = z.strictObject({
   error: z.strictObject({
     code: ErrorCode,
+    reason: ErrorReason.optional(),
     message: z.string().min(1).max(500),
     requestId: z.string().min(1).max(128),
     retryAfterSeconds: z.number().int().positive().max(86_400).optional(),

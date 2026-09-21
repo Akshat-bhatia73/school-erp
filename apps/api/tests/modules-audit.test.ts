@@ -617,3 +617,42 @@ test('a reason is stored as a redactable note and never in safe_changes', async 
   )
   assert.equal(redactionRow.rows[0]?.count, '1')
 })
+
+test('the outcome filter answers with only the rows that ended that way', async () => {
+  const path = `/api/schools/${schoolA}/audit-events?action=members.invite.accept&pageSize=100`
+  const whole = (await (await owner.fetch(path)).json()) as EventPage
+
+  const denied = (await (await owner.fetch(`${path}&outcome=denied`)).json()) as EventPage
+  assert.ok(denied.total > 0)
+  assert.equal(denied.total, denied.items.length)
+  assert.equal(denied.items.every((item) => item.outcome === 'denied'), true)
+  assert.ok(denied.items.some((item) => item.summary === summaryA(2)))
+  assert.equal(denied.items.some((item) => item.summary === summaryA(4)), false)
+
+  const allowed = (await (await owner.fetch(`${path}&outcome=allowed`)).json()) as EventPage
+  assert.ok(allowed.total > 0)
+  assert.equal(allowed.items.every((item) => item.outcome === 'allowed'), true)
+  assert.ok(allowed.items.some((item) => item.summary === summaryA(4)))
+  assert.equal(allowed.items.some((item) => item.summary === summaryA(2)), false)
+
+  // The two halves are the whole log for that action and nothing more.
+  assert.equal(allowed.total + denied.total, whole.total)
+
+  const bad = await owner.fetch(`/api/schools/${schoolA}/audit-events?outcome=other`)
+  assert.equal(bad.status, 400)
+  assert.equal(((await bad.json()) as ErrorBody).error.code, 'INVALID_REQUEST')
+})
+
+test('the finance reader keeps the outcome filter on top of its narrowed rows', async () => {
+  await insertEvent(schoolA, ownerMembership, 'staff.update_pay', summaryA(7), 'denied')
+
+  const page = (await (
+    await accountant.fetch(`/api/schools/${schoolA}/audit-events?outcome=denied&pageSize=100`)
+  ).json()) as EventPage
+  assert.ok(page.items.some((item) => item.summary === summaryA(7)))
+  for (const item of page.items) {
+    assert.equal(item.outcome, 'denied')
+    assert.ok(isFinanceAuditAction(item.action), `${item.action} is not a finance action`)
+  }
+  assert.equal(JSON.stringify(page).includes(summaryA(1)), false)
+})

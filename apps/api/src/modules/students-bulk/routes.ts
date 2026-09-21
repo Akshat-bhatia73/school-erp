@@ -43,8 +43,6 @@ import {
 
 const BASE = '/api/schools/:schoolId/students'
 
-/** As many students as one promote request may name: 100 promoted, 100 detained. */
-const ROSTER_LIMIT = 200
 
 /** The one table these routes list students through, with its scope columns. */
 function studentTable() {
@@ -213,6 +211,21 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
         // list shows exactly the students the caller could open one by one.
         const plan = await readPlan(conn, context, 'students.read_basic', 'student')
         const table = studentTable()
+        const where = and(
+          planPredicate(plan, table),
+          // Asked as EXISTS rather than a join: a student holding two open
+          // rows in the same class must still appear exactly once.
+          sql`EXISTS (SELECT 1 FROM ${enrollments}
+               WHERE ${enrollments.schoolId} = ${students.schoolId}
+                 AND ${enrollments.studentId} = ${students.id}
+                 AND ${enrollments.academicYearId} = ${query.fromAcademicYearId}
+                 AND ${enrollments.sectionId} = ${query.fromSectionId}
+                 AND ${enrollments.leftOn} IS NULL)`,
+        )
+        const counted = (await conn.db
+          .select({ total: sql<number>`count(*)::int` })
+          .from(students)
+          .where(where)) as { total: number }[]
         const rows = await conn.db
           .select({
             id: students.id,
@@ -228,25 +241,15 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
             photoUpdatedAt: students.photoUpdatedAt,
           })
           .from(students)
-          .where(
-            and(
-              planPredicate(plan, table),
-              // Asked as EXISTS rather than a join: a student holding two open
-              // rows in the same class must still appear exactly once.
-              sql`EXISTS (SELECT 1 FROM ${enrollments}
-                   WHERE ${enrollments.schoolId} = ${students.schoolId}
-                     AND ${enrollments.studentId} = ${students.id}
-                     AND ${enrollments.academicYearId} = ${query.fromAcademicYearId}
-                     AND ${enrollments.sectionId} = ${query.fromSectionId}
-                     AND ${enrollments.leftOn} IS NULL)`,
-            ),
-          )
-          .orderBy(students.admissionNumber)
-          // PromotionPreview carries no page or total, so the roster is capped
-          // at what one promote request can act on (100 promoted plus 100
-          // detained). A class larger than that cannot be moved in one call
-          // anyway; this is the documented deviation from the coverage sheet.
-          .limit(ROSTER_LIMIT)
+          .where(where)
+          // The id breaks ties so pages do not overlap or skip a row.
+          .orderBy(students.admissionNumber, students.id)
+          // A class of any size is read a page at a time. A promote run still
+          // acts on at most 100 promoted plus 100 detained, and it closes the
+          // old enrolment, so the promoted drop out of the next preview and
+          // the screen can simply repeat the run until the total is zero.
+          .limit(query.pageSize)
+          .offset((query.page - 1) * query.pageSize)
 
         return {
           students: rows.map((row) => ({
@@ -264,6 +267,9 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
               : { photoUpdatedAt: photoMoment(row.photoUpdatedAt) as string }),
           })),
           targetSection: { id: target.id, name: `${target.gradeName} ${target.name}` },
+          total: counted[0]?.total ?? 0,
+          page: query.page,
+          pageSize: query.pageSize,
         }
       }),
   })

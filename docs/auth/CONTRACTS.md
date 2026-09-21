@@ -56,6 +56,12 @@ Document listing and download require their respective document permissions. A m
 
 Salary is available by default only to owner and accountant. Private contact and bank projections must be limited to the needs of the matched audience. Audit events must not expose raw before/after objects, credentials, medical data or salary to an audience without the corresponding access.
 
+## Refusal reasons and the screen fields
+
+`ApiError.error` carries an optional `reason` from the closed `ErrorReason` enum: `grade_has_sections`, `subject_has_classes`, `section_has_students` and the rest of the blockers a delete can hit. A reason names a kind of blocker and never a record, a count or a name, so it can be shown to the person who asked without telling them anything the list would not. It is only sent on a refusal the caller was allowed to make; an `ACCESS_DENIED` never carries one.
+
+Task 18 also filled the fields several screens were missing. `MemberListRequest` adds `search`, `role`, `status` and `staffId` to `PageRequest`, strictly, so the directory filters on the server. `GuardianPrivate` requires `version`, so a guardian already on file can be corrected with the usual `expectedVersion`. `StaffEmployment` gains an optional `leavingDate`, so a sheet can tell "never set" from "cleared". `Section` gains an optional `classTeacher` `NamedReference` beside the id it already had. The school profile, academic year, grade, section, subject and holiday shapes all require `allowedActions`, so a setup screen gates a control on the record rather than on a school-wide capability. `AuditEventListRequest` takes `outcome` (`allowed` or `denied`). `StudentsPromotePreviewQuery` takes `page` and `pageSize` (1 and 100 by default, 100 at most) and `PromotionPreview` answers with `total`, `page` and `pageSize`, so a class of any size is read a page at a time.
+
 ## Consent, retention and anonymisation
 
 `module-lifecycle.ts` holds the data lifecycle contracts. Five permissions go with them: `students.read_consents` and `students.manage_consents` over a student at `school` or `own_children`, `students.anonymise` over a student, `staff.anonymise` over a staff record and `audit.redact_notes` over an audit event, the last three at `school` scope and privileged. Owner holds all five, principal all but the redaction, administrator the two consent keys at school scope and parent the two at `own_children`. Teacher, accountant and student hold none.

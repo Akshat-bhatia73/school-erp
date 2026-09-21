@@ -44,6 +44,9 @@ const gradeSeven = randomUUID()
 const sectionSevenNext = randomUUID()
 const sectionSixNext = randomUUID()
 const otherSectionA = randomUUID()
+// A class larger than one preview page, so paging is the ordinary case.
+const bigSection = randomUUID()
+const BIG_ROLL = 105
 const subjectA = randomUUID()
 const previewInSchoolB = randomUUID()
 const stamp = randomUUID().slice(0, 8)
@@ -158,6 +161,24 @@ before(async () => {
      ON CONFLICT DO NOTHING`,
     [schoolA],
   )
+  // A class of more than one page, to show a preview pages rather than stops.
+  await pool.query(
+    `INSERT INTO sections (id, school_id, academic_year_id, grade_id, name)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [bigSection, schoolA, yearA, gradeA, `Big-${stamp}`],
+  )
+  await pool.query(
+    `WITH new_students AS (
+       INSERT INTO students (school_id, admission_number, first_name, status)
+       SELECT $1, 'BIG-' || $2 || '-' || to_char(n, 'FM000'), 'Crowd', 'active'
+         FROM generate_series(1, $3) AS n
+       RETURNING id
+     )
+     INSERT INTO enrollments (school_id, student_id, academic_year_id, section_id, joined_on)
+     SELECT $1, id, $4, $5, current_date FROM new_students`,
+    [schoolA, stamp, BIG_ROLL, yearA, bigSection],
+  )
+
   // A second class in the same year, to show a roster never spills over.
   await pool.query(
     `INSERT INTO sections (id, school_id, academic_year_id, grade_id, name)
@@ -266,11 +287,15 @@ after(async () => {
   )
   await pool.query('DELETE FROM enrollments WHERE school_id = $1 AND section_id = ANY($2::uuid[])', [
     schoolA,
-    [otherSectionA, sectionSevenNext, sectionSixNext],
+    [otherSectionA, sectionSevenNext, sectionSixNext, bigSection],
   ])
+  await pool.query(
+    `DELETE FROM students WHERE school_id = $1 AND admission_number LIKE $2`,
+    [schoolA, `BIG-${stamp}-%`],
+  )
   await pool.query('DELETE FROM sections WHERE school_id = $1 AND id = ANY($2::uuid[])', [
     schoolA,
-    [otherSectionA, sectionSevenNext, sectionSixNext],
+    [otherSectionA, sectionSevenNext, sectionSixNext, bigSection],
   ])
   await pool.query('DELETE FROM teaching_assignments WHERE school_id = $1 AND subject_id = $2', [
     schoolA,
@@ -724,7 +749,7 @@ test('a promotion preview lists only the students the caller may read', async ()
     students: Record<string, unknown>[]
     targetSection: { id: string; name: string }
   }
-  assert.deepEqual(Object.keys(body).sort(), ['students', 'targetSection'])
+  assert.deepEqual(Object.keys(body).sort(), ['page', 'pageSize', 'students', 'targetSection', 'total'])
   assert.equal(body.targetSection.id, sectionSevenNext)
   const mine = body.students.find((student) => student.id === seated)
   assert.ok(mine)
@@ -1030,4 +1055,71 @@ test('an export body carrying a forbidden field writes nothing', async () => {
     [schoolA],
   )
   assert.equal(after.rows[0]?.total, before.rows[0]?.total)
+})
+
+interface PreviewPage {
+  students: { id: string }[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+async function previewBig(client: Client, query = ''): Promise<PreviewPage> {
+  const response = await client.fetch(
+    `${base()}/promote/preview?fromAcademicYearId=${yearA}&toAcademicYearId=${nextYear}` +
+      `&fromSectionId=${bigSection}&toSectionId=${sectionSevenNext}${query}`,
+  )
+  assert.equal(response.status, 200)
+  return (await response.json()) as PreviewPage
+}
+
+test('a class larger than a page is previewed a page at a time, not cut short', async () => {
+  const first = await previewBig(owner)
+  assert.equal(first.total, BIG_ROLL)
+  assert.equal(first.page, 1)
+  assert.equal(first.pageSize, 100)
+  assert.equal(first.students.length, 100)
+
+  const second = await previewBig(owner, '&page=2')
+  assert.equal(second.total, BIG_ROLL)
+  assert.equal(second.page, 2)
+  assert.equal(second.students.length, BIG_ROLL - 100)
+
+  // Nobody is counted twice and nobody is missed.
+  const seen = new Set([...first.students, ...second.students].map((student) => student.id))
+  assert.equal(seen.size, BIG_ROLL)
+
+  // A page bigger than the cap is bad input, not a quietly shortened page.
+  const tooLarge = await owner.fetch(
+    `${base()}/promote/preview?fromAcademicYearId=${yearA}&toAcademicYearId=${nextYear}` +
+      `&fromSectionId=${bigSection}&toSectionId=${sectionSevenNext}&pageSize=500`,
+  )
+  assert.equal(tooLarge.status, 400)
+  assert.equal(await readError(tooLarge), 'INVALID_REQUEST')
+})
+
+test('promoting the first page leaves only the rest to promote', async () => {
+  const first = await previewBig(owner)
+  const moved = first.students.map((student) => student.id)
+  const response = await owner.fetch(`${base()}/promote`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      fromAcademicYearId: yearA,
+      toAcademicYearId: nextYear,
+      fromSectionId: bigSection,
+      toSectionId: sectionSevenNext,
+      studentIds: moved,
+      detainedStudentIds: [],
+      reason: 'Year end promotion',
+    }),
+  })
+  assert.equal(response.status, 200)
+
+  // The run closed those enrollments, so the next preview is the remainder
+  // and page one holds all of it.
+  const after = await previewBig(owner)
+  assert.equal(after.total, BIG_ROLL - moved.length)
+  assert.equal(after.students.length, BIG_ROLL - moved.length)
+  assert.equal(after.students.some((student) => moved.includes(student.id)), false)
 })

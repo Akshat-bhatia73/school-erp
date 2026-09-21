@@ -19,8 +19,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api } from '@/lib/api'
 import type { SubjectRecord } from '@/lib/api/setup'
-import { describeError, isApiError } from '@/lib/api-errors'
+import { describeError } from '@/lib/api-errors'
 import { qk } from '@/lib/query'
+import { allows } from '@/lib/permissions'
 import { useSchoolContext } from '@/lib/session'
 import { useAcademicYear } from '@/lib/use-academic-year'
 import { humanize } from '@/lib/utils'
@@ -28,7 +29,6 @@ import { humanize } from '@/lib/utils'
 export const Route = createFileRoute('/_app/setup/subjects')({ component: Page })
 
 const TYPE_COLOR: Record<SubjectRecord['type'], TagColor> = { scholastic: 'blue', language: 'purple', co_scholastic: 'teal', elective: 'orange' }
-const STILL_IN_USE = 'This still has students or a timetable. Move them first.'
 
 function Page() {
   const { schoolId, hasPermission } = useSchoolContext()
@@ -70,7 +70,7 @@ function Page() {
       toast.success('Subject removed')
       setPending(null)
     },
-    onError: (failure) => toast.error(isApiError(failure, 'INVALID_REQUEST') ? STILL_IN_USE : describeError(failure)),
+    onError: (failure) => toast.error(describeError(failure)),
   })
 
   const columns = useMemo<ColumnDef<SubjectRecord, unknown>[]>(() => [
@@ -86,7 +86,7 @@ function Page() {
     },
     {
       id: 'actions', header: '', size: 60, enableSorting: false,
-      cell: ({ row }) => canManage ? (
+      cell: ({ row }) => allows(row.original.allowedActions, 'subjects.manage') ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label={`Actions for ${row.original.name}`} onClick={(e) => e.stopPropagation()}><MoreHorizontal /></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -96,7 +96,7 @@ function Page() {
         </DropdownMenu>
       ) : null,
     },
-  ], [canManage, usedIn])
+  ], [usedIn])
 
   const addButton = (label: string) => (
     <Button size="sm" onClick={() => { setEditing(undefined); setSheetOpen(true) }}><Plus /> {label}</Button>

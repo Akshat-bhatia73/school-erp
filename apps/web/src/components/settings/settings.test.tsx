@@ -71,7 +71,7 @@ describe('Users & logins', () => {
     const Page = (Route as unknown as { component: () => ReactNode }).component
     renderWithSession(<Page />, { capabilities: ['members.read'], roleKeys: ['principal'] })
     await waitFor(() => expect(screen.getByText('Priya Nair')).toBeInTheDocument())
-    expect(screen.getByText('1 members on this page')).toBeInTheDocument()
+    expect(screen.getByText('1 member')).toBeInTheDocument()
   })
 
   it('does not offer an invite to somebody who cannot invite', async () => {
@@ -174,13 +174,12 @@ describe('Audit log', () => {
     await waitFor(() => expect(downloadExportFile).toHaveBeenCalledWith(SCHOOL_ID, 'job-1'))
   })
 
-  it('narrows the page in view to refusals when the outcome chip is set', async () => {
-    auditList.mockResolvedValue({
-      items: [
-        { id: 'a1', at: '2026-03-01T10:00:00.000Z', actorDisplayName: 'Asha Rao', action: 'members.suspend', summary: 'Suspended Priya Nair', outcome: 'allowed' },
-        { id: 'a2', at: '2026-03-01T10:05:00.000Z', actorDisplayName: 'Priya Nair', action: 'students.read_sensitive', summary: 'Refused: students.read_sensitive', outcome: 'denied' },
-      ],
-      total: 2, page: 1, pageSize: 50,
+  it('asks the server for refusals when the outcome chip is set', async () => {
+    const allowed = { id: 'a1', at: '2026-03-01T10:00:00.000Z', actorDisplayName: 'Asha Rao', action: 'members.suspend', summary: 'Suspended Priya Nair', outcome: 'allowed' }
+    const denied = { id: 'a2', at: '2026-03-01T10:05:00.000Z', actorDisplayName: 'Priya Nair', action: 'students.read_sensitive', summary: 'Refused: students.read_sensitive', outcome: 'denied' }
+    auditList.mockImplementation((_schoolId: string, params: { outcome?: string }) => {
+      const items = params.outcome === 'denied' ? [denied] : [allowed, denied]
+      return Promise.resolve({ items, total: items.length, page: 1, pageSize: 50 })
     })
     const user = userEvent.setup()
     const { Route } = await import('@/routes/_app/settings/audit-log')
@@ -193,9 +192,8 @@ describe('Audit log', () => {
 
     await waitFor(() => expect(screen.queryByText('Suspended Priya Nair')).not.toBeInTheDocument())
     expect(screen.getByText('Refused: students.read_sensitive')).toBeInTheDocument()
-    // The list request has no outcome field, so the filter is on the loaded page, not the query.
-    expect(screen.getByText('1 of this page match')).toBeInTheDocument()
-    expect(auditList).toHaveBeenCalledTimes(1)
+    expect(auditList).toHaveBeenLastCalledWith(SCHOOL_ID, expect.objectContaining({ outcome: 'denied', page: 1 }))
+    expect(screen.getByText('1 entry')).toBeInTheDocument()
   })
 
   it('shows the note under the summary and offers Redact only to somebody who may redact', async () => {

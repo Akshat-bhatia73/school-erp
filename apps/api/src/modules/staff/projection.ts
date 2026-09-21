@@ -74,9 +74,13 @@ export function toEmployment(row: StaffRow): StaffDetailDto['employment'] {
   const status = STATUSES.find((value) => value === row.status)
   const joiningDate = calendarDate(row.joiningDate)
   if (!joiningDate || !employmentType || !status) return undefined
+  // The leaving date is only set once someone has left, so it rides along only
+  // when it is there. It belongs to this block, so it reaches the same readers.
+  const leavingDate = calendarDate(row.leavingDate)
   const candidate = {
     employeeCode: fit(row.employeeCode, 100) ?? '',
     joiningDate,
+    ...(leavingDate === undefined ? {} : { leavingDate }),
     employmentType,
     status,
   }

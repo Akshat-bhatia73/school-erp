@@ -7,23 +7,22 @@ import {
   HolidayList,
   SetupHolidayListQuery,
   SetupHolidayUpdateRequest,
+  type PermissionKey,
 } from '@erp/contracts'
 import { planPredicate } from '@erp/authz'
 import { holidays } from '@erp/db/schema'
 import { withTenantTransaction } from '@erp/db'
 import { protectedRoute, type ModuleDependencies } from '../shared/route.ts'
-import { authorizeSchoolAction, readPlan } from '../shared/authorize.ts'
-import { lockSchool, writeAudit } from '../shared/audit.ts'
-import { ApiFailure, requireFound } from '../shared/errors.ts'
 import {
-  isoDate,
-  requireQueryUuid,
-  requireReference,
-  requireUuid,
-  scopedTable,
-  TOUCH_VERSION_SQL,
-  touchVersion,
-} from './common.ts'
+  allowedActionsFor,
+  allowedActionsForMany,
+  authorizeSchoolAction,
+  readPlan,
+} from '../shared/authorize.ts'
+import { lockSchool, writeAudit } from '../shared/audit.ts'
+import { bumpVersion } from '../shared/version.ts'
+import { ApiFailure, requireFound } from '../shared/errors.ts'
+import { isoDate, requireQueryUuid, requireReference, requireUuid, scopedTable } from './common.ts'
 
 type HolidayResponse = z.infer<typeof Holiday>
 
@@ -35,27 +34,27 @@ const columns = {
   startDate: isoDate(holidays.startDate),
   endDate: isoDate(holidays.endDate),
   type: sql<string>`${holidays.type}`,
-  // The table has no version column, so the moment of the last save stands in
-  // for one and an editor who was looking at an older holiday is refused.
-  touched: touchVersion(holidays.updatedAt),
+  version: holidays.version,
 }
 
 const TYPES = ['national', 'festival', 'school', 'vacation'] as const
 
-function toHoliday(row: {
-  id: string
-  schoolId: string
-  academicYearId: string
-  name: string
-  startDate: string
-  endDate: string
-  type: string
-  touched: string
-}): HolidayResponse {
+function toHoliday(
+  row: {
+    id: string
+    schoolId: string
+    academicYearId: string
+    name: string
+    startDate: string
+    endDate: string
+    type: string
+    version: number
+  },
+  allowedActions: readonly PermissionKey[],
+): HolidayResponse {
   const type = TYPES.find((value) => value === row.type)
   if (!type) throw new ApiFailure('SERVICE_UNAVAILABLE')
-  const { touched, ...rest } = row
-  return { ...rest, type, version: Number(touched) }
+  return { ...row, type, allowedActions: [...allowedActions] }
 }
 
 export function registerHolidayRoutes(app: FastifyInstance, deps: ModuleDependencies): void {
@@ -77,7 +76,8 @@ export function registerHolidayRoutes(app: FastifyInstance, deps: ModuleDependen
           .from(holidays)
           .where(and(...filters))
           .orderBy(holidays.startDate)
-        return rows.map(toHoliday)
+        const actions = await allowedActionsForMany(conn, context, 'holiday', rows.map((row) => row.id))
+        return rows.map((row) => toHoliday(row, actions.get(row.id) ?? []))
       }),
   })
 
@@ -108,7 +108,12 @@ export function registerHolidayRoutes(app: FastifyInstance, deps: ModuleDependen
           safeChanges: { type: body.type },
         })
         const rows = await conn.db.select(columns).from(holidays).where(eq(holidays.id, id)).limit(1)
-        return toHoliday(requireFound(rows[0]))
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'holiday',
+          id,
+        })
+        return toHoliday(requireFound(rows[0]), actions)
       }),
   })
 
@@ -125,32 +130,18 @@ export function registerHolidayRoutes(app: FastifyInstance, deps: ModuleDependen
         await authorizeSchoolAction(conn, context, 'holidays.manage')
         await requireReference(conn, 'academic_years', context.schoolId, body.academicYearId)
 
-        const updated = await conn.client.query(
-          `UPDATE holidays
-              SET academic_year_id = $3, name = $4, start_date = $5, end_date = $6, type = $7,
-                  updated_at = clock_timestamp()
-            WHERE school_id = $1 AND id = $2 AND ${TOUCH_VERSION_SQL} = $8`,
-          [
-            context.schoolId,
-            id,
-            body.academicYearId,
-            body.name,
-            body.startDate,
-            body.endDate,
-            body.type,
-            String(body.expectedVersion),
-          ],
-        )
-        // Nothing updated means either the holiday is not there or somebody
-        // saved first; the two are told apart rather than guessed at, and a
-        // holiday of another school stays invisible.
-        if (updated.rowCount === 0) {
-          const exists = await conn.client.query('SELECT 1 FROM holidays WHERE school_id = $1 AND id = $2', [
-            context.schoolId,
-            id,
-          ])
-          throw new ApiFailure(exists.rowCount === 0 ? 'RESOURCE_NOT_FOUND' : 'VERSION_CONFLICT')
-        }
+        await bumpVersion(conn, 'holidays', {
+          schoolId: context.schoolId,
+          id,
+          expectedVersion: body.expectedVersion,
+          set: {
+            academic_year_id: body.academicYearId,
+            name: body.name,
+            start_date: body.startDate,
+            end_date: body.endDate,
+            type: body.type,
+          },
+        })
         await writeAudit(conn, context, {
           action: 'holidays.manage',
           targetType: 'holiday',
@@ -159,7 +150,12 @@ export function registerHolidayRoutes(app: FastifyInstance, deps: ModuleDependen
           safeChanges: { type: body.type },
         })
         const rows = await conn.db.select(columns).from(holidays).where(eq(holidays.id, id)).limit(1)
-        return toHoliday(requireFound(rows[0]))
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'holiday',
+          id,
+        })
+        return toHoliday(requireFound(rows[0]), actions)
       }),
   })
 

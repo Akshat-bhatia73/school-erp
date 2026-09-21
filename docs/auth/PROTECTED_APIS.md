@@ -34,7 +34,7 @@ Where one read exposes more than one record kind, it builds more than one plan. 
 
 A single record that the plan does not reach is `RESOURCE_NOT_FOUND`, never `ACCESS_DENIED`: a 403 on a real id and a 404 on an invented one is an existence oracle, so record-scoped reads and writes report both the same way. A module-level refusal, decided before any id is involved, stays `ACCESS_DENIED`. An identifier of the wrong shape in a path is `RESOURCE_NOT_FOUND`; a malformed value in a query filter or a body reference is `INVALID_REQUEST`, because that is bad input rather than a missing collection.
 
-`allowedActionsFor(conn, context, { schoolId, resourceType, id })` fills the `allowedActions` field of a detail response, and `decideAction(..., aggregate: true)` does the same for a view that is not one row, such as a section's timetable.
+`allowedActionsFor(conn, context, { schoolId, resourceType, id })` fills the `allowedActions` field of a detail response, and `decideAction(..., aggregate: true)` does the same for a view that is not one row, such as a section's timetable. A list uses `allowedActionsForMany(conn, context, resourceType, ids)`, which loads the policy snapshot once and answers a map of id to keys, so a page of rows costs one snapshot load rather than one per row.
 
 ## The write protocol
 
@@ -43,7 +43,7 @@ Every write follows the same order inside one tenant transaction, mirroring acce
 1. `lockSchool(conn, schoolId)` before a write that touches more than one row, so two writers in one school serialise.
 2. Decide again inside the transaction: `authorizeSchoolAction` for a school-wide action, `authorizeResource` or `decideResource` for a named record. The gate decided the module action; this decides the record.
 3. Validate the proposed new state. Every section, grade, subject, academic year, staff member, guardian or student a body names must exist in this school and must fit the row it is going into. A cross-school or unknown reference is `INVALID_REQUEST`, never a database error turned into a 503. A leaving date before a joining date, a move across academic years, a delete of a record something still points at and a teacher who is already busy in that period are all refused the same way.
-4. Take the optimistic lock. `bumpVersion(conn, table, { schoolId, id, expectedVersion, set })` writes and increments in one statement; a caller who read an older row gets `VERSION_CONFLICT`. Two tables have no version column, so their update compares a version derived from `updated_at` instead (see the gaps).
+4. Take the optimistic lock. `bumpVersion(conn, table, { schoolId, id, expectedVersion, set })` writes and increments in one statement; a caller who read an older row gets `VERSION_CONFLICT`. Every editable table has a version column since migration `0014`; `schools` is keyed by its own id, which `bumpVersion` knows.
 5. `writeAudit(conn, context, ...)` exactly once per committed write, in the same transaction. The summary is plain English and `safe_changes` carries ids, keys, counts and statuses, never a name, a date of birth, a phone number, an address, an amount, a storage key or a token.
 6. Return committed state, parsed through the response contract.
 
@@ -59,8 +59,8 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 
 | Method and path | Permission | Extra checks | Success | Error codes |
 |---|---|---|---|---|
-| `GET /school` | `school.read` | none | 200 | — |
-| `PUT /school` | `school.update` | derived version from the last save | 200 | `INVALID_REQUEST`, `VERSION_CONFLICT` |
+| `GET /school` | `school.read` | none; the answer carries `allowedActions` | 200 | — |
+| `PUT /school` | `school.update` | `expectedVersion` against `schools.version` | 200 | `INVALID_REQUEST`, `VERSION_CONFLICT` |
 | `GET /academic-years` | `academic_years.read` | plan predicate | 200 | — |
 | `GET /academic-years/current` | `holidays.read` | filtered to this school; no plan predicate | 200 | `RESOURCE_NOT_FOUND` |
 | `POST /academic-years` | `academic_years.manage` | dates ordered, one current year | 201 | `INVALID_REQUEST` |
@@ -69,9 +69,9 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `POST /grades` | `grades.manage` | unique name and short name | 201 | `INVALID_REQUEST` |
 | `PUT /grades/:gradeId` | `grades.manage` | `expectedVersion` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `DELETE /grades/:gradeId` | `grades.manage` | nothing may still refer to it | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
-| `GET /sections` | `sections.read` | plan predicate; filters must be ids | 200 | `INVALID_REQUEST` |
+| `GET /sections` | `sections.read` | plan predicate; filters must be ids; the class teacher is named only through the `staff.read_directory` plan | 200 | `INVALID_REQUEST` |
 | `GET /sections/strengths` | `sections.read_strengths` | plan predicate; counts only visible sections | 200 | `INVALID_REQUEST` |
-| `GET /sections/:sectionId` | `sections.read` | plan predicate | 200 | `RESOURCE_NOT_FOUND` |
+| `GET /sections/:sectionId` | `sections.read` | plan predicate; the class teacher is named the same way | 200 | `RESOURCE_NOT_FOUND` |
 | `POST /sections` | `sections.manage` | year, grade and class teacher in this school | 201 | `INVALID_REQUEST` |
 | `PUT /sections/:sectionId` | `sections.manage` | the same, plus `expectedVersion`; no re-parenting once it holds rows | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `DELETE /sections/:sectionId` | `sections.manage` | nothing may still refer to it | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
@@ -83,7 +83,7 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `PUT /grades/:gradeId/subjects` | `subjects.manage` | whole-set replace; every id validated before the first delete | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `GET /holidays` | `holidays.read` | plan predicate | 200 | `INVALID_REQUEST` |
 | `POST /holidays` | `holidays.manage` | year in this school | 201 | `INVALID_REQUEST` |
-| `PUT /holidays/:holidayId` | `holidays.manage` | derived version from the last save | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `PUT /holidays/:holidayId` | `holidays.manage` | `expectedVersion` against `holidays.version` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `DELETE /holidays/:holidayId` | `holidays.manage` | none | 204 | `RESOURCE_NOT_FOUND` |
 
 `GET /academic-years/current` is the one setup read that is not decided by
@@ -93,6 +93,12 @@ across the whole school. A teacher or a parent holds no `academic_years.read`
 grant, so without this every screen would have to guess the year from the
 sections it can see, and a teacher still carrying last year's classes would
 guess a closed year. The year LIST stays behind `academic_years.read`.
+
+Every setup record — the school profile, an academic year, a grade, a section, a subject and a holiday — carries `allowedActions`, on the lists as well as the detail, create and update answers. An office reader sees the matching manage key; a teacher or a parent sees an empty list, including on `GET /academic-years/current`, which every role may read.
+
+A section names its class teacher in `classTeacher` only when the caller could open that staff record: the `staff.read_directory` plan is ANDed into the join, so a caller with no directory grant simply sees no name rather than a refusal. `classTeacherId` is there for everyone, so a screen can say a class has a teacher without naming them.
+
+A delete refused because something still refers to the record answers `INVALID_REQUEST` with a `reason` from the closed `ErrorReason` list — `grade_has_sections`, `section_has_students`, `subject_has_classes` and the rest — and the plain-English sentence that goes with it. The reason names a kind of blocker, never a record, a count or a name, and it is only ever sent on a refusal the caller was allowed to ask for: an `ACCESS_DENIED` carries no reason at all.
 
 `GET /sections/strengths` counts an enrolment while it is open, and also when
 it was closed by finishing the year (`promoted` or `detained`), so a closed
@@ -135,7 +141,7 @@ year still shows who was in each class. A pupil who left is not counted.
 |---|---|---|---|---|
 | `POST /students/import/preview` | `students.import` | every row validated server-side; only valid rows are staged, for one hour; a supplied admission number is checked for uniqueness and a blank one is left to be assigned | 201 | `INVALID_REQUEST` |
 | `POST /students/import/commit` | `students.import` | preview pending, unexpired, this school, same author, `expectedVersion`; every row re-validated before the first insert | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
-| `GET /students/promote/preview` | `students.promote` | roster bounded by the `students.read_basic` plan | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `GET /students/promote/preview` | `students.promote` | roster bounded by the `students.read_basic` plan; `page` and `pageSize` (at most 100), with the matching `total` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `POST /students/promote` | `students.promote` | every named pupil distinct and currently seated in that class, with no open enrolment next year | 200 | `INVALID_REQUEST` |
 | `POST /students/export` | `students.export` | every requested id must pass the export plan, or none is written | 202 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `POST /students/:studentId/export-profile` | `students.export` | the record decided again under this key; the producer re-reads every block behind its own key | 202 | `RESOURCE_NOT_FOUND` |
@@ -193,7 +199,7 @@ year still shows who was in each class. A pupil who left is not counted.
 |---|---|---|---|---|
 | `GET /dashboard` | `dashboard.read` | audience fixed from the caller's roles; optional `?date=YYYY-MM-DD`, otherwise today in the school's timezone; every block through its own plan | 200 | `INVALID_REQUEST` |
 | `GET /search?q=` | `students.read_basic` | student rows through `students.read_basic`, staff rows through `staff.read_directory`, the class through `students.read_enrollments` | 200 | `INVALID_REQUEST` |
-| `GET /audit-events` | `audit.read` | plan predicate on `audit_event`; filters only narrow it; the note is joined under the same predicate and omitted once redacted | 200 | `INVALID_REQUEST` |
+| `GET /audit-events` | `audit.read` | plan predicate on `audit_event`; filters (`actorMembershipId`, `action`, `outcome`, `from`, `to`) only narrow it, and the total follows them; the note is joined under the same predicate and omitted once redacted | 200 | `INVALID_REQUEST` |
 | `POST /audit-events/export` | `audit.export` | window ordered and at most 366 days | 202 | `INVALID_REQUEST` |
 | `POST /audit-events/:eventId/note/redact` | `audit.redact_notes` | the event must be in this school; a repeat request changes nothing and writes no second row | 200 | `RESOURCE_NOT_FOUND` |
 | `GET /students/:studentId/documents/:documentId/content` | `students.download_documents` | record decided again; the document must belong to that student | 200, a byte stream | `RESOURCE_NOT_FOUND` |
@@ -354,20 +360,19 @@ Owner and principal hold the permission at school scope; a parent holds it for t
 
 Storage and contract mismatches:
 
-- `schools` and `holidays` have no version column, so their updates compare a version derived from `updated_at` at microsecond granularity. Both paths lock the school first, so they are serialised, but a real version column is the better answer and needs a migration.
-- `bell_schedules` has no version column either, and its update refuses any `expectedVersion` other than 1 rather than pretending to check. `PUT /grades/:gradeId/subjects` carries no version at all; the whole-set replace plus the pre-write validation is its concurrency story.
+- `PUT /grades/:gradeId/subjects` carries no version at all; the whole-set replace plus the pre-write validation is its concurrency story.
 - `bell_schedules.grade_ids` is forbidden by a check constraint, so the grade mapping lives in `bell_schedule_grades`.
-- `schools.address` and `students.address` and `staff.address` are `jsonb`. A string value is returned as text; any other shape reads as empty or is omitted.
+- `schools.address` and `students.address` and `staff.address` are `jsonb`. A string value is returned as text; any other shape reads as empty or is omitted. The school profile used to read a string address as empty, so opening and saving the profile wiped it; it now reads the string, and a save stores `{ "line": ... }`.
 - `StudentSensitive` makes date of birth, gender and admission date mandatory while the columns are nullable, so an old row shows no sensitive block at all. `GuardianPrivate` and `GuardianContact` make an E.164 phone mandatory, so a guardian with no usable number is dropped from a contact list and cannot be linked.
 - `export_jobs.status` has a check constraint for the four contract values, and `kind` for the six job kinds; a producer writing anything else would answer `SERVICE_UNAVAILABLE`.
 - `AuditEventSummary.action` was widened from `PermissionKey` to a bounded string, because Task 4 writes workflow actions such as `members.invite.accept`. A closed union of permission keys and workflow actions would be better. `outcome` has two values, so an operation that failed is reported as denied; the `result` column still distinguishes them.
 
 Coverage and behaviour:
 
+- Being a section's class teacher is not a relationship the policy knows: `assigned_sections` comes from teaching assignments alone, so a class teacher who teaches no subject in their own section cannot read it. The development seed has one such teacher. Changing that is a scope change for every teacher read, so it is left for its own task.
 - `students.read_guardians` at an own-children scope collapses to an empty list, because the guardians table has no student column and the scope term in `packages/authz/src/scope.ts` has no branch for it. No role template grants that combination today.
 - Admission never writes `guardian_student_access`, so a parent membership does not automatically gain access to a newly admitted child. That is an access change with an approval state and a version bump, and it belongs to access management.
 - `audit.read` and `audit.export` at the `finance` scope select only rows whose action is in `FINANCE_AUDIT_ACTIONS` from `@erp/contracts`, so an accountant's list, count and export are the money trail and an owner's are the whole log.
-- The promotion roster is capped at 200 rows with no total, because `PromotionPreview` cannot carry one. A promote request can only act on 200 pupils anyway.
 - The command-menu search returns at most 10 hits of each kind with no count, so a caller cannot tell ten matches from four hundred. It also merges two coverage rows, so a caller without `staff.read_directory` gets `staff: []` rather than a refusal, and a caller denied `students.read_basic` is refused the whole endpoint even if they may read staff.
 - The dashboard now answers a whole home screen per audience, not two integers: the day, what needs attention, the school in numbers, class strength, admissions by month, holidays, birthdays, recent activity and the setup checklist. Attendance, exams and fees still have no tables, so the accountant view carries a fixed note where fee cards will go. The office audience is `owner`, `principal` and `admin`; there is no `clerk` role in this build.
 - The promotion reason is validated and then not persisted: operator free text routinely names a child, and audit rows must stay free of personal detail.
@@ -415,16 +420,18 @@ TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp_test 
 pnpm test:contracts
 ```
 
-Reset the schema before `test:db` and `test:authz`: the API suite leaves the fixtures rewritten.
+Reset the schema before `test:db`, `test:authz` and `test:security`: the API suite leaves the fixtures rewritten, and the security suite's dashboard file asserts an exact teacher timetable that the API suite has since widened.
 
 ## What the tests prove
 
-`pnpm test:api` is 262 tests across 20 files. Task 5 added 159 of them, in ten files: 20 setup, 22 students, 18 students-bulk, 23 staff, 20 timetable, 9 dashboard, 11 search, 10 audit, 21 files and 5 foundation. Task 8 adds 14: five in `sequences.test.ts` (the formatters, and two transactions allocating from one counter at once), and the numbering cases in students (two admissions at once take consecutive numbers; the first admission into another year is 001; a sent number is refused), staff (a sent code is refused; the code comes from the school counter whoever creates the record) and students-bulk (a kept number beside a blank one; a kept number in the school format lifts the counter; a kept number too long for any counter is ignored by it). The other 89 are the Task 2 authentication tests and the Task 4 access tests.
+`pnpm test:api` is 453 tests across 36 files. Task 5 added 159 of them, in ten files: 20 setup, 22 students, 18 students-bulk, 23 staff, 20 timetable, 9 dashboard, 11 search, 10 audit, 21 files and 5 foundation. Task 8 adds 14: five in `sequences.test.ts` (the formatters, and two transactions allocating from one counter at once), and the numbering cases in students (two admissions at once take consecutive numbers; the first admission into another year is 001; a sent number is refused), staff (a sent code is refused; the code comes from the school counter whoever creates the record) and students-bulk (a kept number beside a blank one; a kept number in the school format lifts the counter; a kept number too long for any counter is ignored by it). The other 89 are the Task 2 authentication tests and the Task 4 access tests.
 
 Every module file asserts the same seven shapes for at least its main list and its main detail read, wherever the shape has a meaning for that module: an anonymous caller is refused, a member of one school using the other school's id in the path is refused with `SCHOOL_ACCESS_UNAVAILABLE`, another school's record id through this school's path is not found and leaks nothing, a same-school caller with the wrong relationship gets not found and finds the row absent from the list, a permitted read returns exactly the contract fields, a write body carrying a forbidden field is refused with the database unchanged, and a bulk request with one bad id is rejected whole with nothing written.
 
 Task 13 adds three files: `read-audit.test.ts` (a detail read leaves one `allowed` row naming the blocks, a list leaves none, a refusal leaves one `denied` row the owner sees on `GET /audit-events`, twenty refusals raise exactly one burst report, the APAAR reveal leaves exactly one row), `subject-access.test.ts` (a parent gets their own child with no `accessHistory`, another family's child is not found, the owner gets `accessHistory`, a teacher is refused at the gate, one export leaves one audit row, an anonymised student exports the register fields only) and `access-log.test.ts` (one row per request holding the route pattern and no URL or query, a hashed address, our error code, and nothing at all for the health route).
 
 Task 15 adds `exports-xlsx.test.ts` in `apps/api/tests` (the spreadsheet helper, with no database), and the adversarial half lives in `tests/security/export-files.test.ts`: another school's student, staff, section or year answers exactly as a missing record and writes no job row; a teacher holds no export key for any pupil, in their own section or outside it; a teacher exports the week they teach and gets `RESOURCE_NOT_FOUND`, with no job row at all, for one they do not; a parent is refused every record export and cannot see or download another member's job; and a ready file is downloadable once, by its requester only, with one audit row and no storage key in any header.
+
+Task 18 adds 20 tests to the existing module files and one adversarial file, `tests/security/screen-contract-gaps.test.ts` (6). The module tests cover the member directory filters (each of status, role, `staffId` and search narrows the page and the total; a search finds somebody named only by their login; a `%` or `_` is looked for literally; an unknown query key is `INVALID_REQUEST`; another school's staff id finds nobody), the guardian version a correction has to send back and the conflict a stale one gets, a leaving date that is set, read back and cleared with `null` and never on a directory row, the class teacher name seen by an office reader, a teacher and a parent, `allowedActions` on every setup record, a refused delete and its reason with nothing deleted and no audit row, the audit outcome filter on its own and on top of the accountant's finance scope, a class of 105 previewed as two pages with the right total, and the version of a school profile, a holiday and a bell schedule starting at 1 and refusing the loser of a race. The security file asks the adversarial half: a filter is not a way round `members.read`, a school id in the path is not a school the caller belongs to, a search never crosses the boundary, a class teacher is not named to somebody who may not read that record and cannot be written in from another school, and every page of a roster follows the same read plan while a teacher is refused both the preview and the run. `pnpm test:contracts` gains two: a refusal reason must be one of the named blockers, and the member directory filters are a closed list.
 
 The scope assertions are built from real scopes rather than from a caller who holds nothing: a teacher with one teaching assignment, a parent of one child, an accountant at finance scope, an administrator whose role lost one key. Several tests were written specifically to fail if the plan predicate were removed from a query, which is what keeps "a list contains a row if and only if the detail read allows it" a property and not a claim.

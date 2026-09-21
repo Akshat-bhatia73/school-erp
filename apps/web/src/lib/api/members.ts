@@ -11,6 +11,7 @@ import {
   InvitationPage,
   InvitationSummary,
   InviteMemberRequest,
+  MemberListRequest,
   MemberSummary,
   MembershipActionRequest,
   MembershipDirectory,
@@ -24,7 +25,7 @@ import { schoolPath, seg, withQuery } from './shared'
 export type MemberPage = z.infer<typeof MembershipDirectory>
 export type Member = z.infer<typeof MemberSummary>
 export type Invitation = z.infer<typeof InvitationSummary>
-export type MemberListParams = { page?: number; pageSize?: number }
+export type MemberListParams = z.input<typeof MemberListRequest>
 export type InviteInput = z.input<typeof InviteMemberRequest>
 export type InvitationActionInput = z.input<typeof InvitationActionRequest>
 export type InvitationPage = z.infer<typeof InvitationPage>

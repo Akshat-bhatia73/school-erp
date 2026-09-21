@@ -48,7 +48,11 @@ export const AbsentTeacherPeriodList = z.array(TimetableCell)
 export const EmptySuccess = z.null()
 export const BulkCommitResult = z.strictObject({ created: z.number().int().nonnegative() })
 export const PromotionResult = z.strictObject({ promoted: z.number().int().nonnegative(), detained: z.number().int().nonnegative() })
-export const PromotionPreview = z.strictObject({ students: z.array(StudentBasic), targetSection: NamedReference })
+export const PromotionPreview = z.strictObject({
+  students: z.array(StudentBasic).max(100), targetSection: NamedReference,
+  // Every student of the cohort the caller may read, across all pages.
+  total: z.number().int().nonnegative(), page: z.number().int().min(1), pageSize: z.number().int().min(1).max(100),
+})
 /** One row that passed. A missing admissionNumber is assigned at commit. */
 export const StudentImportPreviewRow = z.strictObject({
   rowNumber: z.number().int().positive(),

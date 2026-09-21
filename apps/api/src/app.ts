@@ -180,6 +180,7 @@ export function buildApp({
       failure.code,
       request.id,
       failure.retryAfterSeconds,
+      failure.reason,
     )
     reply.status(status).send(body)
   })

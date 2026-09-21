@@ -92,6 +92,12 @@ Students gain `aadhaar_ciphertext`, guardians gain `office_address`, `pan_cipher
 
 Students and staff gain `photo_storage_key`, `photo_content_type` and `photo_updated_at`. The bytes live in the private document store and are served only by a permission-checked route; the row never holds a public URL. A check constraint keeps the three columns written and cleared together, and a second limits the type to the three image types the API decides from the file's own first bytes.
 
+## Version counters for the last three editable records
+
+Migration `0014_setup_versions.sql` adds `version integer NOT NULL DEFAULT 1 CHECK (version > 0)` to `schools`, `holidays` and `bell_schedules`, and adds nothing else: RLS and the table-level grants already cover all three, so the new column inherits both.
+
+These were the last editable records with no counter of their own. The school profile and a holiday compared a version derived from `updated_at` at microsecond granularity, and a bell schedule answered 1 for ever and refused any other `expectedVersion`, so two people editing one schedule could not be told apart. All three now go through the same `bumpVersion` every other record uses, which means a stale editor gets `VERSION_CONFLICT` rather than a silent overwrite or a puzzling `INVALID_REQUEST`. The change is additive and every existing row starts at 1, so the release before this one keeps running against the migrated database and simply ignores the column.
+
 ## Observability
 
 Migration `0010_observability.sql` (Task 13) adds the access log and durable account lockout.

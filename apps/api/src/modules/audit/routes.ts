@@ -97,6 +97,13 @@ export function registerAuditRoutes(app: FastifyInstance, deps: ModuleDependenci
           query.to === undefined
             ? undefined
             : sql`${auditEvents.createdAt} <= ${query.to}::timestamptz`,
+          // Denied is every result that is not "allowed", which is how the row
+          // below reports it, so the filter and the shown outcome agree.
+          query.outcome === undefined
+            ? undefined
+            : query.outcome === 'allowed'
+              ? sql`${auditEvents.result} = 'allowed'`
+              : sql`${auditEvents.result} <> 'allowed'`,
         ])
 
         const total = await countEvents(conn, where)

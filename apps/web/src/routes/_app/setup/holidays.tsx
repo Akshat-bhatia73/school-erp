@@ -22,6 +22,7 @@ import { api } from '@/lib/api'
 import type { HolidayRecord } from '@/lib/api/setup'
 import { describeError } from '@/lib/api-errors'
 import { qk } from '@/lib/query'
+import { allows } from '@/lib/permissions'
 import { useSchoolContext } from '@/lib/session'
 import { useAcademicYear } from '@/lib/use-academic-year'
 import { humanize } from '@/lib/utils'
@@ -80,7 +81,7 @@ function Page() {
     { id: 'type', header: 'Type', size: 150, accessorFn: (r) => r.type, cell: ({ row }) => <Tag color={TYPE_COLOR[row.original.type]}>{humanize(row.original.type)}</Tag> },
     {
       id: 'actions', header: '', size: 60, enableSorting: false,
-      cell: ({ row }) => canManage ? (
+      cell: ({ row }) => allows(row.original.allowedActions, 'holidays.manage') ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label={`Actions for ${row.original.name}`} onClick={(e) => e.stopPropagation()}><MoreHorizontal /></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -90,7 +91,7 @@ function Page() {
         </DropdownMenu>
       ) : null,
     },
-  ], [canManage])
+  ], [])
 
   return (
     <>

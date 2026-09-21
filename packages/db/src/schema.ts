@@ -215,6 +215,9 @@ export const schools = pgTable('schools', {
   establishedYear: integer('established_year'),
   logoUrl: text('logo_url'),
   accessVersion: integer('access_version').notNull().default(1),
+  // The edit counter of the profile. access_version belongs to the access
+  // locking protocol and never doubles as this.
+  version: integer('version').notNull().default(1),
   currentAcademicYearId: uuid('current_academic_year_id'),
   ...timestamps(),
 })
@@ -422,6 +425,7 @@ export const holidays = pgTable(
     startDate: date('start_date').notNull(),
     endDate: date('end_date').notNull(),
     type: text('type').notNull(),
+    version: integer('version').notNull().default(1),
     ...timestamps(),
   },
   (t) => [unique('holidays_school_id_unique').on(t.schoolId, t.id)],
@@ -588,6 +592,7 @@ export const bellSchedules = pgTable(
     workingDays: smallint('working_days').array().notNull(),
     periods: jsonb('periods').notNull(),
     saturdayPeriodCount: integer('saturday_period_count'),
+    version: integer('version').notNull().default(1),
     ...timestamps(),
   },
   (t) => [unique('bell_schedules_school_id_unique').on(t.schoolId, t.id)],

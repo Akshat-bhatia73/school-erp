@@ -700,3 +700,66 @@ test('the section assignment list is guarded like every other read', async () =>
   assert.ok([403, 404].includes(notTheirs.status))
   assert.equal((await notTheirs.text()).includes('Colleague'), false)
 })
+
+test('a leaving date that is set comes back, and clearing it takes it away again', async () => {
+  const read = async () =>
+    (await (await owner.fetch(`/api/schools/${schoolA}/staff/${colleagueId}`)).json()) as {
+      staff: { version: number }
+      employment?: Record<string, unknown>
+    }
+
+  const before = await read()
+  assert.ok(before.employment)
+  assert.equal('leavingDate' in before.employment, false)
+
+  const set = await owner.fetch(`/api/schools/${schoolA}/staff/${colleagueId}/employment`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ expectedVersion: before.staff.version, leavingDate: '2027-03-31' }),
+  })
+  assert.equal(set.status, 200)
+  const withDate = await read()
+  assert.equal(withDate.employment?.leavingDate, '2027-03-31')
+
+  // The office corrects a mistake: the date goes away rather than staying on
+  // a record of somebody who is still here.
+  const cleared = await owner.fetch(`/api/schools/${schoolA}/staff/${colleagueId}/employment`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ expectedVersion: withDate.staff.version, leavingDate: null }),
+  })
+  assert.equal(cleared.status, 200)
+  const after = await read()
+  assert.ok(after.employment)
+  assert.equal('leavingDate' in after.employment, false)
+})
+
+test('a leaving date is never on a row of the directory, which carries no employment', async () => {
+  const detail = (await (await owner.fetch(`/api/schools/${schoolA}/staff/${colleagueId}`)).json()) as {
+    staff: { version: number }
+  }
+  const set = await owner.fetch(`/api/schools/${schoolA}/staff/${colleagueId}/employment`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ expectedVersion: detail.staff.version, leavingDate: '2027-03-31' }),
+  })
+  assert.equal(set.status, 200)
+  try {
+    const list = await owner.fetch(`/api/schools/${schoolA}/staff?pageSize=100`)
+    assert.equal(list.status, 200)
+    const body = (await list.json()) as { items: Record<string, unknown>[] }
+    const row = body.items.find((item) => item.id === colleagueId)
+    assert.ok(row)
+    assert.equal('employment' in row, false)
+    assert.equal('leavingDate' in row, false)
+  } finally {
+    const current = (await (await owner.fetch(`/api/schools/${schoolA}/staff/${colleagueId}`)).json()) as {
+      staff: { version: number }
+    }
+    await owner.fetch(`/api/schools/${schoolA}/staff/${colleagueId}/employment`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ expectedVersion: current.staff.version, leavingDate: null }),
+    })
+  }
+})

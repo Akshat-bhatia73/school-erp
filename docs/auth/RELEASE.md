@@ -201,6 +201,13 @@ uses, never to the internet; checklist item 16 checks both halves.
 Migrations run as `erp_migrator` and only at deploy time. The running service
 never holds that login.
 
+Migration `0014_setup_versions.sql` is the screen and contract gaps release. It
+adds one column, `version`, to `schools`, `holidays` and `bell_schedules`, with a
+default of 1, so the previous version of the code still runs against it and step
+2 above is the whole release step. It adds no table, no policy and no
+permission, so `pnpm db:sync-roles` has nothing to bring across: no role sync is
+needed for this release.
+
 Migration `0012_export_files.sql` is the export-file release. It adds two
 nullable columns to `export_jobs`, widens the job-kind constraint and creates
 two `SECURITY DEFINER` functions for the daily route, so the previous version of

@@ -97,6 +97,41 @@ export async function allowedActionsFor(
 }
 
 /**
+ * The same list for many records of one kind, for a list response. The
+ * membership, the policy snapshot and the relationship facts are loaded once;
+ * only the facts of each record are loaded per record, so the decisions are
+ * exactly the ones allowedActionsFor would give, one record at a time. A
+ * record whose facts cannot be loaded is simply left out of the map.
+ */
+export async function allowedActionsForMany(
+  conn: AuthzConnection,
+  context: RequestContext,
+  resourceType: ResourceType,
+  ids: readonly string[],
+): Promise<ReadonlyMap<string, readonly PermissionKey[]>> {
+  const actions = new Map<string, readonly PermissionKey[]>()
+  if (ids.length === 0) return actions
+  const state = await loadMembershipStateById(conn, context.schoolId, context.membershipId)
+  if (!state || state.status !== 'active') throw new ApiFailure('ACCESS_DENIED')
+  const snapshot = await loadPolicySnapshotFor(conn, context.schoolId, context.membershipId)
+  const facts = await loadRelationshipFactsFor(conn, context.schoolId, context.membershipId, context.now)
+  const permissions = ACTIVE_PERMISSION_KEYS.filter(
+    (permission) => PERMISSION_CATALOGUE[permission].resourceType === resourceType,
+  )
+  for (const id of new Set(ids)) {
+    const resource: ResourceReference = { schoolId: context.schoolId, resourceType, id }
+    const resourceFacts = await loadResourceFacts(conn, context, resource)
+    actions.set(
+      id,
+      permissions.filter(
+        (permission) => evaluate({ context, permission, resource, snapshot, facts, resourceFacts }).allowed,
+      ),
+    )
+  }
+  return actions
+}
+
+/**
  * A read plan built on the caller's connection, so a list and the detail reads
  * that follow it run in one transaction rather than one each.
  */

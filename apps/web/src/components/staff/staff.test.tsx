@@ -80,7 +80,7 @@ beforeEach(() => {
   search = { page: 1 }
   vi.mocked(api.staff.list).mockResolvedValue(directoryPage())
   vi.mocked(api.staff.departments).mockResolvedValue(['Science'])
-  vi.mocked(api.members.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 100 })
+  vi.mocked(api.members.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 1 })
 })
 
 describe('staff directory', () => {
@@ -221,6 +221,16 @@ describe('staff record', () => {
   })
 })
 
+describe('login tab', () => {
+  it('asks the directory for the one membership linked to this staff record', async () => {
+    const { LoginTab } = await import('./login-tab')
+    renderWithSession(<LoginTab staffId="staff-1" displayName="Anita Sharma" />, { capabilities: ['members.read'] })
+
+    await waitFor(() => expect(api.members.list).toHaveBeenCalledWith(SCHOOL_ID, { staffId: 'staff-1', pageSize: 1 }))
+    expect(await screen.findByText('No login yet')).toBeInTheDocument()
+  })
+})
+
 describe('employment sheet leaving date', () => {
   it('does not clear the leaving date when the field is empty', async () => {
     const detail = { staff: anita, employment: { employeeCode: 'SVM-E001', joiningDate: '2020-06-01', employmentType: 'permanent' as const, status: 'active' as const }, allowedActions: ['staff.update_employment' as const] }
@@ -234,6 +244,27 @@ describe('employment sheet leaving date', () => {
 
     await waitFor(() => expect(api.staff.updateEmployment).toHaveBeenCalled())
     expect(vi.mocked(api.staff.updateEmployment).mock.calls[0]?.[2]).not.toHaveProperty('leavingDate')
+  })
+
+  it('shows the date on file and clears it when the person empties the field', async () => {
+    const detail = {
+      staff: anita,
+      employment: { employeeCode: 'SVM-E001', joiningDate: '2020-06-01', employmentType: 'permanent' as const, status: 'active' as const, leavingDate: '2027-03-31' },
+      allowedActions: ['staff.update_employment' as const],
+    }
+    vi.mocked(api.staff.updateEmployment).mockResolvedValue({ ...detail })
+
+    renderWithSession(<StaffEmploymentSheet detail={detail} open onOpenChange={() => {}} />, {
+      capabilities: ['staff.read_directory', 'staff.update_employment'],
+    })
+
+    const field = screen.getByLabelText('Leaving date')
+    expect(field).toHaveValue('2027-03-31')
+    await userEvent.clear(field)
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(api.staff.updateEmployment).toHaveBeenCalled())
+    expect(vi.mocked(api.staff.updateEmployment).mock.calls[0]?.[2]).toMatchObject({ leavingDate: null })
   })
 })
 

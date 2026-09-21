@@ -376,12 +376,12 @@ test('a bell schedule can be created, listed and matched to a grade', async () =
   assert.equal(forbidden.status, 400)
 })
 
-test('a bell schedule update refuses a version the table cannot hold', async () => {
+test('a bell schedule update refuses a stale version', async () => {
   const stale = await owner.fetch(apiA(`/timetable/bell-schedules/${bellSchedule}`), {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      expectedVersion: 2,
+      expectedVersion: 99,
       academicYearId: yearA,
       name: 'Never written',
       gradeIds: [],
@@ -389,13 +389,13 @@ test('a bell schedule update refuses a version the table cannot hold', async () 
       periods: [],
     }),
   })
-  assert.equal(stale.status, 400)
-  assert.equal(await errorCode(stale), 'INVALID_REQUEST')
+  assert.equal(stale.status, 409)
+  assert.equal(await errorCode(stale), 'VERSION_CONFLICT')
   const kept = await adminPool().query('SELECT name FROM bell_schedules WHERE id = $1', [bellSchedule])
   assert.notEqual(kept.rows[0]?.name, 'Never written')
 })
 
-test('a bell schedule update accepts the only version it reports', async () => {
+test('a bell schedule update accepts the version it reports and moves it on', async () => {
   const updated = await owner.fetch(apiA(`/timetable/bell-schedules/${bellSchedule}`), {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
@@ -409,7 +409,9 @@ test('a bell schedule update accepts the only version it reports', async () => {
     }),
   })
   assert.equal(updated.status, 200)
-  assert.equal((await json(updated)).name, 'Main renamed')
+  const saved = await json(updated)
+  assert.equal(saved.name, 'Main renamed')
+  assert.equal(saved.version, 2)
 
   const forbidden = await owner.fetch(apiA(`/timetable/bell-schedules/${bellSchedule}`), {
     method: 'PUT',

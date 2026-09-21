@@ -72,6 +72,20 @@ export const MemberSummary = z.strictObject({
   accessVersion: Version,
 })
 
+/**
+ * The member directory filters. Each one narrows the rows `members.read`
+ * already allows and is applied by the query, so the total and the pages are
+ * the filtered ones. `search` matches the name the directory shows; `staffId`
+ * finds the login of one staff record without paging the whole directory.
+ */
+export const MemberListRequest = PageRequest.extend({
+  search: z.string().trim().min(1).max(100).optional(),
+  role: RoleKey.optional(),
+  status: MembershipStatus.optional(),
+  staffId: Id.regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/).optional(),
+})
+export type MemberListRequest = z.infer<typeof MemberListRequest>
+
 /** Transition shapes are contracts, not authority to perform these actions. */
 export const MEMBERSHIP_TRANSITIONS = [
   { from: 'active', event: 'suspend', to: 'suspended' },

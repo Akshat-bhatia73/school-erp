@@ -4,8 +4,8 @@ import type { SchoolAuthorizationService } from '@erp/authz'
 import {
   AccessExplanation,
   AccessExplanationQuery,
+  MemberListRequest,
   MemberSummary,
-  PageRequest,
   pageOf,
 } from '@erp/contracts'
 import { ApiFailure } from '../http/errors.ts'
@@ -45,21 +45,31 @@ export function registerMembershipRoutes(
       const context = request.context
       if (!context) throw new ApiFailure('AUTHENTICATION_REQUIRED')
       const raw = request.query as Record<string, unknown>
-      const page = PageRequest.safeParse({
+      // Only the two numbers arrive as digits; the filters are already the
+      // strings the schema wants, and an unknown key is a bad request.
+      const query = MemberListRequest.safeParse({
+        ...raw,
         ...(raw.page === undefined ? {} : { page: asNumber(raw.page) }),
         ...(raw.pageSize === undefined ? {} : { pageSize: asNumber(raw.pageSize) }),
       })
-      if (!page.success) throw new ApiFailure('INVALID_REQUEST')
+      if (!query.success) throw new ApiFailure('INVALID_REQUEST')
+      const { page, pageSize, ...filters } = query.data
 
       return withTenantTransaction(deps.pools.runtime, context, async (conn) => {
         await authorizeSchoolAction(conn, context, 'members.read')
-        const { rows, total } = await loadMemberRows(conn, context.schoolId, page.data)
+        const { rows, total } = await loadMemberRows(
+          conn,
+          deps.pools.auth,
+          context.schoolId,
+          { page, pageSize },
+          filters,
+        )
         const names = await resolveDisplayNames(conn, deps.pools.auth, context.schoolId, rows)
         return MemberPage.parse({
           items: rows.map((row) => toMemberSummary(row, names.get(row.id) ?? 'Unnamed member')),
           total,
-          page: page.data.page,
-          pageSize: page.data.pageSize,
+          page,
+          pageSize,
         })
       })
     },

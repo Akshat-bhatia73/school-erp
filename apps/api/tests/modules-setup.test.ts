@@ -43,6 +43,11 @@ const subjectB = randomUUID()
 // A year that has already been closed by promotion, with its own section.
 const closedYear = randomUUID()
 const closedSection = randomUUID()
+// A colleague of the teacher, and a member of staff in the other school.
+const colleague = randomUUID()
+const staffB = randomUUID()
+// A section the teacher teaches in but does not look after.
+const taughtSection = randomUUID()
 
 let server: TestServer
 type Client = Awaited<ReturnType<typeof signInWithPassword>>
@@ -137,6 +142,15 @@ before(async () => {
     [schoolA, studentA, yearA, sectionA],
   )
 
+  // The parent's own child sits in the second section, so a parent has a
+  // section of their own to read.
+  await pool.query('DELETE FROM enrollments WHERE school_id = $1 AND section_id = $2', [schoolA, otherSection])
+  await pool.query(
+    `INSERT INTO enrollments(school_id,student_id,academic_year_id,section_id,joined_on)
+     VALUES ($1,$2,$3,$4,'2026-04-01')`,
+    [schoolA, studentA2, yearA, otherSection],
+  )
+
   // A year that has been closed, holding one pupil who finished it there and
   // one who left part way through.
   await pool.query(
@@ -153,6 +167,27 @@ before(async () => {
      VALUES ($1,$2,$3,$4,'2025-04-01','2026-03-31','promoted'),
             ($1,$5,$3,$4,'2025-04-01','2025-09-30','left')`,
     [schoolA, studentA, closedYear, closedSection, studentA2],
+  )
+
+  // Class teachers: the teacher looks after the fixture section, a colleague
+  // looks after the second one, which the teacher also teaches in.
+  await pool.query(
+    `INSERT INTO staff(id,school_id,employee_code,first_name,last_name,staff_type,designation,status)
+     VALUES ($1,$2,$3,'Rohini','Deshpande','teaching','Teacher','active')`,
+    [colleague, schoolA, `A-E-${colleague.slice(0, 6)}`],
+  )
+  await pool.query('UPDATE sections SET class_teacher_staff_id = $2 WHERE id = $1', [sectionA, staffA])
+  await pool.query('UPDATE sections SET class_teacher_staff_id = $2 WHERE id = $1', [otherSection, colleague])
+  await pool.query('UPDATE sections SET class_teacher_staff_id = $2 WHERE id = $1', [closedSection, colleague])
+  await pool.query(
+    `INSERT INTO sections(id,school_id,academic_year_id,grade_id,name,class_teacher_staff_id)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [taughtSection, schoolA, yearA, gradeA, `T${taughtSection.slice(0, 4)}`, colleague],
+  )
+  await pool.query(
+    `INSERT INTO teaching_assignments(school_id,staff_id,academic_year_id,section_id,subject_id,effective_from)
+     VALUES ($1,$2,$3,$4,$5,'2020-01-01')`,
+    [schoolA, staffA, yearA, taughtSection, subjectA],
   )
 
   // School B: a complete little setup, so a cross-school id is a real record.
@@ -176,6 +211,11 @@ before(async () => {
     `Maths ${subjectB.slice(0, 8)}`,
     `M-${subjectB.slice(0, 8)}`,
   ])
+  await pool.query(
+    `INSERT INTO staff(id,school_id,employee_code,first_name,last_name,staff_type,designation,status)
+     VALUES ($1,$2,$3,'Neighbour','Teacher','teaching','Teacher','active')`,
+    [staffB, schoolB, `B-E-${staffB.slice(0, 6)}`],
+  )
 
   await setFixturePassword(server, teacherUserId, PASSWORD)
   await setFixturePassword(server, parentUserId, PASSWORD)
@@ -259,6 +299,7 @@ test('the school profile reads and updates through its own contract only', async
     'affiliationNumber',
     'udiseCode',
     'version',
+    'allowedActions',
   ]
   assert.equal(
     Object.keys(profile).every((key) => allowed.includes(key)),
@@ -812,4 +853,247 @@ test('a malformed filter is bad input, not a collection that is missing', async 
     assert.equal(response.status, 400)
     assert.equal(((await response.json()) as ErrorBody).error.code, 'INVALID_REQUEST')
   }
+})
+
+interface WithActions {
+  id: string
+  allowedActions: string[]
+}
+
+async function auditCount(): Promise<number> {
+  const rows = await adminPool().query<{ total: number }>(
+    'SELECT count(*)::int AS total FROM audit_events WHERE school_id = $1',
+    [schoolA],
+  )
+  return rows.rows[0]?.total ?? 0
+}
+
+test('every setup record tells an office reader which action they may take on it', async () => {
+  const created = await owner.fetch(
+    `/api/schools/${schoolA}/holidays`,
+    body({
+      academicYearId: yearA,
+      name: `Founders day ${randomUUID().slice(0, 8)}`,
+      startDate: '2026-12-01',
+      endDate: '2026-12-01',
+      type: 'school',
+    }),
+  )
+  assert.equal(created.status, 201)
+  const holiday = (await created.json()) as HolidayItem & { allowedActions: string[] }
+  assert.ok(holiday.allowedActions.includes('holidays.manage'))
+
+  for (const [path, key] of [
+    [`/grades`, 'grades.manage'],
+    [`/sections?academicYearId=${yearA}`, 'sections.manage'],
+    [`/subjects`, 'subjects.manage'],
+    [`/holidays?academicYearId=${yearA}`, 'holidays.manage'],
+    [`/academic-years`, 'academic_years.manage'],
+  ] as const) {
+    const response = await owner.fetch(`/api/schools/${schoolA}${path}`)
+    assert.equal(response.status, 200, path)
+    const items = (await response.json()) as WithActions[]
+    assert.ok(items.length > 0, path)
+    assert.equal(items.every((item) => item.allowedActions.includes(key)), true, path)
+  }
+
+  const profile = await owner.fetch(`/api/schools/${schoolA}/school`)
+  const school = (await profile.json()) as WithActions
+  assert.ok(school.allowedActions.includes('school.update'))
+
+  await owner.fetch(`/api/schools/${schoolA}/holidays/${holiday.id}`, { method: 'DELETE' })
+})
+
+test('a teacher and a parent read setup records that carry no manage key', async () => {
+  const sections = await teacher.fetch(`/api/schools/${schoolA}/sections?academicYearId=${yearA}`)
+  assert.equal(sections.status, 200)
+  const theirSections = (await sections.json()) as WithActions[]
+  assert.ok(theirSections.length > 0)
+  assert.equal(theirSections.some((item) => item.allowedActions.includes('sections.manage')), false)
+
+  for (const client of [teacher, parent]) {
+    const holidays = await client.fetch(`/api/schools/${schoolA}/holidays?academicYearId=${yearA}`)
+    assert.equal(holidays.status, 200)
+    const items = (await holidays.json()) as WithActions[]
+    assert.equal(items.some((item) => item.allowedActions.includes('holidays.manage')), false)
+
+    // The one year read every role holds, so a screen can say which year it is in.
+    const current = await client.fetch(`/api/schools/${schoolA}/academic-years/current`)
+    assert.equal(current.status, 200)
+    const year = (await current.json()) as (YearItem & { allowedActions: string[] }) | null
+    assert.ok(year)
+    assert.ok(Array.isArray(year.allowedActions))
+    assert.equal(year.allowedActions.includes('academic_years.manage'), false)
+  }
+})
+
+test('a delete refused because something still refers to the record says which', async () => {
+  // The subject has to be studied by a class again: an earlier test emptied it.
+  const mapped = await owner.fetch(
+    `/api/schools/${schoolA}/grades/${gradeA}/subjects`,
+    put({ academicYearId: yearA, subjectIds: [subjectA] }),
+  )
+  assert.equal(mapped.status, 200)
+
+  const before = await auditCount()
+  for (const [path, reason] of [
+    [`/grades/${gradeA}`, 'grade_has_sections'],
+    [`/sections/${sectionA}`, 'section_has_students'],
+    [`/subjects/${subjectA}`, 'subject_has_classes'],
+  ] as const) {
+    const response = await owner.fetch(`/api/schools/${schoolA}${path}`, { method: 'DELETE' })
+    assert.equal(response.status, 400, path)
+    const failure = (await response.json()) as { error: { code: string; reason?: string; message: string } }
+    assert.equal(failure.error.code, 'INVALID_REQUEST', path)
+    assert.equal(failure.error.reason, reason, path)
+    assert.ok(failure.error.message.length > 0)
+  }
+
+  // Nothing was removed and the refusals are not school history.
+  const grade = await adminPool().query('SELECT 1 FROM grades WHERE id = $1', [gradeA])
+  assert.equal(grade.rowCount, 1)
+  const section = await adminPool().query('SELECT 1 FROM sections WHERE id = $1', [sectionA])
+  assert.equal(section.rowCount, 1)
+  const subject = await adminPool().query('SELECT 1 FROM subjects WHERE id = $1', [subjectA])
+  assert.equal(subject.rowCount, 1)
+  assert.equal(await auditCount(), before)
+})
+
+test('a teacher refused the same delete is told nothing about why', async () => {
+  const response = await teacher.fetch(`/api/schools/${schoolA}/grades/${gradeA}`, { method: 'DELETE' })
+  assert.equal(response.status, 403)
+  const failure = (await response.json()) as { error: { code: string; reason?: string } }
+  assert.equal(failure.error.code, 'ACCESS_DENIED')
+  assert.equal('reason' in failure.error, false)
+})
+
+test('a holiday version starts at one and moves on by one with every save', async () => {
+  const created = await owner.fetch(
+    `/api/schools/${schoolA}/holidays`,
+    body({
+      academicYearId: yearA,
+      name: `Sports day ${randomUUID().slice(0, 8)}`,
+      startDate: '2026-12-05',
+      endDate: '2026-12-05',
+      type: 'school',
+    }),
+  )
+  assert.equal(created.status, 201)
+  const holiday = (await created.json()) as HolidayItem
+  assert.equal(holiday.version, 1)
+
+  const saved = await owner.fetch(
+    `/api/schools/${schoolA}/holidays/${holiday.id}`,
+    put({
+      academicYearId: yearA,
+      name: 'Sports afternoon',
+      startDate: '2026-12-05',
+      endDate: '2026-12-05',
+      type: 'school',
+      expectedVersion: 1,
+    }),
+  )
+  assert.equal(saved.status, 200)
+  assert.equal(((await saved.json()) as HolidayItem).version, 2)
+
+  await owner.fetch(`/api/schools/${schoolA}/holidays/${holiday.id}`, { method: 'DELETE' })
+})
+
+test('the school profile version moves on by one and refuses the loser of a race', async () => {
+  const read = async () =>
+    (await (await owner.fetch(`/api/schools/${schoolA}/school`)).json()) as { version: number; name: string }
+  const before = await read()
+
+  const fields = {
+    name: 'Fixture A',
+    shortName: 'A',
+    board: 'cbse' as const,
+    address: '12 Nehru Road, Pune',
+    phone: '+919876543210',
+    email: 'office@fixture-a.test',
+  }
+  const first = await owner.fetch(`/api/schools/${schoolA}/school`, put({ ...fields, expectedVersion: before.version }))
+  assert.equal(first.status, 200)
+  assert.equal(((await first.json()) as { version: number }).version, before.version + 1)
+
+  const second = await owner.fetch(
+    `/api/schools/${schoolA}/school`,
+    put({ ...fields, name: 'Renamed by the loser', expectedVersion: before.version }),
+  )
+  assert.equal(second.status, 409)
+  assert.equal(((await second.json()) as ErrorBody).error.code, 'VERSION_CONFLICT')
+  assert.equal((await read()).name, 'Fixture A')
+})
+
+interface NamedSection extends SectionItem {
+  classTeacherId?: string
+  classTeacher?: { id: string; name: string }
+}
+
+async function sectionsFor(client: Client, yearId: string): Promise<NamedSection[]> {
+  const response = await client.fetch(`/api/schools/${schoolA}/sections?academicYearId=${yearId}`)
+  assert.equal(response.status, 200)
+  return (await response.json()) as NamedSection[]
+}
+
+test('a section names its class teacher only to someone who may read that person', async () => {
+  // The office reads the whole staff directory, so both names are there.
+  const office = await sectionsFor(owner, yearA)
+  const officeFixture = office.find((item) => item.id === sectionA)
+  assert.ok(officeFixture)
+  assert.equal(officeFixture.classTeacher?.id, staffA)
+  assert.ok((officeFixture.classTeacher?.name ?? '').length > 0)
+  const officeTaught = office.find((item) => item.id === taughtSection)
+  assert.equal(officeTaught?.classTeacher?.name, 'Rohini Deshpande')
+
+  // A teacher reads only their own staff record, so they are named on the
+  // section they look after and nowhere else.
+  const theirs = await sectionsFor(teacher, yearA)
+  const own = theirs.find((item) => item.id === sectionA)
+  assert.ok(own)
+  assert.equal(own.classTeacher?.id, staffA)
+  const taught = theirs.find((item) => item.id === taughtSection)
+  assert.ok(taught)
+  assert.equal(taught.classTeacherId, colleague)
+  assert.equal('classTeacher' in taught, false)
+
+  // The detail read answers the same way as the row in the list.
+  const detail = (await (
+    await teacher.fetch(`/api/schools/${schoolA}/sections/${taughtSection}`)
+  ).json()) as NamedSection
+  assert.equal(detail.classTeacherId, colleague)
+  assert.equal('classTeacher' in detail, false)
+})
+
+test('a parent holds no staff directory grant, so no section names a teacher to them', async () => {
+  const seen = [...(await sectionsFor(parent, yearA)), ...(await sectionsFor(parent, closedYear))]
+  assert.ok(seen.length > 0)
+  assert.equal(seen.some((item) => 'classTeacher' in item), false)
+  assert.equal(JSON.stringify(seen).includes('Rohini'), false)
+})
+
+test('a class teacher from another school cannot be put in charge of our section', async () => {
+  const current = (await (
+    await owner.fetch(`/api/schools/${schoolA}/sections/${taughtSection}`)
+  ).json()) as NamedSection
+  const saved = await owner.fetch(
+    `/api/schools/${schoolA}/sections/${taughtSection}`,
+    put({ name: current.name, classTeacherStaffId: staffB, expectedVersion: current.version }),
+  )
+  assert.equal(saved.status, 400)
+  assert.equal(((await saved.json()) as ErrorBody).error.code, 'INVALID_REQUEST')
+
+  const created = await owner.fetch(
+    `/api/schools/${schoolA}/sections`,
+    body({
+      academicYearId: yearA,
+      gradeId: gradeA,
+      name: `N${randomUUID().slice(0, 4)}`,
+      classTeacherStaffId: staffB,
+    }),
+  )
+  assert.equal(created.status, 400)
+
+  const kept = await adminPool().query('SELECT class_teacher_staff_id FROM sections WHERE id = $1', [taughtSection])
+  assert.equal(kept.rows[0]?.class_teacher_staff_id, colleague)
 })
