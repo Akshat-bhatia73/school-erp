@@ -5,6 +5,7 @@ export {
   authorizeResource,
   authorizeSchoolAction,
   decideResource,
+  decideSchoolAction,
   readPlan,
   requiresMfa,
 } from './authorize.ts'

@@ -1,4 +1,5 @@
 import { Panel } from '@/components/shared/page'
+import { groupAadhaar } from '@/components/students/identity-fields'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { humanize } from '@/lib/utils'
@@ -32,6 +33,19 @@ export function StudentStep({ draft, set, errors }: { draft: AdmitDraft; set: (p
             onChange={(v) => set({ category: v })}
             error={errors.category}
             options={CATEGORY.map((c) => ({ value: c, label: ['obc', 'sc', 'st', 'ews'].includes(c) ? c.toUpperCase() : humanize(c) }))}
+          />
+        </div>
+      </Panel>
+
+      <Panel title="Aadhaar" description="Only the last four digits are shown once it is saved.">
+        <div className="grid grid-cols-2 gap-4">
+          <TextField
+            label="Aadhaar number"
+            value={draft.aadhaar}
+            onChange={(v) => set({ aadhaar: groupAadhaar(v) })}
+            error={errors.aadhaar}
+            placeholder="1234 5678 9012"
+            hint="Optional"
           />
         </div>
       </Panel>

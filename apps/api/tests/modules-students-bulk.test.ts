@@ -730,7 +730,7 @@ test('a promotion preview lists only the students the caller may read', async ()
   assert.ok(mine)
   assert.deepEqual(
     Object.keys(mine).sort(),
-    ['admissionNumber', 'anonymised', 'firstName', 'id', 'schoolId', 'status', 'version'],
+    ['admissionNumber', 'anonymised', 'firstName', 'hasPhoto', 'id', 'schoolId', 'status', 'version'],
   )
 
   // A student of the neighbouring class is not on this roster, because the
@@ -827,6 +827,106 @@ test('a promotion moves the promoted up and keeps the detained in their grade', 
   assert.equal(opened.find((row) => row.student_id === promoted)?.section_id, sectionSevenNext)
   // The detained student repeats the same grade in next year's section.
   assert.equal(opened.find((row) => row.student_id === detained)?.section_id, sectionSixNext)
+})
+
+test('students who are left out of a promotion are not touched at all', async () => {
+  const promoted = await seatStudent()
+  const detained = await seatStudent()
+  const leftOut = await seatStudent()
+
+  const response = await owner.fetch(`${base()}/promote`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      fromAcademicYearId: yearA,
+      toAcademicYearId: nextYear,
+      fromSectionId: sectionA,
+      toSectionId: sectionSevenNext,
+      // The third student of the class is in neither list, which is how the
+      // screen says "leave this one out".
+      studentIds: [promoted],
+      detainedStudentIds: [detained],
+      reason: 'Year end promotion',
+    }),
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { promoted: 1, detained: 1 })
+
+  const rows = await adminPool().query<{
+    academic_year_id: string
+    outcome: string
+    left_on: string | null
+  }>(
+    `SELECT academic_year_id, outcome, left_on::text AS left_on FROM enrollments
+      WHERE school_id = $1 AND student_id = $2`,
+    [schoolA, leftOut],
+  )
+  // One enrollment, still this year's, still open and still ongoing.
+  assert.equal(rows.rows.length, 1)
+  assert.equal(rows.rows[0]?.academic_year_id, yearA)
+  assert.equal(rows.rows[0]?.outcome, 'ongoing')
+  assert.equal(rows.rows[0]?.left_on, null)
+})
+
+test('a promotion may name only students to promote, or only students to detain', async () => {
+  const promoted = await seatStudent()
+  const onlyPromote = await owner.fetch(`${base()}/promote`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      fromAcademicYearId: yearA,
+      toAcademicYearId: nextYear,
+      fromSectionId: sectionA,
+      toSectionId: sectionSevenNext,
+      studentIds: [promoted],
+      detainedStudentIds: [],
+      reason: 'Year end promotion',
+    }),
+  })
+  assert.equal(onlyPromote.status, 200)
+  assert.deepEqual(await onlyPromote.json(), { promoted: 1, detained: 0 })
+
+  const detained = await seatStudent()
+  const onlyDetain = await owner.fetch(`${base()}/promote`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      fromAcademicYearId: yearA,
+      toAcademicYearId: nextYear,
+      fromSectionId: sectionA,
+      toSectionId: sectionSevenNext,
+      studentIds: [],
+      detainedStudentIds: [detained],
+      reason: 'Year end promotion',
+    }),
+  })
+  assert.equal(onlyDetain.status, 200)
+  assert.deepEqual(await onlyDetain.json(), { promoted: 0, detained: 1 })
+})
+
+test('a promotion that names nobody is refused and writes nothing', async () => {
+  const seated = await seatStudent()
+  const response = await owner.fetch(`${base()}/promote`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      fromAcademicYearId: yearA,
+      toAcademicYearId: nextYear,
+      fromSectionId: sectionA,
+      toSectionId: sectionSevenNext,
+      studentIds: [],
+      detainedStudentIds: [],
+      reason: 'Year end promotion',
+    }),
+  })
+  assert.equal(response.status, 400)
+  assert.equal(await readError(response), 'INVALID_REQUEST')
+  const moved = await adminPool().query<{ total: number }>(
+    `SELECT count(*)::int AS total FROM enrollments
+      WHERE school_id = $1 AND student_id = $2 AND academic_year_id = $3`,
+    [schoolA, seated, nextYear],
+  )
+  assert.equal(moved.rows[0]?.total, 0)
 })
 
 test('an export of a set with one unreachable record is refused whole', async () => {

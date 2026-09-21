@@ -19,6 +19,11 @@ export const StudentBasic = z.strictObject({
   status: z.enum(['active', 'left', 'alumni', 'suspended']),
   anonymised: z.boolean(),
   enrollment: EnrollmentSummary.optional(),
+  // Whether a photograph exists and when it last changed. The bytes come from
+  // the permission-checked streaming route; the moment is only there so a
+  // screen can ask for the new picture instead of the cached one.
+  hasPhoto: z.boolean(),
+  photoUpdatedAt: Timestamp.optional(),
 })
 export const StudentSensitive = z.strictObject({
   dateOfBirth: CalendarDate,
@@ -44,6 +49,10 @@ export const GuardianPrivate = z.strictObject({
   occupation: z.string().max(200).optional(),
   annualIncome: z.number().nonnegative().optional(),
   address: z.string().max(1000).optional(),
+  officeAddress: z.string().max(1000).optional(),
+  // Masked identity numbers only, like the student's: "ending 1234" on screen.
+  panLast4: z.string().regex(/^\d{3}[A-Z]$/).optional(),
+  aadhaarLast4: z.string().regex(/^\d{4}$/).optional(),
 })
 /** Use each field group only after its own authorization; never spread a storage model. */
 export const StudentDetailResponse = z.strictObject({
@@ -59,6 +68,8 @@ export const StaffDirectory = z.strictObject({
   id: Id, schoolId: Id, version: Version, displayName: DisplayName,
   designation: z.string().max(160), department: z.string().max(160).optional(),
   anonymised: z.boolean(),
+  hasPhoto: z.boolean(),
+  photoUpdatedAt: Timestamp.optional(),
 })
 export const StaffEmployment = z.strictObject({
   employeeCode: z.string().max(100), joiningDate: CalendarDate,
@@ -108,12 +119,7 @@ export const AuditEventSummary = z.strictObject({
   note: z.string().max(1000).optional(),
 })
 export const AuditListResponse = pageOf(AuditEventSummary)
-export const DashboardResponse = z.discriminatedUnion('audience', [
-  z.strictObject({ audience: z.literal('office'), activeStudents: z.number().int().nonnegative(), staffCount: z.number().int().nonnegative() }),
-  z.strictObject({ audience: z.literal('teacher'), assignedSections: z.array(NamedReference), ownTimetable: z.array(TimetableCell) }),
-  z.strictObject({ audience: z.literal('parent'), children: z.array(StudentBasic) }),
-  z.strictObject({ audience: z.literal('accountant'), message: z.literal('Financial modules are not enabled yet') }),
-])
+/** The dashboard response union lives in module-dashboard.ts. */
 
 export type StudentBasic = z.infer<typeof StudentBasic>
 export type StaffDirectory = z.infer<typeof StaffDirectory>

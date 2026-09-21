@@ -2,8 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as c from '../src/index.ts'
 
-const student = { id: 'student-1', schoolId: 'school-1', version: 1, firstName: 'Meera', admissionNumber: '2026/1', status: 'active', anonymised: false }
-const staff = { id: 'staff-1', schoolId: 'school-1', version: 1, displayName: 'Meera', designation: 'Teacher', anonymised: false }
+const student = { id: 'student-1', schoolId: 'school-1', version: 1, firstName: 'Meera', admissionNumber: '2026/1', status: 'active', anonymised: false, hasPhoto: false }
+const staff = { id: 'staff-1', schoolId: 'school-1', version: 1, displayName: 'Meera', designation: 'Teacher', anonymised: false, hasPhoto: false }
 const invite = { displayName: 'Meera', identifier: { kind: 'email', value: 'meera@example.org' }, roleKeys: ['teacher'], staffId: 'staff-1' }
 const rule = {
   id: 'rule-1', schoolId: 'school-1', membershipId: 'member-1', permission: 'students.read_basic',

@@ -12,6 +12,18 @@ import { ExportFileFormat, ExportJobSummary } from './response-families.ts'
 export const EXPORT_INLINE_MAX_ROWS = 5000
 
 /**
+ * A photograph of a student or a staff member. One megabyte is enough for a
+ * passport picture and small enough to accept in the request that sends it.
+ * The type is decided by the API from the first bytes of the file, never from
+ * what the upload claimed, so this list is what those bytes may turn out to
+ * be rather than a list of accepted headers.
+ */
+export const PHOTO_MAX_BYTES = 1_048_576
+export const PHOTO_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const
+export const PhotoContentType = z.enum(PHOTO_CONTENT_TYPES)
+export type PhotoContentType = z.infer<typeof PhotoContentType>
+
+/**
  * Record identifiers in this module are database uuids. Validating that exact
  * shape here means every malformed id fails in one place and gets one answer,
  * instead of a second regex in the route producing a different error code for

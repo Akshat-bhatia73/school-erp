@@ -7,6 +7,7 @@
 import { StudentsAdmitRequest } from '@erp/contracts'
 import type { ConsentMethod, ConsentPurpose } from '@erp/contracts'
 import type { AdmitStudentInput } from '@/lib/api/students'
+import { fieldErrors, type FieldLabels } from '@/lib/validation'
 import type { Errors } from './fields'
 
 export type GuardianRelation = 'father' | 'mother' | 'guardian' | 'grandparent' | 'sibling' | 'other'
@@ -22,6 +23,11 @@ export interface GuardianDraft {
   phone: string
   occupation: string
   address: string
+  /** Optional, and the same shape as the home address. */
+  officeAddress: string
+  /** Typed in full, sent once and never held anywhere else. */
+  pan: string
+  aadhaar: string
   receivesNotifications: boolean
   /** The purposes this guardian agreed to, and how that agreement was taken. */
   consentPurposes: ConsentPurpose[]
@@ -38,6 +44,8 @@ export interface AdmitDraft {
   admissionDate: string
   admissionType: string
   address: string
+  /** The student's own Aadhaar number, optional, twelve digits. */
+  aadhaar: string
   sectionId: string
   rollNumber: string
   guardians: GuardianDraft[]
@@ -49,6 +57,7 @@ export const todayIso = () => new Date().toISOString().slice(0, 10)
 export function emptyGuardian(relation: GuardianRelation = 'father'): GuardianDraft {
   return {
     mode: 'new', guardianId: '', relation, firstName: '', lastName: '', phone: '', occupation: '', address: '',
+    officeAddress: '', pan: '', aadhaar: '',
     receivesNotifications: true, consentPurposes: [], consentMethod: 'in_person', consentEvidence: '',
   }
 }
@@ -56,7 +65,7 @@ export function emptyGuardian(relation: GuardianRelation = 'father'): GuardianDr
 export function emptyDraft(): AdmitDraft {
   return {
     firstName: '', lastName: '', dateOfBirth: '', gender: '', category: '',
-    admissionDate: todayIso(), admissionType: '', address: '',
+    admissionDate: todayIso(), admissionType: '', address: '', aadhaar: '',
     sectionId: '', rollNumber: '', guardians: [emptyGuardian('father')], primaryIndex: 0,
   }
 }
@@ -81,6 +90,7 @@ export function toAdmitRequest(draft: AdmitDraft): AdmitStudentInput {
     admissionType: clean(draft.admissionType),
     admissionDate: draft.admissionDate,
     address: clean(draft.address),
+    aadhaar: clean(draft.aadhaar),
     sectionId: draft.sectionId,
     rollNumber: draft.rollNumber.trim() === '' ? undefined : Number(draft.rollNumber),
     guardians: draft.guardians.map((guardian, index) => ({
@@ -93,6 +103,9 @@ export function toAdmitRequest(draft: AdmitDraft): AdmitStudentInput {
               phone: toE164(guardian.phone),
               occupation: clean(guardian.occupation),
               address: clean(guardian.address),
+              officeAddress: clean(guardian.officeAddress),
+              pan: clean(guardian.pan),
+              aadhaar: clean(guardian.aadhaar),
             },
           }),
       relation: guardian.relation,
@@ -118,24 +131,47 @@ export function consentEntries(draft: AdmitDraft) {
 
 /** Which step owns which top-level field, so an error lands on the step that can fix it. */
 const STEP_FIELDS: Record<number, string[]> = {
-  0: ['firstName', 'lastName', 'dateOfBirth', 'gender', 'category'],
+  0: ['firstName', 'lastName', 'dateOfBirth', 'gender', 'category', 'aadhaar'],
   1: ['guardians'],
   2: ['consents'],
   3: ['admissionDate', 'admissionType', 'address', 'sectionId', 'rollNumber'],
 }
 
+/** The words each field goes by on the form, so a problem reads as plain English. */
+export const ADMIT_LABELS: FieldLabels = {
+  firstName: 'first name',
+  lastName: 'last name',
+  dateOfBirth: 'date of birth',
+  gender: { label: 'gender', kind: 'select' },
+  category: { label: 'category', kind: 'select' },
+  aadhaar: 'Aadhaar number',
+  apaarId: 'APAAR id',
+  admissionDate: 'admission date',
+  admissionType: { label: 'admission type', kind: 'select' },
+  address: 'address',
+  sectionId: { label: 'class and section', kind: 'select' },
+  rollNumber: { label: 'roll number', kind: 'number' },
+  guardians: { label: 'guardian', kind: 'list' },
+  'guardians.*.firstName': 'guardian first name',
+  'guardians.*.lastName': 'guardian last name',
+  'guardians.*.phone': 'guardian phone number',
+  'guardians.*.relation': { label: 'relation', kind: 'select' },
+  'guardians.*.occupation': 'guardian occupation',
+  'guardians.*.address': 'guardian address',
+  'guardians.*.officeAddress': 'guardian office address',
+  'guardians.*.pan': 'guardian PAN',
+  'guardians.*.aadhaar': 'guardian Aadhaar number',
+  consents: { label: 'consent', kind: 'list' },
+  'consents.*.method': { label: 'how consent was given', kind: 'select' },
+  'consents.*.evidenceReference': 'consent record',
+}
+
 /** Every problem the contract found, keyed by dotted path. */
 export function validateDraft(draft: AdmitDraft): Errors {
   const parsed = StudentsAdmitRequest.safeParse(toAdmitRequest(draft))
-  const errors: Errors = {}
-  if (!parsed.success) {
-    for (const issue of parsed.error.issues) {
-      const path = issue.path.map(String).join('.') || 'form'
-      if (!errors[path]) errors[path] = issue.message
-    }
-  }
-  if (!draft.gender) errors.gender = 'Pick a gender'
-  if (!draft.sectionId) errors.sectionId = 'Pick a class and section'
+  const errors: Errors = parsed.success ? {} : fieldErrors(parsed.error, ADMIT_LABELS)
+  if (!draft.gender) errors.gender = 'Choose a gender'
+  if (!draft.sectionId) errors.sectionId = 'Choose a class and section'
   return errors
 }
 

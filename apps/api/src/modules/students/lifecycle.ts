@@ -32,6 +32,7 @@ interface RegisterRow {
   admission_number: string
   status: string
   anonymised_at: string | null
+  photo_storage_key: string | null
 }
 
 /**
@@ -73,6 +74,7 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
             religion: null,
             mother_tongue: null,
             nationality: null,
+            aadhaar_ciphertext: null,
             aadhaar_last4: null,
             apaar_ciphertext: null,
             apaar_last4: null,
@@ -81,11 +83,16 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
             left_reason: null,
             medical_notes: null,
             house: null,
+            photo_storage_key: null,
+            photo_content_type: null,
+            photo_updated_at: null,
             anonymised_at: new Date(),
           },
         })
 
         const documentKeys = await clearDocuments(conn, context.schoolId, studentId)
+        // The photograph is bytes in the same store, so it leaves with them.
+        if (current.photo_storage_key !== null) documentKeys.push(current.photo_storage_key)
         const guardians = await anonymiseOrphanedGuardians(conn, context.schoolId, studentId)
 
         await writeAudit(conn, context, {
@@ -179,7 +186,7 @@ async function loadRegisterRow(
 ): Promise<RegisterRow> {
   const result = await conn.client.query<RegisterRow>(
     `SELECT id, school_id, version, first_name, last_name, admission_number, status,
-            anonymised_at::text AS anonymised_at
+            anonymised_at::text AS anonymised_at, photo_storage_key
        FROM students WHERE school_id = $1 AND id = $2`,
     [schoolId, studentId],
   )
@@ -206,6 +213,7 @@ async function detailResponse(conn: AuthzConnection, context: RequestContext, st
       admissionNumber: row.admission_number,
       status: row.status as 'active' | 'left' | 'alumni' | 'suspended',
       anonymised: row.anonymised_at !== null,
+      hasPhoto: row.photo_storage_key !== null,
     },
     allowedActions: [
       ...(await allowedActionsFor(conn, context, {
@@ -297,7 +305,10 @@ async function anonymiseGuardians(
     `UPDATE guardians
         SET first_name = 'Former guardian', last_name = NULL, phone = NULL, alt_phone = NULL,
             email = NULL, occupation = NULL, qualification = NULL, annual_income = NULL,
-            address = NULL, anonymised_at = now(), version = version + 1, updated_at = now()
+            address = NULL, office_address = NULL,
+            pan_ciphertext = NULL, pan_last4 = NULL,
+            aadhaar_ciphertext = NULL, aadhaar_last4 = NULL,
+            anonymised_at = now(), version = version + 1, updated_at = now()
       WHERE school_id = $1 AND id = ANY($2::uuid[]) AND anonymised_at IS NULL
         AND NOT EXISTS (
           SELECT 1 FROM student_guardians sg

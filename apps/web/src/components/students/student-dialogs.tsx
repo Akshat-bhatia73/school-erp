@@ -11,17 +11,16 @@ import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
 import { describeError } from '@/lib/api-errors'
 import { useSchoolContext } from '@/lib/session'
+import { fieldErrors, focusFirstInvalid, type FieldLabels } from '@/lib/validation'
 import { useSectionOptions } from './use-section-options'
 
 type FieldErrors = Record<string, string>
 
-function issuesOf(error: { issues: Array<{ path: PropertyKey[]; message: string }> }): FieldErrors {
-  const found: FieldErrors = {}
-  for (const issue of error.issues) {
-    const key = issue.path.map(String).join('.') || 'form'
-    if (!found[key]) found[key] = issue.message
-  }
-  return found
+const LABELS: FieldLabels = {
+  sectionId: { label: 'section', kind: 'select' },
+  rollNumber: { label: 'roll number', kind: 'number' },
+  reason: 'reason',
+  leftOn: 'date the student left',
 }
 
 /** Move one student into another section of the year they are enrolled in. */
@@ -58,7 +57,8 @@ export function MoveSectionDialog({ open, onOpenChange, studentId, expectedVersi
       reason: reason.trim(),
     })
     if (!parsed.success) {
-      setErrors(issuesOf(parsed.error))
+      setErrors(fieldErrors(parsed.error, LABELS))
+      requestAnimationFrame(() => focusFirstInvalid())
       return
     }
     setErrors({})
@@ -130,7 +130,8 @@ export function MarkLeftDialog({ open, onOpenChange, studentId, expectedVersion 
   const submit = () => {
     const parsed = EndEnrollmentRequest.safeParse({ expectedVersion, leftOn, reason: reason.trim() })
     if (!parsed.success) {
-      setErrors(issuesOf(parsed.error))
+      setErrors(fieldErrors(parsed.error, LABELS))
+      requestAnimationFrame(() => focusFirstInvalid())
       return
     }
     setErrors({})

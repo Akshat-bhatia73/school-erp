@@ -22,6 +22,7 @@ import {
 } from '@erp/contracts'
 import type { z } from 'zod'
 import { request } from '@/lib/http'
+import { deletePhoto, photoSrc, putPhoto } from './photo'
 import { schoolPath, seg, withQuery } from './shared'
 
 export type StaffListParams = z.input<typeof StaffListRequest>
@@ -92,6 +93,23 @@ export function assign(schoolId: string, staffId: string, body: AssignTeachingIn
 
 export async function unassign(schoolId: string, staffId: string, assignmentId: string): Promise<void> {
   await request(base(schoolId, `/${seg(staffId)}/assignments/${seg(assignmentId)}`), { method: 'DELETE' })
+}
+
+// ---------- photograph ----------
+
+const photoPath = (schoolId: string, staffId: string) => base(schoolId, `/${seg(staffId)}/photo`)
+
+/** The address of this person's photograph, for an `<img>` on a screen this person may see. */
+export function photoUrl(schoolId: string, staffId: string, photoUpdatedAt?: string): string {
+  return photoSrc(photoPath(schoolId, staffId), photoUpdatedAt)
+}
+
+export function uploadPhoto(schoolId: string, staffId: string, file: Blob, expectedVersion: number) {
+  return putPhoto(photoPath(schoolId, staffId), file, expectedVersion)
+}
+
+export function removePhoto(schoolId: string, staffId: string, expectedVersion: number) {
+  return deletePhoto(photoPath(schoolId, staffId), expectedVersion)
 }
 
 /** Clears the private and pay fields of a person who left long enough ago. */

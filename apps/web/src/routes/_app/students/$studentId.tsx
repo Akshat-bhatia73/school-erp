@@ -134,7 +134,12 @@ function Page() {
       />
 
       <div className="flex items-start gap-3 border-b p-3 md:gap-4 md:p-5">
-        <UserAvatar name={name} size="xl" className="size-12 md:size-16" />
+        <UserAvatar
+          name={name}
+          src={student.hasPhoto ? api.students.photoUrl(schoolId, student.id, student.photoUpdatedAt) : undefined}
+          size="xl"
+          className="size-12 md:size-16"
+        />
         <div className="min-w-0">
           <h1 className="text-[17px] font-semibold md:text-xl">{name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -165,7 +170,7 @@ function Page() {
             {canAnonymise && !student.anonymised && <AnonymisePanel student={student} />}
           </TabsContent>
           {canReadGuardians && (
-            <TabsContent value="guardians"><GuardiansTab studentId={student.id} studentVersion={student.version} canManage={canManageGuardians} /></TabsContent>
+            <TabsContent value="guardians"><GuardiansTab studentId={student.id} studentVersion={student.version} canManage={canManageGuardians} allowedActions={allowedActions} /></TabsContent>
           )}
           {canReadConsents && <TabsContent value="consent"><ConsentsTab studentId={student.id} /></TabsContent>}
           {canReadSiblings && <TabsContent value="siblings"><SiblingsTab studentId={student.id} /></TabsContent>}

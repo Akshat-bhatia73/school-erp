@@ -4,7 +4,7 @@
  */
 import { useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarDays, FileDown, Pencil, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -12,6 +12,7 @@ import { EmptyState, Facts, PageHeader, Panel } from '@/components/shared/page'
 import { useExportDownload } from '@/components/shared/export-download'
 import { Tag, colorFor } from '@/components/shared/tag'
 import { UserAvatar } from '@/components/shared/avatar'
+import { PhotoField } from '@/components/shared/photo-field'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -33,6 +34,7 @@ function Page() {
   const { schoolId, hasPermission } = useSchoolContext()
   const [editing, setEditing] = useState<'employment' | 'contact' | 'pay' | null>(null)
   const exportFile = useExportDownload()
+  const queryClient = useQueryClient()
 
   const startExport = useMutation({
     mutationFn: () => api.staff.exportProfile(schoolId, staffId),
@@ -111,7 +113,12 @@ function Page() {
 
       <div className="min-h-0 flex-1 overflow-auto scrollbar-thin">
         <div className="flex items-start gap-3 border-b bg-card p-3 md:gap-4 md:px-5 md:py-5">
-          <UserAvatar name={staff.displayName} size="xl" className="size-12 md:size-16" />
+          <UserAvatar
+            name={staff.displayName}
+            src={staff.hasPhoto ? api.staff.photoUrl(schoolId, staff.id, staff.photoUpdatedAt) : undefined}
+            size="xl"
+            className="size-12 md:size-16"
+          />
           <div className="min-w-0">
             <h1 className="text-[17px] font-semibold md:text-[20px]">{staff.displayName}</h1>
             <p className="mt-0.5 text-[13.5px] text-muted-foreground">{staff.designation}</p>
@@ -146,6 +153,23 @@ function Page() {
                 ]}
               />
             </Panel>
+
+            {canEditContact && (
+              <Panel title="Photo" description="Shown in the staff list and on this record.">
+                <PhotoField
+                  name={staff.displayName}
+                  src={staff.hasPhoto ? api.staff.photoUrl(schoolId, staff.id, staff.photoUpdatedAt) : undefined}
+                  onUpload={async (file) => {
+                    await api.staff.uploadPhoto(schoolId, staff.id, file, staff.version)
+                    await queryClient.invalidateQueries({ queryKey: [schoolId, 'staff'] })
+                  }}
+                  onRemove={async () => {
+                    await api.staff.removePhoto(schoolId, staff.id, staff.version)
+                    await queryClient.invalidateQueries({ queryKey: [schoolId, 'staff'] })
+                  }}
+                />
+              </Panel>
+            )}
 
             {employment && (
               <Panel

@@ -75,6 +75,8 @@ function Page() {
 
   const rows = roster.data?.items ?? []
   const selectedIds = useMemo(() => Object.keys(rowSelection).filter((id) => rowSelection[id]), [rowSelection])
+  // The columns need the school to address a row's photograph.
+  const columns = useMemo(() => studentColumns(schoolId), [schoolId])
   const hasFilters = Boolean(search.q || search.sectionId || search.status !== 'active')
   const clearFilters = () => void navigate({ search: { status: 'active', sort: search.sort, page: 1 } })
 
@@ -174,7 +176,7 @@ function Page() {
 
       <div className="relative flex min-h-0 flex-1 flex-col">
         <DataTable
-          columns={studentColumns}
+          columns={columns}
           data={rows}
           isLoading={roster.isLoading}
           selectable

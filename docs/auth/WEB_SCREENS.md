@@ -89,6 +89,12 @@ child rows (a document, say) carry their own `allowedActions` for their own cont
 - **Disabled with a reason, only for somebody already authorized.** "Save" may be disabled while a
   form is invalid or a save is in flight, with the reason next to it. Permission is never a reason
   to disable — it is a reason to not render.
+- **Plain English for every rejected field.** A form never shows a schema's own words. `@/lib/validation`
+  turns a Zod issue into a sentence that names the field — "Enter the first name", "Choose a class",
+  "Enter a 10 digit phone number" — from a `FieldLabels` map keyed by dotted path, with a wildcard
+  form (`guardians.*.phone`) for a list. A message a schema author wrote by hand wins. After a failed
+  save, `focusFirstInvalid()` puts the cursor in the first box the form marked `aria-invalid`, and the
+  toast says `CHECK_FIELDS` ("Check the highlighted fields").
 - **Never show a raw error code.** `describeError(error)` from `@/lib/api-errors` for every failure,
   in a `toast.error` or inline. `VERSION_CONFLICT`, `ACCESS_DENIED` and the rest already have plain
   English sentences.
@@ -106,6 +112,7 @@ Every screen below was written and reviewed against this list; a new screen shou
 - [ ] Every query uses a `qk.*` key and an `api.*` function; no bare `fetch`.
 - [ ] Every mutation sends `expectedVersion` where the contract has one, invalidates the module
       prefix, and shows `toast.success` on save and `describeError` on failure.
+- [ ] Every rejected field reads as plain English through `@/lib/validation`; no `issue.message`.
 - [ ] Every action is gated: `hasPermission` for a screen-level control, `allows(allowedActions, …)`
       for a control on one record.
 - [ ] The screen reads nothing local: no mock client, no `can`/`scope`/`roles`. They no longer exist.
@@ -128,17 +135,17 @@ where the row says so.
 | Screen | Endpoints | What each role sees | Not yet |
 |---|---|---|---|
 | Sidebar, mobile nav, command menu | `students/count`, `staff/count` (office only), `search`, academic years or sections through `useAcademicYear` | Office: every destination its permission allows, plus student and staff counts and the year name. Teacher: Dashboard, Students, Staff, Timetable. Parent: "My children" and Timetable, no quick actions, no year tag. Accountant: Dashboard, Students, Staff, School setup reads, Audit log | No count for a role without `students.read_basic` / `staff.read_directory`; no year name for a teacher or parent |
-| `/dashboard` | `dashboard` (one of four audiences), then office only: `sections/strengths`, `sections`, `grades`, `subjects`, `school`, `academic-years`, `audit-events?pageSize=8`; teacher: `timetable/bell-schedules`; parent: `timetable/sections/:id` per child | Office: active students, staff count, strength per section, setup checklist, recent activity. Teacher: assigned classes and today's periods. Parent: one card per child with class and today's timetable, a "Manage consent" button that opens that child's consents on request, with Give and Withdraw when the list allows `students.manage_consents` (recorded through the portal), and a "Download my child's record" button for `students.export_subject` that fetches the subject-access export on click and saves it as `<admission number>-record.json`. Accountant: the server's message and two links | The consent block costs an audited read of the child's record, so it is only fetched once the parent asks for it. Attendance and fee panels, gender split, admitted-this-year and teaching/non-teaching sub-lines: no endpoint carries them |
+| `/dashboard` | `dashboard` only: one request, `api.dashboard.get(schoolId)`. The screen calls no other endpoint; the parent consent block asks for a child's consents when the parent opens it | Office: one sentence about today (school day, holiday or Sunday, teachers away and periods without cover), the things needing a person with a link to each, the student mix and students per teacher, class strength per section, admissions by month, holidays and birthdays ahead, recent activity with a security list for an owner, and a setup checklist that disappears once all five steps are done. Teacher: what they are teaching now and next from the browser clock, today's timeline with cover duty marked, the whole week, their own class and the holidays ahead; an honest empty state when the login is not linked to a staff record. Parent: one card per child with class, class teacher, today's lessons, the next holiday and what the school is waiting on, plus "Manage consent" (Give and Withdraw when the list allows `students.manage_consents`, recorded through the portal) and "Download my child's record" for `students.export_subject`, saved as `<admission number>-record.json`. Accountant: the day, the student tiles and a note where fee cards will go (the accountant role holds no `sections.read_strengths`, so no class strength card is drawn) | A block the caller may not read is absent from the answer, so the screen says nothing rather than showing a zero. A teacher's export of their own week is not offered: nothing on the web side knows their staff id. Attendance, exam and fee cards: no table carries them yet |
 
 ### Students
 
 | Screen | Endpoints | What each role sees | Not yet |
 |---|---|---|---|
 | `/students` | `students` (page, search, sectionId, status, sort), `sections`, `grades`, `students/export` + `exports/:id` + `exports/:id/file` | Office: the roster, the class chip, search, and Admit / Import / Promote as their permissions allow. Picking rows shows a bulk bar whose "Export to Excel" saves the spreadsheet as soon as the server has it. Teacher: their own pupils, no write action. Parent: their own children | No gender or admission-type filter, no "N boys / N girls" footer, no bulk move or leave, and the roster deliberately sends no `academicYearId` (the server matches it against the current enrolment, which hid every past pupil) |
-| `/students/:id` | `students/:id`, `/guardians`, `/siblings`, `/documents`, `/enrollments`, `/consents`, `files/student-document`, plus `updateBasic`, `updateSensitive`, `move`, `leave`, `addGuardian`, `updateGuardian`, `revealApaar`, `recordConsent`, `unlinkGuardian`, `anonymise`, `subjectAccess` | Each block and tab appears only because the server sent it and listed the action: edit name, edit details, move section, mark as left, guardians, siblings, documents, class history. The APAAR id reads as `XXXX-XXXX-1234` with a Reveal action for `students.read_sensitive` that fetches the full value on demand and never caches it. A Consent tab for `students.read_consents` shows the latest answer per guardian and purpose, with Give and Withdraw when the list allows `students.manage_consents`. Each guardian has an Unlink action for `students.manage_guardians`, behind a confirmation that takes a reason. An anonymised record shows an "Anonymised" tag and no empty blocks. The Student panel carries "Export this record" when the record allows `students.export_subject`: it fetches the subject-access export on click and saves it as `<admission number>-record.json`, and the response never enters the query cache. "Export PDF", for a record allowing `students.export`, saves the same record as a document | Correcting a guardian already on file (the contract has no guardian version), photo, house, transport, structured address, document upload; anonymisation cannot be undone and the screen only describes what it will clear |
-| `/students/new` | `sections`, `grades`, `students` (create) | Needs `students.create`; attaching an existing guardian also needs `students.manage_guardians`; the admission number is never typed here, the server assigns it on save and the toast reads it back. A Consent step between Guardians and Class offers the five purposes per guardian with a method and an optional evidence reference, and the review step lists what was ticked; nothing is sent when nothing was ticked | Medical fields, religion, mother tongue, nationality, Aadhaar, APAAR, previous school, transport and the structured address; attaching an existing guardian is an id field, not a picker |
+| `/students/:id` | `students/:id`, `/guardians`, `/siblings`, `/documents`, `/enrollments`, `/consents`, `files/student-document`, plus `updateBasic`, `updateSensitive`, `move`, `leave`, `addGuardian`, `updateGuardian`, `revealApaar`, `recordConsent`, `unlinkGuardian`, `anonymise`, `subjectAccess` | Each block and tab appears only because the server sent it and listed the action: edit name, edit details, move section, mark as left, guardians, siblings, documents, class history. The APAAR id reads as `XXXX-XXXX-1234` with a Reveal action for `students.read_sensitive` that fetches the full value on demand and never caches it. A Consent tab for `students.read_consents` shows the latest answer per guardian and purpose, with Give and Withdraw when the list allows `students.manage_consents`. Each guardian has an Unlink action for `students.manage_guardians`, behind a confirmation that takes a reason. An anonymised record shows an "Anonymised" tag and no empty blocks. The Student panel carries "Export this record" when the record allows `students.export_subject`: it fetches the subject-access export on click and saves it as `<admission number>-record.json`, and the response never enters the query cache. "Export PDF", for a record allowing `students.export`, saves the same record as a document. The Aadhaar number reads as "ending 1234" with the same Reveal control as the APAAR id. Each guardian card shows the office address and "PAN ending 123A" and "Aadhaar ending 0124", each with the same Reveal control when the record allows `students.read_guardians`, which calls `revealGuardianIdentity` for that one guardian. A revealed number is held in the component alone: it never enters the query cache, it goes when the tab or sheet unmounts, and it goes back to the last digits on its own after thirty seconds. A photo panel, for a record allowing `students.update_basic`, uploads, replaces or removes the picture; it shrinks the file to at most 600px and re-encodes it before it travels, and where the `photographs` consent is not granted the controls are replaced by "Photo upload needs the photographs consent from the parent." | Correcting a guardian already on file (the contract has no guardian version), house, transport, structured address, document upload; anonymisation cannot be undone and the screen only describes what it will clear |
+| `/students/new` | `sections`, `grades`, `students` (create) | Needs `students.create`; attaching an existing guardian also needs `students.manage_guardians`; the admission number is never typed here, the server assigns it on save and the toast reads it back. A Consent step between Guardians and Class offers the five purposes per guardian with a method and an optional evidence reference, and the review step lists what was ticked; nothing is sent when nothing was ticked. The review step also names every new value before it is saved: "Aadhaar ending 1234" for the pupil, and the office address, "PAN ending 234F" and "Aadhaar ending 1234" for each guardian, never a whole number. The student step has an optional Aadhaar panel, and each guardian has an optional office address, PAN and Aadhaar number, all marked "Optional" | Medical fields, religion, mother tongue, nationality, APAAR, previous school, transport and the structured address; a photograph is added on the record after admission rather than in the form; attaching an existing guardian is an id field, not a picker |
 | `/students/import` | `students/import/preview`, `students/import/commit`, `sections`, `grades` | Needs `students.import`; the counts, the row list and the row errors are the server's, never the browser's; the Admission Number column is optional and the review shows the kept number or "Will be assigned" per row | Editing a row in the browser: a wrong row is fixed in the file and uploaded again |
-| `/students/promote` | `academic-years`, `sections`, `grades`, `students/promote/preview`, `students/promote` | Needs `students.promote`; a reason is required | 100 students per run (`IdList`), no capacity warning, no attendance column |
+| `/students/promote` | `academic-years`, `sections`, `grades`, `students/promote/preview`, `students/promote` | Needs `students.promote`; a reason is required. Each student is Promote, Detain or **Leave out**, and the column header carries "All promote", "All detain" and "All leave out" for the whole list at once. A student left out is in neither list, so nothing about them is sent or changed. The footer and the side panel both read "N students in view · X to promote, Y to detain, Z left out", and the confirm button is dead while everybody is left out | 100 students per run on each side, no capacity warning, no attendance column |
 
 ### Staff
 
@@ -165,7 +172,7 @@ where the row says so.
 | `/timetable` | `grades`, `sections`, `timetable/bell-schedules/for-grade`, `timetable/sections/:id`, `timetable/conflicts`, `grade-subjects`, `generate`, `free-teachers`, `setEntry`, `clearEntry`, `timetable/export` + `exports/:id` + `exports/:id/file` | Anybody with `timetable.read` sees the grid for a class they may see, and an Export button that saves that week as Excel or PDF. Editing a cell needs the record's `timetable.manage_entries`; Generate needs `timetable.generate`; the conflicts panel needs `timetable.read_conflicts` | Setting one slot has no `expectedVersion` (last write wins); the conflicts endpoint has no section filter, so the list is narrowed in the browser and labelled as this class's |
 | `/timetable/periods` | `timetable/bell-schedules`, create, update | `timetable.manage_periods` edits; everybody else reads the same schedule as text | The bell schedule has no version column, so `expectedVersion` is always 1 and a concurrent edit is not detected. Reordering or removing a period renumbers and can move existing entries; the screen warns about it |
 | `/timetable/teachers` | `timetable/teacher-loads`, `timetable/bell-schedules`, `timetable/staff/:id`, `timetable/export` + `exports/:id` + `exports/:id/file` | Needs `timetable.read_teacher_loads`; the week of the person picked carries the same Export button; a teacher or parent gets one sentence and no request is made | No per-staff bell schedule, so the rows are every schedule of the year merged by period index. No max-periods limit, no per-day counts from the load row |
-| `/timetable/substitutions` | `timetable/substitutions`, `bell-schedules`, `staff/search`, `absent-periods`, `free-teachers`, create, delete, `notify` | Arranging needs the day's `timetable.manage_substitutions`; notifying needs `timetable.notify_substitutions` | No "who is away" list on the server: the away list is today's arrangements plus whoever was added in this browser session, and it resets when the date changes |
+| `/timetable/substitutions` | `timetable/substitutions`, `bell-schedules`, `staff/search`, `absent-periods`, `free-teachers`, create, delete, `notify` | Arranging needs the day's `timetable.manage_substitutions`; notifying needs `timetable.notify_substitutions`. A "Free teachers today" panel, for `timetable.manage_entries`, lists the chosen day period by period with the teachers free in each one and their load for that day; it reuses the same free-teacher read the absent-teacher panel uses, so there is no new endpoint | No "who is away" list on the server: the away list is today's arrangements plus whoever was added in this browser session, and it resets when the date changes |
 
 ### Access management and settings
 
@@ -208,12 +215,12 @@ mirrors the server's own audience rule.
 
 | Role | Navigation | Dashboard | Actions |
 |---|---|---|---|
-| Owner (61 grants) | Everything: Students, Staff, Timetable, all five School setup screens, Users and logins, Roles and permissions, Audit log | Office | Every write in the app: admit, import, promote, export students; add and edit staff including pay; edit the timetable, periods and substitutions; all setup writes; invite, change roles, suspend, remove, restore, send a sign-in reset, explain access; read and export the audit log |
+| Owner (61 grants) | Everything: Students, Staff, Timetable, all five School setup screens, Users and logins, Roles and permissions, Audit log | Office, with the security list | Every write in the app: admit, import, promote, export students; add and edit staff including pay; edit the timetable, periods and substitutions; all setup writes; invite, change roles, suspend, remove, restore, send a sign-in reset, explain access; read and export the audit log |
 | Principal (55) | Same as owner | Office | Same as owner except staff pay (no `staff.read_pay`/`update_pay`), ownership transfer and audit export. Can read the audit log |
 | Admin (52) | Same as principal, without Audit log | Office | Same as principal, minus the audit log entirely |
-| Accountant (17) | Dashboard, Students, Staff, School profile, Academic years, Classes, Subjects, Holidays, Audit log. No Timetable | Accountant — the server's message and links to Staff and the audit log | Read-only everywhere, plus staff pay, staff export and audit export. No student, setup or member write |
-| Teacher (14) | Dashboard, Students, Staff, Timetable | Teacher — assigned classes and today's periods | None. Reads their own pupils, the staff directory, the timetable, classes, subjects and holidays. No Users, no audit log, no academic years |
-| Parent (9) | My children, Timetable | Parent — one card per child with class and today's timetable | None. Reads their own children and the timetable of their class |
+| Accountant (17) | Dashboard, Students, Staff, School profile, Academic years, Classes, Subjects, Holidays, Audit log. No Timetable | Accountant — the day, the student tiles and a note where fee cards will go; no class strength | Read-only everywhere, plus staff pay, staff export and audit export. No student, setup or member write |
+| Teacher (14) | Dashboard, Students, Staff, Timetable | Teacher — now and next, today's timeline, the week, their own class and the holidays ahead | None. Reads their own pupils, the staff directory, the timetable, classes, subjects and holidays. No Users, no audit log, no academic years |
+| Parent (9) | My children, Timetable | Parent — one card per child: class, class teacher, today's lessons, the next holiday and what the school is waiting on | None. Reads their own children and the timetable of their class |
 
 The student role has no grants at all and cannot sign in; the server refuses the session and the
 app sends the person to `/access-unavailable?reason=student`.
@@ -251,11 +258,16 @@ one marked current, while a teacher or a parent infers it from the sections they
 
 ## Tests
 
-`pnpm --filter @erp/web test -- --run` — 25 files, 228 tests. The screen files added in Task 7, with the data lifecycle cases Task 12 added to them:
+`pnpm --filter @erp/web test -- --run` — 31 files, 328 tests. The screen files added in Task 7, with the data lifecycle cases Task 12 added to them:
 
 | File | Tests | What they prove |
 |---|---|---|
-| `components/dashboard/dashboard.test.tsx` | 7 | Office renders both counts, the joined section strengths and recent activity; a principal without `students.create`, `audit.read` or `sections.read_strengths` sees none of those and neither query fires; teacher and parent variants; a parent without `students.read_enrollments` is not told their child has no class; a 403 is one sentence |
+| `components/dashboard/office-dashboard.test.tsx` | 17 | The sentence about today in the singular and the plural, with cover and without, on a holiday and on a Sunday; each attention row with the link it points at and "All clear" when every key is zero; the glance tiles, the section pills and the twelve bars; holidays and birthdays; recent activity, and the security list only when the server sent one; the checklist shown at three of five steps and hidden at five; no "Admit student" without `students.create` |
+| `components/dashboard/teacher-dashboard.test.tsx` | 12 | Now and next against a fixed clock: the class being taught, the one after it, a free period, before school, after the last class and a cover duty; no school on a Sunday with what Monday starts with; a named holiday; the not-linked empty state; the class list link; empty states for a week with no periods |
+| `components/dashboard/parent-dashboard.test.tsx` | 7 | One card per child with class, class teacher and today's lessons; what the school is waiting on and "All done." when nothing is; no school today instead of an empty timetable; nothing claimed about a class or a holiday the server did not send; the no-children empty state; consents fetched only when the parent asks |
+| `components/dashboard/accountant-dashboard.test.tsx` | 7 | The day, the student tiles and the fees note; the class strength card left out when the block was not sent, and empty and filled told apart when it was; the mix and movement tiles left out when only the roll was sent; when school reopens; only the links the person may follow |
+| `components/dashboard/dashboard-route.test.tsx` | 6 | The skeleton while the first read is in flight; a refused read is one sentence; one request and the screen for the audience the server answered with, for all four audiences |
+| `components/dashboard/blocks/format.test.ts` | 15 | The date, time and month wording the blocks use, the twelve months of an academic year, the plural helper and `subjectColor`, which never picks an alert hue |
 | `components/layout/nav.test.tsx` | 5 | Every allowed destination plus the counts and the year name; a teacher loses Staff and both section labels and never calls the count endpoints; a parent sees "My children" and no quick actions; the command menu hides actions it lacks and searches through `api.search.run`; a parent without `students.read_basic` never searches |
 | `components/students/student-screens.test.tsx` | 13 | The roster sends the exact params and no `academicYearId`; the admit, import and promote actions disappear without their keys; a refused roster is one sentence; the record shows only the blocks the server allowed; the edit sheet sends the version the person was shown and invalidates the prefix; the bulk bar hides Export and polls the job |
 | `components/admission/admit-state.test.ts` | 6 | The draft becomes a request the contract accepts, with `+91` E.164 phones; each contract problem lands on the step that can fix it; the import mapper only sends rows the contract can describe; every sample row carries a distinct admission number |
@@ -345,9 +357,11 @@ Screen gaps — known and deliberate for now.
 - Section strengths are not shown on the admit and promote pickers, so there is no capacity
   warning.
 - Printing a timetable is still a disabled "Phase 2" control.
-- The dashboard figures on `/dashboard` itself (`qk.dashboard`) are not invalidated by a write, so
-  they refresh on navigation rather than immediately. The sidebar counts do refresh, because they
-  come from `students/count` and `staff/count` under the module prefixes.
+- The dashboard figures on `/dashboard` itself (`qk.dashboard`) are not invalidated by a write made
+  on another screen, so they refresh on navigation rather than immediately. A parent answering a
+  consent is the one exception: it invalidates the dashboard so "waiting on you" is right at once.
+  The sidebar counts do refresh, because they come from `students/count` and `staff/count` under the
+  module prefixes.
 - The roster search sends one request per keystroke, clamped to 100 characters. A shared debounce
   hook in `lib/` would be better.
 - The browser pass covered the owner only: dashboard, navigation, roster, student record (all
@@ -360,3 +374,25 @@ Screen gaps — known and deliberate for now.
 - Live check leftovers in fixture school A: staff records "Task Seven", "Review Leaver" and
   "Fix Leaver", a student admitted by a live check, a few audit rows with the reason "task 7 live
   check", and some queued export jobs.
+
+## Office feedback, September 2026
+
+Six small changes the school office asked for, all of them on screens that already existed:
+
+1. Every form says what is wrong in plain English, through the one validation layer above.
+2. Admission and the guardian sheet take an optional Aadhaar number for the pupil, and an optional
+   office address, PAN and Aadhaar number for each guardian.
+3. A number that is already on file is never echoed back: the box is replaced by "ending 1234" and a
+   Replace button, and the typed number lives only in the form's own state.
+4. Pupils and staff have a photograph, uploaded and removed on the record, shown on the detail
+   header and in the list. It is fetched from a permission-checked route, so a picture the person
+   may not see simply falls back to initials and says nothing about why.
+   The browser re-encodes every picture as JPEG before it travels, so the server's checks on the
+   type and on the description blocks a WebP may carry are only reached when that re-encoding
+   failed; a browser that cannot rewrite the file says "Save the photo as JPEG or PNG and try
+   again." and one that sends too many bytes says "Choose a photo smaller than 1 MB."
+5. Promotion offers Leave out as well as Promote and Detain, with bulk controls and a count summary.
+6. The substitutions screen has a "Free teachers today" panel.
+
+Automatic birthday greetings were asked for at the same time and are deferred to Task 22
+(communication), which is where messages get built.

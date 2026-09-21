@@ -90,8 +90,8 @@ export async function recordConsents(
   context: RequestContext,
   studentId: string,
   entries: readonly ConsentEntry[],
-): Promise<void> {
-  if (entries.length === 0) return
+): Promise<readonly string[]> {
+  if (entries.length === 0) return []
 
   const guardianIds = [...new Set(entries.map((entry) => entry.guardianId))]
   const linked = await conn.client.query<{ guardian_id: string }>(
@@ -128,6 +128,15 @@ export async function recordConsents(
     )
   }
 
+  // A photograph is only held while the family agrees to it, so withdrawing
+  // that purpose takes the picture with it in the same transaction. The keys
+  // are handed back so the bytes go after the commit.
+  const withdrawnPhotos = entries.some(
+    (entry) => entry.purpose === 'photographs' && entry.status === 'withdrawn',
+  )
+    ? await clearPhoto(conn, context.schoolId, studentId)
+    : []
+
   await writeAudit(conn, context, {
     action: 'students.manage_consents',
     targetType: 'student',
@@ -137,8 +146,37 @@ export async function recordConsents(
     // structure of the decision belongs in an audit row.
     safeChanges: {
       entries: entries.map((entry) => ({ purpose: entry.purpose, status: entry.status })),
+      ...(withdrawnPhotos.length > 0 ? { photo: 'removed' } : {}),
     },
   })
+  return withdrawnPhotos
+}
+
+/**
+ * The photograph columns cleared, and the key of the bytes that are now
+ * unreachable. A record with no photograph simply returns nothing to remove.
+ */
+async function clearPhoto(
+  conn: TenantConnection,
+  schoolId: string,
+  studentId: string,
+): Promise<string[]> {
+  // The key has to be read before the update: RETURNING hands back the new
+  // row, which by then names nothing, and the bytes would be left behind.
+  const cleared = await conn.client.query<{ photo_storage_key: string }>(
+    `WITH previous AS (
+       SELECT id, photo_storage_key FROM students
+        WHERE school_id = $1 AND id = $2 AND photo_storage_key IS NOT NULL
+     )
+     UPDATE students s
+        SET photo_storage_key = NULL, photo_content_type = NULL, photo_updated_at = NULL,
+            version = s.version + 1, updated_at = now()
+       FROM previous p
+      WHERE s.school_id = $1 AND s.id = p.id
+      RETURNING p.photo_storage_key`,
+    [schoolId, studentId],
+  )
+  return cleared.rows.map((row) => row.photo_storage_key)
 }
 
 /** The newest row per guardian and purpose: the current answer, nothing older. */
@@ -216,14 +254,24 @@ export function registerConsentRoutes(app: FastifyInstance, deps: ModuleDependen
     permission: 'students.manage_consents',
     body: RecordConsentRequest,
     response: ConsentList,
-    handler: async ({ context, body, param }) => {
+    handler: async ({ context, body, param, request }) => {
       const studentId = assertUuidParam(param('studentId'))
-      return inTransaction(context, async (conn) => {
+      const { list, photoKeys } = await inTransaction(context, async (conn) => {
         await lockSchool(conn, context.schoolId)
         await requireDecidedStudent(conn, context, 'students.manage_consents', studentId)
-        await recordConsents(conn, context, studentId, [body])
-        return listConsents(conn, context, studentId)
+        const photoKeys = await recordConsents(conn, context, studentId, [body])
+        return { list: await listConsents(conn, context, studentId), photoKeys }
       })
+      // Only after the commit: the row no longer names these bytes, so a
+      // rollback could not have left a record pointing at nothing.
+      for (const key of photoKeys) {
+        try {
+          await deps.documents.remove(key)
+        } catch (error) {
+          request.log.warn({ err: error }, 'a photograph could not be removed after withdrawal')
+        }
+      }
+      return list
     },
   })
 }

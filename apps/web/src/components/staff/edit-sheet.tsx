@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { describeError } from '@/lib/api-errors'
+import { focusFirstInvalid } from '@/lib/validation'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
 import { Datalist, Field, SelectField, TextField, fieldErrorsFrom, type FieldErrors } from './form'
@@ -71,7 +72,8 @@ export function StaffEmploymentSheet({ detail, open, onOpenChange }: SheetProps)
       ...(leavingDate === '' ? {} : { leavingDate }),
     })
     if (!parsed.success) {
-      setErrors(fieldErrorsFrom(parsed.error.issues))
+      setErrors(fieldErrorsFrom(parsed.error))
+      requestAnimationFrame(() => focusFirstInvalid())
       return
     }
     setErrors({})
@@ -121,7 +123,8 @@ export function StaffContactSheet({ detail, open, onOpenChange }: SheetProps) {
   function onSave() {
     const parsed = UpdateStaffPrivateRequest.safeParse({ expectedVersion: staff.version, phone: phone.trim(), address })
     if (!parsed.success) {
-      setErrors(fieldErrorsFrom(parsed.error.issues))
+      setErrors(fieldErrorsFrom(parsed.error))
+      requestAnimationFrame(() => focusFirstInvalid())
       return
     }
     setErrors({})
@@ -170,7 +173,8 @@ export function StaffPaySheet({ detail, open, onOpenChange }: SheetProps) {
       reason,
     })
     if (!parsed.success) {
-      setErrors(fieldErrorsFrom(parsed.error.issues))
+      setErrors(fieldErrorsFrom(parsed.error))
+      requestAnimationFrame(() => focusFirstInvalid())
       return
     }
     setErrors({})

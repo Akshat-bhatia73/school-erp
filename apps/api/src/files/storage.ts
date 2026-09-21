@@ -102,6 +102,8 @@ export function createLocalDocumentStorage(rootDir: string): DocumentStorage {
 export interface MemoryDocumentStorage extends DocumentStorage {
   put(storageKey: string, bytes: Uint8Array, contentType?: string): void
   clear(): void
+  /** How many objects the store holds, so a test can prove nothing was added. */
+  count(): number
 }
 
 /** In-memory storage for tests. It applies exactly the same key rules. */
@@ -113,6 +115,9 @@ export function createMemoryDocumentStorage(): MemoryDocumentStorage {
     },
     clear() {
       files.clear()
+    },
+    count() {
+      return files.size
     },
     async write(storageKey, bytes, contentType) {
       if (!isSafeStorageKey(storageKey)) throw new Error('unsafe storage key')

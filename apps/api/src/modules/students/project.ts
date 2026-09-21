@@ -50,6 +50,13 @@ export function toE164(value: unknown): string | undefined {
   return undefined
 }
 
+/** The moment a photograph last changed, as the contract's timestamp. */
+export function photoMoment(value: Date | string | null | undefined): string | undefined {
+  if (value === null || value === undefined) return undefined
+  const moment = new Date(value)
+  return Number.isNaN(moment.getTime()) ? undefined : moment.toISOString()
+}
+
 function enrollmentOf(row: StudentRow): Enrollment | undefined {
   if (
     row.enrollment_id === null ||
@@ -85,6 +92,13 @@ export function toStudentBasic(row: StudentRow): Basic {
     admissionNumber: row.admission_number,
     status: oneOf(STATUSES, row.status) ?? 'active',
     anonymised: row.anonymised_at !== null,
+    // The photograph itself only ever arrives through its own checked route;
+    // a list says whether there is one and when it last changed, so a screen
+    // can cache it, and never where the bytes live.
+    hasPhoto: row.has_photo === true,
+    ...(photoMoment(row.photo_updated_at) === undefined
+      ? {}
+      : { photoUpdatedAt: photoMoment(row.photo_updated_at) as string }),
     ...(enrollmentOf(row) === undefined ? {} : { enrollment: enrollmentOf(row) as Enrollment }),
   }
 }
@@ -150,8 +164,36 @@ export interface GuardianRow extends Record<string, unknown> {
   occupation: string | null
   annual_income: string | null
   address: string | null
+  office_address: string | null
+  /** The last digits of the sealed numbers; the sealed values stay in the row. */
+  pan_last4: string | null
+  aadhaar_last4: string | null
   relation: string | null
   version: number
+}
+
+/**
+ * The private guardian fields that are not free text: the office address and
+ * the last digits of each identity number. They ride with occupation, income
+ * and home address, so one permission decides the whole private block.
+ */
+function guardianPrivateExtras(row: GuardianRow): {
+  officeAddress?: string
+  panLast4?: string
+  aadhaarLast4?: string
+} {
+  const officeAddress = optionalText(row.office_address, 1000)
+  const pan = typeof row.pan_last4 === 'string' && /^\d{3}[A-Z]$/.test(row.pan_last4)
+    ? row.pan_last4
+    : undefined
+  const aadhaar = typeof row.aadhaar_last4 === 'string' && /^\d{4}$/.test(row.aadhaar_last4)
+    ? row.aadhaar_last4
+    : undefined
+  return {
+    ...(officeAddress === undefined ? {} : { officeAddress }),
+    ...(pan === undefined ? {} : { panLast4: pan }),
+    ...(aadhaar === undefined ? {} : { aadhaarLast4: aadhaar }),
+  }
 }
 
 function displayName(row: GuardianRow): string {
@@ -183,6 +225,7 @@ export function toGuardianPrivate(row: GuardianRow): Private | undefined {
     ...(occupation === undefined ? {} : { occupation }),
     ...(income === undefined || Number.isNaN(income) || income < 0 ? {} : { annualIncome: income }),
     ...(address === undefined ? {} : { address }),
+    ...guardianPrivateExtras(row),
   }
 }
 
@@ -210,5 +253,8 @@ export function toSubjectGuardian(row: GuardianRow, full: boolean): SubjectGuard
     ...(occupation === undefined ? {} : { occupation }),
     ...(income === undefined || Number.isNaN(income) || income < 0 ? {} : { annualIncome: income }),
     ...(address === undefined ? {} : { address }),
+    // A subject access answer names the last digits only: the sealed numbers
+    // are handed over by the audited reveal route, not by a bulk export.
+    ...guardianPrivateExtras(row),
   }
 }

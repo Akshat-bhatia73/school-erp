@@ -32,6 +32,7 @@ Owner or permission changed:
 - `students.list`, `students.count`, `students.search` and the search endpoint select no sensitive or medical column at all, rather than selecting them and dropping them in the projection.
 - `auditLogs.list` also carries the note attached to an event, joined under the same predicate and omitted once it has been redacted.
 - `dashboard.summary` has no `clerk` audience, because there is no `clerk` role key in this build; the office audience is owner, principal and admin.
+- `dashboard.summary` answers a whole home screen per audience rather than a couple of counts, and takes an optional `?date=YYYY-MM-DD` that moves the calendar without widening what is read. Every block sits behind the permission of the data it is made of, and a block the caller may not read is left out of the response instead of being sent as zero.
 
 ## Routes
 
@@ -50,7 +51,7 @@ Owner or permission changed:
 | `/account/security` | authenticated session; no school context needed | `MeResponse`, `SessionSummary` | Task 6 |
 | `/access-unavailable` | authenticated or public failure state | none | Task 6 |
 | `/_app` shell | authenticated active membership | `AuthenticatedContext` | Task 6 |
-| `/dashboard` | `dashboard.read` / matched template scope | `DashboardByAudience` | Tasks 5, 7 |
+| `/dashboard` | `dashboard.read` / matched template scope, then every block through its own plan | `DashboardByAudience` | Tasks 5, 7, dashboard redesign |
 | `/settings/audit-log` | `audit.read` / school or finance | `AuditEventPage` | Tasks 5, 7 |
 | `/settings/roles` | `roles.read` / school; mutations also `roles.assign` plus delegation | `FixedRoleSummaryList` | Tasks 4, 7 |
 | `/settings/users` | `members.read` / school; lifecycle action permission per action | `MembershipDirectory` | Tasks 4, 7 |
@@ -132,12 +133,13 @@ Owner or permission changed:
 | `timetable.substitutions`, `timetable.absentTeacherPeriods` | `timetable.read` / school | `SubstitutionDay`, `AbsentTeacherPeriodList` | Task 5 |
 | `timetable.addSubstitution`, `timetable.removeSubstitution` | `timetable.manage_substitutions` / school | `Substitution`, `EmptySuccess` | Task 5 |
 | `timetable.markNotified` | `timetable.notify_substitutions` / school | `NotificationMarkResult` | Task 5 |
-| `dashboard.summary` | `dashboard.read` / matched audience scope | `DashboardByAudience` | Task 5 |
+| `dashboard.summary` | `dashboard.read` / matched audience scope; optional `?date=`, blocks omitted rather than zeroed | `DashboardByAudience` | Task 5, dashboard redesign |
 
 ## Operations added after this inventory
 
 The data lifecycle work (Task 12) added operations this inventory never had, because the mock client
-had no consent, no anonymisation and no maintenance. Task 13 added one more. They are listed here in
+had no consent, no anonymisation and no maintenance. Task 13 added one more, and the office feedback
+work of September 2026 added the two reveals and the two photograph routes. They are listed here in
 the same shape so the inventory stays a complete statement of what the API answers.
 
 | Operation | Permission / scope | Safe response family | Owner |
@@ -150,6 +152,10 @@ the same shape so the inventory stays a complete statement of what the API answe
 | `staff.anonymise` | `staff.anonymise` / school; privileged | `StaffDetailByAudience` | Task 12 |
 | `auditLogs.redactNote` | `audit.redact_notes` / school; privileged | `{ status: 'redacted' }` | Task 12 |
 | maintenance sweep | no membership; `Authorization: Bearer <CRON_SECRET>` only, and the route is absent without it | counts per swept item, now including `access_log` | Task 12, extended by Task 13 |
+| `students.revealAadhaar` | `students.read_sensitive` / matched record scope; every reveal audited | `StudentAadhaarReveal` | Office feedback, September 2026 |
+| `students.revealGuardianIdentity` | `students.read_guardians` / matched record scope; the guardian must be linked to that student; every reveal audited | `GuardianIdentityReveal` | Office feedback, September 2026 |
+| `students.photo` (fetch, upload, remove) | `students.read_basic` to fetch, `students.update_basic` to change / matched record scope | image bytes, or `204`; the record's own `hasPhoto` and `photoUpdatedAt` say what happened | Office feedback, September 2026 |
+| `staff.photo` (fetch, upload, remove) | `staff.read_directory` to fetch, `staff.update_private` to change / matched record scope, so a teacher may set their own | image bytes, or `204` | Office feedback, September 2026 |
 | `students.subjectAccess` | `students.export_subject` / school for owner and principal, own children for a parent; privileged at school scope | `SubjectAccessExport`, assembled from existing families (`StudentBasic`, `StudentSensitive` with the full APAAR, `StudentMedical`, `GuardianPrivate` or `GuardianContact`, `EnrollmentSummary`, `DocumentSummary`, `ConsentRecord`) | Task 13 |
 
 ## Read auditing
@@ -157,7 +163,8 @@ the same shape so the inventory stays a complete statement of what the API answe
 Task 13 made reads visible in the same trail as writes. A detail read of one person's record leaves
 one `allowed` audit row through `auditRead` on the route definition, naming the record and which
 blocks were returned: student detail, student guardians, student consents, staff detail, the APAAR
-reveal, the subject-access export, and the document download through its own row. Lists leave none.
+reveal, the Aadhaar reveal, the guardian identity reveal, the subject-access export, and the
+document download through its own row. Lists leave none, and so does looking at a photograph.
 Every refusal a member receives leaves one `denied` row with the permission and the route pattern,
 written outside the transaction that refused. Neither adds a response family and neither changes any
 operation above. The full description is in [protected APIs](./PROTECTED_APIS.md#read-auditing-and-denials).

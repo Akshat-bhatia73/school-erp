@@ -15,6 +15,7 @@ import {
   StudentsImportPreviewRequest,
   StudentsPromotePreviewQuery,
 } from '@erp/contracts'
+import { photoMoment } from '../students/project.ts'
 import { createAndMaybeProduce } from '../../exports/run.ts'
 import type { ModuleDependencies } from '../shared/route.ts'
 import { protectedRoute } from '../shared/route.ts'
@@ -222,6 +223,9 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
             admissionNumber: students.admissionNumber,
             status: students.status,
             anonymisedAt: students.anonymisedAt,
+            // Whether there is a photograph, never where its bytes live.
+            hasPhoto: sql<boolean>`(${students.photoStorageKey} IS NOT NULL)`,
+            photoUpdatedAt: students.photoUpdatedAt,
           })
           .from(students)
           .where(
@@ -254,6 +258,10 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
             admissionNumber: row.admissionNumber,
             status: row.status as 'active' | 'left' | 'alumni' | 'suspended',
             anonymised: row.anonymisedAt !== null,
+            hasPhoto: row.hasPhoto === true,
+            ...(photoMoment(row.photoUpdatedAt) === undefined
+              ? {}
+              : { photoUpdatedAt: photoMoment(row.photoUpdatedAt) as string }),
           })),
           targetSection: { id: target.id, name: `${target.gradeName} ${target.name}` },
         }

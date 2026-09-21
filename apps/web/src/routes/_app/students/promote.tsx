@@ -18,12 +18,30 @@ import { describeError } from '@/lib/api-errors'
 import type { StudentSummary } from '@/lib/api/students'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
+import { CHECK_FIELDS, fieldErrors, type FieldLabels } from '@/lib/validation'
 import { useAcademicYear } from '@/lib/use-academic-year'
 import { fullName } from '@/lib/utils'
 
+const PROMOTE_LABELS: FieldLabels = {
+  fromAcademicYearId: { label: 'year to promote from', kind: 'select' },
+  toAcademicYearId: { label: 'year to promote into', kind: 'select' },
+  fromSectionId: { label: 'section to promote from', kind: 'select' },
+  toSectionId: { label: 'section to promote into', kind: 'select' },
+  studentIds: { label: 'student to promote', kind: 'list' },
+  detainedStudentIds: { label: 'student to detain', kind: 'list' },
+  reason: 'reason for this change',
+}
+
 export const Route = createFileRoute('/_app/students/promote')({ component: Page })
 
-type Decision = 'promote' | 'detain'
+/** 'leave' means the student is not sent at all, so nothing about them changes. */
+type Decision = 'promote' | 'detain' | 'leave'
+
+const DECISION_OPTIONS: Array<{ value: Decision; label: string }> = [
+  { value: 'promote', label: 'Promote' },
+  { value: 'detain', label: 'Detain' },
+  { value: 'leave', label: 'Leave out' },
+]
 
 function Page() {
   const { schoolId, hasPermission } = useSchoolContext()
@@ -72,6 +90,12 @@ function Page() {
   const decisionOf = (id: string): Decision => decisions[id] ?? 'promote'
   const promoteIds = students.filter((student) => decisionOf(student.id) === 'promote').map((student) => student.id)
   const detainIds = students.filter((student) => decisionOf(student.id) === 'detain').map((student) => student.id)
+  const leftOutCount = students.length - promoteIds.length - detainIds.length
+
+  // Header buttons set every student in view at once.
+  const setAll = (value: Decision) => {
+    setDecisions(Object.fromEntries(students.map((student) => [student.id, value])))
+  }
 
   const promote = useMutation({
     mutationFn: (body: Parameters<typeof api.students.promote>[1]) => api.students.promote(schoolId, body),
@@ -93,18 +117,34 @@ function Page() {
     },
     {
       id: 'decision',
-      header: 'Decision',
-      size: 170,
+      header: () => (
+        <span className="flex items-center gap-2">
+          <span>Decision</span>
+          <span className="flex items-center gap-1">
+            {DECISION_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setAll(option.value)}
+                className="rounded-md border border-dashed px-1.5 py-0.5 text-[11.5px] font-normal text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                All {option.label.toLowerCase()}
+              </button>
+            ))}
+          </span>
+        </span>
+      ),
+      size: 250,
       cell: ({ row }) => (
         <Segmented
           value={decisionOf(row.original.id)}
-          options={[{ value: 'promote', label: 'Promote' }, { value: 'detain', label: 'Detain' }]}
+          options={DECISION_OPTIONS}
           onChange={(value) => setDecisions((old) => ({ ...old, [row.original.id]: value }))}
         />
       ),
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [decisions])
+  ], [decisions, students])
 
   if (!canPromote) {
     return (
@@ -137,10 +177,9 @@ function Page() {
       reason: reason.trim(),
     })
     if (!parsed.success) {
-      const reasonIssue = parsed.error.issues.find((issue) => issue.path[0] === 'reason')
-      const message = reasonIssue?.message ?? parsed.error.issues[0]?.message ?? 'Check the details and try again.'
-      setReasonError(reasonIssue?.message)
-      toast.error(message)
+      const errors = fieldErrors(parsed.error, PROMOTE_LABELS)
+      setReasonError(errors.reason)
+      toast.error(errors.reason ?? Object.values(errors)[0] ?? CHECK_FIELDS)
       return
     }
     setReasonError(undefined)
@@ -187,7 +226,7 @@ function Page() {
               isLoading={preview.isFetching}
               getRowId={(row) => row.id}
               emptyState={<EmptyState title="No students to promote" description="Pick the year and the sections to move students between." />}
-              footer={<span>{students.length} students in view</span>}
+                  footer={<span>{students.length} students in view · {promoteIds.length} to promote, {detainIds.length} to detain, {leftOutCount} left out</span>}
             />
           )}
         </div>
@@ -195,6 +234,7 @@ function Page() {
           total={students.length}
           promoteCount={promoteIds.length}
           detainCount={detainIds.length}
+          leftOutCount={leftOutCount}
           fromLabel={fromLabel}
           toLabel={toLabel}
           fromYear={years.find((year) => year.id === fromYearId)?.name ?? '—'}
@@ -203,8 +243,8 @@ function Page() {
           onReasonChange={setReason}
           reasonError={reasonError}
           result={result}
-          disabled={!ready || promoteIds.length === 0}
-          disabledReason={!ready ? 'Pick both years and both sections first.' : promoteIds.length === 0 ? 'Nobody is set to move up yet.' : undefined}
+          disabled={!ready || promoteIds.length + detainIds.length === 0}
+          disabledReason={!ready ? 'Pick both years and both sections first.' : promoteIds.length + detainIds.length === 0 ? 'Every student is left out, so there is nothing to do.' : undefined}
           isPending={promote.isPending}
           onConfirm={confirm}
         />

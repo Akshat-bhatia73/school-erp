@@ -71,7 +71,7 @@ export const qk = {
   substitutions: (schoolId: string, date: string) => [schoolId, 'timetable', 'substitutions', date] as const,
   absentPeriods: (schoolId: string, params: Params) => [schoolId, 'timetable', 'absentPeriods', params ?? {}] as const,
 
-  dashboard: (schoolId: string) => [schoolId, 'dashboard'] as const,
+  dashboard: (schoolId: string, params?: unknown) => [schoolId, 'dashboard', params ?? {}] as const,
   search: (schoolId: string, q: string) => [schoolId, 'search', q] as const,
   auditEvents: (schoolId: string, params?: Params) => [schoolId, 'audit', 'events', params ?? {}] as const,
 

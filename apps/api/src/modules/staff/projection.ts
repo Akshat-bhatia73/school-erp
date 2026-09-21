@@ -50,6 +50,13 @@ export function toDirectory(row: StaffRow): StaffDirectoryDto {
     displayName: fit(displayName(row), 160) ?? fit(row.employeeCode, 160) ?? 'Staff member',
     designation: fit(row.designation, 160) ?? '',
     anonymised: row.anonymisedAt !== null,
+    // The photograph itself only ever arrives through its own checked route;
+    // the directory says whether there is one and when it last changed, and
+    // never where the bytes live.
+    hasPhoto: row.photoStorageKey !== null,
+    ...(row.photoUpdatedAt === null
+      ? {}
+      : { photoUpdatedAt: new Date(row.photoUpdatedAt).toISOString() }),
     ...(department === undefined ? {} : { department }),
   }
 }

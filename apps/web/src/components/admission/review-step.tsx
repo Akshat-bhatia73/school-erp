@@ -10,6 +10,16 @@ import type { AdmitDraft } from './admit-state'
 const dash = <span className="text-muted-foreground/60">—</span>
 const val = (value?: string) => (value && value.trim() !== '' ? value : dash)
 
+/**
+ * An identity number on the review screen is named, never shown. The office confirms it typed the
+ * right one from the last digits, the same way every other screen in the app shows it.
+ */
+function ending(value: string, kind: 'aadhaar' | 'pan') {
+  const cleaned = kind === 'aadhaar' ? value.replace(/\D/g, '') : value.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+  if (cleaned.length < 4) return dash
+  return <span className="font-mono">ending {cleaned.slice(-4)}</span>
+}
+
 export function ReviewStep({ draft, onEdit, academicYearId, yearName }: {
   draft: AdmitDraft
   onEdit: (step: number) => void
@@ -43,6 +53,7 @@ export function ReviewStep({ draft, onEdit, academicYearId, yearName }: {
             { label: 'Date of birth', value: draft.dateOfBirth ? formatDate(draft.dateOfBirth) : dash },
             { label: 'Gender', value: draft.gender ? humanize(draft.gender) : dash },
             { label: 'Category', value: val(draft.category) },
+            { label: 'Aadhaar', value: ending(draft.aadhaar, 'aadhaar') },
           ]}
         />
       </Panel>
@@ -64,6 +75,9 @@ export function ReviewStep({ draft, onEdit, academicYearId, yearName }: {
                       { label: humanize(guardian.relation), value: [guardian.firstName, guardian.lastName].filter(Boolean).join(' ') || dash },
                       { label: 'Phone', value: val(guardian.phone) },
                       { label: 'Occupation', value: val(guardian.occupation) },
+                      { label: 'Office address', value: val(guardian.officeAddress) },
+                      { label: 'PAN', value: ending(guardian.pan, 'pan') },
+                      { label: 'Aadhaar', value: ending(guardian.aadhaar, 'aadhaar') },
                       { label: 'Primary contact', value: draft.primaryIndex === index ? 'Yes' : 'No' },
                       { label: 'Gets messages', value: guardian.receivesNotifications ? 'Yes' : 'No' },
                     ]

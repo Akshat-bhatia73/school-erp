@@ -9,12 +9,14 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 
 export function PromoteSummary({
-  total, promoteCount, detainCount, fromLabel, toLabel, fromYear, toYear,
+  total, promoteCount, detainCount, leftOutCount, fromLabel, toLabel, fromYear, toYear,
   reason, onReasonChange, reasonError, result, disabled, disabledReason, isPending, onConfirm,
 }: {
   total: number
   promoteCount: number
   detainCount: number
+  /** Students in view who are not sent at all, so nothing about them changes. */
+  leftOutCount: number
   fromLabel: string
   toLabel: string
   fromYear: string
@@ -35,7 +37,8 @@ export function PromoteSummary({
         <p className="text-[13.5px]">
           <span className="font-semibold tabular-nums">{total}</span> students ·{' '}
           <span className="font-semibold tabular-nums text-tag-green">{promoteCount}</span> promote ·{' '}
-          <span className="font-semibold tabular-nums text-tag-orange">{detainCount}</span> detain
+          <span className="font-semibold tabular-nums text-tag-orange">{detainCount}</span> detain ·{' '}
+          <span className="font-semibold tabular-nums text-muted-foreground">{leftOutCount}</span> left out
         </p>
         <div className="mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-[13px]">
           <span className="truncate">{fromLabel}</span>
@@ -65,10 +68,12 @@ export function PromoteSummary({
         </AlertDialogTrigger>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Promote {promoteCount} students?</AlertDialogTitle>
+            <AlertDialogTitle>Move {promoteCount + detainCount} students?</AlertDialogTitle>
             <AlertDialogDescription>
-              {promoteCount} students move from {fromLabel} to {toLabel} for {toYear}
-              {detainCount ? `, and ${detainCount} stay in ${fromLabel}` : ''}. The {fromYear} record is kept for history.
+              {promoteCount} to promote, {detainCount} to detain, {leftOutCount} left out.{' '}
+              {promoteCount} {promoteCount === 1 ? 'student moves' : 'students move'} from {fromLabel} to {toLabel} for {toYear}
+              {detainCount ? `, and ${detainCount} stay in the same grade` : ''}.
+              {leftOutCount ? ` The ${leftOutCount} left out are not touched at all.` : ''} The {fromYear} record is kept for history.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

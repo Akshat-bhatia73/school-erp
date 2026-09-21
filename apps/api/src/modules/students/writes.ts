@@ -6,6 +6,7 @@ import type {
   StudentsUpdateGuardianRequest,
   StudentsUpdateSensitiveRequest,
 } from '@erp/contracts'
+import { aadhaarLast4, panLast4 } from '@erp/contracts'
 import {
   allocateAdmissionNumber,
   ApiFailure,
@@ -17,7 +18,7 @@ import {
   writeAudit,
 } from '../shared/index.ts'
 import { recordConsents, type ConsentEntry } from './consents.ts'
-import type { ModuleConnection } from './reads.ts'
+import { guardianColumns, type ModuleConnection } from './reads.ts'
 import type { GuardianRow } from './project.ts'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -92,11 +93,30 @@ async function guardianExists(
   return rows.rows.length > 0
 }
 
+/**
+ * The sealed form of an identity number and the digits a screen may show.
+ * Both columns always move together, so a record can never carry a mask with
+ * no number behind it, or a number with the wrong mask in front of it.
+ */
+interface SealedNumber {
+  readonly ciphertext: string
+  readonly last4: string
+}
+
+function sealAadhaar(value: string, encryptionKey: string): SealedNumber {
+  return { ciphertext: seal(value, encryptionKey), last4: aadhaarLast4(value) }
+}
+
+function sealPan(value: string, encryptionKey: string): SealedNumber {
+  return { ciphertext: seal(value, encryptionKey), last4: panLast4(value) }
+}
+
 /** Creates the guardian record a link needs, or returns the named one. */
 async function resolveGuardian(
   conn: ModuleConnection,
   context: RequestContext,
   link: StudentsAdmitGuardian,
+  encryptionKey: string,
 ): Promise<string> {
   const schoolId = context.schoolId
   if (link.guardianId !== undefined) {
@@ -108,11 +128,20 @@ async function resolveGuardian(
   }
   const details = link.guardian
   if (!details) throw new ApiFailure('INVALID_REQUEST')
+  // The identity numbers are sealed on the way in and never read back whole
+  // except by the audited reveal route.
+  const pan = details.pan === undefined ? null : sealPan(details.pan, encryptionKey)
+  const aadhaar = details.aadhaar === undefined ? null : sealAadhaar(details.aadhaar, encryptionKey)
   const inserted = await conn.db.execute<{ id: string }>(
-    sql`INSERT INTO guardians (school_id, first_name, last_name, phone, occupation, address)
+    sql`INSERT INTO guardians (school_id, first_name, last_name, phone, occupation, address,
+                               office_address, pan_ciphertext, pan_last4,
+                               aadhaar_ciphertext, aadhaar_last4)
         VALUES (${schoolId}::uuid, ${details.firstName}, ${details.lastName ?? null},
                 ${details.phone}, ${details.occupation ?? null},
-                ${details.address === undefined ? null : jsonText(details.address)}::jsonb)
+                ${details.address === undefined ? null : jsonText(details.address)}::jsonb,
+                ${details.officeAddress === undefined ? null : jsonText(details.officeAddress)}::jsonb,
+                ${pan?.ciphertext ?? null}, ${pan?.last4 ?? null},
+                ${aadhaar?.ciphertext ?? null}, ${aadhaar?.last4 ?? null})
         RETURNING id`,
   )
   const id = inserted.rows[0]?.id
@@ -156,6 +185,7 @@ export async function admitStudent(
   conn: ModuleConnection,
   context: RequestContext,
   body: StudentsAdmitRequest,
+  encryptionKey: string,
 ): Promise<string> {
   // Checked before anything is written, so a consent aimed at a guardian this
   // request never named cannot spend an admission number.
@@ -172,13 +202,16 @@ export async function admitStudent(
   const named = body.guardians.filter((link) => link.guardianId !== undefined).map((link) => link.guardianId)
   if (new Set(named).size !== named.length) throw new ApiFailure('INVALID_REQUEST')
 
+  const aadhaar = body.aadhaar === undefined ? null : sealAadhaar(body.aadhaar, encryptionKey)
   const inserted = await conn.db.execute<{ id: string }>(
     sql`INSERT INTO students (school_id, admission_number, first_name, last_name, status,
-                              date_of_birth, gender, category, admission_type, admission_date, address)
+                              date_of_birth, gender, category, admission_type, admission_date, address,
+                              aadhaar_ciphertext, aadhaar_last4)
         VALUES (${context.schoolId}::uuid, ${admissionNumber}, ${body.firstName},
                 ${body.lastName ?? null}, 'active', ${body.dateOfBirth}::date, ${body.gender},
                 ${body.category ?? null}, ${body.admissionType ?? null}, ${body.admissionDate}::date,
-                ${body.address === undefined ? null : jsonText(body.address)}::jsonb)
+                ${body.address === undefined ? null : jsonText(body.address)}::jsonb,
+                ${aadhaar?.ciphertext ?? null}, ${aadhaar?.last4 ?? null})
         RETURNING id`,
   )
   const studentId = inserted.rows[0]?.id
@@ -191,7 +224,7 @@ export async function admitStudent(
   )
   const guardianIds: string[] = []
   for (const link of body.guardians) {
-    const guardianId = await resolveGuardian(conn, context, link)
+    const guardianId = await resolveGuardian(conn, context, link, encryptionKey)
     await linkGuardian(conn, context.schoolId, studentId, guardianId, link)
     guardianIds.push(guardianId)
   }
@@ -255,7 +288,8 @@ const SENSITIVE_COLUMNS: Record<string, string> = {
   category: 'category',
   admissionType: 'admission_type',
   address: 'address',
-  aadhaarLast4: 'aadhaar_last4',
+  // The Aadhaar number is not here: it arrives whole and is sealed below,
+  // exactly like the APAAR id, so it is never a plain column write.
   bloodGroup: 'blood_group',
   medicalNotes: 'medical_notes',
 }
@@ -283,6 +317,13 @@ export async function updateSensitive(
     if (body.apaarId.length < 4) throw new ApiFailure('INVALID_REQUEST')
     set.apaar_ciphertext = seal(body.apaarId, encryptionKey)
     set.apaar_last4 = body.apaarId.slice(-4)
+  }
+  if (body.aadhaar !== undefined) {
+    // Null clears the number and the digits together, so no mask is ever left
+    // standing in front of a number that is gone.
+    const sealed = body.aadhaar === null ? null : sealAadhaar(body.aadhaar, encryptionKey)
+    set.aadhaar_ciphertext = sealed?.ciphertext ?? null
+    set.aadhaar_last4 = sealed?.last4 ?? null
   }
   await bumpVersion(conn, 'students', {
     schoolId: context.schoolId,
@@ -388,10 +429,7 @@ export async function loadGuardian(
   guardianId: string,
 ): Promise<GuardianRow | null> {
   const rows = await conn.db.execute<GuardianRow>(
-    sql`SELECT guardians.id, guardians.first_name, guardians.last_name, guardians.phone,
-               guardians.occupation, guardians.annual_income::text AS annual_income,
-               COALESCE(guardians.address #>> '{}', guardians.address::text) AS address,
-               sg.relation, guardians.version
+    sql`SELECT ${guardianColumns}
           FROM guardians
           JOIN student_guardians sg ON sg.school_id = guardians.school_id
            AND sg.guardian_id = guardians.id
@@ -406,9 +444,10 @@ export async function addGuardian(
   context: RequestContext,
   studentId: string,
   link: StudentsAdmitGuardian,
+  encryptionKey: string,
 ): Promise<string> {
   await lockSchool(conn, context.schoolId)
-  const guardianId = await resolveGuardian(conn, context, link)
+  const guardianId = await resolveGuardian(conn, context, link, encryptionKey)
   await linkGuardian(conn, context.schoolId, studentId, guardianId, link)
   await writeAudit(conn, context, {
     action: 'students.manage_guardians',
@@ -426,7 +465,11 @@ const GUARDIAN_COLUMNS: Record<string, string> = {
   phone: 'phone',
   occupation: 'occupation',
   address: 'address',
+  officeAddress: 'office_address',
 }
+
+/** The jsonb text columns of a guardian, which take a JSON string, not text. */
+const GUARDIAN_JSON_FIELDS = new Set(['address', 'officeAddress'])
 
 export async function updateGuardian(
   conn: ModuleConnection,
@@ -434,12 +477,25 @@ export async function updateGuardian(
   studentId: string,
   guardianId: string,
   body: StudentsUpdateGuardianRequest,
+  encryptionKey: string,
 ): Promise<void> {
   const set: Record<string, unknown> = {}
   for (const [field, column] of Object.entries(GUARDIAN_COLUMNS)) {
     const value = (body as Record<string, unknown>)[field]
     if (value === undefined) continue
-    set[column] = field === 'address' ? jsonText(String(value)) : value
+    // Null clears the field; a jsonb column takes the value as JSON text.
+    set[column] =
+      value === null ? null : GUARDIAN_JSON_FIELDS.has(field) ? jsonText(String(value)) : value
+  }
+  if (body.pan !== undefined) {
+    const sealed = body.pan === null ? null : sealPan(body.pan, encryptionKey)
+    set.pan_ciphertext = sealed?.ciphertext ?? null
+    set.pan_last4 = sealed?.last4 ?? null
+  }
+  if (body.aadhaar !== undefined) {
+    const sealed = body.aadhaar === null ? null : sealAadhaar(body.aadhaar, encryptionKey)
+    set.aadhaar_ciphertext = sealed?.ciphertext ?? null
+    set.aadhaar_last4 = sealed?.last4 ?? null
   }
   await bumpVersion(conn, 'guardians', {
     schoolId: context.schoolId,

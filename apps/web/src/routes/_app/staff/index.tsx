@@ -72,7 +72,16 @@ function Page() {
       header: 'Staff',
       size: 260,
       cell: ({ row }) => (
-        <EntityCell avatar={<UserAvatar name={row.original.displayName} size="sm" />} name={row.original.displayName} />
+        <EntityCell
+          avatar={(
+            <UserAvatar
+              name={row.original.displayName}
+              src={row.original.hasPhoto ? api.staff.photoUrl(schoolId, row.original.id, row.original.photoUpdatedAt) : undefined}
+              size="sm"
+            />
+          )}
+          name={row.original.displayName}
+        />
       ),
     },
     { id: 'designation', header: 'Designation', cell: ({ row }) => row.original.designation },
@@ -83,7 +92,7 @@ function Page() {
         ? <Tag color={colorFor(row.original.department)}>{row.original.department}</Tag>
         : <span className="text-muted-foreground/60">—</span>),
     },
-  ], [])
+  ], [schoolId])
 
   if (isApiError(staffQuery.error, 'ACCESS_DENIED')) {
     return (

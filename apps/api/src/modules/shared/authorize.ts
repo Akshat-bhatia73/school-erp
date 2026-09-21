@@ -33,6 +33,19 @@ import { authorizeSchoolAction, decideAction } from '../../memberships/authorize
  */
 export { authorizeSchoolAction }
 
+/**
+ * The decision for the whole school, without throwing on a denial. A block
+ * whose permission is about another kind of record than the one in hand is
+ * decided here and then narrowed row by row through its own read plan.
+ */
+export async function decideSchoolAction(
+  conn: AuthzConnection,
+  context: RequestContext,
+  permission: PermissionKey,
+): Promise<AuthorizationDecision> {
+  return decideAction(conn, context, permission, context.schoolId, true)
+}
+
 /** The decision for one record, without throwing on a denial. */
 export async function decideResource(
   conn: AuthzConnection,

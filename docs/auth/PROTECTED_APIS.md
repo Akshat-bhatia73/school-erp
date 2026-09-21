@@ -106,6 +106,11 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `POST /students/:studentId/guardians` | `students.manage_guardians` | named guardian decided per record; one primary per student | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `PUT /students/:studentId/guardians/:guardianId` | `students.manage_guardians` | the link must exist | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `GET /students/:studentId/apaar` | `students.read_sensitive` | the record decided again; the sealed value is opened in the API and the reveal is audited through `auditRead` | 200 | `RESOURCE_NOT_FOUND` |
+| `GET /students/:studentId/aadhaar` | `students.read_sensitive` | the same shape as the APAAR reveal: the record decided again, the sealed number opened in the API, the reveal audited | 200 | `RESOURCE_NOT_FOUND` |
+| `GET /students/:studentId/guardians/:guardianId/identity` | `students.read_guardians` | the student decided first and the guardian proved to be linked to that student; refused when the guardian carries neither a PAN nor an Aadhaar number; the reveal is audited | 200 | `RESOURCE_NOT_FOUND` |
+| `GET /students/:studentId/photo` | `students.read_basic` | the record decided again; a record this caller may not read answers exactly like a missing one; no audit row | 200 | `RESOURCE_NOT_FOUND` |
+| `PUT /students/:studentId/photo` | `students.update_basic` | the body is the picture itself, so `expectedVersion` is a query parameter; the `photographs` consent must stand; type decided by the first bytes, at most 1 MB | 204 | `INVALID_REQUEST`, `NOT_ALLOWED_YET`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `DELETE /students/:studentId/photo` | `students.update_basic` | `expectedVersion` as a query parameter; the bytes go after the commit | 204 | `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `GET /students/:studentId/subject-access` | `students.export_subject` | the student decided under this key first; each block decided separately on this record; `accessHistory` needs `audit.read` | 200 | `RESOURCE_NOT_FOUND` |
 | `GET /students/:studentId/consents` | `students.read_consents` | the student decided under this key first; the newest row per guardian and purpose only | 200 | `RESOURCE_NOT_FOUND` |
 | `POST /students/:studentId/consents` | `students.manage_consents` | the guardian must be linked to that student in this school; a guardian recording through the portal is stored as `portal` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
@@ -140,6 +145,9 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `PUT /staff/:staffId/employment` | `staff.update_employment` | leaving date not before the stored joining date; `expectedVersion` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `PUT /staff/:staffId/private` | `staff.update_private` | that record decided, so the self scope works | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `PUT /staff/:staffId/pay` | `staff.update_pay` | audit row carries the reason and never the amount | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `GET /staff/:staffId/photo` | `staff.read_directory` | the record decided again; a record this caller may not read answers exactly like a missing one; no audit row | 200 | `RESOURCE_NOT_FOUND` |
+| `PUT /staff/:staffId/photo` | `staff.update_private` | the body is the picture itself, so `expectedVersion` is a query parameter; same type and size rules as a pupil's | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `DELETE /staff/:staffId/photo` | `staff.update_private` | `expectedVersion` as a query parameter | 204 | `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `POST /staff/:staffId/anonymise` | `staff.anonymise` | status `resigned` or `retired`, the leaving date at least `RETENTION.staffPrivateYears` old by the database clock, not already anonymised, `expectedVersion` | 200 | `NOT_ALLOWED_YET`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `POST /staff/export` | `staff.export` | every requested id must pass the export plan, or none is written | 202 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `POST /staff/:staffId/export-profile` | `staff.export` | the record decided again under this key; the producer re-reads every block behind its own key | 202 | `RESOURCE_NOT_FOUND` |
@@ -171,7 +179,7 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 
 | Method and path | Permission | Extra checks | Success | Error codes |
 |---|---|---|---|---|
-| `GET /dashboard` | `dashboard.read` | audience fixed from the caller's roles; every figure through its own plan | 200 | — |
+| `GET /dashboard` | `dashboard.read` | audience fixed from the caller's roles; optional `?date=YYYY-MM-DD`, otherwise today in the school's timezone; every block through its own plan | 200 | `INVALID_REQUEST` |
 | `GET /search?q=` | `students.read_basic` | student rows through `students.read_basic`, staff rows through `staff.read_directory`, the class through `students.read_enrollments` | 200 | `INVALID_REQUEST` |
 | `GET /audit-events` | `audit.read` | plan predicate on `audit_event`; filters only narrow it; the note is joined under the same predicate and omitted once redacted | 200 | `INVALID_REQUEST` |
 | `POST /audit-events/export` | `audit.export` | window ordered and at most 366 days | 202 | `INVALID_REQUEST` |
@@ -180,14 +188,72 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `GET /exports/:jobId` | one of `students.export`, `staff.export`, `audit.export`, `timetable.read` | the job's own recorded permission re-decided, plus freshness | 200 | `RESOURCE_NOT_FOUND` |
 | `GET /exports/:jobId/file` | the same floor | the same checks as the status route, then the job must be ready; one audit row per download | 200, a byte stream | `RESOURCE_NOT_FOUND` |
 
+### What the dashboard answers
+
+One read builds the whole home screen, inside one tenant transaction. The audience comes from the
+caller's own roles through `audienceFor` (office = owner, principal, admin; then teacher, parent,
+accountant); the browser never asks for an audience and cannot pick one. `?date=` only moves the
+calendar the answer is about. It never widens what is read, and a date outside a `YYYY-MM-DD` shape
+or any other query parameter is `INVALID_REQUEST`.
+
+Blocks and the permission each one needs:
+
+| Audience | Block | Permission it needs |
+|---|---|---|
+| all | `day` (school day, holiday or Sunday, and the next school day) | none beyond `dashboard.read`; the holidays it is built from come through the `holidays.read` plan, so it is built from Sundays alone when `holidays.read` is not held |
+| office | `today` (teachers away, periods without cover) | `timetable.read`, through the substitution plan |
+| office | `attention` rows | per key: `periods_without_cover` `timetable.read`; `invitations_expiring` `members.invite`; `students_without_guardian_phone` `students.read_guardian_contact`; `students_without_consent` `students.read_consents`; `sections_without_class_teacher` `sections.read`; `empty_timetable_slots` `sections.read` and `timetable.read`; `staff_without_login` `staff.read_directory` and `members.read` |
+| office, accountant | `glance.students.total` (the roll) | `students.read_basic` |
+| office, accountant | `glance.mix`, `glance.admittedThisMonth`, `glance.leftThisMonth` | `students.read_sensitive`: gender, admission date and the date a child left are the sensitive block of a student record, so the mix and the movements are absent without it |
+| office | `studentsPerTeacher` | `students.read_basic` and `staff.read_directory`; omitted when the school has no teaching staff |
+| office | `classStrength` | `sections.read_strengths`, counted over the sections the section plan allows and through the `students.read_enrollments` plan; the accountant role holds no `sections.read_strengths`, so the block is absent for that audience and the card is not drawn |
+| office | `admissionsByMonth` (twelve months, April to March) | `students.read_sensitive`, because it counts admission dates |
+| office | `birthdays` (today and this week) | `students.read_sensitive` for pupils and `staff.read_private` for staff: a birth date lives in those blocks, so a caller who may not read it on one record may not rebuild it from the calendar either |
+| office | `recentActivity` | `audit.read` |
+| office | `securityEvents` | `audit.read`, and only for a member holding the `owner` role |
+| office | `setup` steps | the read permission of each step; a step the caller may not read is not listed |
+| all | `holidays` | `holidays.read`; an empty list when it is not held |
+| teacher | `timeline`, `week`, `periods` | `timetable.read` on their own entries; `staffLinked: false` when the login has no staff record |
+| teacher | `myClass` (strength and birthdays) | class teacher of that section, plus `sections.read_strengths` and the `students.read_enrollments` plan for the strength; `birthdaysThisWeek` needs `students.read_sensitive` and is absent otherwise, which the plain teacher role does not hold |
+| parent | one entry per child | `students.read_basic` over their own children; `enrollment` needs `students.read_enrollments`, `todayLessons` needs `timetable.read`, `waitingOn` needs `students.read_consents` |
+| accountant | `feesNote` | none; it is a fixed sentence until the fees module exists |
+
+Three rules hold across all of it:
+
+- **Omission, not zero.** A block whose permission the caller does not hold is absent from the
+  response. `readPlan` refusing with `ACCESS_DENIED` is caught for that block alone and anything
+  else is rethrown, so a mis-wired permission fails loudly instead of reading as "none". A screen
+  can therefore tell "you may not see this" from "there are none".
+- **Cover duty has a limit.** A teacher sees a cover period only when the substitution names them as
+  the stand-in *and* their own `timetable.read` substitution plan allows the covering entry. The
+  absent teacher owns that row, so a cover in a section the stand-in does not otherwise teach is not
+  shown. Widening it needs a scope term for substitutions, not a change here.
+- **Four tables are read for this school alone.** `school_invitations`, `membership_staff_links` and
+  `school_memberships` have no scoped table in `@erp/authz` and are read only behind
+  `decideSchoolAction`. Three more are read with a bare `school_id` and no decision at all:
+  `schools` (its timezone), `academic_years` (which year "now" is) and `bell_schedules` with
+  `bell_schedule_grades` (when the bells ring). They are school setup rather than anybody's record,
+  a teacher and a parent hold no grant over them, and every other block would be meaningless without
+  them. Nothing of them leaves the response beyond an id, a name and a bell time, and the reads are
+  inside the tenant transaction, so no row can cross a school. Any new table read this way belongs
+  in this list with its reason.
+- **One timezone, the school's.** "Today", "this month" and "this week" are worked out in
+  `schools.timezone` (default `Asia/Kolkata`), not in the server's clock or the browser's, so a
+  request at half past midnight UTC still reads as the Indian school day it belongs to.
+
+The route writes no audit row: it is a read. No block carries personal data beyond a name and a
+class, and nothing is logged.
+
 ## Projection rules per field group
 
 A response carries a field group only when the caller holds the key for that group, decided against that record, and never as a side effect of holding a different key.
 
 - **Student basic** (`students.read_basic`): id, name, admission number, status and version. The class summary rides along only when the `students.read_enrollments` plan also allows that enrolment row.
-- **Student sensitive** (`students.read_sensitive`): date of birth, gender and admission date, as one block that is present or absent. The APAAR id appears here only as `apaarMasked` (`XXXX-XXXX-1234`); the full value has its own audited route.
+- **Student sensitive** (`students.read_sensitive`): date of birth, gender and admission date, as one block that is present or absent. The APAAR id appears here only as `apaarMasked` (`XXXX-XXXX-1234`) and the Aadhaar number only as `aadhaarLast4`; each full value has its own audited route.
+- **Student and staff photographs** (`students.read_basic`, `staff.read_directory`): a record says `hasPhoto` and, when there is one, `photoUpdatedAt`. The bytes are never in a body and the storage key is never anywhere. A screen fetches the picture from the streaming route above, which decides the same key again on that record.
 - **Student medical** (`students.read_medical`): blood group and medical notes, a separate block and a separate write check.
 - **Guardian contact** (`students.read_guardian_contact`): a minimal contact, never a guardian directory.
+- **Guardian private** (`students.read_guardians`): occupation, income, home address, office address, `panLast4` and `aadhaarLast4`, as one block. One SQL fragment, `guardianColumns` in `students/reads.ts`, is the only guardian select list, so the guardian detail, the list, the subject-access read and the profile PDF all describe a person the same way and none of them selects a sealed column.
 - **Student documents** (`students.read_documents`): metadata only. The storage key is server state and appears in no body, no header, no log line and no error.
 - **Staff directory** (`staff.read_directory`): display name, designation and department. Nothing else.
 - **Staff employment, private and pay** (`staff.read_employment`, `read_private`, `read_pay`): three separate blocks behind three separate keys, each decided on that record, so a teacher reads their own employment and contact and never anybody's pay.
@@ -230,6 +296,10 @@ Task 12 added five things to this module set. They are ordinary protected routes
 **Reading only what the caller asked for.** `students/reads.ts` no longer has one projection. `studentProjection({ sensitive, medical })` builds the select list, and the roster, the count and the search always build it with both false, so a caller holding only `students.read_basic` runs a statement that names no medical note, no address, no Aadhaar fragment and no APAAR column. Only the detail route passes `true`, and only after it has decided `students.read_sensitive` and `students.read_medical` on that record, which is why the decision now happens before the read rather than during the projection.
 
 **The APAAR id is sealed.** `modules/shared/crypto.ts` has `seal`, `open` and `maskApaar`. A write encrypts the value with AES-256-GCM under `DATA_ENCRYPTION_KEY` and stores `v1.<iv>.<tag>.<ciphertext>` in base64url in `students.apaar_ciphertext`, with the last four digits alongside in `apaar_last4`. The key never reaches the database, the version prefix leaves room for a second key or algorithm, and `open` refuses a tampered, wrongly keyed or wrongly versioned value rather than returning something. Reads show `apaarMasked` built from the last four digits. `GET /students/:studentId/apaar` is the only way to the full value: it decides the record under `students.read_sensitive`, opens the ciphertext and writes an audit row reading "Revealed the full APAAR id." Search never matches on it, because no search statement selects the column.
+
+**Aadhaar and PAN are sealed the same way.** The office feedback work (September 2026) added a pupil's whole Aadhaar number and a guardian's PAN and Aadhaar number. Each one goes through the same `seal` and `open` as the APAAR id, into its own `*_ciphertext` column, with `*_last4` beside it written in the same statement so the two can never disagree; the database checks the shape of the last four. A write takes the whole number and a `null` clears both columns at once. Every read projects the last digits only, and the two reveal routes above are the only way to a whole number. Anonymising a pupil clears the encrypted number; anonymising a guardian who has no child left clears the office address and both numbers.
+
+**A photograph is bytes in the private store.** The key is `photos/<schoolId>/<kind>/<recordId>-<random>` and it appears in no body, no header, no log line and no audit row. The upload routes live in their own encapsulated Fastify plugin with an `image/*` parser and a hard body limit, so no other route in the app accepts an image body. The type is decided by the first bytes and never by the name or the claimed type; JPEG, PNG and WebP up to 1 MB are accepted and everything else is `INVALID_REQUEST` with the reason left in the server log. A JPEG loses its APP1 to APP15 and COM blocks, a PNG its text and EXIF chunks and a WebP its EXIF and XMP chunks before the bytes are stored, so the camera's own notes, including where the picture was taken, do not travel. Each of the three is rebuilt from the parts that were actually walked, so a file whose own structure does not add up is refused rather than half stored. A write decides before it stores: inside one transaction it locks the school, re-decides the record, loads the row, checks the `photographs` consent for a pupil and the quoted version, and only then writes the bytes and updates the row. A caller who may not edit the record, an id that is not there, a family that has not agreed and a stale version therefore leave nothing at all in the store. If anything after the write fails, the new bytes are removed again and a removal that itself fails is counted in the error reporter, without the key; the old bytes go only after the commit. An upload whose `content-length` is over the limit is answered with a plain `413` and a readable message before a byte of it is read. A read writes no audit row and answers `cache-control: private, no-store` and `x-content-type-options: nosniff` with a neutral file name. A pupil's picture also needs the `photographs` consent: withdrawing it clears the columns in the same transaction as the consent row and removes the bytes after the commit, and anonymisation does the same.
 
 **Consent is an event log.** `guardian_consents` refuses UPDATE and DELETE, so recording and withdrawing are both inserts and the current answer for a purpose is the newest row. `recordConsents(conn, context, studentId, entries)` in `modules/students/consents.ts` is the one insertion path: it checks every guardian id against `student_guardians` for this school and student and refuses the whole request as `INVALID_REQUEST` if one is not linked, forces `method` to `portal` when the actor's own membership is linked to that guardian, and writes exactly one audit row carrying the purposes and statuses and never the evidence text. Admission calls it after the guardian links exist, mapping each `consents[].guardianIndex` into its own `guardians` array and refusing an index outside that array before anything is written. The list returns `DISTINCT ON (guardian_id, purpose)` newest rows with the guardian's display name and `recordedBy` of `office` or `guardian`.
 
@@ -287,7 +357,7 @@ Coverage and behaviour:
 - `audit.read` and `audit.export` at the `finance` scope select only rows whose action is in `FINANCE_AUDIT_ACTIONS` from `@erp/contracts`, so an accountant's list, count and export are the money trail and an owner's are the whole log.
 - The promotion roster is capped at 200 rows with no total, because `PromotionPreview` cannot carry one. A promote request can only act on 200 pupils anyway.
 - The command-menu search returns at most 10 hits of each kind with no count, so a caller cannot tell ten matches from four hundred. It also merges two coverage rows, so a caller without `staff.read_directory` gets `staff: []` rather than a refusal, and a caller denied `students.read_basic` is refused the whole endpoint even if they may read staff.
-- The office dashboard returns two integers. `DashboardResponse` carries no academic year name, per-grade strength, setup checklist, recent activity, attendance or fees, so Task 7 cannot rebuild the office screen from it. The office audience is `owner`, `principal` and `admin`; there is no `clerk` role in this build.
+- The dashboard now answers a whole home screen per audience, not two integers: the day, what needs attention, the school in numbers, class strength, admissions by month, holidays, birthdays, recent activity and the setup checklist. Attendance, exams and fees still have no tables, so the accountant view carries a fixed note where fee cards will go. The office audience is `owner`, `principal` and `admin`; there is no `clerk` role in this build.
 - The promotion reason is validated and then not persisted: operator free text routinely names a child, and audit rows must stay free of personal detail.
 - `GET /exports/:jobId` and `GET /exports/:jobId/file` are not in the coverage inventory; their floor is a set of permissions chosen here rather than a documented one, and it is written down as a difference in [operation coverage](./OPERATION_COVERAGE.md).
 - `PUT /grades/:gradeId/subjects` answers `GradeSubjectList` where the inventory says `Subject` or `EmptySuccess`, because the request replaces a set and returning the set saves a re-read.
