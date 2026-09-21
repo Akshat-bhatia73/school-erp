@@ -881,9 +881,9 @@ export const numberSequences = pgTable(
   'number_sequences',
   {
     schoolId: tenant(),
-    /** 'admission' or 'employee'. */
+    /** 'admission', 'employee' or 'receipt'. */
     kind: text('kind').notNull(),
-    /** The academic year id for admissions, empty for employee codes. */
+    /** The academic year id for admissions and receipts, empty for employee codes. */
     period: text('period').notNull().default(''),
     nextValue: integer('next_value').notNull().default(1),
     ...timestamps(),
@@ -944,6 +944,137 @@ export const auditEventNotes = pgTable(
   (t) => [unique('audit_event_notes_school_id_unique').on(t.schoolId, t.id)],
 )
 
+/**
+ * Task 19 fee tables. Money is integer paise in a bigint. The two ledger
+ * tables are append-only: a trigger refuses every edit except clearing
+ * payer_name, which is what anonymising a pupil needs.
+ */
+const version = () => integer('version').notNull().default(1)
+const paise = (name: string) => bigint(name, { mode: 'number' })
+
+export const feeHeads = pgTable(
+  'fee_heads',
+  {
+    id: id(),
+    schoolId: tenant(),
+    name: text('name').notNull(),
+    category: text('category').notNull(),
+    /** 'class' for everybody in a class, 'opt_in' for pupils who take it. */
+    appliesTo: text('applies_to').notNull(),
+    frequency: text('frequency').notNull(),
+    active: boolean('active').notNull().default(true),
+    version: version(),
+    ...timestamps(),
+  },
+  (t) => [unique('fee_heads_school_id_id_key').on(t.schoolId, t.id)],
+)
+
+export const feeStructures = pgTable(
+  'fee_structures',
+  {
+    id: id(),
+    schoolId: tenant(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    feeHeadId: uuid('fee_head_id').notNull(),
+    /** Null means every class. */
+    gradeId: uuid('grade_id'),
+    /** Per instalment. */
+    amountPaise: paise('amount_paise').notNull(),
+    version: version(),
+    ...timestamps(),
+  },
+  (t) => [unique('fee_structures_school_id_id_key').on(t.schoolId, t.id)],
+)
+
+export const feeStudentHeads = pgTable(
+  'fee_student_heads',
+  {
+    id: id(),
+    schoolId: tenant(),
+    studentId: uuid('student_id').notNull(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    feeHeadId: uuid('fee_head_id').notNull(),
+    /** This pupil's own amount per instalment; null takes the structure's. */
+    amountPaise: paise('amount_paise'),
+    startsOn: date('starts_on').notNull(),
+    endsOn: date('ends_on'),
+    version: version(),
+    ...timestamps(),
+  },
+  (t) => [unique('fee_student_heads_school_id_id_key').on(t.schoolId, t.id)],
+)
+
+export const feeConcessions = pgTable(
+  'fee_concessions',
+  {
+    id: id(),
+    schoolId: tenant(),
+    studentId: uuid('student_id').notNull(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    /** Null means every head. */
+    feeHeadId: uuid('fee_head_id'),
+    category: text('category').notNull(),
+    kind: text('kind').notNull(),
+    /** Basis points, for a percent concession. */
+    percentBp: integer('percent_bp'),
+    /** Per instalment, for an amount concession. */
+    amountPaise: paise('amount_paise'),
+    version: version(),
+    ...timestamps(),
+  },
+  (t) => [unique('fee_concessions_school_id_id_key').on(t.schoolId, t.id)],
+)
+
+export const feeReceipts = pgTable(
+  'fee_receipts',
+  {
+    id: id(),
+    schoolId: tenant(),
+    studentId: uuid('student_id').notNull(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    kind: text('kind').notNull(),
+    receiptNumber: text('receipt_number').notNull(),
+    amountPaise: paise('amount_paise').notNull(),
+    mode: text('mode'),
+    reference: text('reference'),
+    receivedOn: date('received_on').notNull(),
+    payerName: text('payer_name'),
+    reversesReceiptId: uuid('reverses_receipt_id'),
+    recordedByMembershipId: uuid('recorded_by_membership_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique('fee_receipts_school_id_id_key').on(t.schoolId, t.id),
+    unique('fee_receipts_school_id_receipt_number_key').on(t.schoolId, t.receiptNumber),
+    index('fee_receipts_student_idx').on(t.schoolId, t.studentId, t.academicYearId),
+    index('fee_receipts_received_idx').on(t.schoolId, t.receivedOn),
+  ],
+)
+
+export const feeReceiptLines = pgTable(
+  'fee_receipt_lines',
+  {
+    id: id(),
+    schoolId: tenant(),
+    receiptId: uuid('receipt_id').notNull(),
+    feeHeadId: uuid('fee_head_id').notNull(),
+    amountPaise: paise('amount_paise').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique('fee_receipt_lines_school_id_id_key').on(t.schoolId, t.id),
+    unique('fee_receipt_lines_school_id_receipt_id_fee_head_id_key').on(
+      t.schoolId,
+      t.receiptId,
+      t.feeHeadId,
+    ),
+  ],
+)
+
 export const schoolTables = [
   schoolMemberships,
   roles,
@@ -979,4 +1110,10 @@ export const schoolTables = [
   numberSequences,
   guardianConsents,
   auditEventNotes,
+  feeHeads,
+  feeStructures,
+  feeStudentHeads,
+  feeConcessions,
+  feeReceipts,
+  feeReceiptLines,
 ] as const

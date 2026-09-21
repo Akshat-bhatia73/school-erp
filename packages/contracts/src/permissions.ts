@@ -161,10 +161,12 @@ export const PERMISSION_CATALOGUE = {
   'timetable.manage_substitutions': active('substitution', ['school'], 'Create or remove teacher substitutions.', true),
   'timetable.notify_substitutions': active('substitution', ['school'], 'Mark substitution notices as sent.', true),
   'dashboard.read': active('dashboard', ['school', 'self', 'assigned_sections', 'own_children', 'finance'], 'Read a safe dashboard variant computed from the authorized dataset.'),
-  'fees.read': reserved('fee', ['school', 'own_children', 'finance'], 'Reserved for authorized fee statements and collection views.'),
-  'fees.collect': reserved('fee', ['school', 'finance'], 'Reserved for recording fee collections.', true),
-  'fees.manage': reserved('fee', ['school', 'finance'], 'Reserved for fee setup, adjustments, and approvals.', true),
-  'fees.export': reserved('fee', ['school', 'finance'], 'Reserved for exporting authorized fee data.', true),
+  // A parent reading their own child's statement signs in with a phone code, so
+  // the read is not privileged; every fee write and every fee file is.
+  'fees.read': active('fee', ['school', 'own_children', 'finance'], 'Read fee heads, structures, statements, receipts and the dues list within the granted scope.'),
+  'fees.collect': active('fee', ['school', 'finance'], 'Record a fee payment and issue its receipt.', true),
+  'fees.manage': active('fee', ['school', 'finance'], 'Set fee heads and structures, concessions and optional fees, and record refunds, cancellations and adjustments.', true),
+  'fees.export': active('fee', ['school', 'finance'], 'Export the dues list and the collection register.', true),
   'attendance.read': reserved('attendance', ['school', 'assigned_sections', 'own_children', 'own_record'], 'Reserved for attendance views.'),
   'attendance.record': reserved('attendance', ['school', 'assigned_sections'], 'Reserved for recording attendance.', true),
   'attendance.manage': reserved('attendance', ['school'], 'Reserved for correcting and administering attendance.', true),

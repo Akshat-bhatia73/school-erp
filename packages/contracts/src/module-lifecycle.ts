@@ -5,6 +5,7 @@ import {
   StudentBasic, StudentMedical, StudentSensitive,
 } from './responses.ts'
 import { DisplayName, Id, Phone, Reason, Timestamp, Version } from './common.ts'
+import { FeeStatement } from './module-fees.ts'
 
 /** The purposes a school may ask a guardian to consent to. */
 export const CONSENT_PURPOSES = [
@@ -141,6 +142,8 @@ export const SubjectAccessExport = z.strictObject({
   enrollments: z.array(EnrollmentSummary).max(50),
   documents: z.array(DocumentSummary).max(100),
   consents: z.array(ConsentRecord).max(100),
+  /** One statement per academic year that holds fee data; needs `fees.read` on this pupil. */
+  fees: z.array(FeeStatement).max(30).optional(),
   accessHistory: z.array(SubjectAccessEvent).max(200).optional(),
 })
 

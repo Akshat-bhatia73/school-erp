@@ -605,6 +605,33 @@ export async function loadResourceFacts(
       if (action === undefined) return null
       return facts(resource, { action })
     }
+    case 'fee': {
+      // One resource type, several tables. The id is looked for in each: a
+      // pupil's own id stands for their fee account, a ledger row, an optional
+      // fee and a concession belong to a pupil, and a head or a structure
+      // belongs to the school. Ids are random uuids, so at most one matches.
+      const row = await conn.client.query<{ student_id: string | null; academic_year_id: string | null }>(
+        `SELECT id AS student_id, NULL::uuid AS academic_year_id FROM students WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT student_id, academic_year_id FROM fee_receipts WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT student_id, academic_year_id FROM fee_student_heads WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT student_id, academic_year_id FROM fee_concessions WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT NULL::uuid, NULL::uuid FROM fee_heads WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT NULL::uuid, academic_year_id FROM fee_structures WHERE school_id = $1 AND id = $2
+         LIMIT 1`,
+        [schoolId, id],
+      )
+      const found = row.rows[0]
+      if (!found) return null
+      return facts(resource, {
+        ...(found.student_id === null ? {} : { studentId: found.student_id }),
+        ...(found.academic_year_id === null ? {} : { academicYearId: found.academic_year_id }),
+      })
+    }
     case 'dashboard':
       // The dashboard is computed from the whole authorized dataset, so it has
       // no row of its own and relationship scopes answer for any relationship.

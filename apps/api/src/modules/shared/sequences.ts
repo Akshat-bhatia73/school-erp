@@ -13,6 +13,9 @@ import { ApiFailure } from './errors.ts'
  * violation there is a bug in this file rather than a bad request.
  */
 
+/** The counters number_sequences holds, as its CHECK constraint lists them. */
+type SequenceKind = 'admission' | 'employee' | 'receipt'
+
 /** The counter, padded to three digits and widened rather than truncated. */
 export function formatCounter(counter: number): string {
   return String(counter).padStart(3, '0')
@@ -35,6 +38,14 @@ export function formatEmployeeCode(shortName: string, counter: number): string {
   return `${schoolPrefix(shortName)}-E${formatCounter(counter)}`
 }
 
+/**
+ * A fee receipt number: `SVM/2026-27/R0014`. Four digits, because a school
+ * writes thousands of receipts in a year, and widened rather than truncated.
+ */
+export function formatReceiptNumber(shortName: string, yearName: string, counter: number): string {
+  return `${schoolPrefix(shortName)}/${yearName.trim()}/R${String(counter).padStart(4, '0')}`
+}
+
 /** A literal turned into a regular expression that matches only itself. */
 function literal(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\\/-]/g, '\\$&')
@@ -53,11 +64,11 @@ function literal(value: string): string {
 async function sync(
   conn: TenantConnection,
   schoolId: string,
-  kind: 'admission' | 'employee',
+  kind: SequenceKind,
   period: string,
   pattern: string,
-  table: 'students' | 'staff',
-  column: 'admission_number' | 'employee_code',
+  table: 'students' | 'staff' | 'fee_receipts',
+  column: 'admission_number' | 'employee_code' | 'receipt_number',
   extra: readonly string[],
 ): Promise<void> {
   await conn.client.query(
@@ -97,7 +108,7 @@ function admissionPattern(shortName: string, yearName: string): string {
 async function allocate(
   conn: TenantConnection,
   schoolId: string,
-  kind: 'admission' | 'employee',
+  kind: SequenceKind,
   period: string,
 ): Promise<number> {
   const result = await conn.client.query<{ allocated: number }>(
@@ -202,4 +213,33 @@ export async function allocateEmployeeCode(
   )
   const counter = await allocate(conn, schoolId, 'employee', '')
   return formatEmployeeCode(shortName, counter)
+}
+
+/**
+ * The next fee receipt number for this school and academic year. Every ledger
+ * row takes one: a payment, a refund, a cancellation and an adjustment are all
+ * documents the school has to be able to name. The counter restarts in every
+ * academic year, exactly as admission numbers do, and it is claimed inside the
+ * transaction that writes the row, after the school lock, so two collections
+ * committed at once take consecutive numbers.
+ */
+export async function allocateReceiptNumber(
+  conn: TenantConnection,
+  schoolId: string,
+  academicYearId: string,
+): Promise<string> {
+  const shortName = await shortNameOf(conn, schoolId)
+  const yearName = await yearNameOf(conn, schoolId, academicYearId)
+  await sync(
+    conn,
+    schoolId,
+    'receipt',
+    academicYearId,
+    `^${literal(schoolPrefix(shortName))}/${literal(yearName.trim())}/R${COUNTER_DIGITS}`,
+    'fee_receipts',
+    'receipt_number',
+    [],
+  )
+  const counter = await allocate(conn, schoolId, 'receipt', academicYearId)
+  return formatReceiptNumber(shortName, yearName, counter)
 }

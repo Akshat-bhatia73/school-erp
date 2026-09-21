@@ -76,10 +76,10 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `timetable.manage_substitutions` | active | school | school | school | school | — | — | — | — |
 | `timetable.notify_substitutions` | active | school | school | school | school | — | — | — | — |
 | `dashboard.read` | active | — | school | school | school | finance | assigned_sections | own_children | — |
-| `fees.read` | reserved | — | — | — | — | — | — | — | — |
-| `fees.collect` | reserved | school, finance | — | — | — | — | — | — | — |
-| `fees.manage` | reserved | school, finance | — | — | — | — | — | — | — |
-| `fees.export` | reserved | school, finance | — | — | — | — | — | — | — |
+| `fees.read` | active | — | school | school | school | finance | — | own_children | — |
+| `fees.collect` | active | school, finance | school | school | school | finance | — | — | — |
+| `fees.manage` | active | school, finance | school | school | — | finance | — | — | — |
+| `fees.export` | active | school, finance | school | school | — | finance | — | — | — |
 | `attendance.read` | reserved | — | — | — | — | — | — | — | — |
 | `attendance.record` | reserved | school, assigned_sections | — | — | — | — | — | — | — |
 | `attendance.manage` | reserved | school | — | — | — | — | — | — | — |

@@ -3,8 +3,9 @@ import type { RequestContext } from '@erp/contracts/server'
 
 /**
  * The kinds of file an export job can produce. Three are lists of records as a
- * spreadsheet, two are one record as a document, and the timetable is either,
- * chosen by the request.
+ * spreadsheet, three are one record as a document (two profiles and a fee
+ * receipt), and the timetable, the fee dues list and the collection register
+ * are either, chosen by the request.
  */
 export type ExportJobKind =
   | 'students'
@@ -13,6 +14,9 @@ export type ExportJobKind =
   | 'student_profile'
   | 'staff_profile'
   | 'timetable'
+  | 'fee_receipt'
+  | 'fee_dues'
+  | 'fee_collections'
 
 /** What a producer hands back. The bytes are never stored anywhere else. */
 export interface ExportFile {

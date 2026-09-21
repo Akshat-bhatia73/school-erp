@@ -1,6 +1,6 @@
 import type { AuthzConnection } from '@erp/authz'
 import type { RequestContext } from '@erp/contracts/server'
-import { ACCOUNTANT_FEES_NOTE, type AccountantDashboard } from '@erp/contracts'
+import type { AccountantDashboard } from '@erp/contracts'
 import { readPlan } from '../shared/index.ts'
 import { buildCalendar, currentAcademicYear, optionalBlock } from './calendar.ts'
 import { classStrength, studentGlance } from './office.ts'
@@ -25,6 +25,5 @@ export async function accountantDashboard(
     day: calendar.day,
     ...(glance === undefined ? {} : { glance }),
     ...(strengths === undefined ? {} : { classStrength: strengths }),
-    feesNote: ACCOUNTANT_FEES_NOTE,
   }
 }

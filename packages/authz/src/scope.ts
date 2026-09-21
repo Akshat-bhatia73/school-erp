@@ -7,6 +7,11 @@ import {
   auditEvents,
   bellSchedules,
   enrollments,
+  feeConcessions,
+  feeHeads,
+  feeReceipts,
+  feeStructures,
+  feeStudentHeads,
   grades,
   guardians,
   holidays,
@@ -69,6 +74,58 @@ export interface ScopedTable {
   readonly staffId?: PgColumn
   /** The audited action of a row, for the finance scope over the audit trail. */
   readonly action?: PgColumn
+}
+
+/**
+ * The tables a `fee` plan can be laid over. Fees are one resource type with
+ * several tables behind it, so each table has its own descriptor and they all
+ * take the same plan.
+ *
+ * A row that belongs to a pupil names that pupil in `studentId`, which is how
+ * the own_children scope reaches it. `account` is the pupil's own row standing
+ * for their fee account, so the dues list and a statement are bounded by the
+ * same term as a receipt. Heads and structures belong to the school and name
+ * no pupil: a parent's plan never selects them, and a statement carries the
+ * head's name on the pupil's own line instead.
+ */
+const FEE_TABLES = {
+  account: { table: students, schoolId: students.schoolId, id: students.id, studentId: students.id },
+  receipt: {
+    table: feeReceipts,
+    schoolId: feeReceipts.schoolId,
+    id: feeReceipts.id,
+    studentId: feeReceipts.studentId,
+    academicYearId: feeReceipts.academicYearId,
+  },
+  opt_in: {
+    table: feeStudentHeads,
+    schoolId: feeStudentHeads.schoolId,
+    id: feeStudentHeads.id,
+    studentId: feeStudentHeads.studentId,
+    academicYearId: feeStudentHeads.academicYearId,
+  },
+  concession: {
+    table: feeConcessions,
+    schoolId: feeConcessions.schoolId,
+    id: feeConcessions.id,
+    studentId: feeConcessions.studentId,
+    academicYearId: feeConcessions.academicYearId,
+  },
+  head: { table: feeHeads, schoolId: feeHeads.schoolId, id: feeHeads.id },
+  structure: {
+    table: feeStructures,
+    schoolId: feeStructures.schoolId,
+    id: feeStructures.id,
+    academicYearId: feeStructures.academicYearId,
+    gradeId: feeStructures.gradeId,
+  },
+} as const satisfies Record<string, ScopedTable>
+
+export type FeeTableKind = keyof typeof FEE_TABLES
+
+/** The descriptor of one fee table, for planPredicate with a `fee` plan. */
+export function feeScopedTable(kind: FeeTableKind): ScopedTable {
+  return FEE_TABLES[kind]
 }
 
 const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
@@ -141,6 +198,9 @@ const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
     id: auditEvents.id,
     action: auditEvents.action,
   },
+  // The ledger is the fee table a bare `fee` plan lists. The other fee tables
+  // come from feeScopedTable.
+  fee: FEE_TABLES.receipt,
 }
 
 /** The table a plan of this resource type lists, or null when there is none. */
@@ -364,6 +424,10 @@ function ownChildrenTerm(plan: AuthorizedReadPlan, table: ScopedTable, childIds:
       return idInTerm(table.id, childIds)
     case 'enrollment':
     case 'student_document':
+      return table.studentId === undefined ? FALSE : idInTerm(table.studentId, childIds)
+    case 'fee':
+      // A fee row answers through the pupil it belongs to. A head or a
+      // structure belongs to the school and names no pupil, so it never does.
       return table.studentId === undefined ? FALSE : idInTerm(table.studentId, childIds)
     case 'section':
       return enrollmentExistsForChildren(sql`e.section_id = ${table.id}`, table, childList)
