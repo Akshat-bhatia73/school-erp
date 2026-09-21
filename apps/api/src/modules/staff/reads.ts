@@ -79,7 +79,14 @@ export interface StaffListQuery {
   readonly page: number
   readonly pageSize: number
   readonly search?: string
+  readonly department?: string
   readonly sort: 'name' | 'employee_code'
+}
+
+/** The department filter: an exact name, never a pattern. */
+function departmentTerm(department: string | undefined): SQL | undefined {
+  if (!department) return undefined
+  return eq(staff.department, department)
 }
 
 export async function listStaff(
@@ -87,7 +94,13 @@ export async function listStaff(
   context: RequestContext,
   query: StaffListQuery,
 ): Promise<{ items: StaffDirectoryDto[]; total: number; page: number; pageSize: number }> {
-  const where = and(await staffScope(conn, context, 'staff.read_directory'), searchTerm(query.search))
+  // The same where feeds the page and the total, so the footer count always
+  // describes the rows on the page.
+  const where = and(
+    await staffScope(conn, context, 'staff.read_directory'),
+    searchTerm(query.search),
+    departmentTerm(query.department),
+  )
   const order =
     query.sort === 'employee_code'
       ? [asc(staff.employeeCode), asc(staff.id)]

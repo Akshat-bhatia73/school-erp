@@ -10,11 +10,19 @@ const toastSuccess = vi.fn()
 vi.mock('sonner', () => ({ toast: { success: (...args: unknown[]) => toastSuccess(...args), error: vi.fn() } }))
 
 const navigate = vi.fn()
+let search: Record<string, unknown> = { page: 1 }
 
 vi.mock('@tanstack/react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/react-router')>()
   return {
     ...actual,
+    createFileRoute: () => (options: Record<string, unknown>) => ({
+      ...options,
+      options,
+      useSearch: () => search,
+      useParams: () => ({ staffId: 'staff-1' }),
+      fullPath: '/staff',
+    }),
     useNavigate: () => navigate,
     Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
   }
@@ -69,6 +77,7 @@ const StaffRecord = RecordRoute.options.component as () => ReactNode
 
 beforeEach(() => {
   vi.clearAllMocks()
+  search = { page: 1 }
   vi.mocked(api.staff.list).mockResolvedValue(directoryPage())
   vi.mocked(api.staff.departments).mockResolvedValue(['Science'])
   vi.mocked(api.members.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 100 })
@@ -80,16 +89,24 @@ describe('staff directory', () => {
 
     expect(await screen.findByText('Anita Sharma')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /add staff/i }).length).toBeGreaterThan(0)
-    expect(screen.getAllByRole('button', { name: /export to excel/i }).length).toBeGreaterThan(0)
-    expect(api.staff.list).toHaveBeenCalledWith(SCHOOL_ID, { page: 1, pageSize: 25, sort: 'name', search: undefined })
+    expect(api.staff.list).toHaveBeenCalledWith(SCHOOL_ID, { page: 1, pageSize: 25, sort: 'name', search: undefined, department: undefined })
   })
 
-  it('hides add and export when those capabilities are missing', async () => {
+  it('hides add, and offers no selection, when those capabilities are missing', async () => {
     renderWithSession(<Directory />, { capabilities: ['staff.read_directory'] })
 
     expect(await screen.findByText('Anita Sharma')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /add staff/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /export to excel/i })).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
+  })
+
+  it('asks the server for one department and pages from the first page', async () => {
+    search = { page: 3, department: 'Science' }
+    renderWithSession(<Directory />, { capabilities: ['staff.read_directory'] })
+
+    await waitFor(() => expect(api.staff.list).toHaveBeenCalledWith(SCHOOL_ID, {
+      page: 3, pageSize: 25, sort: 'name', search: undefined, department: 'Science',
+    }))
   })
 
   it('downloads the file itself once the export is ready', async () => {

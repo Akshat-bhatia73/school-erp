@@ -17,13 +17,16 @@ const PASSWORD = 'Fixture-Pass!42'
 // Unique per run: other test files rewrite the same fixture identities.
 const OWNER_EMAIL = `setup-owner-${randomUUID()}@example.test`
 const TEACHER_EMAIL = `setup-teacher-${randomUUID()}@example.test`
+const PARENT_EMAIL = `setup-parent-${randomUUID()}@example.test`
 
 const schoolA = fixtureIds.schoolA as string
 const schoolB = fixtureIds.schoolB as string
 const ownerUserId = fixtureIds.ownerAUser as string
 const teacherUserId = fixtureIds.adultUser as string
+const parentUserId = fixtureIds.parentA2User as string
 const staffA = fixtureIds.staffA as string
 const studentA = fixtureIds.studentA as string
+const studentA2 = fixtureIds.studentA2 as string
 const yearA = fixtureIds.yearA as string
 const gradeA = fixtureIds.gradeA as string
 const sectionA = fixtureIds.sectionA as string
@@ -37,11 +40,15 @@ const yearB = randomUUID()
 const gradeB = randomUUID()
 const sectionB = randomUUID()
 const subjectB = randomUUID()
+// A year that has already been closed by promotion, with its own section.
+const closedYear = randomUUID()
+const closedSection = randomUUID()
 
 let server: TestServer
 type Client = Awaited<ReturnType<typeof signInWithPassword>>
 let owner: Client
 let teacher: Client
+let parent: Client
 
 interface ErrorBody {
   error: { code: string; requestId: string }
@@ -98,6 +105,7 @@ before(async () => {
   const pool = adminPool()
   await pool.query('UPDATE auth_user SET email = $2 WHERE id = $1', [ownerUserId, OWNER_EMAIL])
   await pool.query('UPDATE auth_user SET email = $2 WHERE id = $1', [teacherUserId, TEACHER_EMAIL])
+  await pool.query('UPDATE auth_user SET email = $2 WHERE id = $1', [parentUserId, PARENT_EMAIL])
 
   // School A: a second class and section nobody teaches, one subject, and a
   // teaching assignment that puts the teacher in the fixture section only.
@@ -129,6 +137,24 @@ before(async () => {
     [schoolA, studentA, yearA, sectionA],
   )
 
+  // A year that has been closed, holding one pupil who finished it there and
+  // one who left part way through.
+  await pool.query(
+    `INSERT INTO academic_years(id,school_id,name,start_date,end_date,status)
+     VALUES ($1,$2,$3,'2025-04-01','2026-03-31','closed')`,
+    [closedYear, schoolA, `2025-26 ${closedYear.slice(0, 8)}`],
+  )
+  await pool.query(
+    `INSERT INTO sections(id,school_id,academic_year_id,grade_id,name) VALUES ($1,$2,$3,$4,$5)`,
+    [closedSection, schoolA, closedYear, gradeA, `C${closedSection.slice(0, 4)}`],
+  )
+  await pool.query(
+    `INSERT INTO enrollments(school_id,student_id,academic_year_id,section_id,joined_on,left_on,outcome)
+     VALUES ($1,$2,$3,$4,'2025-04-01','2026-03-31','promoted'),
+            ($1,$5,$3,$4,'2025-04-01','2025-09-30','left')`,
+    [schoolA, studentA, closedYear, closedSection, studentA2],
+  )
+
   // School B: a complete little setup, so a cross-school id is a real record.
   await pool.query(
     `INSERT INTO academic_years(id,school_id,name,start_date,end_date,status)
@@ -152,12 +178,14 @@ before(async () => {
   ])
 
   await setFixturePassword(server, teacherUserId, PASSWORD)
+  await setFixturePassword(server, parentUserId, PASSWORD)
   owner = await signInWithMfa(server, {
     userId: ownerUserId,
     email: OWNER_EMAIL,
     password: PASSWORD,
   })
   teacher = await signInWithPassword(server, TEACHER_EMAIL, PASSWORD)
+  parent = await signInWithPassword(server, PARENT_EMAIL, PASSWORD)
 })
 
 after(async () => {
@@ -399,6 +427,43 @@ test('section strengths count only pupils in sections the caller may see', async
     counts.some((row) => row.sectionId === otherSection),
     false,
   )
+})
+
+test('a closed year still counts the pupils who finished it, but not one who left', async () => {
+  const response = await owner.fetch(
+    `/api/schools/${schoolA}/sections/strengths?academicYearId=${closedYear}`,
+  )
+  assert.equal(response.status, 200)
+  const counts = (await response.json()) as { sectionId: string; count: number }[]
+  assert.equal(counts.find((row) => row.sectionId === closedSection)?.count, 1)
+})
+
+test('every member can ask which academic year the school is in now', async () => {
+  const pointer = await adminPool().query<{ id: string | null }>(
+    'SELECT current_academic_year_id AS id FROM schools WHERE id = $1',
+    [schoolA],
+  )
+  const expected = pointer.rows[0]?.id ?? null
+
+  for (const client of [teacher, parent]) {
+    const response = await client.fetch(`/api/schools/${schoolA}/academic-years/current`)
+    assert.equal(response.status, 200)
+    const year = (await response.json()) as YearItem | null
+    assert.notEqual(year, null)
+    if (expected) assert.equal(year?.id, expected)
+  }
+
+  // The year list is a setup read and stays behind academic_years.read.
+  const listed = await teacher.fetch(`/api/schools/${schoolA}/academic-years`)
+  assert.equal(listed.status, 403)
+  assert.equal(((await listed.json()) as ErrorBody).error.code, 'ACCESS_DENIED')
+
+  // No session and no membership are both still refused.
+  const anonymous = await fetch(`${server.origin}/api/schools/${schoolA}/academic-years/current`)
+  assert.equal(anonymous.status, 401)
+  const outsider = await teacher.fetch(`/api/schools/${schoolB}/academic-years/current`)
+  assert.equal(outsider.status, 403)
+  assert.equal(((await outsider.json()) as ErrorBody).error.code, 'SCHOOL_ACCESS_UNAVAILABLE')
 })
 
 test('exactly one academic year is current', async () => {

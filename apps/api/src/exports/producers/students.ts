@@ -65,8 +65,9 @@ async function produce(
               FROM enrollments
              WHERE enrollments.school_id = students.school_id
                AND enrollments.student_id = students.id
-               AND enrollments.left_on IS NULL AND (${enrollments})
-             ORDER BY enrollments.joined_on DESC, enrollments.id
+               AND (${enrollments})
+             -- Same choice as the roster: the open enrolment, else the last one.
+             ORDER BY (enrollments.left_on IS NULL) DESC, enrollments.joined_on DESC, enrollments.id
              LIMIT 1
           ) current_enrollment ON TRUE
           LEFT JOIN sections sec ON sec.school_id = students.school_id

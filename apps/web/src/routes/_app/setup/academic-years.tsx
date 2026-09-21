@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef, RowSelectionState } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
 import { CalendarDays, Info, MoreHorizontal, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EntityCell } from '@/components/shared/data-table'
@@ -29,7 +29,6 @@ function Page() {
   const queryClient = useQueryClient()
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editing, setEditing] = useState<AcademicYearRecord | undefined>()
-  const [selection, setSelection] = useState<RowSelectionState>({})
 
   const { data: years = [], isLoading, error } = useQuery({
     queryKey: qk.academicYears(schoolId),
@@ -100,9 +99,6 @@ function Page() {
           columns={columns}
           data={years}
           isLoading={isLoading}
-          selectable
-          rowSelection={selection}
-          onRowSelectionChange={setSelection}
           getRowId={(r) => r.id}
           emptyState={<EmptyState icon={<CalendarDays />} title="No academic years yet" description="Add a year like 2027-28 to start enrolling students." />}
           footer={<span>{years.length} {years.length === 1 ? 'year' : 'years'} in view</span>}

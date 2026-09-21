@@ -339,8 +339,12 @@ describe('Bulk export bar', () => {
     const user = userEvent.setup()
     const { StudentBulkBar } = await import('@/components/students/student-bulk-bar')
 
-    const withoutPermission = renderWithSession(<StudentBulkBar ids={['student-1']} onClear={() => {}} />, { capabilities: ['students.read_basic'] })
-    expect(screen.queryByRole('button', { name: /export to excel/i })).not.toBeInTheDocument()
+    // The roster offers no checkboxes at all without the export key, so there is nothing to select.
+    const { Route } = await import('@/routes/_app/students/index')
+    const Roster = componentOf(Route)
+    const withoutPermission = renderWithSession(<Roster />, { capabilities: ['students.read_basic'] })
+    expect(await screen.findByText('Aarav Sharma')).toBeInTheDocument()
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
     withoutPermission.unmount()
 
     renderWithSession(<StudentBulkBar ids={['student-1']} onClear={() => {}} />, { capabilities: ['students.read_basic', 'students.export'] })

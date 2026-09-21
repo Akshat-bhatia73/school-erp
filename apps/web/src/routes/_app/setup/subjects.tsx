@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef, RowSelectionState } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
 import { BookOpen, MoreHorizontal, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EntityCell } from '@/components/shared/data-table'
@@ -40,7 +40,6 @@ function Page() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editing, setEditing] = useState<SubjectRecord | undefined>()
   const [pending, setPending] = useState<SubjectRecord | null>(null)
-  const [selection, setSelection] = useState<RowSelectionState>({})
 
   const { data: subjects = [], isLoading, error } = useQuery({
     queryKey: qk.subjects(schoolId),
@@ -126,9 +125,6 @@ function Page() {
               columns={columns}
               data={subjects}
               isLoading={isLoading}
-              selectable
-              rowSelection={selection}
-              onRowSelectionChange={setSelection}
               getRowId={(r) => r.id}
               emptyState={<EmptyState icon={<BookOpen />} title="No subjects yet" description="Add subjects like Mathematics or Hindi, then map them to classes." />}
               footer={<span>{subjects.length} {subjects.length === 1 ? 'subject' : 'subjects'} in view</span>}

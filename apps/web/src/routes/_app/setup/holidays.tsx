@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef, RowSelectionState } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
 import { MoreHorizontal, PartyPopper, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { DataTable, EntityCell } from '@/components/shared/data-table'
@@ -11,7 +11,7 @@ import { Tag, type TagColor } from '@/components/shared/tag'
 import { SetupTabs } from '@/components/setup/setup-tabs'
 import { HolidaySheet, HOLIDAY_TYPES } from '@/components/setup/holiday-sheet'
 import { MonthStrip } from '@/components/setup/month-strip'
-import { holidayDays, holidayRange, monthCounts } from '@/components/setup/holiday-utils'
+import { currentStartYear, holidayDays, holidayRange, monthCounts, parseDate } from '@/components/setup/holiday-utils'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -34,16 +34,17 @@ function Page() {
   const { schoolId, hasPermission } = useSchoolContext()
   const canManage = hasPermission('holidays.manage')
   const queryClient = useQueryClient()
-  const { years, currentYearId, isLoading: yearLoading } = useAcademicYear()
+  const { years, current, currentYearId, isLoading: yearLoading } = useAcademicYear()
   const [pickedYearId, setPickedYearId] = useState<string | undefined>()
   const [type, setType] = useState<HolidayRecord['type'] | undefined>()
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editing, setEditing] = useState<HolidayRecord | undefined>()
   const [pending, setPending] = useState<HolidayRecord | null>(null)
-  const [selection, setSelection] = useState<RowSelectionState>({})
 
   const activeYearId = pickedYearId ?? currentYearId ?? ''
-  const activeYear = years.find((year) => year.id === activeYearId)
+  // The year chip only exists for somebody who reads the year list; everybody else gets the current
+  // year the server named.
+  const activeYear = years.find((year) => year.id === activeYearId) ?? (activeYearId === current?.id ? current : undefined)
   // The year filter is optional on the server, so somebody who cannot read years (a teacher or a
   // parent) still gets the whole school's holidays rather than a blank screen.
   const params = activeYearId ? { academicYearId: activeYearId } : {}
@@ -57,7 +58,7 @@ function Page() {
   // The list endpoint filters by year only, so the type chip narrows the year already loaded.
   const rows = useMemo(() => (type ? holidays.filter((holiday) => holiday.type === type) : holidays), [holidays, type])
   const months = useMemo(
-    () => monthCounts(rows, activeYear ? new Date(activeYear.startDate).getFullYear() : new Date().getFullYear()),
+    () => monthCounts(rows, activeYear ? parseDate(activeYear.startDate).getFullYear() : currentStartYear()),
     [rows, activeYear],
   )
   const totalDays = rows.reduce((sum, holiday) => sum + holidayDays(holiday), 0)
@@ -129,12 +130,9 @@ function Page() {
             columns={columns}
             data={rows}
             isLoading={isLoading || yearLoading}
-            selectable
-            rowSelection={selection}
-            onRowSelectionChange={setSelection}
             getRowId={(r) => r.id}
             emptyState={<EmptyState icon={<PartyPopper />} title="No holidays yet" description="Add festivals, national holidays and vacations for this year." />}
-            footer={<span>{rows.length} {rows.length === 1 ? 'holiday' : 'holidays'} · {totalDays} days off{type ? ' on this page' : ''}</span>}
+            footer={<span>{rows.length} {rows.length === 1 ? 'holiday' : 'holidays'} · {totalDays} days off{type ? ` · ${humanize(type)} only` : ''}</span>}
           />
         </>
       )}

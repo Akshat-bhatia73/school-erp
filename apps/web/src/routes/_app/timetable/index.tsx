@@ -55,28 +55,38 @@ export function Page() {
     enabled: canReadGrades,
   })
   const gradeId = search.gradeId
-  const sectionParams = useMemo(
-    () => ({ academicYearId: yearId, ...(gradeId ? { gradeId } : {}) }),
-    [yearId, gradeId],
-  )
-  // The server filters by class, so ask it for this class's sections only.
-  const { data: sections = [] } = useQuery({
+  // The year's visible sections, asked for once without a class filter: both chips are derived from
+  // them, so a class with nothing visible this year never shows up.
+  const sectionParams = useMemo(() => ({ academicYearId: yearId }), [yearId])
+  const { data: allSections = [] } = useQuery({
     queryKey: qk.sections(schoolId, sectionParams),
     queryFn: () => api.setup.sections(schoolId, sectionParams),
     enabled: !!yearId && hasPermission('sections.read'),
   })
-  const allSections = sections
+  const sections = useMemo(
+    () => (gradeId ? allSections.filter((s) => s.gradeId === gradeId) : allSections),
+    [allSections, gradeId],
+  )
+  const gradeOptions = useMemo(() => {
+    const visible = new Set(allSections.map((s) => s.gradeId))
+    return grades.filter((g) => visible.has(g.id))
+  }, [grades, allSections])
   const sectionId = search.sectionId
 
-  // Default to the first section the server let this person see.
+  // Default to the first section the server let this person see. A section id in the URL that is
+  // not among them (a stale link, or last year's class) is replaced rather than queried.
   useEffect(() => {
-    if (allSections.length === 0 || sectionId) return
-    const first = gradeId ? allSections.find((s) => s.gradeId === gradeId) : allSections[0]
+    if (allSections.length === 0) return
+    if (sectionId && allSections.some((s) => s.id === sectionId)) return
+    const first = (gradeId ? allSections.find((s) => s.gradeId === gradeId) : undefined) ?? allSections[0]
     if (!first) return
-    void navigate({ search: { gradeId: gradeId ?? first.gradeId, sectionId: first.id }, replace: true })
+    void navigate({ search: { gradeId: first.gradeId, sectionId: first.id }, replace: true })
   }, [allSections, gradeId, sectionId, navigate])
 
-  const section = allSections.find((s) => s.id === sectionId)
+  // Until the replacement lands in the URL, an unknown id counts as nothing picked.
+  const sectionKnown = allSections.length === 0 || allSections.some((s) => s.id === sectionId)
+  const shownSectionId = sectionKnown ? sectionId : undefined
+  const section = allSections.find((s) => s.id === shownSectionId)
   const grade = grades.find((g) => g.id === (section?.gradeId ?? gradeId))
   const sectionLabel = section ? (grade ? `${grade.name} - ${section.name}` : section.name) : '—'
   const bellGradeId = section?.gradeId ?? gradeId
@@ -90,9 +100,9 @@ export function Page() {
   const bellMissing = isApiError(bellQuery.error, 'RESOURCE_NOT_FOUND')
 
   const gridQuery = useQuery({
-    queryKey: qk.timetableSection(schoolId, sectionId ?? '', { academicYearId: yearId }),
-    queryFn: () => api.timetable.forSection(schoolId, sectionId!, { academicYearId: yearId }),
-    enabled: !!sectionId && !!yearId,
+    queryKey: qk.timetableSection(schoolId, shownSectionId ?? '', { academicYearId: yearId }),
+    queryFn: () => api.timetable.forSection(schoolId, shownSectionId!, { academicYearId: yearId }),
+    enabled: !!shownSectionId && !!yearId,
   })
   const cells = useMemo(() => gridQuery.data?.cells ?? [], [gridQuery.data])
   const allowedActions = gridQuery.data?.allowedActions
@@ -115,8 +125,8 @@ export function Page() {
   const subjects = useMemo(() => gradeSubjects.map((g) => g.subject), [gradeSubjects])
 
   const myConflicts = useMemo(
-    () => conflicts.filter((c) => c.section.id === sectionId),
-    [conflicts, sectionId],
+    () => conflicts.filter((c) => c.section.id === shownSectionId),
+    [conflicts, shownSectionId],
   )
 
   const stats = useMemo(() => {
@@ -147,7 +157,7 @@ export function Page() {
   }, [cells])
 
   const generate = useMutation({
-    mutationFn: () => api.timetable.generate(schoolId, sectionId!, { academicYearId: yearId, reason: 'Generated from teaching assignments' }),
+    mutationFn: () => api.timetable.generate(schoolId, shownSectionId!, { academicYearId: yearId, reason: 'Generated from teaching assignments' }),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: [schoolId, 'timetable'] })
       toast.success(`Placed ${result.placed} periods${result.unplaced > 0 ? ` · ${result.unplaced} could not be placed` : ''}`)
@@ -189,8 +199,8 @@ export function Page() {
             {canGenerate && (
               <ToolbarButton icon={<Wand2 />} onClick={() => setConfirmGenerate(true)}>Generate from assignments</ToolbarButton>
             )}
-            {sectionId && yearId && (
-              <TimetableExportMenu academicYearId={yearId} view={{ kind: 'section', sectionId }} />
+            {shownSectionId && yearId && (
+              <TimetableExportMenu academicYearId={yearId} view={{ kind: 'section', sectionId: shownSectionId }} />
             )}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -203,12 +213,12 @@ export function Page() {
           </>
         }
       >
-        {canReadGrades && (
+        {canReadGrades && gradeOptions.length > 0 && (
           <FilterChip
             label="Class"
             value={gradeId}
             clearable={false}
-            options={grades.map((g) => ({ value: g.id, label: g.name }))}
+            options={gradeOptions.map((g) => ({ value: g.id, label: g.name }))}
             onChange={(v) => {
               const first = allSections.find((s) => s.gradeId === v)
               void navigate({ search: { gradeId: v, sectionId: first?.id }, replace: true })
@@ -218,7 +228,7 @@ export function Page() {
         )}
         <FilterChip
           label="Section"
-          value={sectionId}
+          value={shownSectionId}
           clearable={false}
           options={sections.map((s) => ({ value: s.id, label: s.name }))}
           onChange={(v) => void navigate({ search: (old) => ({ ...old, sectionId: v }), replace: true })}
@@ -255,11 +265,11 @@ export function Page() {
           )}
         </div>
 
-        {yearLoading || (!!sectionId && (bellQuery.isLoading || gridQuery.isLoading)) ? (
+        {yearLoading || (!!shownSectionId && (bellQuery.isLoading || gridQuery.isLoading)) ? (
           <div className="grid gap-2 p-4">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
         ) : !yearId ? (
           <NoAcademicYearState />
-        ) : !sectionId ? (
+        ) : !shownSectionId ? (
           <EmptyState icon={<CalendarDays />} title="Pick a class" description="Choose a class and section above to see its week." />
         ) : gridRefused ? (
           <EmptyState icon={<CalendarDays />} title={describeError(gridQuery.error)} />
@@ -336,7 +346,7 @@ export function Page() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => generate.mutate()} disabled={!sectionId || generate.isPending}>Generate</AlertDialogAction>
+            <AlertDialogAction onClick={() => generate.mutate()} disabled={!shownSectionId || generate.isPending}>Generate</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -345,7 +355,7 @@ export function Page() {
         <SetPeriodDialog
           target={target}
           onClose={() => setTarget(null)}
-          sectionId={sectionId ?? ''}
+          sectionId={shownSectionId ?? ''}
           sectionLabel={sectionLabel}
           subjects={subjects}
           academicYearId={yearId}

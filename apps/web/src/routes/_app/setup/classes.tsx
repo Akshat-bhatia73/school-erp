@@ -75,7 +75,18 @@ function Page() {
     enabled: canReadDirectory,
   })
 
-  useEffect(() => { if (!gradeId && grades.length) setGradeId(grades[0]!.id) }, [grades, gradeId])
+  // Somebody who cannot add sections has no use for a class with nothing visible in the chosen year
+  // (a teacher's class list still carries last year's classes), so only classes with a section show.
+  const visibleGrades = useMemo(() => {
+    if (canManageGrades) return grades
+    const withSections = new Set(allSections.map((section) => section.gradeId))
+    return grades.filter((g) => withSections.has(g.id))
+  }, [canManageGrades, grades, allSections])
+
+  useEffect(() => {
+    if (visibleGrades.some((g) => g.id === gradeId)) return
+    setGradeId(visibleGrades[0]?.id ?? '')
+  }, [visibleGrades, gradeId])
 
   const strengths = useMemo(() => new Map(strengthRows.map((row) => [row.sectionId, row.count])), [strengthRows])
   const staffById = useMemo(() => new Map((staffPage?.items ?? []).map((person) => [person.id, person])), [staffPage])
@@ -165,9 +176,9 @@ function Page() {
 
   const gradeList = (onPick?: () => void) => gradesLoading || yearLoading
     ? <div className="grid gap-2 px-3">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-9 rounded-lg" />)}</div>
-    : grades.length === 0
+    : visibleGrades.length === 0
     ? <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">No classes yet.</p>
-    : grades.map((g) => (
+    : visibleGrades.map((g) => (
         <button
           key={g.id}
           type="button"

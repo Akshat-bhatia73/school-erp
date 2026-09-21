@@ -51,7 +51,7 @@ const timetable = {
   export: vi.fn(),
 }
 const setup = { academicYears: vi.fn(), grades: vi.fn(), sections: vi.fn(), gradeSubjects: vi.fn() }
-const staff = { search: vi.fn() }
+const staff = { search: vi.fn(), list: vi.fn() }
 const files = { exportJob: vi.fn(), downloadExportFile: vi.fn() }
 
 vi.mock('@/lib/api', () => ({ api: { timetable, setup, staff, files } }))
@@ -233,12 +233,17 @@ describe('Bell schedule', () => {
 })
 
 describe('Teacher loads', () => {
-  it('refuses in one sentence without the teacher loads permission', async () => {
+  it('shows the person their own week without the teacher loads permission', async () => {
+    searchParams = {}
+    staff.list.mockResolvedValue({ items: [{ id: 'staff-1', displayName: 'Meera Joshi' }], page: 1, pageSize: 25, total: 1 })
+    timetable.bellSchedules.mockResolvedValue([BELL])
+    timetable.forStaff.mockResolvedValue({ cells: [], allowedActions: [] })
     const { Page } = await import('@/routes/_app/timetable/teachers')
-    renderWithSession(<Page />, { capabilities: ['timetable.read'] })
+    renderWithSession(<Page />, { capabilities: ['timetable.read', 'staff.read_directory', 'academic_years.read'] })
 
-    expect(await screen.findByText('You can only see your own week, which is on your dashboard.')).toBeInTheDocument()
+    expect(await screen.findByText('Meera Joshi')).toBeInTheDocument()
     expect(timetable.teacherLoads).not.toHaveBeenCalled()
+    await waitFor(() => expect(timetable.forStaff).toHaveBeenCalledWith(SCHOOL_ID, 'staff-1', { academicYearId: YEAR.id }))
   })
 
   it('keeps a cell whose period only one of the schedules declares', async () => {
