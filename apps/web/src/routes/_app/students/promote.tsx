@@ -34,8 +34,26 @@ const PROMOTE_LABELS: FieldLabels = {
 
 export const Route = createFileRoute('/_app/students/promote')({ component: Page })
 
+/** A run failed after earlier runs had already moved people, so the count is worth saying. */
+class PartialPromotion extends Error {
+  readonly promoted: number
+  readonly detained: number
+  readonly cause: unknown
+
+  constructor(promoted: number, detained: number, cause: unknown) {
+    super('Some students were moved before this stopped')
+    this.name = 'PartialPromotion'
+    this.promoted = promoted
+    this.detained = detained
+    this.cause = cause
+  }
+}
+
 /** 'leave' means the student is not sent at all, so nothing about them changes. */
 type Decision = 'promote' | 'detain' | 'leave'
+
+/** The preview is read a page at a time and a promotion is sent in runs of the same size. */
+const PAGE_SIZE = 100
 
 const DECISION_OPTIONS: Array<{ value: Decision; label: string }> = [
   { value: 'promote', label: 'Promote' },
@@ -78,9 +96,19 @@ function Page() {
   }
   const ready = Boolean(fromYearId && toYearId && fromSectionId && toSectionId)
 
+  // Every page of the cohort, so the table holds the whole section however big it is.
   const preview = useQuery({
     queryKey: qk.promotePreview(schoolId, previewParams),
-    queryFn: () => api.students.promotePreview(schoolId, previewParams),
+    queryFn: async () => {
+      const first = await api.students.promotePreview(schoolId, { ...previewParams, page: 1, pageSize: PAGE_SIZE })
+      const students = [...first.students]
+      for (let page = 2; students.length < first.total; page += 1) {
+        const next = await api.students.promotePreview(schoolId, { ...previewParams, page, pageSize: PAGE_SIZE })
+        if (next.students.length === 0) break
+        students.push(...next.students)
+      }
+      return { ...first, students }
+    },
     enabled: canPromote && ready,
   })
 
@@ -97,15 +125,39 @@ function Page() {
     setDecisions(Object.fromEntries(students.map((student) => [student.id, value])))
   }
 
+  // A request carries at most 100 ids on each side, so a big section goes in runs. A run that fails
+  // stops the rest: the runs before it are already done, and the preview reloads without them.
   const promote = useMutation({
-    mutationFn: (body: Parameters<typeof api.students.promote>[1]) => api.students.promote(schoolId, body),
+    mutationFn: async (runs: Array<Parameters<typeof api.students.promote>[1]>) => {
+      let promoted = 0
+      let detained = 0
+      for (const run of runs) {
+        try {
+          const outcome = await api.students.promote(schoolId, run)
+          promoted += outcome.promoted
+          detained += outcome.detained
+        } catch (failure) {
+          throw new PartialPromotion(promoted, detained, failure)
+        }
+      }
+      return { promoted, detained }
+    },
     onSuccess: (outcome) => {
       void queryClient.invalidateQueries({ queryKey: [schoolId, 'students'] })
       setResult(outcome)
       setDecisions({})
       toast.success('Students promoted')
     },
-    onError: (error) => toast.error(describeError(error)),
+    onError: (error) => {
+      void queryClient.invalidateQueries({ queryKey: [schoolId, 'students'] })
+      setDecisions({})
+      if (error instanceof PartialPromotion) {
+        setResult({ promoted: error.promoted, detained: error.detained })
+        toast.error(`${error.promoted + error.detained} students were moved, then this stopped: ${describeError(error.cause)}`)
+        return
+      }
+      toast.error(describeError(error))
+    },
   })
 
   const columns = useMemo<ColumnDef<StudentSummary, unknown>[]>(() => [
@@ -160,30 +212,30 @@ function Page() {
   const toLabel = preview.data?.targetSection.name ?? toSections.options.find((option) => option.value === toSectionId)?.label ?? '—'
 
   const confirm = () => {
-    // The request carries at most 100 ids on each side, but a section may hold more than that.
-    if (promoteIds.length > 100 || detainIds.length > 100) {
-      const message = 'This section has more than 100 students. Promoting a group this large is not built yet, so ask the school office.'
-      setReasonError(undefined)
-      toast.error(message)
-      return
-    }
-    const parsed = PromoteStudentsRequest.safeParse({
-      fromAcademicYearId: fromYearId,
-      toAcademicYearId: toYearId,
-      fromSectionId,
-      toSectionId,
-      studentIds: promoteIds,
-      detainedStudentIds: detainIds,
-      reason: reason.trim(),
-    })
-    if (!parsed.success) {
-      const errors = fieldErrors(parsed.error, PROMOTE_LABELS)
-      setReasonError(errors.reason)
-      toast.error(errors.reason ?? Object.values(errors)[0] ?? CHECK_FIELDS)
-      return
+    // Each run takes the next 100 of each list, so every run is a request the contract accepts.
+    // At least one run, so choosing nobody is still refused by the contract with its own sentence.
+    const runCount = Math.max(1, Math.ceil(promoteIds.length / PAGE_SIZE), Math.ceil(detainIds.length / PAGE_SIZE))
+    const runs: Array<Parameters<typeof api.students.promote>[1]> = []
+    for (let i = 0; i < runCount; i += 1) {
+      const parsed = PromoteStudentsRequest.safeParse({
+        fromAcademicYearId: fromYearId,
+        toAcademicYearId: toYearId,
+        fromSectionId,
+        toSectionId,
+        studentIds: promoteIds.slice(i * PAGE_SIZE, (i + 1) * PAGE_SIZE),
+        detainedStudentIds: detainIds.slice(i * PAGE_SIZE, (i + 1) * PAGE_SIZE),
+        reason: reason.trim(),
+      })
+      if (!parsed.success) {
+        const errors = fieldErrors(parsed.error, PROMOTE_LABELS)
+        setReasonError(errors.reason)
+        toast.error(errors.reason ?? Object.values(errors)[0] ?? CHECK_FIELDS)
+        return
+      }
+      runs.push(parsed.data)
     }
     setReasonError(undefined)
-    promote.mutate(parsed.data)
+    promote.mutate(runs)
   }
 
   return (

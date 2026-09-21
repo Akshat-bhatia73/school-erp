@@ -49,5 +49,9 @@ export const StudentsPromotePreviewQuery = z.strictObject({
   toAcademicYearId: Id,
   fromSectionId: Id,
   toSectionId: Id,
+  // The cohort is read a page at a time, so a section of any size can be
+  // promoted: the screen reads every page and sends runs of at most 100.
+  page: z.number().int().min(1).max(100_000).default(1),
+  pageSize: z.number().int().min(1).max(100).default(100),
 })
 export type StudentsPromotePreviewQuery = z.infer<typeof StudentsPromotePreviewQuery>

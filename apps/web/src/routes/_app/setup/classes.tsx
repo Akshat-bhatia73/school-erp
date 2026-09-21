@@ -21,16 +21,14 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
 import type { GradeRecord, SectionRecord } from '@/lib/api/setup'
-import { describeError, isApiError } from '@/lib/api-errors'
+import { describeError } from '@/lib/api-errors'
 import { qk } from '@/lib/query'
+import { allows } from '@/lib/permissions'
 import { useSchoolContext } from '@/lib/session'
 import { useAcademicYear } from '@/lib/use-academic-year'
 import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/_app/setup/classes')({ component: Page })
-
-/** A delete the server refused because something still points at the record. */
-const STILL_IN_USE = 'This still has students or a timetable. Move them first.'
 
 type Pending = { kind: 'grade'; record: GradeRecord } | { kind: 'section'; record: SectionRecord }
 
@@ -39,7 +37,6 @@ function Page() {
   const canManageGrades = hasPermission('grades.manage')
   const canManageSections = hasPermission('sections.manage')
   const canReadStrengths = hasPermission('sections.read_strengths')
-  const canReadDirectory = hasPermission('staff.read_directory')
   const queryClient = useQueryClient()
 
   const { years, currentYearId, isLoading: yearLoading } = useAcademicYear()
@@ -68,12 +65,6 @@ function Page() {
     queryFn: () => api.setup.sectionStrengths(schoolId, { academicYearId: yearId }),
     enabled: !!yearId && canReadStrengths,
   })
-  const staffParams = { page: 1, pageSize: 100 as const, sort: 'name' as const }
-  const { data: staffPage } = useQuery({
-    queryKey: qk.staff(schoolId, staffParams),
-    queryFn: () => api.staff.list(schoolId, staffParams),
-    enabled: canReadDirectory,
-  })
 
   // Somebody who cannot add sections has no use for a class with nothing visible in the chosen year
   // (a teacher's class list still carries last year's classes), so only classes with a section show.
@@ -89,7 +80,6 @@ function Page() {
   }, [visibleGrades, gradeId])
 
   const strengths = useMemo(() => new Map(strengthRows.map((row) => [row.sectionId, row.count])), [strengthRows])
-  const staffById = useMemo(() => new Map((staffPage?.items ?? []).map((person) => [person.id, person])), [staffPage])
   const studentsByGrade = useMemo(() => {
     const out: Record<string, number> = {}
     for (const section of allSections) out[section.gradeId] = (out[section.gradeId] ?? 0) + (strengths.get(section.id) ?? 0)
@@ -110,7 +100,7 @@ function Page() {
       if (target.kind === 'grade' && target.record.id === gradeId) setGradeId('')
       setPending(null)
     },
-    onError: (failure) => toast.error(isApiError(failure, 'INVALID_REQUEST') ? STILL_IN_USE : describeError(failure)),
+    onError: (failure) => toast.error(describeError(failure)),
   })
 
   const columns = useMemo<ColumnDef<SectionRecord, unknown>[]>(() => [
@@ -126,11 +116,11 @@ function Page() {
     {
       id: 'teacher', header: 'Class teacher', accessorFn: (r) => r.classTeacherId ?? '',
       cell: ({ row }) => {
-        const teacher = row.original.classTeacherId ? staffById.get(row.original.classTeacherId) : undefined
-        if (teacher) return <span className="flex items-center gap-2"><UserAvatar name={teacher.displayName} size="sm" />{teacher.displayName}</span>
-        // The staff page the names come from is bounded, so a teacher outside it has no name here.
+        const teacher = row.original.classTeacher
+        if (teacher) return <span className="flex items-center gap-2"><UserAvatar name={teacher.name} size="sm" />{teacher.name}</span>
+        // A teacher this person may not read comes back as an id with no name.
         if (row.original.classTeacherId) return <span className="text-muted-foreground">Assigned</span>
-        return canManageSections ? (
+        return allows(row.original.allowedActions, 'sections.manage') ? (
           <button
             type="button"
             onClick={() => { setEditingSection(row.original); setSectionSheet(true) }}
@@ -160,7 +150,7 @@ function Page() {
     { id: 'room', header: 'Room', size: 120, accessorFn: (r) => r.roomNumber ?? '', cell: ({ row }) => <span className="text-muted-foreground">{row.original.roomNumber || '—'}</span> },
     {
       id: 'actions', header: '', size: 60, enableSorting: false,
-      cell: ({ row }) => canManageSections ? (
+      cell: ({ row }) => allows(row.original.allowedActions, 'sections.manage') ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label={`Actions for section ${row.original.name}`} onClick={(e) => e.stopPropagation()}><MoreHorizontal /></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -170,7 +160,7 @@ function Page() {
         </DropdownMenu>
       ) : null,
     },
-  ], [canManageSections, canReadStrengths, grade, staffById, strengths])
+  ], [canReadStrengths, grade, strengths])
 
   const totalStudents = sections.reduce((sum, section) => sum + (strengths.get(section.id) ?? 0), 0)
 
@@ -234,7 +224,7 @@ function Page() {
                 {activeYear ? <span className="ml-2 text-[12.5px] font-normal text-muted-foreground">{activeYear.name}</span> : null}
               </h2>
               <div className="flex items-center gap-2">
-                {canManageGrades && grade && (
+                {grade && allows(grade.allowedActions, 'grades.manage') && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label={`Actions for ${grade.name}`}><MoreHorizontal /></Button></DropdownMenuTrigger>
                     <DropdownMenuContent align="end">

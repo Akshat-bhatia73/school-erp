@@ -222,6 +222,7 @@ export function toGuardianPrivate(row: GuardianRow): Private | undefined {
     id: row.id,
     displayName: displayName(row),
     phone,
+    version: Number(row.version),
     ...(occupation === undefined ? {} : { occupation }),
     ...(income === undefined || Number.isNaN(income) || income < 0 ? {} : { annualIncome: income }),
     ...(address === undefined ? {} : { address }),
@@ -241,6 +242,7 @@ export function toSubjectGuardian(row: GuardianRow, full: boolean): SubjectGuard
   const named = {
     id: row.id,
     displayName: displayName(row),
+    version: Number(row.version),
     relation: oneOf(RELATIONS, row.relation) ?? 'other',
     ...(phone === undefined ? {} : { phone }),
   }

@@ -61,18 +61,120 @@ export async function loadMemberRow(
   return member.roleKeys.length === 0 ? null : member
 }
 
-export async function loadMemberRows(
+/** The filters the directory page and its total both apply. */
+export interface MemberFilters {
+  readonly search?: string
+  readonly role?: string
+  readonly status?: 'active' | 'suspended' | 'removed'
+  readonly staffId?: string
+}
+
+/** A search term as a LIKE pattern, with the wildcards taken literally. */
+function likePattern(search: string): string {
+  return `%${search.replace(/[\\%_]/g, (match) => `\\${match}`)}%`
+}
+
+/**
+ * The logins of this school whose own name matches, for the people the school
+ * knows by no other name. auth_user is readable by the auth credential alone,
+ * so the candidate ids are worked out here and only the matching ones come
+ * back.
+ */
+async function userIdsMatching(
   conn: AuthzConnection,
+  authPool: Pool,
   schoolId: string,
-  page: { page: number; pageSize: number },
-): Promise<{ rows: MemberRow[]; total: number }> {
-  const total = await conn.client.query<{ total: string }>(
-    `SELECT count(*)::text AS total FROM school_memberships WHERE school_id = $1`,
+  search: string,
+): Promise<string[]> {
+  const candidates = await conn.client.query<{ user_id: string }>(
+    `SELECT DISTINCT sm.user_id
+       FROM school_memberships sm
+      WHERE sm.school_id = $1
+        AND NOT EXISTS (SELECT 1 FROM membership_staff_links msl
+                         WHERE msl.school_id = sm.school_id AND msl.membership_id = sm.id)
+        AND NOT EXISTS (SELECT 1 FROM membership_guardian_links mgl
+                         WHERE mgl.school_id = sm.school_id AND mgl.membership_id = sm.id)`,
     [schoolId],
   )
+  if (candidates.rows.length === 0) return []
+  const matched = await authPool.query<{ id: string }>(
+    `SELECT id FROM auth_user WHERE id = ANY($1::uuid[]) AND name ILIKE $2`,
+    [candidates.rows.map((row) => row.user_id), likePattern(search)],
+  )
+  return matched.rows.map((row) => row.id)
+}
+
+/**
+ * One WHERE clause for the page and the total, so the count always describes
+ * the rows listed. A membership with no role grants nothing and is never a
+ * member, so it is dropped by the query rather than after paging.
+ */
+async function memberWhere(
+  conn: AuthzConnection,
+  authPool: Pool,
+  schoolId: string,
+  filters: MemberFilters,
+): Promise<{ sql: string; params: unknown[] }> {
+  const params: unknown[] = [schoolId]
+  const clauses = [
+    `EXISTS (SELECT 1 FROM membership_roles mr
+              WHERE mr.school_id = sm.school_id AND mr.membership_id = sm.id)`,
+  ]
+  const bind = (value: unknown): string => {
+    params.push(value)
+    return `$${params.length}`
+  }
+  if (filters.status !== undefined) clauses.push(`sm.status = ${bind(filters.status)}`)
+  if (filters.role !== undefined) {
+    clauses.push(`EXISTS (SELECT 1 FROM membership_roles mr
+                            JOIN roles r ON r.school_id = mr.school_id AND r.id = mr.role_id
+                           WHERE mr.school_id = sm.school_id AND mr.membership_id = sm.id
+                             AND r.key = ${bind(filters.role)})`)
+  }
+  if (filters.staffId !== undefined) clauses.push(`msl.staff_id = ${bind(filters.staffId)}::uuid`)
+  if (filters.search !== undefined) {
+    // The same precedence the directory shows: the staff name, else the
+    // guardian name, else the name on the login. A teacher who is also a
+    // parent is listed under the staff name, so only that name finds them.
+    const pattern = bind(likePattern(filters.search))
+    const userIds = bind(await userIdsMatching(conn, authPool, schoolId, filters.search))
+    clauses.push(`(EXISTS (SELECT 1 FROM membership_staff_links msl2
+                             JOIN staff s ON s.school_id = msl2.school_id AND s.id = msl2.staff_id
+                            WHERE msl2.school_id = sm.school_id AND msl2.membership_id = sm.id
+                              AND (s.first_name || ' ' || coalesce(s.last_name, '')) ILIKE ${pattern} ESCAPE '\\')
+                   OR EXISTS (SELECT 1 FROM membership_guardian_links mgl
+                                JOIN guardians g ON g.school_id = mgl.school_id AND g.id = mgl.guardian_id
+                               WHERE mgl.school_id = sm.school_id AND mgl.membership_id = sm.id
+                                 AND msl.staff_id IS NULL
+                                 AND (g.first_name || ' ' || coalesce(g.last_name, '')) ILIKE ${pattern} ESCAPE '\\')
+                   OR sm.user_id = ANY(${userIds}::uuid[]))`)
+  }
+  return { sql: clauses.map((clause) => `AND ${clause}`).join('\n     '), params }
+}
+
+export async function loadMemberRows(
+  conn: AuthzConnection,
+  authPool: Pool,
+  schoolId: string,
+  page: { page: number; pageSize: number },
+  filters: MemberFilters,
+): Promise<{ rows: MemberRow[]; total: number }> {
+  const where = await memberWhere(conn, authPool, schoolId, filters)
+  const total = await conn.client.query<{ total: string }>(
+    `SELECT count(*)::text AS total
+       FROM school_memberships sm
+       LEFT JOIN membership_staff_links msl
+         ON msl.school_id = sm.school_id AND msl.membership_id = sm.id
+      WHERE sm.school_id = $1
+     ${where.sql}`,
+    where.params,
+  )
   const result = await conn.client.query<Row>(
-    `${SELECT_ROWS} ORDER BY sm.created_at, sm.id LIMIT $2 OFFSET $3`,
-    [schoolId, page.pageSize, (page.page - 1) * page.pageSize],
+    `${SELECT_ROWS}
+     ${where.sql}
+     ORDER BY sm.created_at, sm.id
+     LIMIT $${where.params.length + 1} OFFSET $${where.params.length + 2}`,
+    [...where.params, page.pageSize, (page.page - 1) * page.pageSize],
   )
   const rows: MemberRow[] = []
   for (const row of result.rows) {

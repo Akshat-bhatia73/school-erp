@@ -45,7 +45,8 @@ export const GuardianContact = z.strictObject({
   phone: Phone,
 })
 export const GuardianPrivate = z.strictObject({
-  id: Id, displayName: DisplayName, phone: Phone,
+  // The version an edit of this guardian sends back as expectedVersion.
+  id: Id, version: Version, displayName: DisplayName, phone: Phone,
   occupation: z.string().max(200).optional(),
   annualIncome: z.number().nonnegative().optional(),
   address: z.string().max(1000).optional(),
@@ -75,6 +76,8 @@ export const StaffEmployment = z.strictObject({
   employeeCode: z.string().max(100), joiningDate: CalendarDate,
   employmentType: z.enum(['permanent', 'contract', 'part_time', 'probation']),
   status: z.enum(['active', 'on_leave', 'resigned', 'retired']),
+  // Left out when no leaving date is recorded, so a form can tell "none" from "not sent".
+  leavingDate: CalendarDate.optional(),
 })
 export const StaffPrivate = z.strictObject({
   phone: Phone, address: z.string().max(1000).optional(),

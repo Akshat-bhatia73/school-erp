@@ -59,17 +59,21 @@ export async function bumpVersion(
     assignments.push(`${column} = $${values.length}`)
   }
   const extra = assignments.length > 0 ? `${assignments.join(', ')}, ` : ''
+  // The schools table is the tenant itself, so it has no school_id column: its
+  // own id is the school. Both parameters must then name the same row, which
+  // keeps a caller from bumping any school but the one it is working in.
+  const owner = table === 'schools' ? 'id = $1' : 'school_id = $1'
   const result = await conn.client.query<{ version: number }>(
     `UPDATE ${table}
         SET ${extra}version = version + 1, updated_at = now()
-      WHERE school_id = $1 AND id = $2 AND version = $3
+      WHERE ${owner} AND id = $2 AND version = $3
       RETURNING version`,
     values,
   )
   const row = result.rows[0]
   if (!row) {
     const exists = await conn.client.query<{ version: number }>(
-      `SELECT version FROM ${table} WHERE school_id = $1 AND id = $2`,
+      `SELECT version FROM ${table} WHERE ${owner} AND id = $2`,
       [input.schoolId, input.id],
     )
     if (exists.rows.length === 0) throw new ApiFailure('RESOURCE_NOT_FOUND')

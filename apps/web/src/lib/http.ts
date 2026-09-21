@@ -6,7 +6,7 @@
  * token, nothing about identity is ever stored in the browser, and same-origin is the CSRF
  * protection. Every failure arrives as the @erp/contracts ApiError envelope.
  */
-import { ApiError, type ErrorCode } from '@erp/contracts'
+import { ApiError, type ErrorCode, type ErrorReason } from '@erp/contracts'
 import type { ZodType } from 'zod'
 
 export type ApiErrorCode = ErrorCode | 'NETWORK_ERROR' | 'STALE_RESPONSE' | 'UNEXPECTED_RESPONSE'
@@ -16,14 +16,17 @@ export class ApiRequestError extends Error {
   readonly status: number
   readonly requestId?: string
   readonly retryAfterSeconds?: number
+  /** Why a refusal happened, when the server named one. Its message is then the one to show. */
+  readonly reason?: ErrorReason
 
-  constructor(init: { code: ApiErrorCode; status: number; message: string; requestId?: string; retryAfterSeconds?: number }) {
+  constructor(init: { code: ApiErrorCode; status: number; message: string; requestId?: string; retryAfterSeconds?: number; reason?: ErrorReason }) {
     super(init.message)
     this.name = 'ApiRequestError'
     this.code = init.code
     this.status = init.status
     this.requestId = init.requestId
     this.retryAfterSeconds = init.retryAfterSeconds
+    this.reason = init.reason
   }
 }
 
@@ -133,10 +136,10 @@ export async function request<T = undefined>(path: string, options: RequestOptio
     if (!envelope.success) {
       throw new ApiRequestError({ code: 'UNEXPECTED_RESPONSE', status: response.status, message: 'The server sent an answer we did not understand.' })
     }
-    const { code, message, requestId } = envelope.data.error
+    const { code, message, requestId, reason } = envelope.data.error
     const retryAfterSeconds = envelope.data.error.retryAfterSeconds ?? readRetryAfter(response)
     if (!options.expectAnonymous && (code === 'AUTHENTICATION_REQUIRED' || code === 'SESSION_EXPIRED')) emitSessionLost()
-    throw new ApiRequestError({ code, status: response.status, message, requestId, retryAfterSeconds })
+    throw new ApiRequestError({ code, status: response.status, message, requestId, retryAfterSeconds, reason })
   }
 
   if (payload === UNPARSABLE) {

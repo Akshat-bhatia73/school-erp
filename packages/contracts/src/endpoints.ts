@@ -3,7 +3,7 @@ import { Id, MemberParams, SchoolParams, pageOf } from './common.ts'
 import { MeResponse, SchoolContextResponse } from './identity.ts'
 import {
   AcceptInvitationRequest, ChangeRolesRequest, InvitationActionRequest, InvitationListRequest,
-  InvitationPage, InvitationSummary, InviteMemberRequest, MemberSummary, MembershipActionRequest, RestoreMembershipRequest, TransferOwnershipRequest,
+  InvitationPage, InvitationSummary, InviteMemberRequest, MemberListRequest, MemberSummary, MembershipActionRequest, RestoreMembershipRequest, TransferOwnershipRequest,
 } from './memberships.ts'
 import { PERMISSION_CATALOGUE, PermissionKey, ResourceType } from './permissions.ts'
 import {
@@ -41,7 +41,7 @@ export const AccessExplanationQuery = z.strictObject({
 export const ACCESS_ENDPOINTS = {
   me: { method: 'GET', path: '/api/me', auth: 'session', response: MeResponse, successStatus: 200 },
   context: { method: 'GET', path: '/api/schools/:schoolId/context', auth: 'membership', params: SchoolParams, response: SchoolContextResponse, successStatus: 200 },
-  members: { method: 'GET', path: '/api/schools/:schoolId/members', auth: 'membership', permission: 'members.read', params: SchoolParams, response: pageOf(MemberSummary), successStatus: 200 },
+  members: { method: 'GET', path: '/api/schools/:schoolId/members', auth: 'membership', permission: 'members.read', params: SchoolParams, query: MemberListRequest, response: pageOf(MemberSummary), successStatus: 200 },
   invite: { method: 'POST', path: '/api/schools/:schoolId/invitations', auth: 'membership', permission: 'members.invite', additionalPermissions: ['roles.assign'], params: SchoolParams, body: InviteMemberRequest, response: InvitationSummary, successStatus: 201 },
   invitations: { method: 'GET', path: '/api/schools/:schoolId/invitations', auth: 'membership', permission: 'members.invite', params: SchoolParams, query: InvitationListRequest, response: InvitationPage, successStatus: 200 },
   acceptInvite: { method: 'POST', path: '/api/invitations/accept', auth: 'verified_invitee', body: AcceptInvitationRequest, response: MemberSummary, successStatus: 200 },

@@ -13,6 +13,7 @@ import { api } from '@/lib/api'
 import type { SchoolProfile, UpdateSchoolInput } from '@/lib/api/setup'
 import { describeError } from '@/lib/api-errors'
 import { qk } from '@/lib/query'
+import { allows } from '@/lib/permissions'
 import { useSchoolContext } from '@/lib/session'
 
 const BOARD_LABEL: Record<string, string> = { cbse: 'CBSE', icse: 'ICSE', state: 'State board', ib: 'IB', other: 'Other' }
@@ -55,14 +56,15 @@ function toForm(school: SchoolProfile): Form {
 
 /** School profile form. The route renders its own save button through the returned controller. */
 export function useSchoolProfile() {
-  const { schoolId, hasPermission } = useSchoolContext()
+  const { schoolId } = useSchoolContext()
   const queryClient = useQueryClient()
-  const canEdit = hasPermission('school.update')
 
   const { data, isLoading, error } = useQuery({
     queryKey: qk.school(schoolId),
     queryFn: () => api.setup.school(schoolId),
   })
+  // The school record itself says whether this person may change it.
+  const canEdit = !!data && allows(data.allowedActions, 'school.update')
   const [form, setForm] = useState<Form | null>(null)
   const [errors, setErrors] = useState<FieldErrors>({})
 

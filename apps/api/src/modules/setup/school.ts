@@ -1,20 +1,25 @@
 import type { FastifyInstance } from 'fastify'
 import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { SetupSchoolProfile, UpdateSchoolRequest } from '@erp/contracts'
+import { SetupSchoolProfile, UpdateSchoolRequest, type PermissionKey } from '@erp/contracts'
 import { schools } from '@erp/db/schema'
 import { withTenantTransaction } from '@erp/db'
 import { protectedRoute, type ModuleDependencies } from '../shared/route.ts'
-import { authorizeSchoolAction } from '../shared/authorize.ts'
+import { allowedActionsFor, authorizeSchoolAction } from '../shared/authorize.ts'
 import { lockSchool, writeAudit } from '../shared/audit.ts'
-import { assertVersion } from '../shared/version.ts'
-import { ApiFailure, requireFound } from '../shared/errors.ts'
-import { optional, touchVersion, TOUCH_VERSION_SQL } from './common.ts'
+import { bumpVersion } from '../shared/version.ts'
+import { requireFound } from '../shared/errors.ts'
+import { optional } from './common.ts'
 
 type Profile = z.infer<typeof SetupSchoolProfile>
 
-/** The address is stored as a small object so it can grow later. */
-const ADDRESS_LINE = sql<string | null>`${schools.address}->>'line'`
+/**
+ * The address is stored as a small object so it can grow later. An older row
+ * may hold a plain string instead; it reads as that text, so opening the
+ * profile and saving it does not wipe the address.
+ */
+const ADDRESS_LINE = sql<string | null>`CASE WHEN jsonb_typeof(${schools.address}) = 'string'
+  THEN ${schools.address} #>> '{}' ELSE ${schools.address}->>'line' END`
 
 interface SchoolRow {
   readonly id: string
@@ -26,8 +31,21 @@ interface SchoolRow {
   readonly email: string | null
   readonly affiliationNumber: string | null
   readonly udiseCode: string | null
-  /** Microseconds of the last save, standing in for the missing version column. */
-  readonly touched: string
+  readonly version: number
+}
+
+/** The profile as the contract wants it, read the same way before and after a save. */
+const columns = {
+  id: schools.id,
+  name: schools.name,
+  shortName: schools.shortName,
+  board: schools.board,
+  address: ADDRESS_LINE,
+  phone: schools.phone,
+  email: schools.email,
+  affiliationNumber: schools.affiliationNumber,
+  udiseCode: schools.udiseCode,
+  version: schools.version,
 }
 
 const BOARDS = ['cbse', 'icse', 'state', 'ib', 'other'] as const
@@ -38,7 +56,7 @@ function boardOf(value: string | null): Board {
   return BOARDS.find((board) => board === value) ?? 'other'
 }
 
-function toProfile(row: SchoolRow): Profile {
+function toProfile(row: SchoolRow, allowedActions: readonly PermissionKey[]): Profile {
   return {
     id: row.id,
     name: row.name,
@@ -49,7 +67,8 @@ function toProfile(row: SchoolRow): Profile {
     ...optional('email', row.email),
     ...optional('affiliationNumber', row.affiliationNumber),
     ...optional('udiseCode', row.udiseCode),
-    version: Number(row.touched),
+    version: row.version,
+    allowedActions: [...allowedActions],
   } as Profile
 }
 
@@ -63,22 +82,16 @@ export function registerSchoolProfileRoutes(app: FastifyInstance, deps: ModuleDe
       withTenantTransaction(deps.pools.runtime, context, async (conn) => {
         await authorizeSchoolAction(conn, context, 'school.read')
         const rows = await conn.db
-          .select({
-            id: schools.id,
-            name: schools.name,
-            shortName: schools.shortName,
-            board: schools.board,
-            address: ADDRESS_LINE,
-            phone: schools.phone,
-            email: schools.email,
-            affiliationNumber: schools.affiliationNumber,
-            udiseCode: schools.udiseCode,
-            touched: touchVersion(schools.updatedAt),
-          })
+          .select(columns)
           .from(schools)
           .where(eq(schools.id, context.schoolId))
           .limit(1)
-        return toProfile(requireFound(rows[0]))
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'school',
+          id: context.schoolId,
+        })
+        return toProfile(requireFound(rows[0]), actions)
       }),
   })
 
@@ -92,41 +105,26 @@ export function registerSchoolProfileRoutes(app: FastifyInstance, deps: ModuleDe
       withTenantTransaction(deps.pools.runtime, context, async (conn) => {
         await lockSchool(conn, context.schoolId)
         await authorizeSchoolAction(conn, context, 'school.update')
-        // The version is the moment of the last save, so an editor who was
-        // looking at an older profile loses to whoever saved first instead of
-        // overwriting them. The school row itself always exists here, so no
-        // rows updated can only mean somebody got in first.
-        const current = await conn.client.query<{ touched: string }>(
-          `SELECT ${TOUCH_VERSION_SQL} AS touched FROM schools WHERE id = $1`,
-          [context.schoolId],
-        )
-        assertVersion(body.expectedVersion, Number(requireFound(current.rows[0]).touched))
-
-        const updated = await conn.client.query<SchoolRow>(
-          `UPDATE schools
-              SET name = $2, short_name = $3, board = $4,
-                  address = jsonb_build_object('line', $5::text),
-                  phone = $6, email = $7, affiliation_number = $8, udise_code = $9,
-                  updated_at = clock_timestamp()
-            WHERE id = $1 AND ${TOUCH_VERSION_SQL} = $10
-        RETURNING id, name, short_name AS "shortName", board, address->>'line' AS address,
-                  phone, email, affiliation_number AS "affiliationNumber", udise_code AS "udiseCode",
-                  ${TOUCH_VERSION_SQL} AS touched`,
-          [
-            context.schoolId,
-            body.name,
-            body.shortName,
-            body.board,
-            body.address,
-            body.phone,
-            body.email,
-            body.affiliationNumber ?? null,
-            body.udiseCode ?? null,
-            String(body.expectedVersion),
-          ],
-        )
-        if (updated.rowCount === 0) throw new ApiFailure('VERSION_CONFLICT')
-        const row = requireFound(updated.rows[0])
+        // The school is its own tenant, so the version is keyed by the school
+        // id alone. bumpVersion answers VERSION_CONFLICT when somebody saved
+        // first, so an editor holding an older profile never overwrites them.
+        await bumpVersion(conn, 'schools', {
+          schoolId: context.schoolId,
+          id: context.schoolId,
+          expectedVersion: body.expectedVersion,
+          set: {
+            name: body.name,
+            short_name: body.shortName,
+            board: body.board,
+            // A jsonb column takes an already stringified value, the same
+            // small object the profile has always stored.
+            address: JSON.stringify({ line: body.address }),
+            phone: body.phone,
+            email: body.email,
+            affiliation_number: body.affiliationNumber ?? null,
+            udise_code: body.udiseCode ?? null,
+          },
+        })
         await writeAudit(conn, context, {
           action: 'school.update',
           targetType: 'school',
@@ -134,7 +132,17 @@ export function registerSchoolProfileRoutes(app: FastifyInstance, deps: ModuleDe
           summary: 'Updated the school profile details.',
           safeChanges: { fields: Object.keys(body).filter((key) => key !== 'expectedVersion') },
         })
-        return toProfile(row)
+        const rows = await conn.db
+          .select(columns)
+          .from(schools)
+          .where(eq(schools.id, context.schoolId))
+          .limit(1)
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'school',
+          id: context.schoolId,
+        })
+        return toProfile(requireFound(rows[0]), actions)
       }),
   })
 }

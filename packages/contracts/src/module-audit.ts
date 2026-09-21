@@ -22,6 +22,9 @@ export const AuditEventListRequest = PageRequest.extend({
   action: z.string().trim().min(1).max(100).optional(),
   from: Timestamp.optional(),
   to: Timestamp.optional(),
+  // The two outcomes a summary carries. `denied` is every row that was not
+  // allowed, which is how the projection reports a failed write as well.
+  outcome: z.enum(['allowed', 'denied']).optional(),
 })
 
 /**

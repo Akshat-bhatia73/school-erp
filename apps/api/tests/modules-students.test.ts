@@ -545,10 +545,11 @@ test('guardians are linked and edited through their own permission', async () =>
     body: JSON.stringify({ guardianId: guardianA, relation: 'guardian', isPrimary: false }),
   })
   assert.equal(added.status, 201)
-  const guardian = await body<{ id: string; version?: number; phone: string }>(added)
+  const guardian = await body<{ id: string; version: number; phone: string }>(added)
   assert.equal(guardian.id, guardianA)
   assert.equal(guardian.phone, '+919876543210')
-  assert.equal('version' in guardian, false)
+  // The screen edits a guardian, so the record carries the version it must send back.
+  assert.equal(typeof guardian.version, 'number')
 
   const version = (await adminPool().query('SELECT version FROM guardians WHERE id = $1', [guardianA]))
     .rows[0].version as number
@@ -577,6 +578,37 @@ test('guardians are linked and edited through their own permission', async () =>
     body: JSON.stringify({ guardianId: fixtureIds.guardianB, relation: 'guardian', isPrimary: false }),
   })
   assert.equal(crossSchool.status, 404)
+})
+
+test('the guardian list carries the version a correction has to send back', async () => {
+  const listed = await owner.fetch(`/api/schools/${schoolA}/students/${studentA}/guardians`)
+  assert.equal(listed.status, 200)
+  const rows = await body<{ id: string; version: number }[]>(listed)
+  const row = rows.find((item) => item.id === guardianA)
+  assert.ok(row)
+  assert.equal(typeof row.version, 'number')
+
+  const saved = await owner.fetch(`/api/schools/${schoolA}/students/${studentA}/guardians/${guardianA}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ expectedVersion: row.version, occupation: 'Teacher', relation: 'guardian' }),
+  })
+  assert.equal(saved.status, 200)
+  const after = await body<{ occupation: string; version: number }>(saved)
+  assert.equal(after.occupation, 'Teacher')
+  assert.equal(after.version, row.version + 1)
+
+  // The second editor was reading the row before that save, so their
+  // correction is refused rather than quietly overwriting it.
+  const stale = await owner.fetch(`/api/schools/${schoolA}/students/${studentA}/guardians/${guardianA}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ expectedVersion: row.version, occupation: 'Clerk', relation: 'guardian' }),
+  })
+  assert.equal(stale.status, 409)
+  assert.equal(await codeOf(stale), 'VERSION_CONFLICT')
+  const kept = await adminPool().query('SELECT occupation FROM guardians WHERE id = $1', [guardianA])
+  assert.equal(kept.rows[0].occupation, 'Teacher')
 })
 
 test('a teacher may not admit, edit or move a student', async () => {

@@ -310,7 +310,7 @@ describe('Anonymisation', () => {
 
 describe('Guardian unlink', () => {
   it('unlinks with the student version and a reason, and only for somebody who manages guardians', async () => {
-    students.guardians.mockResolvedValue([{ id: 'guardian-1', displayName: 'Rakesh Sharma', phone: '+919876543210' }])
+    students.guardians.mockResolvedValue([{ id: 'guardian-1', version: 2, displayName: 'Rakesh Sharma', phone: '+919876543210' }])
     const { GuardiansTab } = await import('@/components/students/student-profile')
 
     const reader = renderWithSession(<GuardiansTab studentId="student-1" studentVersion={4} canManage={false} allowedActions={['students.read_guardians']} />, { capabilities: ['students.read_guardians'] })
@@ -420,7 +420,7 @@ describe('Promote students', () => {
   }
 
   it('leaves a student out of the request entirely', async () => {
-    students.promotePreview.mockResolvedValue({ students: [FIRST, SECOND], targetSection: { id: SECTION_ID, name: 'Class 7 - A' } })
+    students.promotePreview.mockResolvedValue({ students: [FIRST, SECOND], targetSection: { id: SECTION_ID, name: 'Class 7 - A' }, total: 2, page: 1, pageSize: 100 })
     students.promote.mockResolvedValue({ promoted: 1, detained: 0 })
     const { Route } = await import('@/routes/_app/students/promote')
     const Screen = componentOf(Route)
@@ -446,8 +446,36 @@ describe('Promote students', () => {
     })))
   })
 
+  it('reads every page of a big section and sends it in runs of a hundred', async () => {
+    const cohort = Array.from({ length: 150 }, (_, i) => ({
+      ...STUDENT, id: `40000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`, admissionNumber: `SVM/2026/${i + 1}`,
+    }))
+    students.promotePreview.mockImplementation((_schoolId: string, params: { page?: number }) => Promise.resolve({
+      students: cohort.slice(((params.page ?? 1) - 1) * 100, (params.page ?? 1) * 100),
+      targetSection: { id: SECTION_ID, name: 'Class 7 - A' },
+      total: cohort.length, page: params.page ?? 1, pageSize: 100,
+    }))
+    students.promote.mockResolvedValue({ promoted: 100, detained: 0 })
+    const { Route } = await import('@/routes/_app/students/promote')
+    const Screen = componentOf(Route)
+    renderWithSession(<Screen />, {
+      capabilities: ['academic_years.read', 'sections.read', 'grades.read', 'students.read_basic', 'students.promote'],
+    })
+
+    await pickSections()
+    expect(await screen.findByText(/150 students in view/)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Promote students' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Promote students' }))
+
+    await waitFor(() => expect(students.promote).toHaveBeenCalledTimes(2))
+    expect(students.promote.mock.calls[0]?.[1].studentIds).toHaveLength(100)
+    expect(students.promote.mock.calls[1]?.[1].studentIds).toHaveLength(50)
+  })
+
   it('will not send anything when every student is left out', async () => {
-    students.promotePreview.mockResolvedValue({ students: [FIRST], targetSection: { id: SECTION_ID, name: 'Class 7 - A' } })
+    students.promotePreview.mockResolvedValue({ students: [FIRST], targetSection: { id: SECTION_ID, name: 'Class 7 - A' }, total: 1, page: 1, pageSize: 100 })
     const { Route } = await import('@/routes/_app/students/promote')
     const Screen = componentOf(Route)
     renderWithSession(<Screen />, {

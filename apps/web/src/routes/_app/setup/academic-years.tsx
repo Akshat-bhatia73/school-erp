@@ -16,6 +16,7 @@ import { api } from '@/lib/api'
 import type { AcademicYearRecord } from '@/lib/api/setup'
 import { describeError } from '@/lib/api-errors'
 import { qk } from '@/lib/query'
+import { allows } from '@/lib/permissions'
 import { useSchoolContext } from '@/lib/session'
 import { formatDate, humanize } from '@/lib/utils'
 
@@ -59,7 +60,7 @@ function Page() {
     { id: 'status', header: 'Status', size: 150, accessorFn: (r) => r.status, cell: ({ row }) => <Tag color={STATUS_COLOR[row.original.status]} dot>{humanize(row.original.status)}</Tag> },
     {
       id: 'actions', header: '', size: 60, enableSorting: false,
-      cell: ({ row }) => canManage ? (
+      cell: ({ row }) => allows(row.original.allowedActions, 'academic_years.manage') ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${row.original.name}`} onClick={(e) => e.stopPropagation()}><MoreHorizontal /></Button>
@@ -71,7 +72,7 @@ function Page() {
         </DropdownMenu>
       ) : null,
     },
-  ], [canManage, makeCurrentMutate])
+  ], [makeCurrentMutate])
 
   const addButton = (label: string) => (
     <Button size="sm" onClick={() => { setEditing(undefined); setSheetOpen(true) }}><Plus /> {label}</Button>

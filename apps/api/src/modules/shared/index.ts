@@ -2,6 +2,7 @@ export { protectedRoute } from './route.ts'
 export type { ModuleDependencies, RouteDefinition, RouteInput, RouteMethod } from './route.ts'
 export {
   allowedActionsFor,
+  allowedActionsForMany,
   authorizeResource,
   authorizeSchoolAction,
   decideResource,

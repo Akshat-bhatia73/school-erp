@@ -73,6 +73,9 @@ export type PromotePreviewParams = {
   toAcademicYearId: string
   fromSectionId: string
   toSectionId: string
+  /** The cohort comes back a page at a time, so a section of any size can be read. */
+  page?: number
+  pageSize?: number
 }
 export type PromoteInput = z.input<typeof PromoteStudentsRequest>
 export type ExportStudentsInput = z.input<typeof ExportStudentsRequest>

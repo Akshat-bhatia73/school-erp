@@ -6,7 +6,7 @@ import { z } from 'zod'
 import type { ColumnDef } from '@tanstack/react-table'
 import { MembershipStatus, RoleKey } from '@erp/contracts'
 import { api } from '@/lib/api'
-import type { Member } from '@/lib/api/members'
+import type { Member, MemberListParams } from '@/lib/api/members'
 import { UserAvatar } from '@/components/shared/avatar'
 import { DataTable, EntityCell } from '@/components/shared/data-table'
 import { FilterChip } from '@/components/shared/filter-chip'
@@ -49,7 +49,14 @@ function Page() {
   const [inviteOpen, setInviteOpen] = useState(!!searchParams.invite)
   const [selected, setSelected] = useState<Member | null>(null)
 
-  const params = useMemo(() => ({ page, pageSize: PAGE_SIZE }), [page])
+  // The filters narrow the query, so the pages and the total are the filtered ones.
+  const params = useMemo(() => ({
+    page,
+    pageSize: PAGE_SIZE,
+    search: search.trim() || undefined,
+    role: role as MemberListParams['role'],
+    status: status as MemberListParams['status'],
+  }), [page, search, role, status])
   const { data, isLoading, error } = useQuery({
     queryKey: qk.members(schoolId, params),
     queryFn: () => api.members.list(schoolId, params),
@@ -67,16 +74,7 @@ function Page() {
 
   const canInvite = hasPermission('members.invite') && hasPermission('roles.assign') && assignableRolesFor(roleKeys).length > 0
 
-  const items = useMemo(() => data?.items ?? [], [data])
-  const rows = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return items.filter((member) => {
-      if (role && !member.roleKeys.includes(role as never)) return false
-      if (status && member.status !== status) return false
-      if (q && !member.displayName.toLowerCase().includes(q)) return false
-      return true
-    })
-  }, [items, search, role, status])
+  const rows = data?.items ?? []
 
   const columns = useMemo<ColumnDef<Member, unknown>[]>(() => [
     {
@@ -167,16 +165,23 @@ function Page() {
         search={
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search this page" aria-label="Search members on this page" className="h-9 w-full pl-8 md:w-64" />
+            <Input
+              value={search}
+              onChange={(e) => { setSearch(e.target.value.slice(0, 100)); setPage(1) }}
+              maxLength={100}
+              placeholder="Search by name"
+              aria-label="Search members"
+              className="h-9 w-full pl-8 md:w-64"
+            />
           </div>
         }
       >
         <FilterChip
-          label="Role" value={role} onChange={setRole} allLabel="Any"
+          label="Role" value={role} onChange={(value) => { setRole(value); setPage(1) }} allLabel="Any"
           options={RoleKey.options.map((key) => ({ value: key, label: roleLabel(key) }))}
         />
         <FilterChip
-          label="Status" value={status} onChange={setStatus} allLabel="Any"
+          label="Status" value={status} onChange={(value) => { setStatus(value); setPage(1) }} allLabel="Any"
           options={MembershipStatus.options.map((key) => ({ value: key, label: memberStatusLabel[key] }))}
         />
       </Toolbar>
@@ -196,11 +201,11 @@ function Page() {
           <EmptyState
             icon={<Users />}
             title="No one matches"
-            description="Try clearing the filters or looking on another page."
-            action={hasFilters ? <Button variant="outline" size="sm" onClick={() => { setSearch(''); setRole(undefined); setStatus(undefined) }}>Clear filters</Button> : undefined}
+            description="Try clearing the filters."
+            action={hasFilters ? <Button variant="outline" size="sm" onClick={() => { setSearch(''); setRole(undefined); setStatus(undefined); setPage(1) }}>Clear filters</Button> : undefined}
           />
         }
-        footer={<span>{rows.length} members on this page</span>}
+        footer={<span>{data?.total === 1 ? '1 member' : `${data?.total ?? 0} members`}</span>}
         pagination={{ page, pageSize: PAGE_SIZE, total: data?.total ?? 0, onPageChange: setPage }}
       />
       {hasPermission('members.invite') && pending.length > 0 && (

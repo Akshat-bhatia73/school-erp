@@ -36,6 +36,17 @@ describe('request', () => {
     expect((error as ApiRequestError).requestId).toBe('req-1')
   })
 
+  it('keeps the reason the server named, so the refusal can be explained in its own words', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(
+      envelope('INVALID_REQUEST', 'This class still has sections. Remove them first.', { reason: 'grade_has_sections' }),
+      { status: 400 },
+    ))
+    const error = await request('/api/thing').catch((e: unknown) => e)
+    expect((error as ApiRequestError).reason).toBe('grade_has_sections')
+    const { describeError } = await import('@/lib/api-errors')
+    expect(describeError(error)).toBe('This class still has sections. Remove them first.')
+  })
+
   it('falls back to the Retry-After header when the envelope has no retryAfterSeconds', async () => {
     fetchMock.mockResolvedValue(jsonResponse(envelope('RATE_LIMITED'), { status: 429, headers: { 'Retry-After': '42' } }))
     const error = await request('/api/thing').catch((e: unknown) => e)

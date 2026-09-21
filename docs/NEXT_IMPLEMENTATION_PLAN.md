@@ -1,6 +1,6 @@
 # Next implementation plan: readiness and the first school modules
 
-Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Task 15 is built; nothing else in this document is started.
+Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Tasks 15 and 18 are built; nothing else in this document is started.
 
 ## 1. Where we are
 
@@ -49,9 +49,13 @@ Everything that keeps the platform running when something goes wrong, most of it
 
 Exit check: every release checklist line is signed; the restore log has one passed production entry; the sub-processor list names an Indian database region.
 
-### Task 18: Screen and contract gaps
+### Task 18: Screen and contract gaps — built, 21 September 2026
 
-The gaps listed under "Known gaps" in `docs/auth/WEB_SCREENS.md` and `docs/auth/PROTECTED_APIS.md`, grouped into one task so they stop being carried forward: the school context names the current academic year; `GET /staff` and `GET /members` gain the filters the screens fake today; `GuardianPrivate` carries a version so a guardian can be corrected; `StaffDetailResponse` returns the leaving date; a section names its class teacher; setup records carry `allowedActions`; refused deletes say why; the audit list accepts an `outcome` filter server side; promotion handles more than one hundred students by paging; `schools`, `holidays` and `bell_schedules` get real version columns. Exit check: the two known-gap sections are empty or name only deliberate decisions.
+The gaps listed under "Known gaps" in `docs/auth/WEB_SCREENS.md` and `docs/auth/PROTECTED_APIS.md`, grouped into one task so they stop being carried forward. Built with no new route, no new permission and no role template change: `GET /members` filters on `search`, `role`, `status` and `staffId` in the query rather than in the browser; `GuardianPrivate` carries a version so a guardian already on file can be corrected; `StaffEmployment` returns the leaving date, so the sheet can clear one; a section names its class teacher through the staff directory plan; every setup record carries `allowedActions`; a refused delete carries a `reason` from a closed list and the sentence that goes with it; `GET /audit-events` takes an `outcome`; the promotion preview pages with a total, so a class of any size is promoted in runs of a hundred; and migration `0014_setup_versions.sql` gives `schools`, `holidays` and `bell_schedules` real version columns.
+
+One decision taken while building it, on 21 September 2026. The school context does not name the current academic year and is not going to. Every member asks `GET /academic-years/current` instead, which is gated on `holidays.read` and so open to every role, and `useAcademicYear` reads it rather than guessing from the sections a teacher can see. One small read every role may make is simpler than widening the session context for a teacher or a parent. Recorded as a deliberate decision alongside the second one: a section shows "Assigned" when its class teacher is somebody the viewer may not read.
+
+Exit check met: both known-gap sections now name only gaps this task did not take on and two deliberate decisions. Twenty new API tests cover the filters, the versions, the reasons, the class teacher and the paging, and `tests/security/screen-contract-gaps.test.ts` asks the wrong-person half of each widened read.
 
 ## 4. Module tasks
 

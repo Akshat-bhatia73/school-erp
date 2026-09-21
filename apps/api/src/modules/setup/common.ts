@@ -1,7 +1,7 @@
 import { sql, type SQL } from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import { scopedTableFor, type ScopedTable } from '@erp/authz'
-import type { ResourceType } from '@erp/contracts'
+import type { ErrorReason, ResourceType } from '@erp/contracts'
 import type { TenantConnection } from '../shared/audit.ts'
 import { ApiFailure } from '../shared/errors.ts'
 
@@ -51,12 +51,14 @@ export async function requireReference(
 /**
  * Rows in other tables that would be orphaned by a delete. Refusing here keeps
  * the answer a plain bad request instead of letting a foreign key violation
- * become an unexplained service error.
+ * become an unexplained service error. Each reference carries the reason the
+ * caller is told, so the screen can say what to clear first instead of only
+ * that the details are wrong.
  */
 export async function refuseWhenReferenced(
   conn: TenantConnection,
   schoolId: string,
-  references: readonly { readonly table: string; readonly column: string }[],
+  references: readonly { readonly table: string; readonly column: string; readonly reason: ErrorReason }[],
   id: string,
 ): Promise<void> {
   for (const reference of references) {
@@ -64,24 +66,11 @@ export async function refuseWhenReferenced(
       `SELECT 1 FROM ${reference.table} WHERE school_id = $1 AND ${reference.column} = $2 LIMIT 1`,
       [schoolId, id],
     )
-    if (used.rowCount !== null && used.rowCount > 0) throw new ApiFailure('INVALID_REQUEST')
+    if (used.rowCount !== null && used.rowCount > 0) {
+      throw new ApiFailure('INVALID_REQUEST', undefined, reference.reason)
+    }
   }
 }
-
-/**
- * Two tables this module edits (schools and holidays) carry no version column,
- * and access_version belongs to the access locking protocol so it must not
- * double as an edit counter. The moment of the last edit, in whole
- * microseconds, stands in for one: it rises on every save, it is the same
- * number on the read and on the write, and a second editor who saved first
- * moves it, so the loser is told VERSION_CONFLICT instead of quietly winning.
- */
-export function touchVersion(column: PgColumn): SQL<string> {
-  return sql<string>`(floor(extract(epoch from ${column}) * 1000000))::bigint::text`
-}
-
-/** The same expression in raw SQL, for statements drizzle does not build. */
-export const TOUCH_VERSION_SQL = "(floor(extract(epoch from updated_at) * 1000000))::bigint::text"
 
 /** A date column as the calendar date the contracts use, never a timestamp. */
 export function isoDate(column: PgColumn): SQL<string> {

@@ -46,7 +46,7 @@ export function StaffEmploymentSheet({ detail, open, onOpenChange }: SheetProps)
   const [employmentType, setEmploymentType] = useState<EmploymentTypeValue>(employment?.employmentType ?? 'permanent')
   const [status, setStatus] = useState<StaffStatusValue>(employment?.status ?? 'active')
   const [joiningDate, setJoiningDate] = useState(employment?.joiningDate ?? '')
-  const [leavingDate, setLeavingDate] = useState('')
+  const [leavingDate, setLeavingDate] = useState(employment?.leavingDate ?? '')
 
   const { data: departments = [] } = useQuery({
     queryKey: qk.departments(schoolId),
@@ -68,8 +68,10 @@ export function StaffEmploymentSheet({ detail, open, onOpenChange }: SheetProps)
       employmentType,
       status,
       ...(joiningDate === '' ? {} : { joiningDate }),
-      // StaffDetailResponse never carries leavingDate, so a blank field is "unknown", not "clear it".
-      ...(leavingDate === '' ? {} : { leavingDate }),
+      // Blank when a date was on file means "clear it"; blank all along means "leave it alone".
+      ...(leavingDate === ''
+        ? (employment?.leavingDate ? { leavingDate: null } : {})
+        : { leavingDate }),
     })
     if (!parsed.success) {
       setErrors(fieldErrorsFrom(parsed.error))
@@ -96,7 +98,7 @@ export function StaffEmploymentSheet({ detail, open, onOpenChange }: SheetProps)
           <SelectField label="Employment type" value={employmentType} onChange={setEmploymentType} options={employmentOptions} error={errors.employmentType} />
           <SelectField label="Status" value={status} onChange={setStatus} options={statusOptions} error={errors.status} />
           <TextField label="Joining date" type="date" value={joiningDate} onChange={setJoiningDate} error={errors.joiningDate} />
-          <TextField label="Leaving date" type="date" value={leavingDate} onChange={setLeavingDate} error={errors.leavingDate} hint="Set a date when this person leaves. Leaving it empty keeps whatever is already recorded." />
+          <TextField label="Leaving date" type="date" value={leavingDate} onChange={setLeavingDate} error={errors.leavingDate} hint="Set a date when this person leaves. Clear it if they are staying." />
         </div>
         <SheetFooter className="flex-row justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>

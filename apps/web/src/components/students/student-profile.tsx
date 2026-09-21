@@ -268,88 +268,80 @@ export function GuardiansTab({ studentId, studentVersion, canManage, allowedActi
           <EmptyState icon={<Users />} title="No guardians yet" description="Add a parent or guardian so the school can reach the family." className="py-10" />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
-            {(guardians.data ?? []).map((guardian) => {
-              // The guardian contract carries no version yet, so editing is offered only when a
-              // server that does send one is in front of us.
-              const version = (guardian as { version?: number }).version
-              return (
-                <div key={guardian.id} className="rounded-xl border p-3.5">
-                  <div className="flex items-start gap-3">
-                    <UserAvatar name={guardian.displayName} size="lg" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">{guardian.displayName}</div>
-                      <div className="mt-1 font-mono text-[12.5px] text-muted-foreground">{guardian.phone}</div>
-                      {guardian.occupation && <div className="text-[12.5px] text-muted-foreground">{guardian.occupation}</div>}
-                      {guardian.address && <div className="text-[12.5px] text-muted-foreground">{guardian.address}</div>}
-                      {guardian.officeAddress && <div className="text-[12.5px] text-muted-foreground">Office: {guardian.officeAddress}</div>}
-                      {/*
-                        Identity numbers are never echoed back with the record: the list carries
-                        the last digits only, and the whole number comes from its own audited
-                        read, held here and forgotten again.
-                      */}
-                      {guardian.panLast4 && (
-                        <div className="mt-1 text-[12.5px] text-muted-foreground">
-                          PAN{' '}
-                          <RevealField
-                            masked={`ending ${guardian.panLast4}`}
-                            canReveal={canReveal}
-                            read={async () => {
-                              const revealed = await api.students.revealGuardianIdentity(schoolId, studentId, guardian.id)
-                              if (!revealed.pan) throw new Error('no pan')
-                              return revealed.pan
-                            }}
-                          />
-                        </div>
-                      )}
-                      {guardian.aadhaarLast4 && (
-                        <div className="text-[12.5px] text-muted-foreground">
-                          Aadhaar{' '}
-                          <RevealField
-                            masked={`ending ${guardian.aadhaarLast4}`}
-                            canReveal={canReveal}
-                            read={async () => {
-                              const revealed = await api.students.revealGuardianIdentity(schoolId, studentId, guardian.id)
-                              if (!revealed.aadhaar) throw new Error('no aadhaar')
-                              return revealed.aadhaar
-                            }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                    {canManage && version !== undefined && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setEditing({
-                          guardianId: guardian.id,
-                          expectedVersion: version,
-                          displayName: guardian.displayName,
-                          phone: guardian.phone,
-                          occupation: guardian.occupation,
-                          address: guardian.address,
-                          officeAddress: guardian.officeAddress,
-                          panLast4: guardian.panLast4,
-                          aadhaarLast4: guardian.aadhaarLast4,
-                        })}
-                      >
-                        Edit
-                      </Button>
+            {(guardians.data ?? []).map((guardian) => (
+              <div key={guardian.id} className="rounded-xl border p-3.5">
+                <div className="flex items-start gap-3">
+                  <UserAvatar name={guardian.displayName} size="lg" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{guardian.displayName}</div>
+                    <div className="mt-1 font-mono text-[12.5px] text-muted-foreground">{guardian.phone}</div>
+                    {guardian.occupation && <div className="text-[12.5px] text-muted-foreground">{guardian.occupation}</div>}
+                    {guardian.address && <div className="text-[12.5px] text-muted-foreground">{guardian.address}</div>}
+                    {guardian.officeAddress && <div className="text-[12.5px] text-muted-foreground">Office: {guardian.officeAddress}</div>}
+                    {/*
+                      Identity numbers are never echoed back with the record: the list carries
+                      the last digits only, and the whole number comes from its own audited
+                      read, held here and forgotten again.
+                    */}
+                    {guardian.panLast4 && (
+                      <div className="mt-1 text-[12.5px] text-muted-foreground">
+                        PAN{' '}
+                        <RevealField
+                          masked={`ending ${guardian.panLast4}`}
+                          canReveal={canReveal}
+                          read={async () => {
+                            const revealed = await api.students.revealGuardianIdentity(schoolId, studentId, guardian.id)
+                            if (!revealed.pan) throw new Error('no pan')
+                            return revealed.pan
+                          }}
+                        />
+                      </div>
                     )}
-                    {canManage && (
-                      <Button size="sm" variant="ghost" onClick={() => { setUnlinking({ id: guardian.id, name: guardian.displayName }); setUnlinkReason(''); setUnlinkError(null) }}>
-                        Unlink
-                      </Button>
+                    {guardian.aadhaarLast4 && (
+                      <div className="text-[12.5px] text-muted-foreground">
+                        Aadhaar{' '}
+                        <RevealField
+                          masked={`ending ${guardian.aadhaarLast4}`}
+                          canReveal={canReveal}
+                          read={async () => {
+                            const revealed = await api.students.revealGuardianIdentity(schoolId, studentId, guardian.id)
+                            if (!revealed.aadhaar) throw new Error('no aadhaar')
+                            return revealed.aadhaar
+                          }}
+                        />
+                      </div>
                     )}
                   </div>
+                  {canManage && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setEditing({
+                        guardianId: guardian.id,
+                        expectedVersion: guardian.version,
+                        displayName: guardian.displayName,
+                        phone: guardian.phone,
+                        occupation: guardian.occupation,
+                        address: guardian.address,
+                        officeAddress: guardian.officeAddress,
+                        panLast4: guardian.panLast4,
+                        aadhaarLast4: guardian.aadhaarLast4,
+                      })}
+                    >
+                      Edit
+                    </Button>
+                  )}
+                  {canManage && (
+                    <Button size="sm" variant="ghost" onClick={() => { setUnlinking({ id: guardian.id, name: guardian.displayName }); setUnlinkReason(''); setUnlinkError(null) }}>
+                      Unlink
+                    </Button>
+                  )}
                 </div>
-              )
-            })}
+              </div>
+            ))}
           </div>
         )}
       </Panel>
-      {canManage && (guardians.data ?? []).some((guardian) => (guardian as { version?: number }).version === undefined) && (
-        <p className="mt-2 text-[12.5px] text-muted-foreground">Correcting a guardian already on file is not built yet. Add the right record and ask the office to remove the old one.</p>
-      )}
       {canManage && unlinking && (
         <AlertDialog open onOpenChange={(open) => { if (!open) setUnlinking(null) }}>
           <AlertDialogContent>

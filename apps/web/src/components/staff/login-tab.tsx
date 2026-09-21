@@ -13,17 +13,10 @@ import { describeError } from '@/lib/api-errors'
 import { assignableRolesFor, roleLabel } from '@/lib/permissions'
 import { memberStatusColor, memberStatusLabel, roleColor } from '@/components/settings/settings-tabs'
 
-/** The member directory has no lookup by staff id, so this walks the pages until it finds the
- *  membership linked to this staff record. It stops at the first match, so it usually reads one page. */
-const PAGE_SIZE = 100
-
+/** The directory filters by staff id, so one row is all this needs. */
 async function findByStaffId(schoolId: string, staffId: string): Promise<Member | null> {
-  for (let page = 1; ; page += 1) {
-    const result = await api.members.list(schoolId, { page, pageSize: PAGE_SIZE })
-    const match = result.items.find((item) => item.staffId === staffId)
-    if (match) return match
-    if (result.items.length === 0 || page * PAGE_SIZE >= result.total) return null
-  }
+  const result = await api.members.list(schoolId, { staffId, pageSize: 1 })
+  return result.items[0] ?? null
 }
 
 export function LoginTab({ staffId, displayName }: { staffId: string; displayName: string }) {

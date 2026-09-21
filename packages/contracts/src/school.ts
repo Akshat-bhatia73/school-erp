@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { CalendarDate, Email, Id, Phone, Version } from './common.ts'
-import { NamedReference } from './responses.ts'
+import { AllowedActions, NamedReference } from './responses.ts'
 
 const Name = z.string().trim().min(1).max(160)
 const schoolFields = {
@@ -9,14 +9,19 @@ const schoolFields = {
   address: z.string().max(1000), phone: Phone, email: Email,
   affiliationNumber: z.string().max(100).optional(), udiseCode: z.string().max(100).optional(),
 }
-export const SchoolProfile = z.strictObject({ id: Id, ...schoolFields, version: Version })
+/**
+ * Every setup record names what this caller may do to it, decided by the
+ * policy service for that one record. A screen shows a record's controls from
+ * this list, never from a school-wide capability.
+ */
+export const SchoolProfile = z.strictObject({ id: Id, ...schoolFields, version: Version, allowedActions: AllowedActions })
 export const UpdateSchoolRequest = z.strictObject({ ...schoolFields, expectedVersion: Version })
 
 export const AcademicYearInput = z.strictObject({
   name: Name, startDate: CalendarDate, endDate: CalendarDate,
   status: z.enum(['upcoming', 'current', 'closed']),
 }).refine((v) => v.endDate > v.startDate, 'Academic year end must follow its start')
-export const AcademicYear = AcademicYearInput.safeExtend({ id: Id, schoolId: Id, version: Version })
+export const AcademicYear = AcademicYearInput.safeExtend({ id: Id, schoolId: Id, version: Version, allowedActions: AllowedActions })
 export const AcademicYearList = z.array(AcademicYear)
 export const CurrentAcademicYear = AcademicYear.nullable()
 
@@ -24,21 +29,27 @@ export const GradeInput = z.strictObject({
   name: Name, shortName: Name, order: z.number().int().nonnegative(),
   stream: z.enum(['science', 'commerce', 'arts']).optional(),
 })
-export const Grade = z.strictObject({ id: Id, schoolId: Id, ...GradeInput.shape, version: Version })
+export const Grade = z.strictObject({ id: Id, schoolId: Id, ...GradeInput.shape, version: Version, allowedActions: AllowedActions })
 export const GradeList = z.array(Grade)
 export const SectionInput = z.strictObject({
   gradeId: Id, academicYearId: Id, name: Name,
   classTeacherId: Id.optional(), roomNumber: z.string().max(100).optional(),
   capacity: z.number().int().positive().max(1000).optional(),
 })
-export const Section = z.strictObject({ id: Id, schoolId: Id, ...SectionInput.shape, version: Version })
+export const Section = z.strictObject({
+  id: Id, schoolId: Id, ...SectionInput.shape, version: Version,
+  // The class teacher by name, present only when this caller may read that
+  // staff record. classTeacherId alone means "somebody, whom you cannot see".
+  classTeacher: NamedReference.optional(),
+  allowedActions: AllowedActions,
+})
 export const SectionDetail = Section
 export const SectionList = z.array(Section)
 export const ClassSectionSetup = z.strictObject({ grades: GradeList, sections: SectionList })
 export const AuthorizedSectionCounts = z.array(z.strictObject({ sectionId: Id, count: z.number().int().nonnegative() }))
 
 export const SubjectInput = z.strictObject({ name: Name, code: Name, type: z.enum(['scholastic', 'co_scholastic', 'language', 'elective']) })
-export const Subject = z.strictObject({ id: Id, schoolId: Id, ...SubjectInput.shape, version: Version })
+export const Subject = z.strictObject({ id: Id, schoolId: Id, ...SubjectInput.shape, version: Version, allowedActions: AllowedActions })
 export const SubjectList = z.array(Subject)
 export const GradeSubjectList = z.array(z.strictObject({ gradeId: Id, academicYearId: Id, subject: NamedReference }))
 export const SubjectSetup = z.strictObject({ subjects: SubjectList, gradeSubjects: GradeSubjectList })
@@ -46,7 +57,7 @@ export const HolidayInput = z.strictObject({
   academicYearId: Id, name: Name, startDate: CalendarDate, endDate: CalendarDate,
   type: z.enum(['national', 'festival', 'school', 'vacation']),
 }).refine((v) => v.endDate >= v.startDate, 'Holiday end precedes its start')
-export const Holiday = HolidayInput.safeExtend({ id: Id, schoolId: Id, version: Version })
+export const Holiday = HolidayInput.safeExtend({ id: Id, schoolId: Id, version: Version, allowedActions: AllowedActions })
 export const HolidayList = z.array(Holiday)
 
 const ClockTime = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)

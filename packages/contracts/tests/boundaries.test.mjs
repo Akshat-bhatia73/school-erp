@@ -165,3 +165,22 @@ test('admission consents index the request guardians and stay bounded', () => {
   const many = Array.from({ length: 26 }, () => ({ guardianIndex: 0, purpose: 'communication', method: 'portal' }))
   assert.equal(c.StudentsAdmitRequest.safeParse({ ...admit, consents: many }).success, false)
 })
+
+test('a refusal reason is one of the named blockers, and never free text', () => {
+  const error = { code: 'INVALID_REQUEST', message: 'This class still has sections.', requestId: 'req-1' }
+  assert.equal(c.ApiError.safeParse({ error }).success, true)
+  assert.equal(c.ApiError.safeParse({ error: { ...error, reason: 'grade_has_sections' } }).success, true)
+  assert.equal(c.ApiError.safeParse({ error: { ...error, reason: 'section_has_students' } }).success, true)
+  for (const reason of ['grade_is_busy', 'Grade has sections', '', 'students']) {
+    assert.equal(c.ApiError.safeParse({ error: { ...error, reason } }).success, false, reason)
+  }
+})
+
+test('the member directory filters are a closed list of narrowing keys', () => {
+  const staffId = '3f1a2b4c-5d6e-4f70-8901-23456789abcd'
+  assert.equal(c.MemberListRequest.safeParse({}).success, true)
+  assert.equal(c.MemberListRequest.safeParse({ page: 2, pageSize: 50, search: 'Meera', role: 'teacher', status: 'active', staffId }).success, true)
+  for (const bad of [{ status: 'asleep' }, { role: 'headmaster' }, { staffId: 'staff-1' }, { search: '' }, { department: 'maths' }, { search: 'x'.repeat(101) }]) {
+    assert.equal(c.MemberListRequest.safeParse(bad).success, false, JSON.stringify(bad))
+  }
+})

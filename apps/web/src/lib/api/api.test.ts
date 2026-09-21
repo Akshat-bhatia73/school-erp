@@ -144,10 +144,10 @@ describe('api paths', () => {
 
   it('previews and runs a promotion, and queues an export', async () => {
     await api.students.promotePreview(SCHOOL, {
-      fromAcademicYearId: 'y1', toAcademicYearId: 'y2', fromSectionId: 's1', toSectionId: 's2',
+      fromAcademicYearId: 'y1', toAcademicYearId: 'y2', fromSectionId: 's1', toSectionId: 's2', page: 2, pageSize: 100,
     })
     expect(lastCall().path).toBe(
-      `${PREFIX}/students/promote/preview?fromAcademicYearId=y1&toAcademicYearId=y2&fromSectionId=s1&toSectionId=s2`,
+      `${PREFIX}/students/promote/preview?fromAcademicYearId=y1&toAcademicYearId=y2&fromSectionId=s1&toSectionId=s2&page=2&pageSize=100`,
     )
     await api.students.promote(SCHOOL, { studentIds: ['st-1'] } as never)
     expect(lastCall().path).toBe(`${PREFIX}/students/promote`)
@@ -251,6 +251,10 @@ describe('api paths', () => {
   it('reads members and explains access', async () => {
     await api.members.list(SCHOOL, { page: 1, pageSize: 25 })
     expect(lastCall().path).toBe(`${PREFIX}/members?page=1&pageSize=25`)
+    await api.members.list(SCHOOL, { search: 'Priya', role: 'teacher', status: 'active', page: 1, pageSize: 25 })
+    expect(lastCall().path).toBe(`${PREFIX}/members?search=Priya&role=teacher&status=active&page=1&pageSize=25`)
+    await api.members.list(SCHOOL, { staffId: 'staff-1', pageSize: 1 })
+    expect(lastCall().path).toBe(`${PREFIX}/members?staffId=staff-1&pageSize=1`)
     await api.members.accessExplanation(SCHOOL, 'm1', {
       permission: 'students.read_basic', resourceType: 'student', resourceId: 'st-1',
     })

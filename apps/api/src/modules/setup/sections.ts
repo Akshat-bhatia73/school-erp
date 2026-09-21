@@ -10,12 +10,18 @@ import {
   SetupSectionListQuery,
   SetupSectionStrengthsQuery,
   SetupSectionUpdateRequest,
+  type PermissionKey,
 } from '@erp/contracts'
-import { planPredicate } from '@erp/authz'
-import { sections } from '@erp/db/schema'
+import { AuthorizationError, planPredicate } from '@erp/authz'
+import { sections, staff } from '@erp/db/schema'
 import { withTenantTransaction } from '@erp/db'
 import { protectedRoute, type ModuleDependencies } from '../shared/route.ts'
-import { authorizeSchoolAction, readPlan } from '../shared/authorize.ts'
+import {
+  allowedActionsFor,
+  allowedActionsForMany,
+  authorizeSchoolAction,
+  readPlan,
+} from '../shared/authorize.ts'
 import { lockSchool, writeAudit } from '../shared/audit.ts'
 import { bumpVersion } from '../shared/version.ts'
 import { ApiFailure, requireFound } from '../shared/errors.ts'
@@ -40,6 +46,10 @@ const columns = {
   roomNumber: sections.roomNumber,
   capacity: sections.capacity,
   version: sections.version,
+  // Filled in by the class teacher join, which only matches a staff row this
+  // caller may read.
+  teacherFirstName: staff.firstName,
+  teacherLastName: staff.lastName,
 }
 
 interface SectionRow {
@@ -52,9 +62,43 @@ interface SectionRow {
   roomNumber: string | null
   capacity: number | null
   version: number
+  teacherFirstName: string | null
+  teacherLastName: string | null
 }
 
-function toSection(row: SectionRow): SectionResponse {
+/**
+ * The class teacher by name, but only from a staff row the caller could open
+ * in the staff directory: the directory read plan is ANDed into the join, so
+ * the name appears exactly when that person's record would. A caller who holds
+ * no directory grant at all simply sees no name, never a refusal.
+ */
+async function classTeacherJoin(
+  conn: Parameters<typeof readPlan>[0],
+  context: Parameters<typeof readPlan>[1],
+): Promise<SQL> {
+  const plan = await readPlan(conn, context, 'staff.read_directory', 'staff').catch((error: unknown) => {
+    if (error instanceof AuthorizationError) return null
+    throw error
+  })
+  if (!plan) return sql`false`
+  const on = and(
+    eq(staff.schoolId, sections.schoolId),
+    eq(staff.id, sections.classTeacherStaffId),
+    planPredicate(plan, scopedTable('staff')),
+  )
+  if (!on) throw new ApiFailure('SERVICE_UNAVAILABLE')
+  return on
+}
+
+/** A staff row with no usable name names nobody, rather than an empty string. */
+function classTeacherOf(row: SectionRow): SectionResponse['classTeacher'] {
+  if (!row.classTeacherId) return undefined
+  const name = `${row.teacherFirstName ?? ''} ${row.teacherLastName ?? ''}`.trim()
+  return name.length > 0 ? { id: row.classTeacherId, name } : undefined
+}
+
+function toSection(row: SectionRow, allowedActions: readonly PermissionKey[]): SectionResponse {
+  const classTeacher = classTeacherOf(row)
   return {
     id: row.id,
     schoolId: row.schoolId,
@@ -62,19 +106,21 @@ function toSection(row: SectionRow): SectionResponse {
     academicYearId: row.academicYearId,
     name: row.name,
     ...optional('classTeacherId', row.classTeacherId),
+    ...(classTeacher === undefined ? {} : { classTeacher }),
     ...optional('roomNumber', row.roomNumber),
     ...optional('capacity', row.capacity),
     version: row.version,
+    allowedActions: [...allowedActions],
   } as SectionResponse
 }
 
 /** Everything that would be orphaned by removing a section. */
 const SECTION_REFERENCES = [
-  { table: 'enrollments', column: 'section_id' },
-  { table: 'teaching_assignments', column: 'section_id' },
-  { table: 'timetable_entries', column: 'section_id' },
-  { table: 'substitutions', column: 'section_id' },
-  { table: 'resource_access_rules', column: 'section_id' },
+  { table: 'enrollments', column: 'section_id', reason: 'section_has_students' },
+  { table: 'teaching_assignments', column: 'section_id', reason: 'section_has_teachers' },
+  { table: 'timetable_entries', column: 'section_id', reason: 'section_has_timetable' },
+  { table: 'substitutions', column: 'section_id', reason: 'section_has_substitutions' },
+  { table: 'resource_access_rules', column: 'section_id', reason: 'section_has_access_rules' },
 ] as const
 
 /** The grade, year and class teacher a body names must all be ours. */
@@ -106,9 +152,11 @@ export function registerSectionRoutes(app: FastifyInstance, deps: ModuleDependen
         const rows = await conn.db
           .select(columns)
           .from(sections)
+          .leftJoin(staff, await classTeacherJoin(conn, context))
           .where(and(...filters))
           .orderBy(sections.name)
-        return rows.map(toSection)
+        const actions = await allowedActionsForMany(conn, context, 'section', rows.map((row) => row.id))
+        return rows.map((row) => toSection(row, actions.get(row.id) ?? []))
       }),
   })
 
@@ -161,9 +209,16 @@ export function registerSectionRoutes(app: FastifyInstance, deps: ModuleDependen
         const rows = await conn.db
           .select(columns)
           .from(sections)
+          .leftJoin(staff, await classTeacherJoin(conn, context))
           .where(and(planPredicate(plan, scopedTable('section')), eq(sections.id, id)))
           .limit(1)
-        return toSection(requireFound(rows[0]))
+        const row = requireFound(rows[0])
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'section',
+          id,
+        })
+        return toSection(row, actions)
       }),
   })
 
@@ -207,8 +262,18 @@ export function registerSectionRoutes(app: FastifyInstance, deps: ModuleDependen
           targetId: id,
           summary: 'Created a section.',
         })
-        const rows = await conn.db.select(columns).from(sections).where(eq(sections.id, id)).limit(1)
-        return toSection(requireFound(rows[0]))
+        const rows = await conn.db
+          .select(columns)
+          .from(sections)
+          .leftJoin(staff, await classTeacherJoin(conn, context))
+          .where(eq(sections.id, id))
+          .limit(1)
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'section',
+          id,
+        })
+        return toSection(requireFound(rows[0]), actions)
       }),
   })
 
@@ -260,8 +325,18 @@ export function registerSectionRoutes(app: FastifyInstance, deps: ModuleDependen
           targetId: id,
           summary: 'Updated a section.',
         })
-        const rows = await conn.db.select(columns).from(sections).where(eq(sections.id, id)).limit(1)
-        return toSection(requireFound(rows[0]))
+        const rows = await conn.db
+          .select(columns)
+          .from(sections)
+          .leftJoin(staff, await classTeacherJoin(conn, context))
+          .where(eq(sections.id, id))
+          .limit(1)
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'section',
+          id,
+        })
+        return toSection(requireFound(rows[0]), actions)
       }),
   })
 

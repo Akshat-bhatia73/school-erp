@@ -1,12 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { Grade, GradeInput, GradeList, SetupGradeUpdateRequest } from '@erp/contracts'
+import { Grade, GradeInput, GradeList, SetupGradeUpdateRequest, type PermissionKey } from '@erp/contracts'
 import { planPredicate } from '@erp/authz'
 import { grades } from '@erp/db/schema'
 import { withTenantTransaction } from '@erp/db'
 import { protectedRoute, type ModuleDependencies } from '../shared/route.ts'
-import { authorizeSchoolAction, readPlan } from '../shared/authorize.ts'
+import { allowedActionsFor, allowedActionsForMany, authorizeSchoolAction, readPlan } from '../shared/authorize.ts'
 import { lockSchool, writeAudit } from '../shared/audit.ts'
 import { bumpVersion } from '../shared/version.ts'
 import { ApiFailure, requireFound } from '../shared/errors.ts'
@@ -36,7 +36,7 @@ interface GradeRow {
   version: number
 }
 
-function toGrade(row: GradeRow): GradeResponse {
+function toGrade(row: GradeRow, allowedActions: readonly PermissionKey[]): GradeResponse {
   const stream = STREAMS.find((value) => value === row.stream)
   return {
     id: row.id,
@@ -46,14 +46,15 @@ function toGrade(row: GradeRow): GradeResponse {
     order: row.order,
     ...optional('stream', stream),
     version: row.version,
+    allowedActions: [...allowedActions],
   } as GradeResponse
 }
 
 /** A class cannot go while anything still points at it. */
 const GRADE_REFERENCES = [
-  { table: 'sections', column: 'grade_id' },
-  { table: 'grade_subjects', column: 'grade_id' },
-  { table: 'bell_schedule_grades', column: 'grade_id' },
+  { table: 'sections', column: 'grade_id', reason: 'grade_has_sections' },
+  { table: 'grade_subjects', column: 'grade_id', reason: 'grade_has_subjects' },
+  { table: 'bell_schedule_grades', column: 'grade_id', reason: 'grade_has_bell_schedule' },
 ] as const
 
 export function registerGradeRoutes(app: FastifyInstance, deps: ModuleDependencies): void {
@@ -70,7 +71,10 @@ export function registerGradeRoutes(app: FastifyInstance, deps: ModuleDependenci
           .from(grades)
           .where(planPredicate(plan, scopedTable('grade')))
           .orderBy(grades.sortOrder)
-        return rows.map(toGrade)
+        // One decision pass for the page, so every row says what this caller
+        // may do to that class.
+        const actions = await allowedActionsForMany(conn, context, 'grade', rows.map((row) => row.id))
+        return rows.map((row) => toGrade(row, actions.get(row.id) ?? []))
       }),
   })
 
@@ -104,7 +108,12 @@ export function registerGradeRoutes(app: FastifyInstance, deps: ModuleDependenci
           summary: 'Created a class.',
         })
         const rows = await conn.db.select(columns).from(grades).where(eq(grades.id, id)).limit(1)
-        return toGrade(requireFound(rows[0]))
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'grade',
+          id,
+        })
+        return toGrade(requireFound(rows[0]), actions)
       }),
   })
 
@@ -143,7 +152,12 @@ export function registerGradeRoutes(app: FastifyInstance, deps: ModuleDependenci
           summary: 'Updated a class.',
         })
         const rows = await conn.db.select(columns).from(grades).where(eq(grades.id, id)).limit(1)
-        return toGrade(requireFound(rows[0]))
+        const actions = await allowedActionsFor(conn, context, {
+          schoolId: context.schoolId,
+          resourceType: 'grade',
+          id,
+        })
+        return toGrade(requireFound(rows[0]), actions)
       }),
   })
 

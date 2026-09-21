@@ -10,6 +10,7 @@ import {
 import { withTenantTransaction } from '@erp/db'
 import { protectedRoute, type ModuleDependencies } from '../shared/index.ts'
 import { ApiFailure, authorizeSchoolAction, lockSchool, writeAudit } from '../shared/index.ts'
+import { bumpVersion } from '../shared/version.ts'
 import {
   assertYear,
   queryRows,
@@ -26,17 +27,11 @@ interface BellRow {
   readonly workingDays: (number | string)[]
   readonly periods: unknown
   readonly saturdayPeriodCount: number | null
+  readonly version: number
 }
 
-/**
- * bell_schedules has no version column, so every schedule reports version 1.
- * The contract requires the field and the caller's expectedVersion is accepted
- * but cannot be enforced; the module notes record that gap.
- */
 /** The rows a write returns: the grade links are written separately. */
 type BellWriteRow = Omit<BellRow, 'gradeIds'>
-
-const UNVERSIONED = 1
 
 function toBellSchedule(schoolId: string, row: BellRow) {
   return {
@@ -48,7 +43,7 @@ function toBellSchedule(schoolId: string, row: BellRow) {
     workingDays: row.workingDays.map(Number),
     periods: row.periods,
     ...(row.saturdayPeriodCount === null ? {} : { saturdayPeriodCount: Number(row.saturdayPeriodCount) }),
-    version: UNVERSIONED,
+    version: Number(row.version),
   }
 }
 
@@ -62,7 +57,7 @@ const GRADE_IDS = sql`(SELECT coalesce(array_agg(bsg.grade_id::text), '{}')
 
 const SELECT_BELL = sql`SELECT id::text AS "id", academic_year_id::text AS "academicYearId", name,
       ${GRADE_IDS}, working_days AS "workingDays", periods,
-      saturday_period_count AS "saturdayPeriodCount"
+      saturday_period_count AS "saturdayPeriodCount", version
     FROM bell_schedules`
 
 async function replaceGradeLinks(
@@ -168,7 +163,8 @@ export function registerBellScheduleRoutes(app: FastifyInstance, deps: ModuleDep
                 '{}'::uuid[], ${dayArray(body.workingDays)},
                 ${JSON.stringify(body.periods)}::jsonb, ${body.saturdayPeriodCount ?? null}::int)
               RETURNING id::text AS "id", academic_year_id::text AS "academicYearId", name,
-                working_days AS "workingDays", periods, saturday_period_count AS "saturdayPeriodCount"`,
+                working_days AS "workingDays", periods, saturday_period_count AS "saturdayPeriodCount",
+                version`,
         )
         const row = inserted[0]
         if (!row) throw new ApiFailure('SERVICE_UNAVAILABLE')
@@ -197,20 +193,29 @@ export function registerBellScheduleRoutes(app: FastifyInstance, deps: ModuleDep
         await assertYear(conn, context.schoolId, requireUuidValue(body.academicYearId))
         await assertGrades(conn, context.schoolId, body.gradeIds)
         await lockSchool(conn, context.schoolId)
-        // bell_schedules stores no version column, so every schedule reads as
-        // version 1. Rather than accept a stale number silently, any other
-        // expectedVersion is refused as bad input; a caller that read the
-        // record it is editing always sends 1.
-        if (body.expectedVersion !== UNVERSIONED) throw new ApiFailure('INVALID_REQUEST')
+        // The version in the WHERE clause is the whole concurrency check, so an
+        // editor who was looking at an older schedule is told somebody saved
+        // first instead of quietly overwriting them.
+        await bumpVersion(conn, 'bell_schedules', {
+          schoolId: context.schoolId,
+          id,
+          expectedVersion: body.expectedVersion,
+          set: {
+            academic_year_id: body.academicYearId,
+            name: body.name,
+            // The driver sends a number array as an array literal, which the
+            // smallint[] column accepts as it is.
+            working_days: [...body.workingDays],
+            periods: JSON.stringify(body.periods),
+            saturday_period_count: body.saturdayPeriodCount ?? null,
+          },
+        })
         const updated = await queryRows<BellWriteRow>(
           conn,
-          sql`UPDATE bell_schedules SET academic_year_id = ${body.academicYearId}::uuid, name = ${body.name}::text,
-                working_days = ${dayArray(body.workingDays)},
-                periods = ${JSON.stringify(body.periods)}::jsonb,
-                saturday_period_count = ${body.saturdayPeriodCount ?? null}::int, updated_at = now()
-              WHERE school_id = ${context.schoolId}::uuid AND id = ${id}::uuid
-              RETURNING id::text AS "id", academic_year_id::text AS "academicYearId", name,
-                working_days AS "workingDays", periods, saturday_period_count AS "saturdayPeriodCount"`,
+          sql`SELECT id::text AS "id", academic_year_id::text AS "academicYearId", name,
+                working_days AS "workingDays", periods, saturday_period_count AS "saturdayPeriodCount",
+                version
+              FROM bell_schedules WHERE school_id = ${context.schoolId}::uuid AND id = ${id}::uuid`,
         )
         const row = updated[0]
         if (!row) throw new ApiFailure('RESOURCE_NOT_FOUND')
