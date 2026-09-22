@@ -18,6 +18,7 @@ import { registerSearchRoutes } from './search/routes.ts'
 import { registerAuditRoutes } from './audit/routes.ts'
 import { registerFileRoutes } from './files/routes.ts'
 import { registerFeeRoutes } from './fees/index.ts'
+import { registerAttendanceRoutes } from './attendance/index.ts'
 
 export type { ModuleDependencies }
 
@@ -44,4 +45,5 @@ export function registerModuleRoutes(app: FastifyInstance, deps: ModuleDependenc
   registerAuditRoutes(app, deps)
   registerFileRoutes(app, deps)
   registerFeeRoutes(app, deps)
+  registerAttendanceRoutes(app, deps)
 }

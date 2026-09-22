@@ -69,6 +69,17 @@ const feesFull = (scope: 'school' | 'finance'): readonly RoleGrant[] => [
   grant('fees.manage', scope), grant('fees.export', scope),
 ]
 
+/**
+ * Everything about attendance for the office: read, mark and correct the
+ * pupil registers and export them, and the same for the staff register.
+ */
+const attendanceOffice: readonly RoleGrant[] = [
+  grant('attendance.read', 'school'), grant('attendance.record', 'school'),
+  grant('attendance.manage', 'school'), grant('attendance.export', 'school'),
+  grant('staff_attendance.read', 'school'), grant('staff_attendance.record', 'school'),
+  grant('staff_attendance.manage', 'school'), grant('staff_attendance.export', 'school'),
+]
+
 export const ROLE_TEMPLATES = {
   owner: {
     displayName: 'Owner', enabled: true, requiredMfa: true,
@@ -88,6 +99,7 @@ export const ROLE_TEMPLATES = {
       grant('students.anonymise', 'school'), grant('staff.anonymise', 'school'),
       grant('students.export_subject', 'school'), grant('audit.redact_notes', 'school'),
       ...feesFull('school'),
+      ...attendanceOffice,
     ],
   },
   principal: {
@@ -104,6 +116,7 @@ export const ROLE_TEMPLATES = {
       grant('students.anonymise', 'school'), grant('staff.anonymise', 'school'),
       grant('students.export_subject', 'school'),
       ...feesFull('school'),
+      ...attendanceOffice,
     ],
   },
   admin: {
@@ -118,6 +131,7 @@ export const ROLE_TEMPLATES = {
       grant('students.read_consents', 'school'), grant('students.manage_consents', 'school'),
       // The office counter takes money; it does not set fees or refund them.
       grant('fees.read', 'school'), grant('fees.collect', 'school'),
+      ...attendanceOffice,
     ],
   },
   accountant: {
@@ -132,6 +146,9 @@ export const ROLE_TEMPLATES = {
       grant('audit.read', 'finance'), grant('audit.export', 'finance'),
       grant('dashboard.read', 'finance'),
       ...feesFull('finance'),
+      // The staff register is payroll input; the accountant reads it and
+      // holds nothing about pupil attendance.
+      grant('staff_attendance.read', 'school'),
     ],
   },
   teacher: {
@@ -146,6 +163,10 @@ export const ROLE_TEMPLATES = {
       grant('staff.read_private', 'self'), grant('staff.update_private', 'self'),
       grant('timetable.read', 'self'), grant('timetable.read', 'assigned_sections'),
       grant('timetable.read', 'assigned_subjects'), grant('dashboard.read', 'assigned_sections'),
+      // A class teacher marks and reads their own sections; every staff member
+      // reads their own month of the staff register.
+      grant('attendance.read', 'assigned_sections'), grant('attendance.record', 'assigned_sections'),
+      grant('staff_attendance.read', 'self'),
     ],
   },
   parent: {
@@ -162,6 +183,7 @@ export const ROLE_TEMPLATES = {
       grant('students.manage_consents', 'own_children'),
       grant('students.export_subject', 'own_children'),
       grant('fees.read', 'own_children'),
+      grant('attendance.read', 'own_children'),
     ],
   },
   student: { displayName: 'Student', enabled: false, requiredMfa: false, grants: [] },

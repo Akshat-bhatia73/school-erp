@@ -51,6 +51,17 @@ const REASON_MESSAGES: Record<ErrorReason, string> = {
   fee_receipt_already_reversed:
     'This receipt has already been cancelled or refunded in full, so there is nothing left to reverse.',
   fee_nothing_charged: 'This pupil is not charged that fee in this year, so nothing can be recorded against it.',
+  attendance_date_outside_year: 'That date is outside the academic year, so there is no attendance to record for it.',
+  attendance_not_a_school_day: 'That day is a Sunday or a holiday, so there is no attendance to record.',
+  attendance_date_in_future: 'That day has not come yet. Attendance is recorded on the day.',
+  attendance_marking_window_closed:
+    'The day for marking this register has passed. Ask the school office to correct it.',
+  attendance_pupil_not_on_roster: 'Somebody in this list was not in this section on that day. Reload and try again.',
+  attendance_roster_incomplete: 'Every pupil in the section needs a mark. Reload and try again.',
+  attendance_month_outside_year: 'That month is outside every academic year of this school.',
+  staff_attendance_own_record: 'You cannot mark your own attendance. Leave your own row for a colleague.',
+  staff_attendance_not_on_register: 'Somebody in this list is not on the staff register for that day. Reload and try again.',
+  staff_attendance_register_incomplete: 'Every staff member on the register needs a mark. Reload and try again.',
 }
 
 export class ApiFailure extends Error {

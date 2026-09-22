@@ -61,6 +61,11 @@ const EXPORT_PERMISSIONS: readonly PermissionKeyType[] = [
   // have it without holding an export key.
   'fees.export',
   'fees.read',
+  // A section's register and the staff register are exports; one pupil's
+  // month is the same read in another format, so a parent can print it.
+  'attendance.export',
+  'attendance.read',
+  'staff_attendance.export',
 ]
 
 /**
@@ -146,6 +151,7 @@ const SINGLE_RECORD_KINDS: Readonly<
   student_profile: { resourceType: 'student', field: 'studentId' },
   staff_profile: { resourceType: 'staff', field: 'staffId' },
   fee_receipt: { resourceType: 'fee', field: 'receiptId' },
+  attendance_pupil_month: { resourceType: 'attendance', field: 'studentId' },
 }
 
 /**

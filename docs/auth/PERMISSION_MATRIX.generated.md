@@ -80,10 +80,10 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `fees.collect` | active | school, finance | school | school | school | finance | — | — | — |
 | `fees.manage` | active | school, finance | school | school | — | finance | — | — | — |
 | `fees.export` | active | school, finance | school | school | — | finance | — | — | — |
-| `attendance.read` | reserved | — | — | — | — | — | — | — | — |
-| `attendance.record` | reserved | school, assigned_sections | — | — | — | — | — | — | — |
-| `attendance.manage` | reserved | school | — | — | — | — | — | — | — |
-| `attendance.export` | reserved | school, assigned_sections | — | — | — | — | — | — | — |
+| `attendance.read` | active | — | school | school | school | — | assigned_sections | own_children | — |
+| `attendance.record` | active | school | school | school | school | — | assigned_sections | — | — |
+| `attendance.manage` | active | school | school | school | school | — | — | — | — |
+| `attendance.export` | active | school | school | school | school | — | — | — | — |
 | `exams.read` | reserved | — | — | — | — | — | — | — | — |
 | `exams.record_marks` | reserved | school, assigned_sections, assigned_subjects | — | — | — | — | — | — | — |
 | `exams.manage` | reserved | school | — | — | — | — | — | — | — |
@@ -97,9 +97,9 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `report_cards.manage` | reserved | school, assigned_sections, assigned_subjects | — | — | — | — | — | — | — |
 | `report_cards.publish` | reserved | school | — | — | — | — | — | — | — |
 | `report_cards.export` | reserved | school, assigned_sections, assigned_subjects, own_children | — | — | — | — | — | — | — |
-| `staff_attendance.read` | reserved | — | — | — | — | — | — | — | — |
-| `staff_attendance.record` | reserved | school | — | — | — | — | — | — | — |
-| `staff_attendance.manage` | reserved | school | — | — | — | — | — | — | — |
-| `staff_attendance.export` | reserved | school | — | — | — | — | — | — | — |
+| `staff_attendance.read` | active | — | school | school | school | school | self | — | — |
+| `staff_attendance.record` | active | school | school | school | school | — | — | — | — |
+| `staff_attendance.manage` | active | school | school | school | school | — | — | — | — |
+| `staff_attendance.export` | active | school | school | school | school | — | — | — | — |
 | `ai_assistant.use` | reserved | — | — | — | — | — | — | — | — |
 | `ai_assistant.manage` | reserved | school | — | — | — | — | — | — | — |

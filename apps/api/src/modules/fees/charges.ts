@@ -1,5 +1,5 @@
 import { sql, type SQL } from 'drizzle-orm'
-import { ApiFailure, type TenantConnection } from '../shared/index.ts'
+import { ApiFailure } from '../shared/index.ts'
 
 /**
  * What every pupil owes, in one place.
@@ -208,17 +208,4 @@ export function toPaise(value: unknown): number {
   return parsed
 }
 
-/** Today as YYYY-MM-DD in the school's own timezone, by the database clock. */
-export async function schoolToday(
-  conn: Pick<TenantConnection, 'client'>,
-  schoolId: string,
-): Promise<string> {
-  const result = await conn.client.query<{ today: string }>(
-    `SELECT to_char((now() AT TIME ZONE COALESCE(NULLIF(timezone, ''), 'Asia/Kolkata'))::date, 'YYYY-MM-DD') AS today
-       FROM schools WHERE id = $1`,
-    [schoolId],
-  )
-  const today = result.rows[0]?.today
-  if (!today) throw new ApiFailure('SERVICE_UNAVAILABLE')
-  return today
-}
+export { schoolToday } from '../shared/clock.ts'
