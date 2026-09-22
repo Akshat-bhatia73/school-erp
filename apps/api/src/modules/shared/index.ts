@@ -16,9 +16,11 @@ export { ApiFailure, assertAllowed, assertUuidParam, requireFound } from './erro
 export {
   allocateAdmissionNumber,
   allocateEmployeeCode,
+  allocateReceiptNumber,
   formatAdmissionNumber,
   formatCounter,
   formatEmployeeCode,
+  formatReceiptNumber,
   schoolPrefix,
 } from './sequences.ts'
 export { assertVersion, bumpVersion } from './version.ts'

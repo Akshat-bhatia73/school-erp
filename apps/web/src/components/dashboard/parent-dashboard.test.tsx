@@ -143,3 +143,20 @@ describe('parent dashboard', () => {
     expect(consents).not.toHaveBeenCalled()
   })
 })
+
+describe('parent dashboard, fees', () => {
+  it('links to the statement when something is owed', () => {
+    renderParent(parent({ children: [child({ feesDuePaise: 250000 })] }))
+    expect(screen.getByText('Fees due ₹2,500')).toBeInTheDocument()
+  })
+
+  it('says there is nothing to pay when the figure is zero', () => {
+    renderParent(parent({ children: [child({ feesDuePaise: 0 })] }))
+    expect(screen.getByText('No fees due')).toBeInTheDocument()
+  })
+
+  it('says nothing about fees when the figure was not sent', () => {
+    renderParent(parent())
+    expect(screen.queryByText('No fees due')).not.toBeInTheDocument()
+  })
+})

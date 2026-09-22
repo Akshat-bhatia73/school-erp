@@ -325,7 +325,12 @@ test('the accountant sees money-shaped figures alone: no birthdays, no attention
   for (const key of ['birthdays', 'attention', 'recentActivity', 'securityEvents', 'setup', 'holidays']) {
     assert.ok(!(key in body), `the accountant dashboard carries ${key}`)
   }
-  assert.equal(body.feesNote, 'Fee cards arrive with the fees module')
+  // The money card is real since the fees module: whole paise, never a float.
+  const fees = body.fees as Record<string, unknown>
+  assert.ok(fees, 'the accountant dashboard carries no fees block')
+  for (const key of ['collectedTodayPaise', 'collectedThisMonthPaise', 'outstandingPaise']) {
+    assert.ok(Number.isInteger(fees[key]) && (fees[key] as number) >= 0, `${key} is not whole paise`)
+  }
 })
 
 test('a member whose role no longer allows holidays.read gets an empty calendar list', async () => {

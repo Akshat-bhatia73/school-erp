@@ -239,3 +239,54 @@ around a photograph. `apps/api/tests/images.test.ts` proves the metadata strippi
 **What is left.** The reveal routes have no second factor of their own; they inherit the session's,
 which for an office role means MFA at sign-in. If a school wants a fresh second factor at the moment
 of a reveal, that is a change to make once and for APAAR at the same time.
+
+## 11. Fees, September 2026
+
+A short assessment of the fee records, written when the module was built (Task 19).
+
+**What changed.** The system now holds what each pupil is charged, the optional fees they take, any
+concession and the category it was given under, and a ledger of every payment, refund, cancelled
+receipt and adjustment: number, date, amount by fee, mode, the cheque, UPI or bank reference, and
+the payer's name where the office wrote one. Payments are recorded by hand. There is no payment
+gateway, no online payment and no webhook, so no card number, UPI PIN or bank credential is ever
+seen or stored. Choosing a gateway is a decision still to take.
+
+**Purpose and basis.** Keeping the school's accounts. It is a new purpose, and it is not a consent
+purpose: a school cannot take a fee without recording it and must keep its books. The privacy
+notice and the processing agreement say so.
+
+**Who reads it.** Owner, principal and accountant set, collect, read and export; the administrator
+collects and reads; a parent reads their own children's statements and receipts; a teacher holds no
+fee key at all. A parent reaches a fee row only through the pupil it belongs to, in the same
+`own_children` term every other record uses.
+
+**What keeps it honest.**
+
+- Money is whole paise in a `bigint` from the database to the screen. Nothing is a float.
+- The ledger is append-only in the database, not only in the API: the runtime login holds no
+  DELETE, a trigger refuses every UPDATE but one, and a refund, a cancellation or a correction is a
+  new row that points at the old one.
+- A receipt number comes from the server's counter for the school and the year. No request can
+  carry one.
+- An amount never appears in `safe_changes`. The audit row says what happened and to which record;
+  the amount stays in the fee tables. A reason somebody typed (for a concession, a refund, a
+  cancellation or an adjustment) is a redactable audit note and is stored nowhere else, so a
+  family's hardship is never a column.
+- A concession carries a category from a closed list and no free text.
+
+**Anonymising a pupil, decided.** The law pulls two ways: a pupil's personal details go three years
+after leaving, and account books stay for eight. The decision: the money rows stay exactly as
+written, with their numbers and their bank or cheque references, because those are the evidence
+the accounts rest on and they identify a transaction, not a person. The payer's name is the only
+identifying thing on a receipt beyond the pupil, so anonymisation clears it; that is the single
+edit the ledger trigger allows. The rows stay linked to the pupil's register line, which the school
+keeps permanently anyway. Concessions and optional fees stay with the ledger, because a balance
+cannot be explained without them.
+
+**Retention.** Eight years after the pupil's last fee transaction, as for staff pay. Nothing prunes
+the ledger today; like the audit trail, removal at the end of the period is a decision for the
+school and a task for later, and it is listed as a gap.
+
+**Where it sits.** In the same United States database as everything else. Building and releasing
+the module is fine, but **no real school's money goes in until the database has moved to an Indian
+region** (Task 17).

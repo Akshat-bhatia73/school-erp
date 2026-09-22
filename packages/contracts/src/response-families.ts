@@ -10,6 +10,7 @@ import {
   GuardianPrivate, NamedReference, StaffDetailResponse, StaffDirectory, StaffListResponse,
   StudentBasic, StudentDetailResponse, StudentListResponse, SubstitutionSummary,
   TeachingAssignmentSummary, TimetableCell, TimetableResponse,
+  ExportFileFormat, ExportJobSummary,
 } from './responses.ts'
 
 export const AuthenticatedContext = SchoolContextResponse
@@ -76,11 +77,9 @@ export const StaffSearchResults = z.array(StaffDirectory).max(100)
  * Both fields are absent while the job is queued and on every terminal state
  * that produced nothing, which is why they stay optional.
  */
-export const ExportFileFormat = z.enum(['xlsx', 'pdf'])
-export const ExportJobSummary = z.strictObject({
-  id: Id, status: z.enum(['queued', 'ready', 'failed', 'expired']),
-  fileName: z.string().max(200).optional(), format: ExportFileFormat.optional(),
-})
+// Defined in responses.ts so a module contract can name them without importing
+// this file, which sits at the end of the import graph.
+export { ExportFileFormat, ExportJobSummary }
 export const StudentExportJob = ExportJobSummary
 export const StaffExportJob = ExportJobSummary
 export const AuditExportJob = ExportJobSummary

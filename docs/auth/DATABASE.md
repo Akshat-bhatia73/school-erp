@@ -98,6 +98,27 @@ Migration `0014_setup_versions.sql` adds `version integer NOT NULL DEFAULT 1 CHE
 
 These were the last editable records with no counter of their own. The school profile and a holiday compared a version derived from `updated_at` at microsecond granularity, and a bell schedule answered 1 for ever and refused any other `expectedVersion`, so two people editing one schedule could not be told apart. All three now go through the same `bumpVersion` every other record uses, which means a stale editor gets `VERSION_CONFLICT` rather than a silent overwrite or a puzzling `INVALID_REQUEST`. The change is additive and every existing row starts at 1, so the release before this one keeps running against the migrated database and simply ignores the column.
 
+## Fees
+
+Migration `0015_fees.sql` adds six tenant tables, each with `school_id`, forced RLS under the same `tenant_isolation` policy as its neighbours, and composite foreign keys that include `school_id`, so a fee row can never point at a pupil, a year, a class, a fee head or a receipt in another school.
+
+| Table | What it holds | Runtime grants |
+|---|---|---|
+| `fee_heads` | The school's own list of what it charges: name, category, `applies_to` (`class` or `opt_in`), frequency, active, version. The name is unique in a school, ignoring case | SELECT, INSERT, UPDATE, DELETE |
+| `fee_structures` | The amount of one head per instalment, for one academic year and one class; no class means every class, and a class row wins over it. Unique per year, head and class | the same |
+| `fee_student_heads` | An optional fee one pupil takes, with an optional amount of their own and the dates it runs between | the same |
+| `fee_concessions` | A concession for one pupil and year: basis points of every instalment, or an amount off every instalment of one head, with a category from a closed list and no free text | the same |
+| `fee_receipts` | The ledger: payment, refund, cancellation, credit and debit adjustment. Server-assigned `receipt_number`, unique per school; `reverses_receipt_id` points at the row a refund or cancellation corrects; a partial unique index allows one cancellation per payment | SELECT, INSERT, and UPDATE on `payer_name` only |
+| `fee_receipt_lines` | The amount of one ledger row split by fee head | SELECT, INSERT |
+
+Money is `bigint` paise with a CHECK that it is positive and at most one hundred crore rupees. The Drizzle declarations use `bigint` in number mode; a raw query gets a string, which the API reads through `toPaise`.
+
+The ledger is append-only in the database. The runtime login has no DELETE on either ledger table. `fee_receipts_no_change` refuses every DELETE and every UPDATE except one that sets `payer_name` to NULL and changes nothing else, which is what anonymising a pupil needs; `fee_receipt_lines_no_change` refuses everything. The migration gives no function to `erp_maintenance`, so it needs no CREATE grant on the schema.
+
+Nothing about dues is stored. What a pupil owes is worked out from the structure of their class, their optional fees, their concessions and the days they were enrolled, in one set of common table expressions in `apps/api/src/modules/fees/charges.ts`.
+
+Two CHECK constraints are widened: `number_sequences.kind` gains `receipt` (the period is the academic year id, as for admissions) and `export_jobs.kind` gains `fee_receipt`, `fee_dues` and `fee_collections`. Everything is additive, so the release before this one runs against it unchanged. The release also changes the role templates, so every existing school needs `pnpm db:sync-roles` after the migration; see [the release runbook](./RELEASE.md#4-deploying-a-change).
+
 ## Observability
 
 Migration `0010_observability.sql` (Task 13) adds the access log and durable account lockout.

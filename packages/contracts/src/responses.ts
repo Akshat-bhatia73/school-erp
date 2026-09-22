@@ -7,6 +7,11 @@ export const AllowedActions = z.array(PermissionKey).refine(
   'Only unique active permissions may be advertised',
 )
 export const NamedReference = z.strictObject({ id: Id, name: DisplayName })
+export const ExportFileFormat = z.enum(['xlsx', 'pdf'])
+export const ExportJobSummary = z.strictObject({
+  id: Id, status: z.enum(['queued', 'ready', 'failed', 'expired']),
+  fileName: z.string().max(200).optional(), format: ExportFileFormat.optional(),
+})
 export const EnrollmentSummary = z.strictObject({
   id: Id, academicYear: NamedReference, section: NamedReference, grade: NamedReference,
   rollNumber: z.number().int().positive().optional(),

@@ -2,13 +2,13 @@
 
 Task 5 adds `apps/api/src/modules`: the read and write endpoints for the records a school keeps about itself, its pupils, its people and its week. It sits on the Task 2 session service and the Task 3 policy service, so every route is decided by [the policy service](./AUTHORIZATION.md), every list is bounded by the same predicate its detail read uses, and every write is recorded in the audit log exactly as [access management](./ACCESS_MANAGEMENT.md) does. The operations it replaces are the mock client operations inventoried in [operation coverage](./OPERATION_COVERAGE.md). It is defined in [the implementation plan](../AUTH_RBAC_IMPLEMENTATION_PLAN.md) (sections 9 and 13, and the Task 5 checklist).
 
-Source files: [modules/index.ts](../../apps/api/src/modules/index.ts), [modules/shared](../../apps/api/src/modules/shared) (`route.ts`, `authorize.ts`, `audit.ts`, `version.ts`, `errors.ts`), then one folder per module: [setup](../../apps/api/src/modules/setup), [students](../../apps/api/src/modules/students), [students-bulk](../../apps/api/src/modules/students-bulk), [staff](../../apps/api/src/modules/staff), [timetable](../../apps/api/src/modules/timetable), [dashboard](../../apps/api/src/modules/dashboard), [search](../../apps/api/src/modules/search), [audit](../../apps/api/src/modules/audit), [files](../../apps/api/src/modules/files). Their request and response contracts are the `module-*.ts` files in [`@erp/contracts`](./CONTRACTS.md).
+Source files: [modules/index.ts](../../apps/api/src/modules/index.ts), [modules/shared](../../apps/api/src/modules/shared) (`route.ts`, `authorize.ts`, `audit.ts`, `version.ts`, `errors.ts`), then one folder per module: [fees](../../apps/api/src/modules/fees), [setup](../../apps/api/src/modules/setup), [students](../../apps/api/src/modules/students), [students-bulk](../../apps/api/src/modules/students-bulk), [staff](../../apps/api/src/modules/staff), [timetable](../../apps/api/src/modules/timetable), [dashboard](../../apps/api/src/modules/dashboard), [search](../../apps/api/src/modules/search), [audit](../../apps/api/src/modules/audit), [files](../../apps/api/src/modules/files). Their request and response contracts are the `module-*.ts` files in [`@erp/contracts`](./CONTRACTS.md).
 
 ## Scope
 
-In scope: school profile and academic setup, the student roster and one student's record, bulk admission and promotion, the staff directory and one person's record, the timetable and its substitutions, the dashboard, the command-menu search, the audit log, export jobs with their files and the private document download. Ninety-five routes in nine modules: ninety-two through the shared route helper and three registered by hand in the files module.
+In scope: school profile and academic setup, the student roster and one student's record, bulk admission and promotion, the staff directory and one person's record, the timetable and its substitutions, the dashboard, the command-menu search, the audit log, export jobs with their files, the private document download, and fees: what the school charges, what each pupil owes, the ledger of what was paid, and the files made from them. Ninety-five routes in nine modules: ninety-two through the shared route helper and three registered by hand in the files module.
 
-Out of scope, deliberately. There is no attendance, fee, exam or communication module. There is no custom role and no new permission: the catalogue is the fixed one in `@erp/contracts`, and a route that names a reserved permission fails at startup. Nothing here changes a membership, a role or an exception; that is access management, and a module that needs a parent to reach a new child has to ask for it there.
+Out of scope, deliberately. There is no attendance, exam or communication module, and no online payment: fees are recorded by hand. There is no custom role and no new permission: the catalogue is the fixed one in `@erp/contracts`, and a route that names a reserved permission fails at startup. Nothing here changes a membership, a role or an exception; that is access management, and a module that needs a parent to reach a new child has to ask for it there.
 
 ## The route helper and the gate
 
@@ -193,6 +193,35 @@ year still shows who was in each class. A pupil who left is not counted.
 | `POST /timetable/substitutions/notify` | `timetable.notify_substitutions` | audits only when it actually marked something | 200 | `INVALID_REQUEST` |
 | `POST /timetable/export` | `timetable.read` | the year must be in this school; the view is decided before the job is written, and an empty week needs `sections.read` or `staff.read_directory`; the producer re-reads it under the read plan | 202 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 
+### Fees
+
+| Method and path | Permission | Extra checks | Success | Error codes |
+|---|---|---|---|---|
+| `GET /fees/heads` | `fees.read` | plan predicate over fee heads; a parent's plan selects none | 200 | — |
+| `POST /fees/heads` | `fees.manage` | name unique in the school, ignoring case | 201 | `INVALID_REQUEST` |
+| `PUT /fees/heads/:headId` | `fees.manage` | `expectedVersion`; who it applies to and how often cannot change | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `DELETE /fees/heads/:headId` | `fees.manage` | `expectedVersion` in the query; refused with `fee_head_in_use` while a structure, an optional fee, a concession or a receipt line names it | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `GET /fees/structures` | `fees.read` | plan predicate; `academicYearId` required; a class filter also returns the every-class rows | 200 | `INVALID_REQUEST` |
+| `POST /fees/structures` | `fees.manage` | year, head and class in this school; one row per year, head and class | 201 | `INVALID_REQUEST` |
+| `PUT /fees/structures/:structureId` | `fees.manage` | `expectedVersion` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `DELETE /fees/structures/:structureId` | `fees.manage` | refused with `fee_structure_has_payments` once a payment stands against that head in that year | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `POST /fees/students/:studentId/opt-ins` | `fees.manage` | the pupil decided again; year and head in this school; the head must be an opt-in head; the pupil enrolled in that year; the start date inside it | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `PUT /fees/opt-ins/:optInId` | `fees.manage` | `expectedVersion`; `null` clears the pupil's own amount or the end date | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `DELETE /fees/opt-ins/:optInId` | `fees.manage` | refused with `fee_opt_in_has_payments`; give it an end date instead | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `POST /fees/students/:studentId/concessions` | `fees.manage` | the pupil decided again; year and head in this school; the reason goes to the audit note only | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /fees/concessions/:concessionId/remove` | `fees.manage` | `expectedVersion`; the reason goes to the audit note only | 204 | `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `GET /fees/students/:studentId/statement` | `fees.read` | the pupil through the fee account plan and the `students.read_basic` plan; the class through `sections.read`; audited through `auditRead` | 200 | `RESOURCE_NOT_FOUND` |
+| `GET /fees/dues` | `fees.read` | the same two plans; filters, paging and totals in SQL | 200 | `INVALID_REQUEST` |
+| `GET /fees/receipts` | `fees.read` | ledger plan predicate and the two pupil plans; totals follow the filters | 200 | `INVALID_REQUEST` |
+| `GET /fees/receipts/:receiptId` | `fees.read` | the same; audited through `auditRead` | 200 | `RESOURCE_NOT_FOUND` |
+| `POST /fees/students/:studentId/collect` | `fees.collect` | school locked; the pupil decided again; year and every head in this school; the pupil enrolled in that year; the date not in the future; each line at most what is left of that head for the year (`fee_amount_exceeds_balance`, `fee_nothing_charged`); the receipt number assigned by the server and never sent | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /fees/receipts/:receiptId/refund` | `fees.manage` | a standing payment; each line at most what is left of that payment line; a new row that points at the payment | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /fees/receipts/:receiptId/cancel` | `fees.manage` | a payment with no refund and no cancellation (`fee_receipt_already_reversed`); a new row that copies its lines | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /fees/students/:studentId/adjustments` | `fees.manage` | a credit may not exceed what is left of that head; a debit needs no charge to exist | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /fees/receipts/:receiptId/export` | `fees.read` | the receipt decided again; the producer re-reads it under the requester's plan | 202 | `RESOURCE_NOT_FOUND` |
+| `POST /fees/dues/export` | `fees.export` | the year in this school; the producer re-reads the dues list | 202 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /fees/receipts/export` | `fees.export` | window ordered and at most 366 days | 202 | `INVALID_REQUEST` |
+
 ### Dashboard, search, audit and files
 
 | Method and path | Permission | Extra checks | Success | Error codes |
@@ -203,7 +232,7 @@ year still shows who was in each class. A pupil who left is not counted.
 | `POST /audit-events/export` | `audit.export` | window ordered and at most 366 days | 202 | `INVALID_REQUEST` |
 | `POST /audit-events/:eventId/note/redact` | `audit.redact_notes` | the event must be in this school; a repeat request changes nothing and writes no second row | 200 | `RESOURCE_NOT_FOUND` |
 | `GET /students/:studentId/documents/:documentId/content` | `students.download_documents` | record decided again; the document must belong to that student | 200, a byte stream | `RESOURCE_NOT_FOUND` |
-| `GET /exports/:jobId` | one of `students.export`, `staff.export`, `audit.export`, `timetable.read` | the job's own recorded permission re-decided, plus freshness | 200 | `RESOURCE_NOT_FOUND` |
+| `GET /exports/:jobId` | one of `students.export`, `staff.export`, `audit.export`, `timetable.read`, `fees.export`, `fees.read` | the job's own recorded permission re-decided, plus freshness | 200 | `RESOURCE_NOT_FOUND` |
 | `GET /exports/:jobId/file` | the same floor | the same checks as the status route, then the job must be ready; one audit row per download | 200, a byte stream | `RESOURCE_NOT_FOUND` |
 
 ### What the dashboard answers
@@ -234,7 +263,8 @@ Blocks and the permission each one needs:
 | teacher | `timeline`, `week`, `periods` | `timetable.read` on their own entries; `staffLinked: false` when the login has no staff record |
 | teacher | `myClass` (strength and birthdays) | class teacher of that section, plus `sections.read_strengths` and the `students.read_enrollments` plan for the strength; `birthdaysThisWeek` needs `students.read_sensitive` and is absent otherwise, which the plain teacher role does not hold |
 | parent | one entry per child | `students.read_basic` over their own children; `enrollment` needs `students.read_enrollments`, `todayLessons` needs `timetable.read`, `waitingOn` needs `students.read_consents` |
-| accountant | `feesNote` | none; it is a fixed sentence until the fees module exists |
+| office, accountant | `fees` (collected today and this month, outstanding dues, pupils with dues) | `fees.read`; every figure is a sum over the ledger and the fee accounts the caller's own plan allows, for the current academic year |
+| parent | `feesDuePaise` on each child | `fees.read` over their own children |
 
 Three rules hold across all of it:
 
@@ -341,6 +371,30 @@ In the same transaction the API counts that membership's `denied` rows in the la
 
 **The access log** is not part of this module set: `apps/api/src/http/access-log.ts` writes one row per `/api` request, route pattern only, and is described in [the release runbook](./RELEASE.md#63-the-access-log).
 
+## Fees
+
+Task 19. Payments are recorded by hand: cash, cheque, a UPI reference, a bank transfer or a demand draft. There is no gateway, no online payment and no webhook; choosing a gateway is a decision still to take.
+
+**What the school charges.** A fee head is the school's own: any name, a category that only groups heads on a screen, whether it applies to everybody in a class (`class`) or only to a pupil who takes it (`opt_in`: the bus, a sport, a club, an admission fee), and how often it is charged. A structure is the amount of one head, per instalment, for one academic year and one class; a row with no class is for every class and a class row wins over it. An optional fee is a row for one pupil, with dates and, when the fare differs by route, an amount of its own. A concession is basis points of every instalment or an amount off every instalment of one head, with a category from a closed list.
+
+**What a pupil owes is never stored.** `fees/charges.ts` holds one set of common table expressions, `feeFiguresCte`, and the statement, the dues list, the dashboard cards, the files and the balance checks of a collection all read it, so two screens cannot disagree. A head is charged 1, 2, 4 or 12 times a year; instalment k falls due on the first day of its period, counted in months from the first day of the academic year; an instalment counts only when the pupil was enrolled (and taking the optional fee) on some day of its period. Concessions come off each instalment, rounded down to a whole paisa and never more than the instalment. Paid is payments that stand less refunds. "Due so far" is measured against today in the school's timezone.
+
+**Money is whole paise** in a `bigint`, in every contract and in screen state. `toPaise` reads the driver's bigint string and fails the request rather than round.
+
+**The ledger is immutable.** `fee_receipts` and `fee_receipt_lines` take INSERT and nothing else: the database refuses UPDATE and DELETE by trigger and by grant (see [the database foundation](./DATABASE.md#fees)). A refund, a cancelled receipt and an adjustment are new rows; a refund and a cancellation point at the payment through `reverses_receipt_id`. A payment can be cancelled once and only while it has no refund; refunds may be several and never add up to more than the payment, head by head. A cancelled payment is not money: it leaves "paid" and "collected" everywhere.
+
+**Receipt numbers are the server's.** `allocateReceiptNumber` in `modules/shared/sequences.ts` claims `<short name>/<year name>/R<counter>`, for example `SVM/2026-27/R0014`, from `number_sequences` with kind `receipt` and the academic year as the period, inside the transaction that writes the row and after the school lock, so two collections committed at once take consecutive numbers. Every ledger row takes one. No request contract has the field.
+
+**Who reads what.** Every read ANDs `planPredicate(readPlan(conn, context, 'fees.read', 'fee'), feeScopedTable(...))`. A pupil's name and admission number are student data, so the `students.read_basic` plan is ANDed as well. The class on a fee row is read under the `sections.read` plan rather than `students.read_enrollments`: a fee is charged by class, and the accountant holds no enrolment key, so without this the person who keeps the accounts could not see which class a balance belongs to. A parent's plan reaches exactly the rows of their own children, and no head or structure: the statement carries each head's name on the pupil's own line. Totals on the dues list, the collection register and the dashboard are sums in SQL under the same predicates.
+
+**Audit.** Every fee write leaves exactly one row whose action is its permission key, so all of them are in `FINANCE_AUDIT_ACTIONS` and the accountant's audit list is the money trail. `safe_changes` carries ids, kinds, modes and counts. It never carries an amount, a name, a bank reference or a reason: the amount stays in the fee tables, and a reason somebody typed is the row's note, which can be redacted. Reading one pupil's statement or one receipt leaves an `auditRead` row; lists leave none.
+
+**Files.** Three job kinds, one producer each in `apps/api/src/exports/producers`: `fee_receipt` (a designed PDF, under `fees.read`, because the counter has to print one and a parent may have their own), `fee_dues` and `fee_collections` (Excel or PDF, under `fees.export`). Each producer re-reads through the same readers the routes use, under the requester's own plan, when it makes the bytes. `fee_receipt` is a single-record kind, so the status and download routes decide that receipt again.
+
+**Anonymising a pupil** clears `payer_name` on that pupil's receipts, in the same transaction, and counts the rows in the audit entry. The money rows, their numbers and their bank references stay for the eight years the accounts must stand. The reasoning is in [the data protection assessment](../compliance/DATA_PROTECTION.md) section 11.
+
+**Subject access** gains a `fees` block: one statement per academic year the pupil has an enrolment or a ledger row in, decided under `fees.read` on that pupil and omitted, not emptied, when refused.
+
 ## Subject access
 
 `GET /students/:studentId/subject-access` (`students.export_subject`) answers a parent or the office asking for everything the system holds about one child, as one document, in one audited read. It is an ordinary protected route in `modules/students/subject-access.ts`: one tenant transaction, the student read through the same plan predicate as every other detail read, so an unreachable student is `RESOURCE_NOT_FOUND`.
@@ -351,7 +405,8 @@ Owner and principal hold the permission at school scope; a parent holds it for t
 
 ## What is deliberately not built
 
-- No attendance, fee, exam, communication or report module.
+- No attendance, exam, communication or report module.
+- No online payment. Fees are recorded by hand; a gateway is a decision still to take, and it would bring a sub-processor, webhooks and reconciliation with it.
 - No new permission, no custom role and no membership change. A module that needs a parent linked to a new child has to ask access management for it.
 - No expiry sweeper inside these modules: a stale preview or export job is refused when used, and the daily maintenance sweep is what collects the rows.
 - No audience redaction inside the audit log beyond the row-level plan.
@@ -373,7 +428,7 @@ Coverage and behaviour:
 - Admission never writes `guardian_student_access`, so a parent membership does not automatically gain access to a newly admitted child. That is an access change with an approval state and a version bump, and it belongs to access management.
 - `audit.read` and `audit.export` at the `finance` scope select only rows whose action is in `FINANCE_AUDIT_ACTIONS` from `@erp/contracts`, so an accountant's list, count and export are the money trail and an owner's are the whole log.
 - The command-menu search returns at most 10 hits of each kind with no count, so a caller cannot tell ten matches from four hundred. It also merges two coverage rows, so a caller without `staff.read_directory` gets `staff: []` rather than a refusal, and a caller denied `students.read_basic` is refused the whole endpoint even if they may read staff.
-- The dashboard now answers a whole home screen per audience, not two integers: the day, what needs attention, the school in numbers, class strength, admissions by month, holidays, birthdays, recent activity and the setup checklist. Attendance, exams and fees still have no tables, so the accountant view carries a fixed note where fee cards will go. The office audience is `owner`, `principal` and `admin`; there is no `clerk` role in this build.
+- The dashboard now answers a whole home screen per audience, not two integers: the day, what needs attention, the school in numbers, class strength, admissions by month, holidays, birthdays, recent activity and the setup checklist. Attendance and exams still have no tables. The fee cards are real since Task 19. The office audience is `owner`, `principal` and `admin`; there is no `clerk` role in this build.
 - The promotion reason is validated and then not persisted: operator free text routinely names a child, and audit rows must stay free of personal detail.
 - `GET /exports/:jobId` and `GET /exports/:jobId/file` are not in the coverage inventory; their floor is a set of permissions chosen here rather than a documented one, and it is written down as a difference in [operation coverage](./OPERATION_COVERAGE.md).
 - `PUT /grades/:gradeId/subjects` answers `GradeSubjectList` where the inventory says `Subject` or `EmptySuccess`, because the request replaces a set and returning the set saves a re-read.
@@ -384,6 +439,12 @@ Coverage and behaviour:
 - `allowedActionsFor` and `decideResource` reload the policy snapshot and relationship facts on every call, so a detail read makes several snapshot loads where one would do. Correct, and worth caching per transaction in the shared layer.
 - There is no way back from anonymisation and no preview of what it will clear beyond the sentence on the screen. The cleared columns are set to null in one statement and the document bytes are gone from storage.
 - Nothing prunes `guardian_consents` or `audit_event_notes`. Both are history a school is expected to keep, but neither has a stated retention period of its own.
+- Fees: instalments fall due on the first day of each period, counted from the first day of the academic year. A school cannot yet choose its own due dates, and there is no automatic late fee: a fine is a debit adjustment somebody records against a late-fee head.
+- Fees: nothing prunes the ledger after its eight years. Like the audit trail, removal at the end of the period is a school decision and a later task.
+- Fees: the dues list names no guardian and no phone number, so chasing a balance still means opening the pupil. The accountant holds `students.read_guardian_contact` at the finance scope, so adding it is a projection, not a permission.
+- Fees: a concession and an optional fee cannot be edited into another head; they are removed and added again. A concession has no dates of its own and applies to the whole year.
+- Fees: there is no online payment gateway. That is a product decision still to take.
+- Fees: the database is in the United States. No real school's money goes in until it has moved to an Indian region (Task 17).
 - `apps/api` still has no lint script, so `pnpm -r lint` does not reach this source.
 
 ## Run the tests
@@ -423,7 +484,7 @@ Reset the schema before `test:db`, `test:authz` and `test:security`: the API sui
 
 ## What the tests prove
 
-`pnpm test:api` is 453 tests across 36 files. Task 5 added 159 of them, in ten files: 20 setup, 22 students, 18 students-bulk, 23 staff, 20 timetable, 9 dashboard, 11 search, 10 audit, 21 files and 5 foundation. Task 8 adds 14: five in `sequences.test.ts` (the formatters, and two transactions allocating from one counter at once), and the numbering cases in students (two admissions at once take consecutive numbers; the first admission into another year is 001; a sent number is refused), staff (a sent code is refused; the code comes from the school counter whoever creates the record) and students-bulk (a kept number beside a blank one; a kept number in the school format lifts the counter; a kept number too long for any counter is ignored by it). The other 89 are the Task 2 authentication tests and the Task 4 access tests.
+`pnpm test:api` is 478 tests across 38 files. Task 5 added 159 of them, in ten files: 20 setup, 22 students, 18 students-bulk, 23 staff, 20 timetable, 9 dashboard, 11 search, 10 audit, 21 files and 5 foundation. Task 8 adds 14: five in `sequences.test.ts` (the formatters, and two transactions allocating from one counter at once), and the numbering cases in students (two admissions at once take consecutive numbers; the first admission into another year is 001; a sent number is refused), staff (a sent code is refused; the code comes from the school counter whoever creates the record) and students-bulk (a kept number beside a blank one; a kept number in the school format lifts the counter; a kept number too long for any counter is ignored by it). The other 89 are the Task 2 authentication tests and the Task 4 access tests.
 
 Every module file asserts the same seven shapes for at least its main list and its main detail read, wherever the shape has a meaning for that module: an anonymous caller is refused, a member of one school using the other school's id in the path is refused with `SCHOOL_ACCESS_UNAVAILABLE`, another school's record id through this school's path is not found and leaks nothing, a same-school caller with the wrong relationship gets not found and finds the row absent from the list, a permitted read returns exactly the contract fields, a write body carrying a forbidden field is refused with the database unchanged, and a bulk request with one bad id is rejected whole with nothing written.
 
@@ -434,5 +495,7 @@ Task 15 adds `exports-xlsx.test.ts` in `apps/api/tests` (the spreadsheet helper,
 Task 18 adds 20 tests to the existing module files and one adversarial file, `tests/security/screen-contract-gaps.test.ts` (6). The module tests cover the member directory filters (each of status, role, `staffId` and search narrows the page and the total; a search finds somebody named only by their login; a `%` or `_` is looked for literally; an unknown query key is `INVALID_REQUEST`; another school's staff id finds nobody), the guardian version a correction has to send back and the conflict a stale one gets, a leaving date that is set, read back and cleared with `null` and never on a directory row, the class teacher name seen by an office reader, a teacher and a parent, `allowedActions` on every setup record, a refused delete and its reason with nothing deleted and no audit row, the audit outcome filter on its own and on top of the accountant's finance scope, a class of 105 previewed as two pages with the right total, and the version of a school profile, a holiday and a bell schedule starting at 1 and refusing the loser of a race. The security file asks the adversarial half: a filter is not a way round `members.read`, a school id in the path is not a school the caller belongs to, a search never crosses the boundary, a class teacher is not named to somebody who may not read that record and cannot be written in from another school, and every page of a roster follows the same read plan while a teacher is refused both the preview and the run. `pnpm test:contracts` gains two: a refusal reason must be one of the named blockers, and the member directory filters are a closed list.
 
 The class teacher post became a relationship straight after Task 18, because a class teacher with no subject in their own class could not open it. `tests/security/class-teacher-scope.test.ts` asks where that stops, with a teacher who teaches nothing: their own section and its pupils and no other, not a class of a closed year, not another school's section through this school's path, no `sections.manage`, and nothing at all the moment the post is taken away.
+
+Task 19 adds `modules-fees.test.ts` (18) and `modules-fees-exports.test.ts` (6) to `apps/api/tests`, fee cases to `subject-access.test.ts` and `modules-lifecycle.test.ts`, four fee plan cases to `packages/authz/tests/scope.test.ts`, `packages/db/tests/fees-ledger.test.mjs` (4: the runtime login cannot UPDATE an amount or DELETE a ledger row, may clear `payer_name` and nothing else, and RLS hides another school's fee rows), and `tests/security/fees.test.ts` (10). The module file proves the arithmetic (a class amount beats the every-class amount, twelve monthly instalments of which only those fallen due count, a September joiner owes nothing for April, an optional fee at its own amount and only while it lasts, a percentage rounding down and an amount concession stopping at the instalment), the ledger (a server-made receipt number, a body naming a receipt number, a school id, a float or a negative amount refused with nothing written, more than the balance refused with its reason, two collections at once taking consecutive numbers, a refund capped by the payment, one cancellation per payment, a cancelled payment no longer counting as paid, adjustments both ways), the audit row of a collection carrying exactly `academicYearId`, `lineCount`, `mode`, `receiptId` and `studentId` with the refund's reason in the note only, dues totals that cover every page, the register and its detail agreeing, and the accountant's money card matching the register. The security file asks the adversarial half: a teacher refused on all 24 fee routes with one denied row each and no fee row changed; a parent reading their own child and 404 for another family's child and receipt, with lists and totals that cover their children alone, empty heads and structures, every write refused and their own receipt still printable; the admin collecting and refused every manage route and both list exports; the accountant doing the lot with a money-only audit trail; school B's pupil, receipt, head, structure, optional fee and concession ids answering byte for byte like invented ones on reads and writes with school B unchanged; a collect body naming school B's year or head refused; a single-factor owner `MFA_REQUIRED`; and the promoted child whose closed year stays readable to the parent while another family stays 404 in both years.
 
 The scope assertions are built from real scopes rather than from a caller who holds nothing: a teacher with one teaching assignment, a parent of one child, an accountant at finance scope, an administrator whose role lost one key. Several tests were written specifically to fail if the plan predicate were removed from a query, which is what keeps "a list contains a row if and only if the detail read allows it" a property and not a claim.

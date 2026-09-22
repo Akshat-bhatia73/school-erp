@@ -16,6 +16,7 @@ import type {
   OfficeDashboard,
 } from '@erp/contracts'
 import { decideSchoolAction, readPlan } from '../shared/index.ts'
+import { readFeeSummary } from '../fees/statement.ts'
 import { ApiFailure } from '../../http/errors.ts'
 import { label, predicateFor, rows } from './queries.ts'
 import {
@@ -535,6 +536,11 @@ export async function officeDashboard(
   const perTeacher = await optionalBlock(() => studentsPerTeacher(conn, context))
   const strengths = await optionalBlock(() => classStrength(conn, context, year?.id ?? null))
   const admissions = await optionalBlock(() => admissionsByMonth(conn, context, year, date))
+  // The same money card the accountant sees. An owner, a principal and an
+  // office administrator all hold the fee read, and anybody who does not is
+  // simply left without the block.
+  const fees =
+    year === null ? undefined : await optionalBlock(() => readFeeSummary(conn, context, year.id, date))
   const birthdays = await birthdayLists(conn, context, date, year?.id ?? null)
   const recent = await optionalBlock(() => recentAuditEvents(conn, context, authPool))
   const setup = await setupSteps(conn, context)
@@ -549,6 +555,7 @@ export async function officeDashboard(
     ...(today === undefined ? {} : { today }),
     attention,
     ...(glance === undefined ? {} : { glance }),
+    ...(fees === undefined ? {} : { fees }),
     ...(perTeacher === undefined ? {} : { studentsPerTeacher: perTeacher }),
     ...(strengths === undefined ? {} : { classStrength: strengths }),
     ...(admissions === undefined ? {} : { admissionsByMonth: admissions }),

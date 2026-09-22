@@ -5,8 +5,17 @@ import { FINANCE_AUDIT_ACTIONS, isFinanceAuditAction } from '@erp/contracts'
 import type { PermissionKey, ResourceType } from '@erp/contracts'
 import type { RequestContext } from '@erp/contracts/server'
 
+import { sql } from 'drizzle-orm'
+
 import { createAuthorizationService } from '../src/service.ts'
-import { createReadPlan, scopedGet, scopedList, scopedTableFor } from '../src/scope.ts'
+import {
+  createReadPlan,
+  feeScopedTable,
+  planPredicate,
+  scopedGet,
+  scopedList,
+  scopedTableFor,
+} from '../src/scope.ts'
 import type { ScopedTable } from '../src/scope.ts'
 import {
   cleanup,
@@ -744,5 +753,191 @@ test('a single audit event decision agrees with the finance plan', async () => {
     assert.equal(decision.allowed, false, 'a non finance action is refused one at a time')
     const ownerDecision = await authz.authorize(ownerContext(), 'audit.read', resource(id))
     assert.equal(ownerDecision.allowed, true, 'a school scope reads any single row')
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Fees (Task 19). One plan of resource type 'fee' is read through six tables,
+// so the same plan has to describe the same rows in every one of them.
+
+/**
+ * A fee head, an amount, two ledger rows, an optional fee and a concession.
+ * The ledger refuses a DELETE even to the owner of the table, so these rows
+ * are never registered for cleanup: the test database is disposable and the
+ * ids are fresh on every run.
+ */
+let feeRows: Promise<{
+  headId: string
+  structureId: string
+  childReceiptId: string
+  otherReceiptId: string
+  childOptInId: string
+  childConcessionId: string
+}> | null = null
+
+async function seedFeeRows(): Promise<NonNullable<Awaited<typeof feeRows>>> {
+  feeRows ??= (async () => {
+    const tag = crypto.randomUUID().slice(0, 8)
+    const head = await migrator.query<{ id: string }>(
+      `INSERT INTO fee_heads(school_id,name,category,applies_to,frequency)
+       VALUES ($1,$2,'tuition','class','yearly') RETURNING id`,
+      [schoolA, `Scope tuition ${tag}`],
+    )
+    const optInHead = await migrator.query<{ id: string }>(
+      `INSERT INTO fee_heads(school_id,name,category,applies_to,frequency)
+       VALUES ($1,$2,'transport','opt_in','monthly') RETURNING id`,
+      [schoolA, `Scope bus ${tag}`],
+    )
+    const structure = await migrator.query<{ id: string }>(
+      `INSERT INTO fee_structures(school_id,academic_year_id,fee_head_id,amount_paise)
+       VALUES ($1,$2,$3,1200000) RETURNING id`,
+      [schoolA, fx('yearA'), head.rows[0]!.id],
+    )
+    const receipt = async (studentId: string, number: string) => {
+      const row = await migrator.query<{ id: string }>(
+        `INSERT INTO fee_receipts(school_id,student_id,academic_year_id,kind,receipt_number,
+                                  amount_paise,mode,received_on,recorded_by_membership_id)
+         VALUES ($1,$2,$3,'payment',$4,100000,'cash','2026-04-10',$5) RETURNING id`,
+        [schoolA, studentId, fx('yearA'), number, fx('ownerA')],
+      )
+      await migrator.query(
+        `INSERT INTO fee_receipt_lines(school_id,receipt_id,fee_head_id,amount_paise)
+         VALUES ($1,$2,$3,100000)`,
+        [schoolA, row.rows[0]!.id, head.rows[0]!.id],
+      )
+      return row.rows[0]!.id
+    }
+    const optIn = await migrator.query<{ id: string }>(
+      `INSERT INTO fee_student_heads(school_id,student_id,academic_year_id,fee_head_id,starts_on)
+       VALUES ($1,$2,$3,$4,'2026-04-01') RETURNING id`,
+      [schoolA, fx('studentA2'), fx('yearA'), optInHead.rows[0]!.id],
+    )
+    const concession = await migrator.query<{ id: string }>(
+      `INSERT INTO fee_concessions(school_id,student_id,academic_year_id,category,kind,percent_bp)
+       VALUES ($1,$2,$3,'sibling','percent',1000) RETURNING id`,
+      [schoolA, fx('studentA2'), fx('yearA')],
+    )
+    return {
+      headId: head.rows[0]!.id,
+      structureId: structure.rows[0]!.id,
+      // studentA2 is parentA2's own child; studentA belongs to another family.
+      childReceiptId: await receipt(fx('studentA2'), `SCOPE/${tag}/R0001`),
+      otherReceiptId: await receipt(fx('studentA'), `SCOPE/${tag}/R0002`),
+      childOptInId: optIn.rows[0]!.id,
+      childConcessionId: concession.rows[0]!.id,
+    }
+  })()
+  return feeRows
+}
+
+/** The ids one fee table hands a plan, through the predicate and nothing else. */
+async function feeIds(
+  context: RequestContext,
+  kind: Parameters<typeof feeScopedTable>[0],
+  table: string,
+): Promise<string[]> {
+  const plan = await authz.scopeQuery(context, 'fees.read', 'fee')
+  const rows = await withRuntime(context, (conn) =>
+    conn.db.execute<{ id: string }>(
+      sql`SELECT ${sql.raw(table)}.id FROM ${sql.raw(table)}
+           WHERE ${planPredicate(plan, feeScopedTable(kind))}`,
+    ),
+  )
+  return rows.rows.map((row) => row.id)
+}
+
+test('a parent fee plan reaches their own children and nothing else', async () => {
+  const rows = await seedFeeRows()
+  const parent = parentContext()
+
+  const receipts = await feeIds(parent, 'receipt', 'fee_receipts')
+  assert.equal(receipts.includes(rows.childReceiptId), true, 'a parent reads their own child')
+  assert.equal(receipts.includes(rows.otherReceiptId), false, 'another family stays hidden')
+
+  // The fee account is the pupil, so the account table is the students table.
+  const accounts = await feeIds(parent, 'account', 'students')
+  assert.deepEqual(accounts, [fx('studentA2')])
+
+  const optIns = await feeIds(parent, 'opt_in', 'fee_student_heads')
+  assert.equal(optIns.includes(rows.childOptInId), true)
+  const concessions = await feeIds(parent, 'concession', 'fee_concessions')
+  assert.equal(concessions.includes(rows.childConcessionId), true)
+
+  // By design a parent's plan selects no head and no structure at all: the
+  // names of the fees their child is charged come from the statement.
+  assert.deepEqual(await feeIds(parent, 'head', 'fee_heads'), [])
+  assert.deepEqual(await feeIds(parent, 'structure', 'fee_structures'), [])
+})
+
+test('the fee list agrees with a single fee decision, row by row', async () => {
+  const rows = await seedFeeRows()
+  const parent = parentContext()
+  const listed = new Set(await feeIds(parent, 'receipt', 'fee_receipts'))
+  const candidates = [
+    rows.childReceiptId,
+    rows.otherReceiptId,
+    rows.childOptInId,
+    rows.childConcessionId,
+    rows.headId,
+    rows.structureId,
+    fx('studentA'),
+    fx('studentA2'),
+  ]
+  for (const id of candidates) {
+    const decision = await authz.authorize(parent, 'fees.read', {
+      schoolId: schoolA,
+      resourceType: 'fee',
+      id,
+    })
+    // Only a ledger row can be in the ledger list; for one that can be, the
+    // list and the single decision have to say the same thing.
+    if (id === rows.childReceiptId || id === rows.otherReceiptId) {
+      assert.equal(listed.has(id), decision.allowed, `${id} disagrees with its own decision`)
+    }
+  }
+  const own = await authz.authorize(parent, 'fees.read', {
+    schoolId: schoolA,
+    resourceType: 'fee',
+    id: fx('studentA2'),
+  })
+  assert.equal(own.allowed, true, 'a parent reads their own child’s fee account')
+  const other = await authz.authorize(parent, 'fees.read', {
+    schoolId: schoolA,
+    resourceType: 'fee',
+    id: fx('studentA'),
+  })
+  assert.equal(other.allowed, false, 'another family’s fee account is refused')
+})
+
+test('a teacher gets no fee plan at all', async () => {
+  const teacher = contextFor({
+    schoolId: schoolA,
+    membershipId: teacherNoStaff.membershipId,
+    roleKeys: ['teacher'],
+    assurance: 'single_factor',
+  })
+  await assert.rejects(authz.scopeQuery(teacher, 'fees.read', 'fee'), (error: unknown) => {
+    assert.ok(error instanceof Error && 'code' in error)
+    assert.equal((error as { code: string }).code, 'ACCESS_DENIED')
+    return true
+  })
+})
+
+test('an accountant fee plan selects the whole school', async () => {
+  const rows = await seedFeeRows()
+  const finance = accountantContext(accountant.membershipId)
+  const receipts = await feeIds(finance, 'receipt', 'fee_receipts')
+  assert.equal(receipts.includes(rows.childReceiptId), true)
+  assert.equal(receipts.includes(rows.otherReceiptId), true, 'finance scope is the whole school')
+  assert.ok((await feeIds(finance, 'head', 'fee_heads')).includes(rows.headId))
+  assert.ok((await feeIds(finance, 'structure', 'fee_structures')).includes(rows.structureId))
+
+  // The plan stops at the school boundary even though the scope is the school.
+  const foreign = await migrator.query<{ id: string }>(
+    'SELECT id FROM fee_receipts WHERE school_id = $1',
+    [schoolB],
+  )
+  for (const row of foreign.rows) {
+    assert.equal(receipts.includes(row.id), false, 'another school never appears')
   }
 })

@@ -23,6 +23,9 @@ import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AccountSecurityRouteImport } from './routes/account/security'
 import { Route as MfaSetupRouteImport } from './routes/mfa/setup'
 import { Route as MfaVerifyRouteImport } from './routes/mfa/verify'
+import { Route as AppFeesIndexRouteImport } from './routes/_app/fees/index'
+import { Route as AppFeesCollectionsRouteImport } from './routes/_app/fees/collections'
+import { Route as AppFeesSetupRouteImport } from './routes/_app/fees/setup'
 import { Route as AppSettingsAuditLogRouteImport } from './routes/_app/settings/audit-log'
 import { Route as AppSettingsRolesRouteImport } from './routes/_app/settings/roles'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
@@ -43,6 +46,8 @@ import { Route as AppTimetableIndexRouteImport } from './routes/_app/timetable/i
 import { Route as AppTimetablePeriodsRouteImport } from './routes/_app/timetable/periods'
 import { Route as AppTimetableSubstitutionsRouteImport } from './routes/_app/timetable/substitutions'
 import { Route as AppTimetableTeachersRouteImport } from './routes/_app/timetable/teachers'
+import { Route as AppFeesReceiptsReceiptIdRouteImport } from './routes/_app/fees/receipts/$receiptId'
+import { Route as AppFeesStudentsStudentIdRouteImport } from './routes/_app/fees/students/$studentId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -112,6 +117,21 @@ const MfaVerifyRoute = MfaVerifyRouteImport.update({
   id: '/mfa/verify',
   path: '/mfa/verify',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppFeesIndexRoute = AppFeesIndexRouteImport.update({
+  id: '/fees/',
+  path: '/fees/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFeesCollectionsRoute = AppFeesCollectionsRouteImport.update({
+  id: '/fees/collections',
+  path: '/fees/collections',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFeesSetupRoute = AppFeesSetupRouteImport.update({
+  id: '/fees/setup',
+  path: '/fees/setup',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsAuditLogRoute = AppSettingsAuditLogRouteImport.update({
   id: '/settings/audit-log',
@@ -214,6 +234,18 @@ const AppTimetableTeachersRoute = AppTimetableTeachersRouteImport.update({
   path: '/timetable/teachers',
   getParentRoute: () => AppRoute,
 } as any)
+const AppFeesReceiptsReceiptIdRoute =
+  AppFeesReceiptsReceiptIdRouteImport.update({
+    id: '/fees/receipts/$receiptId',
+    path: '/fees/receipts/$receiptId',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppFeesStudentsStudentIdRoute =
+  AppFeesStudentsStudentIdRouteImport.update({
+    id: '/fees/students/$studentId',
+    path: '/fees/students/$studentId',
+    getParentRoute: () => AppRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -229,6 +261,8 @@ export interface FileRoutesByFullPath {
   '/account/security': typeof AccountSecurityRoute
   '/mfa/setup': typeof MfaSetupRoute
   '/mfa/verify': typeof MfaVerifyRoute
+  '/fees/collections': typeof AppFeesCollectionsRoute
+  '/fees/setup': typeof AppFeesSetupRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/settings/roles': typeof AppSettingsRolesRoute
   '/settings/users': typeof AppSettingsUsersRoute
@@ -246,9 +280,12 @@ export interface FileRoutesByFullPath {
   '/timetable/periods': typeof AppTimetablePeriodsRoute
   '/timetable/substitutions': typeof AppTimetableSubstitutionsRoute
   '/timetable/teachers': typeof AppTimetableTeachersRoute
+  '/fees/': typeof AppFeesIndexRoute
   '/staff/': typeof AppStaffIndexRoute
   '/students/': typeof AppStudentsIndexRoute
   '/timetable/': typeof AppTimetableIndexRoute
+  '/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
+  '/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -264,6 +301,8 @@ export interface FileRoutesByTo {
   '/account/security': typeof AccountSecurityRoute
   '/mfa/setup': typeof MfaSetupRoute
   '/mfa/verify': typeof MfaVerifyRoute
+  '/fees/collections': typeof AppFeesCollectionsRoute
+  '/fees/setup': typeof AppFeesSetupRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/settings/roles': typeof AppSettingsRolesRoute
   '/settings/users': typeof AppSettingsUsersRoute
@@ -281,9 +320,12 @@ export interface FileRoutesByTo {
   '/timetable/periods': typeof AppTimetablePeriodsRoute
   '/timetable/substitutions': typeof AppTimetableSubstitutionsRoute
   '/timetable/teachers': typeof AppTimetableTeachersRoute
+  '/fees': typeof AppFeesIndexRoute
   '/staff': typeof AppStaffIndexRoute
   '/students': typeof AppStudentsIndexRoute
   '/timetable': typeof AppTimetableIndexRoute
+  '/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
+  '/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -301,6 +343,8 @@ export interface FileRoutesById {
   '/account/security': typeof AccountSecurityRoute
   '/mfa/setup': typeof MfaSetupRoute
   '/mfa/verify': typeof MfaVerifyRoute
+  '/_app/fees/collections': typeof AppFeesCollectionsRoute
+  '/_app/fees/setup': typeof AppFeesSetupRoute
   '/_app/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/_app/settings/roles': typeof AppSettingsRolesRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
@@ -318,9 +362,12 @@ export interface FileRoutesById {
   '/_app/timetable/periods': typeof AppTimetablePeriodsRoute
   '/_app/timetable/substitutions': typeof AppTimetableSubstitutionsRoute
   '/_app/timetable/teachers': typeof AppTimetableTeachersRoute
+  '/_app/fees/': typeof AppFeesIndexRoute
   '/_app/staff/': typeof AppStaffIndexRoute
   '/_app/students/': typeof AppStudentsIndexRoute
   '/_app/timetable/': typeof AppTimetableIndexRoute
+  '/_app/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
+  '/_app/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -338,6 +385,8 @@ export interface FileRouteTypes {
     | '/account/security'
     | '/mfa/setup'
     | '/mfa/verify'
+    | '/fees/collections'
+    | '/fees/setup'
     | '/settings/audit-log'
     | '/settings/roles'
     | '/settings/users'
@@ -355,9 +404,12 @@ export interface FileRouteTypes {
     | '/timetable/periods'
     | '/timetable/substitutions'
     | '/timetable/teachers'
+    | '/fees/'
     | '/staff/'
     | '/students/'
     | '/timetable/'
+    | '/fees/receipts/$receiptId'
+    | '/fees/students/$studentId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -373,6 +425,8 @@ export interface FileRouteTypes {
     | '/account/security'
     | '/mfa/setup'
     | '/mfa/verify'
+    | '/fees/collections'
+    | '/fees/setup'
     | '/settings/audit-log'
     | '/settings/roles'
     | '/settings/users'
@@ -390,9 +444,12 @@ export interface FileRouteTypes {
     | '/timetable/periods'
     | '/timetable/substitutions'
     | '/timetable/teachers'
+    | '/fees'
     | '/staff'
     | '/students'
     | '/timetable'
+    | '/fees/receipts/$receiptId'
+    | '/fees/students/$studentId'
   id:
     | '__root__'
     | '/'
@@ -409,6 +466,8 @@ export interface FileRouteTypes {
     | '/account/security'
     | '/mfa/setup'
     | '/mfa/verify'
+    | '/_app/fees/collections'
+    | '/_app/fees/setup'
     | '/_app/settings/audit-log'
     | '/_app/settings/roles'
     | '/_app/settings/users'
@@ -426,9 +485,12 @@ export interface FileRouteTypes {
     | '/_app/timetable/periods'
     | '/_app/timetable/substitutions'
     | '/_app/timetable/teachers'
+    | '/_app/fees/'
     | '/_app/staff/'
     | '/_app/students/'
     | '/_app/timetable/'
+    | '/_app/fees/receipts/$receiptId'
+    | '/_app/fees/students/$studentId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -546,6 +608,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/mfa/verify'
       preLoaderRoute: typeof MfaVerifyRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/fees/': {
+      id: '/_app/fees/'
+      path: '/fees'
+      fullPath: '/fees/'
+      preLoaderRoute: typeof AppFeesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/fees/collections': {
+      id: '/_app/fees/collections'
+      path: '/fees/collections'
+      fullPath: '/fees/collections'
+      preLoaderRoute: typeof AppFeesCollectionsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/fees/setup': {
+      id: '/_app/fees/setup'
+      path: '/fees/setup'
+      fullPath: '/fees/setup'
+      preLoaderRoute: typeof AppFeesSetupRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/settings/audit-log': {
       id: '/_app/settings/audit-log'
@@ -687,11 +770,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTimetableTeachersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/fees/receipts/$receiptId': {
+      id: '/_app/fees/receipts/$receiptId'
+      path: '/fees/receipts/$receiptId'
+      fullPath: '/fees/receipts/$receiptId'
+      preLoaderRoute: typeof AppFeesReceiptsReceiptIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/fees/students/$studentId': {
+      id: '/_app/fees/students/$studentId'
+      path: '/fees/students/$studentId'
+      fullPath: '/fees/students/$studentId'
+      preLoaderRoute: typeof AppFeesStudentsStudentIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
   AppDashboardRoute: typeof AppDashboardRoute
+  AppFeesCollectionsRoute: typeof AppFeesCollectionsRoute
+  AppFeesSetupRoute: typeof AppFeesSetupRoute
   AppSettingsAuditLogRoute: typeof AppSettingsAuditLogRoute
   AppSettingsRolesRoute: typeof AppSettingsRolesRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRoute
@@ -709,13 +808,18 @@ interface AppRouteChildren {
   AppTimetablePeriodsRoute: typeof AppTimetablePeriodsRoute
   AppTimetableSubstitutionsRoute: typeof AppTimetableSubstitutionsRoute
   AppTimetableTeachersRoute: typeof AppTimetableTeachersRoute
+  AppFeesIndexRoute: typeof AppFeesIndexRoute
   AppStaffIndexRoute: typeof AppStaffIndexRoute
   AppStudentsIndexRoute: typeof AppStudentsIndexRoute
   AppTimetableIndexRoute: typeof AppTimetableIndexRoute
+  AppFeesReceiptsReceiptIdRoute: typeof AppFeesReceiptsReceiptIdRoute
+  AppFeesStudentsStudentIdRoute: typeof AppFeesStudentsStudentIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppDashboardRoute: AppDashboardRoute,
+  AppFeesCollectionsRoute: AppFeesCollectionsRoute,
+  AppFeesSetupRoute: AppFeesSetupRoute,
   AppSettingsAuditLogRoute: AppSettingsAuditLogRoute,
   AppSettingsRolesRoute: AppSettingsRolesRoute,
   AppSettingsUsersRoute: AppSettingsUsersRoute,
@@ -733,9 +837,12 @@ const AppRouteChildren: AppRouteChildren = {
   AppTimetablePeriodsRoute: AppTimetablePeriodsRoute,
   AppTimetableSubstitutionsRoute: AppTimetableSubstitutionsRoute,
   AppTimetableTeachersRoute: AppTimetableTeachersRoute,
+  AppFeesIndexRoute: AppFeesIndexRoute,
   AppStaffIndexRoute: AppStaffIndexRoute,
   AppStudentsIndexRoute: AppStudentsIndexRoute,
   AppTimetableIndexRoute: AppTimetableIndexRoute,
+  AppFeesReceiptsReceiptIdRoute: AppFeesReceiptsReceiptIdRoute,
+  AppFeesStudentsStudentIdRoute: AppFeesStudentsStudentIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

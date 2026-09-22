@@ -34,11 +34,11 @@ Nothing in the services makes the Provider a fiduciary of the School's data.
 
 | Item | Detail |
 |---|---|
-| Subject matter | Running the School's pupil, staff and timetable records in the Provider's software |
+| Subject matter | Running the School's pupil, staff, timetable and fee records in the Provider's software |
 | Duration | The term of the services agreement, plus the deletion window in clause 10 |
-| Nature and purpose | Storing, organising, displaying and deleting school records so School staff can do their jobs |
+| Nature and purpose | Storing, organising, displaying and deleting school records so School staff can do their jobs. For fees that means keeping the School's own record of what each pupil is charged and what the office has received by hand. The Provider does not collect, hold, move or settle money, is not a payment service, and processes no card, UPI or bank credential |
 | Categories of data subject | Pupils (children), their parents and guardians, School staff, and any other person the School gives a login |
-| Categories of personal data | As set out in section 3 of the Provider's data protection assessment: pupil identifiers and register fields; sensitive pupil fields including date of birth, category, religion, an encrypted Aadhaar number, the APAAR identifier, a photograph and free-text medical notes; guardian contact, office address, income and encrypted PAN and Aadhaar numbers; staff salary, identifier fragments, bank account fragment and a photograph; and login credentials |
+| Categories of personal data | As set out in section 3 of the Provider's data protection assessment: pupil identifiers and register fields; sensitive pupil fields including date of birth, category, religion, an encrypted Aadhaar number, the APAAR identifier, a photograph and free-text medical notes; guardian contact, office address, income and encrypted PAN and Aadhaar numbers; staff salary, identifier fragments, bank account fragment and a photograph; fee records: what each pupil is charged, the optional fees they take, the category of any concession, and every receipt, refund and adjustment with its amount, date, mode, the cheque, UPI or bank reference and the payer's name where the office wrote one; and login credentials |
 
 The Provider does not sell personal data, does not use it to train any model, and does not use it
 for its own purposes.
@@ -63,6 +63,11 @@ Consent is recorded in the software against these purposes, and no others:
 Each consent is stored as a dated event with who recorded it and how (in person, a signed form, or
 the parent portal). A withdrawal is a new event, so the history is never overwritten. The School
 decides what each purpose means to its parents and writes it in its own privacy notice.
+
+Fee records are not processed on consent and have no consent purpose. A school cannot take a fee
+without recording it and must keep its account books, so the School relies on that duty and on the
+admission it has agreed with the family, and says so in its privacy notice. Messages to a parent
+about fees still fall under `communication`.
 
 ## 4. Confidentiality
 
@@ -175,6 +180,12 @@ Deletion uses the same routes the software uses every day, not an ad-hoc script:
 - Guardian records are anonymised when the last link to a pupil ends.
 - Staff sensitive fields are cleared through the staff anonymisation route, keeping employment
   dates and designation.
+- The fee ledger cannot be edited or deleted by the software at all. Anonymising a pupil clears the
+  payer's name from that pupil's receipts and leaves the money rows, their numbers and their bank
+  references in place for the eight years the School's accounts must stand. At the end of the term
+  the ledger is part of the export, and the Provider deletes it with the School's database on the
+  School's written instruction, which the School should give only once its own retention duty is
+  met or it holds the export.
 - Transient copies, sessions, one-time codes, import previews, invitations and the delivery outbox
   are removed by the daily sweep.
 - Credentials for people who no longer hold any membership are swept 30 days after the last

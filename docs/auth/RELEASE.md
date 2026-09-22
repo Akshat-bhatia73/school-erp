@@ -201,6 +201,26 @@ uses, never to the internet; checklist item 16 checks both halves.
 Migrations run as `erp_migrator` and only at deploy time. The running service
 never holds that login.
 
+Migration `0015_fees.sql` is the fees release (Task 19), and it is the one
+release so far that needs **two** steps before the new code starts. The
+migration is additive: six new tables (`fee_heads`, `fee_structures`,
+`fee_student_heads`, `fee_concessions`, `fee_receipts`, `fee_receipt_lines`) and
+two CHECK constraints widened (`number_sequences.kind` gains `receipt`,
+`export_jobs.kind` gains three fee kinds), so the previous version of the code
+still runs against it. But the release also **changes the role templates**: the
+four fee permissions become active and owner, principal, accountant, admin and
+parent gain grants. Role grants live in `role_permissions` per school, so every
+existing school needs `pnpm db:sync-roles` with the migrator credential, after
+step 2 and before the smoke test. Without it nobody in an existing school,
+the owner included, holds a fee key: the Fees screen is missing and every fee
+route answers `ACCESS_DENIED`. The order is: migrate, `migrate:check`,
+`db:sync-roles` (it prints how many grants each school gained; a school on the
+previous templates gains 15: four each for owner, principal and accountant, two
+for admin and one for parent), merge, deploy, smoke. The
+ledger tables refuse UPDATE and DELETE by trigger, so a rollback of the code
+leaves them in place; see section 11. No real school's money goes in before the
+database moves to an Indian region (Task 17).
+
 Migration `0014_setup_versions.sql` is the screen and contract gaps release. It
 adds one column, `version`, to `schools`, `holidays` and `bell_schedules`, with a
 default of 1, so the previous version of the code still runs against it and step
@@ -282,6 +302,10 @@ quote the same numbers. Periods start when the purpose ends, not when the row wa
 | Guardian records | While any linked student is within the period above | Anonymised when the last link ends | The same route, and guardian unlink |
 | Guardian PAN and Aadhaar numbers (sealed, with the last four characters beside them) and office address | While any linked student is within the period above | Cleared with the rest of the guardian record | The same route, and guardian unlink |
 | Staff photograph | Employed, plus the staff period below | Removed with the rest of the private staff details | `POST /staff/:id/anonymise`, `DELETE /staff/:id/photo` |
+| Fee ledger (`fee_receipts`, `fee_receipt_lines`: receipts, refunds, cancellations, adjustments, with number, date, amount, mode and bank reference) | 8 years after the pupil's last fee transaction, as for staff pay | Nothing prunes it today; removal after the period is a school decision and a later task | The runtime login holds no DELETE; the `fee_receipts_no_change` and `fee_receipt_lines_no_change` triggers refuse every edit |
+| Payer's name on a receipt (`fee_receipts.payer_name`) | The same period as the student sensitive fields | Cleared by the pupil's anonymisation; the money row stays | `POST /students/:id/anonymise`; the one UPDATE the ledger trigger allows |
+| A pupil's concessions and optional fees | With the fee ledger | Kept, because a balance cannot be explained without them; a concession's reason is an audit note, never a column | `fees.manage` routes only |
+| Fee heads and structures | Permanently; school setup, not personal data | Nothing | `fees.manage` routes only |
 | Staff records (salary, identifier fragments, private contact) | Employed, plus 8 years after leaving for statutory payroll records | Anonymise contact and identifiers; keep employment dates and designation | `POST /staff/:id/anonymise` |
 | Login identity and credentials | While the person holds any active membership | Sessions end when the last membership is removed; credentials go 30 days later, keeping `auth_user.id` and the name for audit attribution | Membership removal, then `sweep_orphaned_credentials` |
 | Sessions, one-time codes, reset tokens, throttle rows, held text messages | Until expiry | Deleted | `sweep_auth_transients`, daily |
@@ -455,6 +479,11 @@ Migrations do not roll back automatically. Write every migration so the
 previous version of the code still runs against it: add columns, do not rename
 or drop in the same release as the code change. If a release must remove
 something, ship the code first and the removal in a later release.
+
+Rolling back the fees release is a code rollback only. The fee tables and the
+fee grants stay: the previous code never reads the tables, and it treats the fee
+keys as reserved, so a grant it does not recognise is simply never asked about.
+Do not try to empty `fee_receipts`: it refuses DELETE by design.
 
 ## 12. Scope
 

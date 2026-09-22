@@ -257,7 +257,17 @@ async function removePreviousSchool(client: pg.PoolClient): Promise<void> {
   )
   await client.query('UPDATE schools SET current_academic_year_id = NULL WHERE id = $1', [schoolId])
   await client.query('ALTER TABLE audit_events DISABLE TRIGGER audit_no_update')
+  // The fee ledger refuses every delete. Only this seed, as the table owner on
+  // a developer machine, may switch that off to rebuild its own school.
+  await client.query('ALTER TABLE fee_receipts DISABLE TRIGGER fee_receipts_no_change')
+  await client.query('ALTER TABLE fee_receipt_lines DISABLE TRIGGER fee_receipt_lines_no_change')
+  // Consent history is append-only in the same way, and it points at the
+  // memberships and pupils removed below.
+  await client.query('ALTER TABLE guardian_consents DISABLE TRIGGER guardian_consents_no_update')
   const tables = [
+    'guardian_consents', 'audit_event_notes',
+    'fee_receipt_lines', 'fee_receipts', 'fee_concessions', 'fee_student_heads',
+    'fee_structures', 'fee_heads',
     'export_jobs', 'student_import_previews',
     'timetable_entries', 'substitutions', 'teaching_assignments',
     'bell_schedule_grades', 'bell_schedules', 'holidays', 'grade_subjects',
@@ -272,6 +282,9 @@ async function removePreviousSchool(client: pg.PoolClient): Promise<void> {
     await client.query(`DELETE FROM ${table} WHERE school_id = $1`, [schoolId])
   }
   await client.query('ALTER TABLE audit_events ENABLE TRIGGER audit_no_update')
+  await client.query('ALTER TABLE fee_receipts ENABLE TRIGGER fee_receipts_no_change')
+  await client.query('ALTER TABLE fee_receipt_lines ENABLE TRIGGER fee_receipt_lines_no_change')
+  await client.query('ALTER TABLE guardian_consents ENABLE TRIGGER guardian_consents_no_update')
   await client.query('DELETE FROM schools WHERE id = $1', [schoolId])
 
   // Identities are shared across schools, so only the ones with no membership
@@ -1422,6 +1435,181 @@ async function main(): Promise<void> {
         [schoolId, student.id, `${runDate.slice(0, 7)}-08`],
       )
     }
+
+    // ------------------------------------------------------------------ fees
+    // The school's own list of what it charges, an amount for each class, a
+    // few optional fees and concessions, and a ledger with something in every
+    // state: paid up, part paid, nothing paid, a refund, a cancelled cheque and
+    // a fine. Amounts are whole paise. Receipt numbers are written in the
+    // school's own format, so the API's counter carries on after them.
+    const rupees = (value: number): number => value * 100
+    const feeHeadSeeds = [
+      { key: 'tuition', name: 'Tuition fee', category: 'tuition', appliesTo: 'class', frequency: 'monthly' },
+      { key: 'annual', name: 'Annual charges', category: 'other', appliesTo: 'class', frequency: 'yearly' },
+      { key: 'exam', name: 'Examination fee', category: 'exam', appliesTo: 'class', frequency: 'half_yearly' },
+      { key: 'lab', name: 'Science lab fee', category: 'lab', appliesTo: 'class', frequency: 'quarterly' },
+      { key: 'library', name: 'Library fee', category: 'library', appliesTo: 'class', frequency: 'yearly' },
+      { key: 'admission', name: 'Admission fee', category: 'admission', appliesTo: 'opt_in', frequency: 'one_time' },
+      { key: 'transport', name: 'School bus', category: 'transport', appliesTo: 'opt_in', frequency: 'monthly' },
+      { key: 'sports', name: 'Sports academy', category: 'sports', appliesTo: 'opt_in', frequency: 'quarterly' },
+      { key: 'music', name: 'Music club', category: 'activity', appliesTo: 'opt_in', frequency: 'half_yearly' },
+      { key: 'late', name: 'Late fee', category: 'late_fee', appliesTo: 'opt_in', frequency: 'one_time' },
+    ] as const
+    const feeHead = new Map<string, string>()
+    for (const head of feeHeadSeeds) {
+      const headId = randomUUID()
+      feeHead.set(head.key, headId)
+      await client.query(
+        `INSERT INTO fee_heads (id, school_id, name, category, applies_to, frequency)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [headId, schoolId, head.name, head.category, head.appliesTo, head.frequency],
+      )
+    }
+    const structure = async (key: string, gradeId: string | null, amount: number): Promise<void> => {
+      await client.query(
+        `INSERT INTO fee_structures (school_id, academic_year_id, fee_head_id, grade_id, amount_paise)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [schoolId, yearNow.id, feeHead.get(key), gradeId, amount],
+      )
+    }
+    const tuitionOf = (grade: GradeSeed): number => rupees(2200 + grade.sortOrder * 150)
+    for (const grade of grades) {
+      await structure('tuition', grade.id, tuitionOf(grade))
+      // The lab is for the senior classes only, so the junior ones have no row.
+      if (grade.sortOrder >= 9) await structure('lab', grade.id, rupees(900))
+    }
+    // One amount for every class, where the school charges everybody the same.
+    await structure('annual', null, rupees(6500))
+    await structure('exam', null, rupees(1200))
+    await structure('library', null, rupees(800))
+    await structure('admission', null, rupees(15000))
+    await structure('transport', null, rupees(1800))
+    await structure('sports', null, rupees(2500))
+    await structure('music', null, rupees(3000))
+
+    const feePupils = students.filter((student) => student.status === 'active' && student.section !== null)
+    const optIn = async (student: StudentSeed, key: string, amount: number | null, startsOn: string): Promise<void> => {
+      await client.query(
+        `INSERT INTO fee_student_heads (school_id, student_id, academic_year_id, fee_head_id, amount_paise, starts_on)
+         VALUES ($1, $2, $3, $4, $5, $6::date)`,
+        [schoolId, student.id, yearNow.id, feeHead.get(key), amount, startsOn],
+      )
+    }
+    for (const [index, student] of feePupils.entries()) {
+      // A third take the bus, and the far route costs more than the structure.
+      if (index % 3 === 0) await optIn(student, 'transport', index % 9 === 0 ? rupees(2400) : null, yearNow.start)
+      if (index % 7 === 0) await optIn(student, 'sports', null, yearNow.start)
+      if (index % 11 === 0) await optIn(student, 'music', null, yearNow.start)
+      if (student.admissionDate >= yearNow.start) await optIn(student, 'admission', null, student.admissionDate)
+    }
+    for (const [index, student] of feePupils.entries()) {
+      if (index % 13 === 0) {
+        await client.query(
+          `INSERT INTO fee_concessions (school_id, student_id, academic_year_id, fee_head_id, category, kind, percent_bp)
+           VALUES ($1, $2, $3, $4, 'sibling', 'percent', 1000)`,
+          [schoolId, student.id, yearNow.id, feeHead.get('tuition')],
+        )
+      } else if (index % 29 === 0) {
+        await client.query(
+          `INSERT INTO fee_concessions (school_id, student_id, academic_year_id, fee_head_id, category, kind, percent_bp)
+           VALUES ($1, $2, $3, NULL, 'scholarship', 'percent', 5000)`,
+          [schoolId, student.id, yearNow.id],
+        )
+      }
+    }
+
+    let receiptCounter = 0
+    const ledgerRow = async (row: {
+      student: StudentSeed
+      kind: 'payment' | 'refund' | 'cancellation' | 'credit_adjustment' | 'debit_adjustment'
+      lines: readonly (readonly [string, number])[]
+      mode: string | null
+      reference: string | null
+      receivedOn: string
+      reverses?: string
+    }): Promise<string> => {
+      receiptCounter += 1
+      const receiptId = randomUUID()
+      const total = row.lines.reduce((sum, [, amount]) => sum + amount, 0)
+      await client.query(
+        `INSERT INTO fee_receipts (id, school_id, student_id, academic_year_id, kind, receipt_number,
+                                   amount_paise, mode, reference, received_on, payer_name,
+                                   reverses_receipt_id, recorded_by_membership_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, $11, $12, $13)`,
+        [
+          receiptId, schoolId, row.student.id, yearNow.id, row.kind,
+          `${SHORT_NAME}/${yearNow.name}/R${String(receiptCounter).padStart(4, '0')}`,
+          total, row.mode, row.reference, row.receivedOn,
+          row.kind === 'payment' ? `Parent of ${row.student.firstName}` : null,
+          row.reverses ?? null, accountant.membershipId,
+        ],
+      )
+      for (const [key, amount] of row.lines) {
+        await client.query(
+          `INSERT INTO fee_receipt_lines (school_id, receipt_id, fee_head_id, amount_paise)
+           VALUES ($1, $2, $3, $4)`,
+          [schoolId, receiptId, feeHead.get(key), amount],
+        )
+      }
+      return receiptId
+    }
+    // How many monthly instalments have fallen due by the day the seed runs.
+    const monthsDue = Math.max(
+      1,
+      Math.min(12, (Number(runDate.slice(0, 4)) - 2026) * 12 + Number(runDate.slice(5, 7)) - 4 + 1),
+    )
+    const modes = ['cash', 'upi', 'cheque', 'bank_transfer', 'demand_draft'] as const
+    const referenceFor = (mode: string, index: number): string | null =>
+      mode === 'cash' ? null : `${mode.slice(0, 3).toUpperCase()}${String(100000 + index * 37)}`
+    for (const [index, student] of feePupils.entries()) {
+      const grade = (student.section as SectionSeed).grade
+      const tuition = tuitionOf(grade)
+      const mode = modes[index % modes.length] as string
+      // Every tenth family has paid nothing yet, so the dues list has a top.
+      if (index % 10 === 9) continue
+      // The annual charges and the first months of tuition, early in the year.
+      await ledgerRow({
+        student, kind: 'payment', mode, reference: referenceFor(mode, index),
+        receivedOn: shiftDays(yearNow.start, 4 + (index % 20)),
+        lines: [['annual', rupees(6500)], ['library', rupees(800)], ['tuition', tuition * Math.min(2, monthsDue)]],
+      })
+      // Most families then keep up with tuition; a quarter fall a month or two behind.
+      const paidMonths = index % 4 === 0 ? Math.max(2, monthsDue - 2) : monthsDue
+      if (paidMonths > 2) {
+        await ledgerRow({
+          student, kind: 'payment', mode, reference: referenceFor(mode, index + 500),
+          // A handful are dated today, so "collected today" has a figure.
+          receivedOn: index % 25 === 0 ? runDate : shiftDays(runDate, -(3 + (index % 40))),
+          lines: [['tuition', tuition * (paidMonths - 2)]],
+        })
+      }
+    }
+    // One of each thing that can happen to a payment.
+    const [refunded, bounced, fined] = [feePupils[1], feePupils[2], feePupils[4]] as [StudentSeed, StudentSeed, StudentSeed]
+    const overpaid = await ledgerRow({
+      student: refunded, kind: 'payment', mode: 'upi', reference: 'UPI778812', receivedOn: shiftDays(runDate, -12),
+      lines: [['exam', rupees(1200)]],
+    })
+    await ledgerRow({
+      student: refunded, kind: 'refund', mode: 'bank_transfer', reference: 'NEFT552190', receivedOn: shiftDays(runDate, -6),
+      lines: [['exam', rupees(400)]], reverses: overpaid,
+    })
+    const cheque = await ledgerRow({
+      student: bounced, kind: 'payment', mode: 'cheque', reference: 'CHQ004417', receivedOn: shiftDays(runDate, -9),
+      lines: [['exam', rupees(1200)]],
+    })
+    await ledgerRow({
+      student: bounced, kind: 'cancellation', mode: null, reference: null, receivedOn: shiftDays(runDate, -3),
+      lines: [['exam', rupees(1200)]], reverses: cheque,
+    })
+    await ledgerRow({
+      student: fined, kind: 'debit_adjustment', mode: null, reference: null, receivedOn: shiftDays(runDate, -2),
+      lines: [['late', rupees(200)]],
+    })
+    await client.query(
+      `INSERT INTO number_sequences (school_id, kind, period, next_value) VALUES ($1, 'receipt', $2, $3)`,
+      [schoolId, yearNow.id, receiptCounter + 1],
+    )
 
     await client.query('COMMIT')
   } catch (error) {

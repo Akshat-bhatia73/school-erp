@@ -107,6 +107,23 @@ const Glance = z.strictObject({
   leftThisMonth: z.number().int().nonnegative().optional(),
 })
 
+/** Whole paise. Money is never a fraction and never a float. */
+const DashboardPaise = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
+
+/**
+ * The money cards. Every figure is a sum over the fee rows the caller's own
+ * `fees.read` plan allows, so the block is absent for anybody who holds no fee
+ * key. Outstanding is what has fallen due by the dashboard's date and is not
+ * paid yet, in the current academic year.
+ */
+export const DashboardFees = z.strictObject({
+  collectedTodayPaise: DashboardPaise,
+  receiptsToday: z.number().int().nonnegative(),
+  collectedThisMonthPaise: DashboardPaise,
+  outstandingPaise: DashboardPaise,
+  studentsWithDues: z.number().int().nonnegative(),
+})
+
 export const DashboardSetupStepKey = z.enum(['school', 'years', 'grades', 'sections', 'subjects'])
 
 export const OfficeDashboard = z.strictObject({
@@ -121,6 +138,7 @@ export const OfficeDashboard = z.strictObject({
     .optional(),
   attention: z.array(DashboardAttentionItem),
   glance: Glance.optional(),
+  fees: DashboardFees.optional(),
   studentsPerTeacher: z.number().nonnegative().optional(),
   classStrength: z.array(DashboardClassStrength).optional(),
   admissionsByMonth: z
@@ -193,6 +211,8 @@ export const ParentDashboard = z.strictObject({
       classTeacher: NamedReference.optional(),
       todayLessons: z.array(DashboardTimelineSlot).optional(),
       nextHoliday: DashboardHoliday.optional(),
+      /** What has fallen due for this child and is not paid yet; needs `fees.read`. */
+      feesDuePaise: DashboardPaise.optional(),
       waitingOn: z.array(
         z.strictObject({ kind: z.literal('consent'), purpose: ConsentPurpose }),
       ),
@@ -200,14 +220,12 @@ export const ParentDashboard = z.strictObject({
   ),
 })
 
-export const ACCOUNTANT_FEES_NOTE = 'Fee cards arrive with the fees module'
-
 export const AccountantDashboard = z.strictObject({
   audience: z.literal('accountant'),
   day: DashboardDay,
   glance: Glance.optional(),
   classStrength: z.array(DashboardClassStrength).optional(),
-  feesNote: z.literal(ACCOUNTANT_FEES_NOTE),
+  fees: DashboardFees.optional(),
 })
 
 export const DashboardResponse = z.discriminatedUnion('audience', [
@@ -226,6 +244,7 @@ export type DashboardAttentionItem = z.infer<typeof DashboardAttentionItem>
 export type DashboardClassStrength = z.infer<typeof DashboardClassStrength>
 export type DashboardLesson = z.infer<typeof DashboardLesson>
 export type DashboardTimelineSlot = z.infer<typeof DashboardTimelineSlot>
+export type DashboardFees = z.infer<typeof DashboardFees>
 export type DashboardGlance = z.infer<typeof Glance>
 export type DashboardSetupStepKey = z.infer<typeof DashboardSetupStepKey>
 export type OfficeDashboard = z.infer<typeof OfficeDashboard>

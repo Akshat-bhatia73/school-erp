@@ -49,14 +49,18 @@ export type AuditExportRequest = z.infer<typeof AuditExportRequest>
  * `audit.read` and `audit.export` at the `finance` scope select only audit
  * rows whose action is in this list, so an accountant reads the money trail
  * of the school and nothing else. Membership, role, invitation, student and
- * setup actions are deliberately absent. The fee actions join this list when
- * the fees module lands; until then the list is exactly what the API writes
- * today that an accountant is concerned with.
+ * setup actions are deliberately absent. The fee actions are here: every
+ * fee write, every fee file and every read of one pupil's statement or receipt
+ * leaves a row under one of the four fee keys.
  */
 export const FINANCE_AUDIT_ACTIONS = [
   'staff.update_pay',
   'staff.export',
   'audit.export',
+  'fees.read',
+  'fees.collect',
+  'fees.manage',
+  'fees.export',
 ] as const
 
 export type FinanceAuditAction = (typeof FINANCE_AUDIT_ACTIONS)[number]

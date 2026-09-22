@@ -23,7 +23,7 @@ Owner or permission changed:
 - `students.enrollments` scope is now also applied to the class summary carried on a student hit in the roster, the search and the detail read, so a caller with no enrolment grant sees the pupil without the class.
 - Attaching an existing guardian during admission needs `students.manage_guardians` as well as `students.create`.
 - `subjects.setGradeSubjects` answers `GradeSubjectList`, not `Subject` or `EmptySuccess`.
-- Export job status polling (`GET /api/schools/:schoolId/exports/:jobId`) and the export file download (`GET /api/schools/:schoolId/exports/:jobId/file`) are endpoints this inventory does not list. Each requires one of `students.export`, `staff.export`, `audit.export` or `timetable.read` and then re-decides the permission the job itself recorded. The download also needs the job to be ready and to belong to the caller, and it writes one audit row.
+- Export job status polling (`GET /api/schools/:schoolId/exports/:jobId`) and the export file download (`GET /api/schools/:schoolId/exports/:jobId/file`) are endpoints this inventory does not list. Each requires one of `students.export`, `staff.export`, `audit.export`, `timetable.read`, `fees.export` or `fees.read` and then re-decides the permission the job itself recorded. The download also needs the job to be ready and to belong to the caller, and it writes one audit row.
 - Three export endpoints this inventory does not list were added by decision on 19 September 2026: `POST /students/:studentId/export-profile` (`students.export`) and `POST /staff/:staffId/export-profile` (`staff.export`) turn one record into a document, and `POST /timetable/export` (`timetable.read`) turns one week into a spreadsheet or a document. Exporting a timetable is reading it in another format, so it carries the read permission rather than an export permission of its own.
 - `auditLogs.list` redaction by audience is the scope term: `audit.read` and `audit.export` at the `finance` scope select only rows whose action is in `FINANCE_AUDIT_ACTIONS`, so an accountant's list, count and export never exceed the money trail.
 - `timetable.bellSchedules` and `timetable.bellFor` are school-wide rather than matched scope: `timetable.read` is a permission over timetable entries, so no read plan can be built for a bell schedule.
@@ -72,6 +72,11 @@ Owner or permission changed:
 | `/timetable/periods` | `timetable.read` / school; write `timetable.manage_periods` | `BellScheduleList` | Tasks 5, 7 |
 | `/timetable/substitutions` | `timetable.read` / school; writes `timetable.manage_substitutions` or `notify_substitutions` | `SubstitutionDay` | Tasks 5, 7 |
 | `/timetable/teachers` | `timetable.read_teacher_loads` / school and `timetable.read` / school | `TeacherLoadList`, `StaffTimetable` | Tasks 5, 7 |
+| `/fees` | `fees.read` / school, finance or own children (a parent sees only their own children); export uses `fees.export` | `FeeDuesPage` | Task 19 |
+| `/fees/collections` | `fees.read` / school, finance or own children; export uses `fees.export` | `FeeReceiptPage` | Task 19 |
+| `/fees/setup` | `fees.read` / school or finance; writes `fees.manage` | `FeeHeadList`, `FeeStructureList` | Task 19 |
+| `/fees/students/:studentId` | `fees.read` / matched record scope; collect uses `fees.collect`, every other write `fees.manage` | `FeeStatement` | Task 19 |
+| `/fees/receipts/:receiptId` | `fees.read` / matched record scope; refund and cancel use `fees.manage` | `FeeReceiptDetail` | Task 19 |
 
 ## API client operations
 
@@ -157,6 +162,25 @@ the same shape so the inventory stays a complete statement of what the API answe
 | `students.photo` (fetch, upload, remove) | `students.read_basic` to fetch, `students.update_basic` to change / matched record scope | image bytes, or `204`; the record's own `hasPhoto` and `photoUpdatedAt` say what happened | Office feedback, September 2026 |
 | `staff.photo` (fetch, upload, remove) | `staff.read_directory` to fetch, `staff.update_private` to change / matched record scope, so a teacher may set their own | image bytes, or `204` | Office feedback, September 2026 |
 | `students.subjectAccess` | `students.export_subject` / school for owner and principal, own children for a parent; privileged at school scope | `SubjectAccessExport`, assembled from existing families (`StudentBasic`, `StudentSensitive` with the full APAAR, `StudentMedical`, `GuardianPrivate` or `GuardianContact`, `EnrollmentSummary`, `DocumentSummary`, `ConsentRecord`) | Task 13 |
+
+The fees module (Task 19) added these. Every one is a `protectedRoute` under `/fees`; the route table
+with its extra checks is in [protected school APIs](./PROTECTED_APIS.md#fees).
+
+| Operation | Permission / scope | Safe response family | Owner |
+|---|---|---|---|
+| `fees.heads` (list) | `fees.read` / school or finance; a parent's plan selects none | `FeeHeadList` | Task 19 |
+| `fees.createHead`, `fees.updateHead`, `fees.removeHead` | `fees.manage` / school or finance; privileged | `FeeHead`, or `204` | Task 19 |
+| `fees.structures` (list) | `fees.read` / school or finance | `FeeStructureList` | Task 19 |
+| `fees.createStructure`, `fees.updateStructure`, `fees.removeStructure` | `fees.manage` / school or finance; privileged | `FeeStructure`, or `204` | Task 19 |
+| `fees.addOptIn`, `fees.updateOptIn`, `fees.removeOptIn` | `fees.manage` / matched record scope; privileged | `FeeOptIn`, or `204` | Task 19 |
+| `fees.addConcession`, `fees.removeConcession` | `fees.manage` / matched record scope; privileged; the reason is an audit note | `FeeConcession`, or `204` | Task 19 |
+| `fees.statement` | `fees.read` / school, finance or own children; every read audited | `FeeStatement` | Task 19 |
+| `fees.dues` | `fees.read` / the same scopes; totals under the same plan | `FeeDuesPage` | Task 19 |
+| `fees.receipts` (list) and `fees.receipt` | `fees.read` / the same scopes; one receipt audited | `FeeReceiptPage`, `FeeReceiptDetail` | Task 19 |
+| `fees.collect` | `fees.collect` / school or finance; privileged; the receipt number is assigned by the server | `FeeReceiptDetail` | Task 19 |
+| `fees.refund`, `fees.cancelReceipt`, `fees.adjust` | `fees.manage` / matched record scope; privileged; the reason is an audit note | `FeeReceiptDetail` | Task 19 |
+| `fees.exportReceipt` | `fees.read` / matched record scope: the same read in another format | `FeeExportJob` | Task 19 |
+| `fees.exportDues`, `fees.exportCollections` | `fees.export` / school or finance; privileged | `FeeExportJob` | Task 19 |
 
 ## Read auditing
 

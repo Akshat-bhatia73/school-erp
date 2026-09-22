@@ -14,6 +14,7 @@ import type {
 } from '@erp/contracts'
 import type { RequestContext } from '@erp/contracts/server'
 import { decideAction } from '../../memberships/authorize.ts'
+import { readStatement } from '../fees/statement.ts'
 import { resolveDisplayNames, type MemberRow } from '../../memberships/directory.ts'
 import {
   allowedActionsFor,
@@ -166,6 +167,33 @@ async function loadDocuments(
   return documents
 }
 
+/**
+ * The years this pupil has fee data in: one they were enrolled for, or one a
+ * ledger row of theirs belongs to. A leaver still has both, which is the
+ * point: the statements go back as far as the money does.
+ */
+async function feeYears(
+  conn: ModuleConnection,
+  schoolId: string,
+  studentId: string,
+): Promise<string[]> {
+  const rows = await conn.client.query<{ id: string }>(
+    `SELECT ay.id
+       FROM academic_years ay
+      WHERE ay.school_id = $1
+        AND (EXISTS (SELECT 1 FROM enrollments e
+                      WHERE e.school_id = ay.school_id AND e.academic_year_id = ay.id
+                        AND e.student_id = $2)
+          OR EXISTS (SELECT 1 FROM fee_receipts r
+                      WHERE r.school_id = ay.school_id AND r.academic_year_id = ay.id
+                        AND r.student_id = $2))
+      ORDER BY ay.start_date, ay.id
+      LIMIT 30`,
+    [schoolId, studentId],
+  )
+  return rows.rows.map((row) => row.id)
+}
+
 interface ConsentRow extends Record<string, unknown> {
   id: string
   student_id: string
@@ -310,6 +338,7 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ...(result.guardians.length === 0 ? [] : ['guardians']),
           ...(result.documents.length === 0 ? [] : ['documents']),
           ...(result.consents.length === 0 ? [] : ['consents']),
+          ...(result.fees === undefined ? [] : ['fees']),
           ...(result.accessHistory === undefined ? [] : ['accessHistory']),
         ],
       }),
@@ -392,6 +421,22 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           !anonymised && (await may('students.read_consents'))
             ? await loadConsents(conn, context, studentId)
             : []
+        // The money is kept even when everything else about the child has
+        // been cleared: the accounts must stand for eight years, so an
+        // anonymised pupil still exports their fee statements. The block is
+        // left out altogether, rather than emptied, when the caller may not
+        // read this pupil's fees.
+        const feeDecision = await decideResource(conn, context, 'fees.read', 'fee', studentId)
+        const fees = feeDecision.allowed
+          ? await (async () => {
+              const statements = []
+              for (const yearId of await feeYears(conn, context.schoolId, studentId)) {
+                statements.push(await readStatement(conn, context, studentId, yearId))
+              }
+              return statements
+            })()
+          : undefined
+
         // The trail is decided against the school as a whole: there is no one
         // audit row to decide, and the rows named here are this student's.
         const history = (await decideAction(conn, context, 'audit.read', context.schoolId, true))
@@ -409,6 +454,7 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           enrollments,
           documents,
           consents,
+          ...(fees === undefined ? {} : { fees }),
           ...(history === undefined ? {} : { accessHistory: history }),
         }
       })

@@ -33,6 +33,10 @@ record that disappears by itself is a record nobody chose to lose.
 | **Pupil documents**: certificates and uploaded files | The same 3 years | Deleted from the document store with the same step |
 | **Guardian records**: name, phone, email, address, occupation, qualification, income | While any linked child is still within the period above | Anonymised when the last link ends |
 | **Staff records**: salary, PAN and bank account fragments, private contact details, absence and substitution notes | While employed, plus 8 years after leaving, because payroll records must be kept | Contact details and identifiers are cleared. Employment dates and designation stay, so the school can still confirm someone worked there |
+| **The fee ledger**: every receipt, refund, cancelled receipt and adjustment, with its number, date, amount by fee, how it was paid and the cheque, UPI or bank reference | 8 years after the pupil's last fee transaction, the same period as staff pay, because account books must be kept | Nothing is cleared before then. The software cannot edit or delete a ledger row at all: a correction is a new row that points at the old one |
+| **The name of whoever paid**, where the office wrote one on a receipt | The same period as the other pupil details: while enrolled, plus 3 years after leaving | The anonymisation step clears the name. The money row, its number and its bank reference stay, because the accounts still have to add up |
+| **A pupil's concessions and optional fees** (the bus, a sport, a club), and the category a concession was given under | With the fee ledger: 8 years after the last fee transaction | Kept with the ledger, because a balance cannot be explained without them. The reason a concession was given is never stored here: it is a note on the audit entry and can be redacted |
+| **What the school charges**: its fee heads and the amount for each class and year | Permanently, as school setup. It describes the school, not a person | Nothing |
 | **Logins and credentials**: password, second factor, backup codes | While the person holds an active membership at the school | Sessions end the moment the last membership is removed. The credentials themselves are deleted 30 days later. The identity's id and name are kept so old audit entries still say who did something |
 | **Sign-in sessions, one-time codes, password reset links, rate-limit counters, held text messages** | Until they expire, usually minutes to days | Deleted every night |
 | **Uploaded admission spreadsheets waiting to be confirmed** | 24 hours | Deleted every night, whether or not they were used |
@@ -72,3 +76,4 @@ software changes what it enforces.
 |---|---|
 | 19 Sep 2026 | First version, taken from release runbook section 6.2. |
 | 19 Sep 2026 | Added the line for files a person exported. |
+| 21 Sep 2026 | Added the fee ledger, the payer's name, concessions and optional fees, and fee setup. |

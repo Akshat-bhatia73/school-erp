@@ -71,6 +71,13 @@ export const qk = {
   substitutions: (schoolId: string, date: string) => [schoolId, 'timetable', 'substitutions', date] as const,
   absentPeriods: (schoolId: string, params: Params) => [schoolId, 'timetable', 'absentPeriods', params ?? {}] as const,
 
+  feeHeads: (schoolId: string) => [schoolId, 'fees', 'heads'] as const,
+  feeStructures: (schoolId: string, params?: Params) => [schoolId, 'fees', 'structures', params ?? {}] as const,
+  feeStatement: (schoolId: string, studentId: string, params?: Params) => [schoolId, 'fees', 'statement', studentId, params ?? {}] as const,
+  feeDues: (schoolId: string, params?: Params) => [schoolId, 'fees', 'dues', params ?? {}] as const,
+  feeReceipts: (schoolId: string, params?: Params) => [schoolId, 'fees', 'receipts', params ?? {}] as const,
+  feeReceipt: (schoolId: string, receiptId: string) => [schoolId, 'fees', 'receipt', receiptId] as const,
+
   dashboard: (schoolId: string, params?: unknown) => [schoolId, 'dashboard', params ?? {}] as const,
   search: (schoolId: string, q: string) => [schoolId, 'search', q] as const,
   auditEvents: (schoolId: string, params?: Params) => [schoolId, 'audit', 'events', params ?? {}] as const,

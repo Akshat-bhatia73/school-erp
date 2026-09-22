@@ -40,6 +40,17 @@ const REASON_MESSAGES: Record<ErrorReason, string> = {
   subject_has_teachers: 'This subject still has teachers assigned. End their assignments first.',
   subject_has_timetable: 'This subject is still on a timetable. Clear it from the timetable first.',
   subject_has_substitutions: 'This subject has substitutions on record, so it cannot be removed.',
+  fee_head_in_use:
+    'This fee is still part of a fee structure, a pupil\'s fees or a receipt, so it cannot be removed. Mark it as not in use instead.',
+  fee_structure_has_payments:
+    'Payments have already been taken against this fee for this year, so it cannot be removed. Change the amount instead.',
+  fee_opt_in_has_payments:
+    'Payments have already been taken against this optional fee, so it cannot be removed. Give it an end date instead.',
+  fee_amount_exceeds_balance:
+    'That is more than is left to pay for this fee. Check the amounts and try again.',
+  fee_receipt_already_reversed:
+    'This receipt has already been cancelled or refunded in full, so there is nothing left to reverse.',
+  fee_nothing_charged: 'This pupil is not charged that fee in this year, so nothing can be recorded against it.',
 }
 
 export class ApiFailure extends Error {

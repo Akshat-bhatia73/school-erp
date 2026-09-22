@@ -1,6 +1,6 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, CalendarClock, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, PanelLeft, School, ScrollText, Search, ShieldCheck, Users, UserRound, BookOpen, Sparkles, X } from 'lucide-react'
+import { Building2, CalendarClock, CalendarDays, GraduationCap, IndianRupee, LayoutDashboard, ListChecks, PanelLeft, School, ScrollText, Search, ShieldCheck, Users, UserRound, BookOpen, Sparkles, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { AccountMenu } from '@/components/auth/account-menu'
 import { SectionLabel } from '@/components/shared/page'
@@ -62,6 +62,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
     { label: 'Students', to: '/students', icon: <GraduationCap />, count: studentCount?.count, permission: 'students.read_basic' },
     { label: 'Staff', to: '/staff', icon: <Users />, count: staffCount?.count, permission: 'staff.read_directory' },
     { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
+    { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
   ]
   const setup: NavItem[] = [
     { label: 'School profile', to: '/setup/school', icon: <School />, permission: 'school.read' },
@@ -130,7 +131,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
           <>
             <SectionLabel>Coming next</SectionLabel>
             <div className="flex flex-col gap-0.5 opacity-60">
-              {[['Attendance', 'Phase 2'], ['Fees', 'Phase 2'], ['Exams & marks', 'Phase 3'], ['Messages', 'Phase 2'], ['AI assistant', 'Phase 4']].map(([l, p]) => (
+              {[['Attendance', 'Phase 2'], ['Exams & marks', 'Phase 3'], ['Messages', 'Phase 2'], ['AI assistant', 'Phase 4']].map(([l, p]) => (
                 <div key={l} className="flex h-8 items-center justify-between px-2 text-[13px] text-muted-foreground"><span>{l}</span><span className="text-[11px]">{p}</span></div>
               ))}
             </div>

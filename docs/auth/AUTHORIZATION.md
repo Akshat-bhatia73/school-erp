@@ -32,7 +32,7 @@ Every method opens one `withTenantTransaction` on the runtime pool, so all reads
 
 `evaluate` in `src/policy.ts` is pure: no database, no clock, no randomness. The service loads the four inputs (policy snapshot, relationship facts, resource facts and the context) and hands them over. The first failing step wins and the default is deny.
 
-1. The permission must be a known `PermissionKey` and its catalogue availability must be `active`. A reserved permission such as a fees or attendance key denies with `ACCESS_DENIED`.
+1. The permission must be a known `PermissionKey` and its catalogue availability must be `active`. A reserved permission such as an attendance or exams key denies with `ACCESS_DENIED`.
 2. A student membership, or a context carrying the `student` role, denies with `FEATURE_DISABLED`. Student logins do not exist.
 3. The resource must be in `context.schoolId` and its `resourceType` must be the one the catalogue records for the permission, and the resource facts must have loaded. Anything else is `RESOURCE_NOT_FOUND`. A record that exists in another school is reported exactly like a record that does not exist.
 4. `snapshot.accessVersion` must equal `context.accessVersion`. A mismatch is `ACCESS_DENIED`: the caller's context predates a role or rule change and has to be resolved again.
@@ -52,7 +52,7 @@ Every method opens one `withTenantTransaction` on the runtime pool, so all reads
 | `self` | The resource carries a `staffId` equal to the caller's own staff record. |
 | `assigned_sections` | The caller has a teaching assignment effective now whose section and academic year both match the resource, or is the class teacher of that section in a year that is not closed. The class teacher post names no subject, so it never counts for `assigned_subjects`. |
 | `assigned_subjects` | The same assignment also matches one of the resource's subjects. |
-| `own_children` | The resource's `studentId` is one of the caller's approved children. |
+| `own_children` | The resource's `studentId` is one of the caller's approved children. A `fee` row answers through the pupil it belongs to; a fee head or a fee structure belongs to the school and names no pupil, so it never matches. |
 | `own_record` | Never. Student login is disabled. |
 | `finance` | On every resource except `audit_event`, always at row level: the narrowing is done by field groups, not by rows. On `audit_event` the term is `action IN (FINANCE_AUDIT_ACTIONS)`, so a finance reader lists, counts and exports only the money actions declared in `@erp/contracts`. |
 
@@ -60,7 +60,7 @@ Section and year always travel together. An assignment to section 6A in the prev
 
 Resources that summarise a whole dataset rather than one row, such as the dashboard or the resource `capabilities` asks about, are marked `aggregate`. For those, `assigned_sections` matches when the caller has any assignment or is the class teacher of any open section, `own_children` when the caller has any child, and `self` when the caller has a staff record of their own. Shared rows such as a section or a grade answer `own_children` through a current enrollment of one of the caller's own children, so a list and a detail read agree.
 
-Relationship facts are loaded once per request in `src/snapshot.ts`: the staff link, the teaching assignments effective at `context.now`, and the approved children. `loadResourceFacts` maps each resource type to the attributes the predicates need, and returns null for reserved types such as fees, attendance and exams.
+Relationship facts are loaded once per request in `src/snapshot.ts`: the staff link, the teaching assignments effective at `context.now`, and the approved children. `loadResourceFacts` maps each resource type to the attributes the predicates need, and returns null for reserved types such as attendance and exams.
 
 ## Exception semantics
 
@@ -91,7 +91,9 @@ await withTenantTransaction(pool, context, async (conn) => {
 
 The plan object itself is frozen and carries only the school, the membership, the permission, the resource type and the access version. The matched scopes, applicable rules, assigned section and year pairs, subject ids, child ids and staff id live in a module private `WeakMap` keyed by the plan. A caller can neither read them nor forge a plan: `planPredicate` on an object the authorizer did not issue throws `ACCESS_DENIED`.
 
-`planPredicate` returns a Drizzle `SQL` boolean that always starts with `school_id = $1` and then ORs one term per matched scope and per applicable allow, and ANDs `NOT (...)` for every applicable deny. Nothing matched means `FALSE`, not an open query. Ids are always bound as parameters and cast with `::uuid`; no id is ever interpolated into SQL text. Predicates exist for `student`, `staff`, `section`, `enrollment`, `student_document`, `subject`, `grade`, `academic_year`, `holiday` and `guardian`, and `scopedTableFor` returns the column descriptor for each.
+`planPredicate` returns a Drizzle `SQL` boolean that always starts with `school_id = $1` and then ORs one term per matched scope and per applicable allow, and ANDs `NOT (...)` for every applicable deny. Nothing matched means `FALSE`, not an open query. Ids are always bound as parameters and cast with `::uuid`; no id is ever interpolated into SQL text. Predicates exist for `student`, `staff`, `section`, `enrollment`, `student_document`, `subject`, `grade`, `academic_year`, `holiday`, `guardian` and `fee`, and `scopedTableFor` returns the column descriptor for each.
+
+`fee` is one resource type with several tables behind it, so it has a descriptor per table: `feeScopedTable('account' | 'receipt' | 'opt_in' | 'concession' | 'head' | 'structure')`, all taking the same `fee` plan. `account` is the pupil's own row standing for their fee account (`studentId` is `students.id`), so the dues list and a statement are bounded by the same term as a receipt. `scopedTableFor('fee')` is the ledger. `loadResourceFacts` looks a `fee` id up in each of those tables in turn and sets `studentId` when the row belongs to a pupil, so a single decision and a list agree: a parent is allowed exactly the rows of their own children and no head or structure, an accountant's `finance` scope and an office `school` scope select the whole school, and a teacher, who holds no fee key, gets no plan at all. Exceptions do not reach fees: no fee key is in `RESOURCE_RULE_PERMISSIONS`.
 
 Action level MFA works differently for a plan than for a single read. A single factor session does not lose the whole list: the privileged scopes are dropped from the plan, and only when that leaves nothing does `scopeQuery` throw `MFA_REQUIRED`. `scopedList` orders by id and reports `total` with a `count(*)` over the same predicate, so paging is stable and the total matches the rows collected across pages. `scopedGet` applies the identical predicate, so a row missing from a list cannot be fetched by id.
 
@@ -157,7 +159,7 @@ TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp_test 
 
 ## Known gaps
 
-- Reserved resource types (fees, attendance, exams, messages) have no resource facts and no predicates. They deny today and need loaders when those modules land.
+- Reserved resource types (attendance, exams, messages) have no resource facts and no predicates. They deny today and need loaders when those modules land.
 - `planPredicate` covers ten listable resource types, and the tests exercise six of them against single reads. Memberships, invitations, audit events and timetable entries are read one at a time or not at all so far.
 - Nothing caches. Every call reloads the snapshot, the relationship facts and the resource facts inside its own transaction. That is deliberate for now: correctness first, and `access_version` gives a later cache a safe key.
 - Field group projection is not implemented here. A caller that ignores the returned `fieldGroups` still sees whole rows, which is why Task 5 owns every response shape.

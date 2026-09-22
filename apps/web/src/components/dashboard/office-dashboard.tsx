@@ -27,6 +27,7 @@ import {
   UserPlus,
   UserX,
   Users,
+  Wallet,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { DashboardAttentionKey, DashboardBirthday, OfficeDashboard as OfficeDashboardData } from '@erp/contracts'
@@ -38,6 +39,7 @@ import { HeroCard, type HeroChip } from '@/components/dashboard/blocks/hero'
 import { CalendarTile, SimpleList, type SimpleListItem } from '@/components/dashboard/blocks/list'
 import { StatRow, StatTile } from '@/components/dashboard/blocks/stat'
 import { calendarParts, longDayDate, plural, weekdayName } from '@/components/dashboard/format'
+import { FeeStatTiles } from '@/components/fees/dashboard-cards'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Tag } from '@/components/shared/tag'
 import { Button } from '@/components/ui/button'
@@ -86,6 +88,14 @@ export function OfficeDashboard({ data, isLoading, error }: { data?: OfficeDashb
         <Cell col={4} rows={3}>
           <DashboardCard title="School at a glance" tone="blue" icon={<Users />} bodyClassName="pt-1">
             <GlanceTiles data={data} />
+          </DashboardCard>
+        </Cell>
+      )}
+
+      {data?.fees && (
+        <Cell col={8} rows={2}>
+          <DashboardCard title="Fees" description="Money in today and this month, and what is still owed" tone="green" icon={<Wallet />} bodyClassName="pt-1">
+            <FeeStatTiles fees={data.fees} size="sm" />
           </DashboardCard>
         </Cell>
       )}

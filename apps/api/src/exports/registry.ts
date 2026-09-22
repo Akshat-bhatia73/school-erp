@@ -30,6 +30,9 @@ export function getProducer(kind: string): ExportProducer | undefined {
 // Each producer file calls registerProducer at import time. Keep this list
 // sorted and add exactly one line per kind.
 import './producers/audit.ts'
+import './producers/fee-collections.ts'
+import './producers/fee-dues.ts'
+import './producers/fee-receipt.ts'
 import './producers/staff-profile.ts'
 import './producers/staff.ts'
 import './producers/student-profile.ts'

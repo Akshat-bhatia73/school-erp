@@ -1,8 +1,8 @@
-/** The accountant home: the students the school has, and an honest note where fees will go. */
+/** The accountant home: the money cards, the students the school has and the shortcuts. */
 import type { ReactNode } from 'react'
 import { screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ACCOUNTANT_FEES_NOTE, type AccountantDashboard as AccountantDashboardData, type PermissionKey } from '@erp/contracts'
+import type { AccountantDashboard as AccountantDashboardData, PermissionKey } from '@erp/contracts'
 import { AccountantDashboard } from '@/components/dashboard/accountant-dashboard'
 import { renderWithSession } from '@/test/session'
 
@@ -20,7 +20,6 @@ function accountant(patch: Partial<AccountantDashboardData> = {}): AccountantDas
   return {
     audience: 'accountant',
     day: { date: '2026-09-21', dayOfWeek: 1, kind: 'school_day' },
-    feesNote: ACCOUNTANT_FEES_NOTE,
     ...patch,
   } as AccountantDashboardData
 }
@@ -35,14 +34,25 @@ function renderAccountant(data: AccountantDashboardData, capabilities: Permissio
 beforeEach(() => vi.clearAllMocks())
 
 describe('accountant dashboard', () => {
-  it('shows the day, the student tiles and the fees note', () => {
+  it('shows the day, the student tiles and the money cards', () => {
     renderAccountant(accountant({
       glance: { students: { total: 240 }, mix: { boys: 130, girls: 108, other: 2 }, admittedThisMonth: 6, leftThisMonth: 1 },
+      fees: {
+        collectedTodayPaise: 1_250_00, receiptsToday: 4, collectedThisMonthPaise: 4_50_000_00,
+        outstandingPaise: 1_20_000_00, studentsWithDues: 17,
+      },
     }))
     expect(screen.getByText('School is open today.')).toBeInTheDocument()
     expect(screen.getByText('240')).toBeInTheDocument()
     expect(screen.getByText('130 boys, 108 girls')).toBeInTheDocument()
-    expect(screen.getByText(ACCOUNTANT_FEES_NOTE)).toBeInTheDocument()
+    expect(screen.getByText('₹1,250')).toBeInTheDocument()
+    expect(screen.getByText('4 receipts')).toBeInTheDocument()
+    expect(screen.getByText('17')).toBeInTheDocument()
+  })
+
+  it('draws nothing about money when the fees block was not sent', () => {
+    renderAccountant(accountant())
+    expect(screen.queryByText('Collected today')).not.toBeInTheDocument()
   })
 
   it('leaves the class strength card out when the block was not sent', () => {

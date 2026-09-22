@@ -31,22 +31,23 @@ This document freezes the Task 0 access-control vocabulary. The executable sourc
 | Audit | `audit.read`, `audit.export`, `audit.redact_notes` | school or finance; redaction is school only | Responses are redacted for the matched audience. The free-text note lives outside `safe_changes` and redaction removes it while the event itself stays. |
 | Timetable | `timetable.read`, `manage_periods`, `manage_entries`, `generate`, `read_conflicts`, `read_teacher_loads`, `manage_substitutions`, `notify_substitutions` | Read may use relationship scopes; management is school only | A parent receives minimal teacher attribution nested in the timetable DTO, never directory search. |
 | Dashboard | `dashboard.read` | school, self, assigned sections, own children, finance | Each scope has a distinct safe aggregate response. |
+| Fees | `fees.read`, `fees.collect`, `fees.manage`, `fees.export` | read: school, own children, finance; the other three: school, finance | Read is not privileged, because a parent has no second factor; collect, manage and export are. `manage` covers fee heads and structures, optional fees, concessions, refunds, cancellations and adjustments. One receipt as a document runs under `fees.read`, so the office counter and a parent can both have it; the dues list and the collection register need `fees.export`. A fee row that belongs to a pupil answers `own_children` through that pupil; fee heads and structures never do. |
 
 ## Fixed templates
 
 | Role | Enabled | MFA | Default access |
 |---|---:|---:|---|
-| Owner | yes | required | All current school operations, salary, membership lifecycle, fixed-role assignment, access explanation, audit, ownership transfer, consent, anonymisation, and audit note redaction. |
-| Principal | yes | required | School-wide setup and operations, medical/private records, teacher membership lifecycle and teacher role assignment, consent, and anonymisation; no salary, access explanation, ownership transfer, or audit note redaction. |
-| Administrator | yes | required | Setup, student/staff/timetable operations, approved teacher invitation and assignment, and guardian consent records; no medical, salary, audit, membership removal, custom access, or ownership. |
-| Accountant | yes | required | Minimal billing identity/contact data, compensation, finance dashboard, and finance-redacted audit; no medical, broad student administration, or access management. |
-| Teacher | yes | no by role | Basic students and minimal guardian contact in current assigned sections; own employment/private profile; relevant section/subject/self timetable. No student sensitive/medical/documents, staff directory, salary, or export. |
-| Parent | yes | no by role | Basic and enrollment data for approved child links, the guardian contact projection for those children, relevant calendar/setup labels, child timetable, and the consent record of those children, which they may give or withdraw. No sibling inference, full guardian records, documents, staff directory, or school search. |
+| Owner | yes | required | All current school operations, salary, membership lifecycle, fixed-role assignment, access explanation, audit, ownership transfer, consent, anonymisation, audit note redaction, and everything about fees. |
+| Principal | yes | required | School-wide setup and operations, medical/private records, teacher membership lifecycle and teacher role assignment, consent, anonymisation, and everything about fees; no salary, access explanation, ownership transfer, or audit note redaction. |
+| Administrator | yes | required | Setup, student/staff/timetable operations, approved teacher invitation and assignment, guardian consent records, and fee collection with the fee reads it needs; no fee setup, refund, adjustment or fee export, no medical, salary, audit, membership removal, custom access, or ownership. |
+| Accountant | yes | required | Minimal billing identity/contact data, compensation, finance dashboard, finance-redacted audit, and everything about fees at the finance scope; no medical, broad student administration, or access management. |
+| Teacher | yes | no by role | Basic students and minimal guardian contact in current assigned sections; own employment/private profile; relevant section/subject/self timetable. No student sensitive/medical/documents, staff directory, salary, export, or any fee key. |
+| Parent | yes | no by role | Basic and enrollment data for approved child links, the guardian contact projection for those children, relevant calendar/setup labels, child timetable, the consent record of those children, which they may give or withdraw, and the fee statements and receipts of those children. No fee write, no sibling inference, full guardian records, documents, staff directory, or school search. |
 | Student | no | no | No active grants. Future policy remains reserved and login stays disabled. |
 
 ## Reserved permissions
 
-The following names reserve future design space but cannot be granted by active templates: `members.update`, `roles.manage`, `access.manage`, `fees.*`, `attendance.*`, `exams.*`, `communication.*`, `report_cards.*`, `staff_attendance.*`, and `ai_assistant.*`. Implementers must not return fabricated data or expose endpoints merely because a key exists.
+The following names reserve future design space but cannot be granted by active templates: `members.update`, `roles.manage`, `access.manage`, `attendance.*`, `exams.*`, `communication.*`, `report_cards.*`, `staff_attendance.*`, and `ai_assistant.*`. Implementers must not return fabricated data or expose endpoints merely because a key exists.
 
 ## Field and response boundaries
 

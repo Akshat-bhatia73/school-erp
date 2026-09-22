@@ -39,6 +39,12 @@ export const ErrorReason = z.enum([
   'subject_has_teachers',
   'subject_has_timetable',
   'subject_has_substitutions',
+  'fee_head_in_use',
+  'fee_structure_has_payments',
+  'fee_opt_in_has_payments',
+  'fee_amount_exceeds_balance',
+  'fee_receipt_already_reversed',
+  'fee_nothing_charged',
 ])
 export type ErrorReason = z.infer<typeof ErrorReason>
 

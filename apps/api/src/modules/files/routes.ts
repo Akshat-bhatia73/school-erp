@@ -56,6 +56,11 @@ const EXPORT_PERMISSIONS: readonly PermissionKeyType[] = [
   // A timetable export is the same read in another format, so it carries the
   // read permission rather than an export permission of its own.
   'timetable.read',
+  // The dues list and the collection register are exports; one receipt is the
+  // same read in another format, so the office counter and a parent can both
+  // have it without holding an export key.
+  'fees.export',
+  'fees.read',
 ]
 
 /**
@@ -140,6 +145,7 @@ const SINGLE_RECORD_KINDS: Readonly<
 > = {
   student_profile: { resourceType: 'student', field: 'studentId' },
   staff_profile: { resourceType: 'staff', field: 'staffId' },
+  fee_receipt: { resourceType: 'fee', field: 'receiptId' },
 }
 
 /**

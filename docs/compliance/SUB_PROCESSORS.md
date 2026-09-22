@@ -76,6 +76,7 @@ object. The notice period and what happens on an objection are in
 | Date | Change |
 |---|---|
 | 19 Sep 2026 | First version of this list. |
+| 21 Sep 2026 | Fees module added. No new sub-processor: fee records sit in the same database, and a receipt or a fee list made as a file sits in the same document store for 24 hours. There is no payment gateway, so no payment company receives anything. Choosing one is a decision still to take, and it would add a row here before it is switched on. |
 
 ## 6. Known gap
 

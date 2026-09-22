@@ -63,6 +63,12 @@ const setupWrite: readonly RoleGrant[] = [
   grant('holidays.manage', 'school'),
 ]
 
+/** Everything about fees: set them, collect them, read them and export them. */
+const feesFull = (scope: 'school' | 'finance'): readonly RoleGrant[] => [
+  grant('fees.read', scope), grant('fees.collect', scope),
+  grant('fees.manage', scope), grant('fees.export', scope),
+]
+
 export const ROLE_TEMPLATES = {
   owner: {
     displayName: 'Owner', enabled: true, requiredMfa: true,
@@ -81,6 +87,7 @@ export const ROLE_TEMPLATES = {
       grant('students.read_consents', 'school'), grant('students.manage_consents', 'school'),
       grant('students.anonymise', 'school'), grant('staff.anonymise', 'school'),
       grant('students.export_subject', 'school'), grant('audit.redact_notes', 'school'),
+      ...feesFull('school'),
     ],
   },
   principal: {
@@ -96,6 +103,7 @@ export const ROLE_TEMPLATES = {
       grant('students.read_consents', 'school'), grant('students.manage_consents', 'school'),
       grant('students.anonymise', 'school'), grant('staff.anonymise', 'school'),
       grant('students.export_subject', 'school'),
+      ...feesFull('school'),
     ],
   },
   admin: {
@@ -108,6 +116,8 @@ export const ROLE_TEMPLATES = {
       grant('members.restore', 'school'), grant('roles.read', 'school'),
       grant('roles.assign', 'school'),
       grant('students.read_consents', 'school'), grant('students.manage_consents', 'school'),
+      // The office counter takes money; it does not set fees or refund them.
+      grant('fees.read', 'school'), grant('fees.collect', 'school'),
     ],
   },
   accountant: {
@@ -121,6 +131,7 @@ export const ROLE_TEMPLATES = {
       grant('staff.update_pay', 'finance'), grant('staff.export', 'finance'),
       grant('audit.read', 'finance'), grant('audit.export', 'finance'),
       grant('dashboard.read', 'finance'),
+      ...feesFull('finance'),
     ],
   },
   teacher: {
@@ -150,6 +161,7 @@ export const ROLE_TEMPLATES = {
       grant('students.read_consents', 'own_children'),
       grant('students.manage_consents', 'own_children'),
       grant('students.export_subject', 'own_children'),
+      grant('fees.read', 'own_children'),
     ],
   },
   student: { displayName: 'Student', enabled: false, requiredMfa: false, grants: [] },

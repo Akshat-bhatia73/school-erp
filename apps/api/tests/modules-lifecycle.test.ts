@@ -26,6 +26,9 @@ const orphanGuardian = randomUUID()
 const sharedGuardian = randomUUID()
 const leaverDocument = randomUUID()
 const STORAGE_KEY = `lifecycle/${randomUUID()}.pdf`
+const leaverFeeHead = randomUUID()
+const leaverReceipt = randomUUID()
+const LEAVER_CHEQUE = `CHQ-${randomUUID().slice(0, 8)}`
 
 const unlinkStudent = randomUUID()
 const unlinkGuardian1 = randomUUID()
@@ -102,6 +105,35 @@ before(async () => {
   )
   server.documents.put(STORAGE_KEY, new Uint8Array([1, 2, 3]))
 
+  // A fee the leaver paid. The accounts have to stand for eight years, so
+  // anonymising the pupil must leave the money exactly as it was written and
+  // take only the name of whoever handed it over.
+  await pool.query(
+    `INSERT INTO fee_heads(id,school_id,name,category,applies_to,frequency)
+     VALUES ($1,$2,$3,'tuition','class','yearly')`,
+    [leaverFeeHead, schoolA, `Lifecycle tuition ${randomUUID().slice(0, 8)}`],
+  )
+  await pool.query(
+    `INSERT INTO fee_receipts(id,school_id,student_id,academic_year_id,kind,receipt_number,
+                              amount_paise,mode,reference,received_on,payer_name,
+                              recorded_by_membership_id)
+     VALUES ($1,$2,$3,$4,'payment',$5,750000,'cheque',$6,'2026-04-10','Leaver Parent',$7)`,
+    [
+      leaverReceipt,
+      schoolA,
+      leaver,
+      fixtureIds.yearA as string,
+      `A/LC/${randomUUID().slice(0, 8)}/R0001`,
+      LEAVER_CHEQUE,
+      fixtureIds.ownerA as string,
+    ],
+  )
+  await pool.query(
+    `INSERT INTO fee_receipt_lines(school_id,receipt_id,fee_head_id,amount_paise)
+     VALUES ($1,$2,$3,750000)`,
+    [schoolA, leaverReceipt, leaverFeeHead],
+  )
+
   // A student who is still here, for the unlink rules.
   await pool.query(
     `INSERT INTO students(id,school_id,admission_number,first_name,status)
@@ -172,6 +204,16 @@ after(async () => {
   await pool.query('DELETE FROM guardians WHERE id = ANY($1::uuid[])', [
     [orphanGuardian, sharedGuardian, unlinkGuardian1, unlinkGuardian2],
   ])
+  // The money goes before the pupil it belongs to, and the ledger refuses a
+  // delete to everybody, so the trigger is lifted for the tidy-up alone. No
+  // login the server uses could do this; only the owner of the table can.
+  await pool.query('ALTER TABLE fee_receipt_lines DISABLE TRIGGER fee_receipt_lines_no_change')
+  await pool.query('ALTER TABLE fee_receipts DISABLE TRIGGER fee_receipts_no_change')
+  await pool.query('DELETE FROM fee_receipt_lines WHERE receipt_id = $1', [leaverReceipt])
+  await pool.query('DELETE FROM fee_receipts WHERE id = $1', [leaverReceipt])
+  await pool.query('ALTER TABLE fee_receipts ENABLE TRIGGER fee_receipts_no_change')
+  await pool.query('ALTER TABLE fee_receipt_lines ENABLE TRIGGER fee_receipt_lines_no_change')
+  await pool.query('DELETE FROM fee_heads WHERE id = $1', [leaverFeeHead])
   await pool.query('DELETE FROM students WHERE id = ANY($1::uuid[])', [[leaver, sibling, unlinkStudent]])
   await pool.query('DELETE FROM staff WHERE id = $1', [retiree])
   await pool.query('DELETE FROM membership_roles WHERE membership_id = ANY($1::uuid[])', [
@@ -274,6 +316,30 @@ test('after the retention period the record keeps its register fields and nothin
   assert.equal(audit.rowCount, 1)
   assert.equal(audit.rows[0]?.note, 'Retention period has run')
   assert.equal('reason' in (audit.rows[0]?.safe_changes ?? {}), false)
+  // The audit row counts the ledger rows it touched and names no amount.
+  assert.equal(audit.rows[0]?.safe_changes.feeReceiptsCleared, 1)
+
+  // The money stands. Only the payer's name is gone, because that is the one
+  // edit the append-only ledger allows at all.
+  const receipt = (
+    await adminPool().query(
+      `SELECT payer_name, amount_paise::text AS amount_paise, reference, mode, kind,
+              to_char(received_on, 'YYYY-MM-DD') AS received_on
+         FROM fee_receipts WHERE id = $1`,
+      [leaverReceipt],
+    )
+  ).rows[0]
+  assert.equal(receipt.payer_name, null)
+  assert.equal(receipt.amount_paise, '750000')
+  assert.equal(receipt.reference, LEAVER_CHEQUE)
+  assert.equal(receipt.mode, 'cheque')
+  assert.equal(receipt.kind, 'payment')
+  assert.equal(receipt.received_on, '2026-04-10')
+  const lines = await adminPool().query(
+    'SELECT amount_paise::text AS amount_paise FROM fee_receipt_lines WHERE receipt_id = $1',
+    [leaverReceipt],
+  )
+  assert.equal(lines.rows[0]?.amount_paise, '750000')
 })
 
 test('unlinking a guardian anonymises them and the last one cannot be removed', async () => {
