@@ -1,10 +1,12 @@
 /**
  * The dashboard route: one read, then the screen for whatever audience the server answered with.
- * The browser never picks the audience and never asks a second endpoint for it.
+ * The browser sends the view the person chose, when they chose one, and never asks a second
+ * endpoint for it; the server refuses a view their roles do not earn.
  */
 import type { ReactNode } from 'react'
 import { screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { writeDashboardView } from '@/lib/dashboard-view'
 import { ApiRequestError } from '@/lib/http'
 import { renderWithSession } from '@/test/session'
 
@@ -51,6 +53,7 @@ async function renderRoute(options: Parameters<typeof renderWithSession>[1]) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.localStorage.clear()
   academicYears.mockResolvedValue([{ id: 'year-1', schoolId: SCHOOL, name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', status: 'current', version: 1 }])
   sections.mockResolvedValue([])
 })
@@ -83,8 +86,31 @@ describe('the dashboard route', () => {
 
     expect(await screen.findByText('2 staff without a login')).toBeInTheDocument()
     expect(dashboardGet).toHaveBeenCalledTimes(1)
-    expect(dashboardGet).toHaveBeenCalledWith(SCHOOL)
+    expect(dashboardGet).toHaveBeenCalledWith(SCHOOL, undefined)
     expect(screen.getAllByText('Dashboard').length).toBeGreaterThan(0)
+  })
+
+  it('asks for the view the person chose when their roles earn it', async () => {
+    writeDashboardView('user-1', 'parent')
+    dashboardGet.mockResolvedValue({ audience: 'parent', day: DAY, children: [] })
+    await renderRoute({ roleKeys: ['teacher', 'parent'], capabilities: ['dashboard.read'] })
+
+    expect(await screen.findByText('No child is linked to your login yet')).toBeInTheDocument()
+    expect(dashboardGet).toHaveBeenCalledTimes(1)
+    expect(dashboardGet).toHaveBeenCalledWith(SCHOOL, { audience: 'parent' })
+    expect(screen.getAllByText('My children').length).toBeGreaterThan(0)
+  })
+
+  it('drops a stored view the roles do not earn and lets the server pick', async () => {
+    writeDashboardView('user-1', 'office')
+    dashboardGet.mockResolvedValue({
+      audience: 'teacher', day: DAY, staffLinked: true, academicYearId: 'year-1',
+      timeline: [], timelineDate: '2026-09-21', week: [], periods: [], holidays: [],
+    })
+    await renderRoute({ roleKeys: ['teacher', 'parent'], capabilities: ['dashboard.read'] })
+
+    expect(await screen.findByText('My week')).toBeInTheDocument()
+    expect(dashboardGet).toHaveBeenCalledWith(SCHOOL, undefined)
   })
 
   it('shows the teacher screen when the server says teacher', async () => {

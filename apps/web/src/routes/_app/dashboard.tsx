@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
 import { describeError } from '@/lib/api-errors'
 import { qk } from '@/lib/query'
-import { audienceFor } from '@/lib/permissions'
+import { useSchoolDashboardView } from '@/lib/dashboard-view'
 import { useSchoolContext } from '@/lib/session'
 import { useAcademicYear } from '@/lib/use-academic-year'
 import { formatDate } from '@/lib/utils'
@@ -20,13 +20,15 @@ import { formatDate } from '@/lib/utils'
 export const Route = createFileRoute('/_app/dashboard')({ component: Page })
 
 function Page() {
-  const { schoolId, roleKeys } = useSchoolContext()
+  const { schoolId } = useSchoolContext()
   const { current } = useAcademicYear()
+  // The chosen view is sent only when one is stored; otherwise the server's own order decides.
+  const { view: audience, preferred } = useSchoolDashboardView()
+  const params = preferred ? { audience: preferred } : undefined
   const { data, isLoading, error } = useQuery({
-    queryKey: qk.dashboard(schoolId),
-    queryFn: () => api.dashboard.get(schoolId),
+    queryKey: qk.dashboard(schoolId, params),
+    queryFn: () => api.dashboard.get(schoolId, params),
   })
-  const audience = audienceFor(roleKeys)
   const today = new Date().toISOString()
 
   return (

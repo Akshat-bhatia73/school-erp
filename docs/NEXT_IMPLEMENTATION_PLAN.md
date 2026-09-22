@@ -289,3 +289,13 @@ the block omitted rather than zero; every attention key. Security tests in
 school B date, a parent with no children, a suspended member. Web tests per screen. Docs:
 `docs/auth/PROTECTED_APIS.md` (dashboard section and route table), `docs/auth/OPERATION_COVERAGE.md`
 (dashboard rows), `docs/auth/WEB_SCREENS.md` (dashboard row and role table).
+
+### 8.5 View switcher for people with more than one role (22 September 2026)
+
+Decided: the default audience order is office, accountant, teacher, parent, so an accountant who is
+also a parent lands on the money cards. The tab a person signs in from seeds their view (parent tab:
+parent home; a staff tab: their highest staff view) and "Viewing as" in the account menu lets them
+change it without signing out; both are a browser preference per user id, not a session or database
+field, because the session belongs to the identity and a person can hold different roles in
+different schools. `GET /dashboard` takes `?audience=` and accepts only one of the caller's own
+homes, else `INVALID_REQUEST`; it never widens a read. Lists stay the union of the roles.

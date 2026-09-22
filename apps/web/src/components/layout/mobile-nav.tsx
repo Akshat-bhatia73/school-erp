@@ -2,7 +2,8 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import { CalendarClock, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, Menu, Search, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
-import { audienceFor, type PermissionKey } from '@/lib/permissions'
+import { useSchoolDashboardView } from '@/lib/dashboard-view'
+import type { PermissionKey } from '@/lib/permissions'
 import { useSchoolContext, useSession } from '@/lib/session'
 import { useAcademicYear } from '@/lib/use-academic-year'
 import { cn } from '@/lib/utils'
@@ -12,10 +13,10 @@ import { cn } from '@/lib/utils'
  * Same height and hairline as the desktop PageHeader so the two read as one product.
  */
 export function MobileTopBar({ onOpenNav, onOpenQuickActions }: { onOpenNav: () => void; onOpenQuickActions: () => void }) {
-  const { school, roleKeys } = useSchoolContext()
+  const { school } = useSchoolContext()
   const { user } = useSession()
   const name = user?.displayName ?? 'Account'
-  const isParent = audienceFor(roleKeys) === 'parent'
+  const isParent = useSchoolDashboardView().view === 'parent'
   const { current } = useAcademicYear()
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-card px-2 md:hidden">
@@ -56,8 +57,8 @@ const TABS: Tab[] = [
  * It floats over the content, so `AppShell` reserves room for it under the `md` breakpoint.
  */
 export function MobileTabBar() {
-  const { roleKeys, hasPermission } = useSchoolContext()
-  const isParent = audienceFor(roleKeys) === 'parent'
+  const { hasPermission } = useSchoolContext()
+  const isParent = useSchoolDashboardView().view === 'parent'
   const path = useRouterState({ select: (s) => s.location.pathname })
   const tabs = TABS.filter((t) => (!t.permission || hasPermission(t.permission)) && (!t.permissions || t.permissions.some((key) => hasPermission(key))))
     .map((t) => (t.to === '/dashboard' && isParent ? { ...t, label: 'My children' } : t))

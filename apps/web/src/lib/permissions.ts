@@ -89,13 +89,26 @@ export function diffRoleChange(
 // This build has no clerk role; front-office duty is owner, principal and admin.
 const OFFICE_ROLES: readonly RoleKey[] = ['owner', 'principal', 'admin']
 
-/** Highest responsibility wins, so a teacher who is also a parent sees the class view. */
+/** The roles that earn each dashboard, in the order the server falls back through them. */
+const AUDIENCE_ROLES: readonly [Exclude<DashboardAudience, 'none'>, readonly RoleKey[]][] = [
+  ['office', OFFICE_ROLES],
+  ['accountant', ['accountant']],
+  ['teacher', ['teacher']],
+  ['parent', ['parent']],
+]
+
+/**
+ * Every dashboard these roles earn, in the default order: office, accountant, teacher, parent.
+ * Mirrors `audiencesFor` in apps/api/src/modules/dashboard/audience.ts.
+ */
+export function audiencesFor(roleKeys: readonly string[]): Exclude<DashboardAudience, 'none'>[] {
+  const held = new Set(roleKeys.filter(isRoleKey))
+  return AUDIENCE_ROLES.filter(([, roles]) => roles.some((role) => held.has(role))).map(([audience]) => audience)
+}
+
+/** The dashboard a set of roles lands on when no view was chosen: the first one they earn. */
 export function audienceFor(roleKeys: readonly string[]): DashboardAudience {
-  if (roleKeys.some((role) => isRoleKey(role) && OFFICE_ROLES.includes(role))) return 'office'
-  if (roleKeys.includes('teacher')) return 'teacher'
-  if (roleKeys.includes('parent')) return 'parent'
-  if (roleKeys.includes('accountant')) return 'accountant'
-  return 'none'
+  return audiencesFor(roleKeys)[0] ?? 'none'
 }
 
 /** 'students.read_basic' -> 'Read basic student details'. */

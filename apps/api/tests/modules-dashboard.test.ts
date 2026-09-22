@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto'
 import test, { after, before } from 'node:test'
 import { fixtureIds } from '@erp/db/fixtures'
 import { CONSENT_PURPOSES, DashboardResponse, type DashboardAttentionKey } from '@erp/contracts'
-import { audienceFor } from '../src/modules/dashboard/audience.ts'
+import { audienceFor, audiencesFor, resolveAudience } from '../src/modules/dashboard/audience.ts'
 import {
   adminPool,
   closeAdminPool,
@@ -83,20 +83,59 @@ let teacher: Client
 let secondTeacher: Client
 let unlinkedTeacher: Client
 let parent: Client
+/** A teacher who is also a parent of the fixture pupil, and an accountant who is too. */
+let teacherParent: Client
+let accountantParent: Client
+const dualGuardianIds: string[] = []
 
 interface ErrorBody {
   error: { code: string; requestId: string }
 }
 
-async function dashboard(client: Client, schoolId: string, date?: string): Promise<Response> {
-  const query = date === undefined ? '' : `?date=${date}`
+async function dashboard(
+  client: Client,
+  schoolId: string,
+  date?: string,
+  audience?: string,
+): Promise<Response> {
+  const search = new URLSearchParams()
+  if (date !== undefined) search.set('date', date)
+  if (audience !== undefined) search.set('audience', audience)
+  const query = search.size === 0 ? '' : `?${search.toString()}`
   return client.fetch(`/api/schools/${schoolId}/dashboard${query}`)
 }
 
-async function read(client: Client, date?: string): Promise<DashboardResponse> {
-  const response = await dashboard(client, schoolA, date)
+async function read(client: Client, date?: string, audience?: string): Promise<DashboardResponse> {
+  const response = await dashboard(client, schoolA, date, audience)
   assert.equal(response.status, 200, await response.clone().text())
   return DashboardResponse.parse(await response.json())
+}
+
+/** Link a membership to a pupil the way the portal does: guardian, family link, approved access. */
+async function linkChild(membershipId: string, studentId: string): Promise<void> {
+  const pool = adminPool()
+  const guardianId = randomUUID()
+  dualGuardianIds.push(guardianId)
+  await pool.query(
+    `INSERT INTO guardians (id, school_id, first_name, phone) VALUES ($1, $2, 'Dual Guardian', $3)`,
+    [guardianId, schoolA, `9${Math.floor(100000000 + Math.random() * 899999999)}`],
+  )
+  await pool.query(
+    `INSERT INTO membership_guardian_links (school_id, membership_id, guardian_id, verified_at)
+     VALUES ($1, $2, $3, now())`,
+    [schoolA, membershipId, guardianId],
+  )
+  await pool.query(
+    `INSERT INTO student_guardians (school_id, student_id, guardian_id, relation)
+     VALUES ($1, $2, $3, 'guardian')`,
+    [schoolA, studentId, guardianId],
+  )
+  await pool.query(
+    `INSERT INTO guardian_student_access
+       (school_id, guardian_id, student_id, status, areas, approved_by_membership_id, approved_at)
+     VALUES ($1, $2, $3, 'approved', ARRAY['basic']::text[], $4, now())`,
+    [schoolA, guardianId, studentId, ownerMembershipId],
+  )
 }
 
 async function office(client: Client, date?: string): Promise<
@@ -350,17 +389,34 @@ before(async () => {
     `INSERT INTO membership_staff_links(school_id,membership_id,staff_id) VALUES ($1,$2,$3)`,
     [schoolA, second.membershipId, secondStaffId],
   )
+  // Two people with more than one home: a teacher who is also a parent, and
+  // an accountant who is too. Each is linked to the fixture pupil as a parent.
+  const dual = await member(['teacher', 'parent'], 'dual', false)
+  teacherParent = dual.client
+  await linkChild(dual.membershipId, studentA)
+  const books = await member(['accountant', 'parent'], 'books', true)
+  accountantParent = books.client
+  await linkChild(books.membershipId, studentA)
   extraUserIds.push(
     principalMember.userId,
     adminMember.userId,
     accountantMember.userId,
     unlinked.userId,
     second.userId,
+    dual.userId,
+    books.userId,
   )
 })
 
 after(async () => {
   const pool = adminPool()
+  for (const table of ['guardian_student_access', 'student_guardians', 'membership_guardian_links']) {
+    await pool.query(`DELETE FROM ${table} WHERE school_id = $1 AND guardian_id = ANY($2::uuid[])`, [
+      schoolA,
+      dualGuardianIds,
+    ])
+  }
+  await pool.query('DELETE FROM guardians WHERE school_id = $1 AND id = ANY($2::uuid[])', [schoolA, dualGuardianIds])
   await pool.query('DELETE FROM auth_two_factor WHERE user_id = ANY($1::uuid[])', [
     [ownerUserId, ...extraUserIds],
   ])
@@ -439,10 +495,66 @@ test('the audience comes from the roles a member holds, and an unknown role gets
   assert.equal(audienceFor(['principal']), 'office')
   assert.equal(audienceFor(['admin']), 'office')
   assert.equal(audienceFor(['teacher', 'parent']), 'teacher')
-  assert.equal(audienceFor(['parent', 'accountant']), 'parent')
+  // The default order is office, accountant, teacher, parent.
+  assert.equal(audienceFor(['parent', 'accountant']), 'accountant')
+  assert.equal(audienceFor(['parent', 'accountant', 'teacher']), 'accountant')
   assert.equal(audienceFor(['accountant']), 'accountant')
   assert.equal(audienceFor(['student']), null)
   assert.equal(audienceFor([]), null)
+})
+
+test('a member may ask for any home their roles earn, and no other', () => {
+  assert.deepEqual(audiencesFor(['parent', 'teacher']), ['teacher', 'parent'])
+  assert.deepEqual(audiencesFor(['owner', 'accountant', 'parent']), ['office', 'accountant', 'parent'])
+  assert.deepEqual(audiencesFor(['student']), [])
+  assert.equal(resolveAudience(['teacher', 'parent'], undefined), 'teacher')
+  assert.equal(resolveAudience(['teacher', 'parent'], 'parent'), 'parent')
+  assert.equal(resolveAudience(['teacher', 'parent'], 'office'), null)
+  assert.equal(resolveAudience(['parent'], 'teacher'), null)
+  assert.equal(resolveAudience([], undefined), null)
+})
+
+test('a teacher who is also a parent lands on the teacher home and may ask for the parent one', async () => {
+  const byDefault = await read(teacherParent, MONDAY)
+  assert.equal(byDefault.audience, 'teacher')
+  const asParent = await read(teacherParent, MONDAY, 'parent')
+  assert.equal(asParent.audience, 'parent')
+  if (asParent.audience !== 'parent') return
+  // The parent home is still theirs alone: one child, through the family link.
+  assert.deepEqual(asParent.children.map((child) => child.student.id), [studentA])
+  const asTeacher = await read(teacherParent, MONDAY, 'teacher')
+  assert.equal(asTeacher.audience, 'teacher')
+})
+
+test('a home the roles do not earn is refused before anything is read', async () => {
+  // The audience is checked before the tenant transaction opens, like the date.
+  for (const [client, audience] of [
+    [teacher, 'office'],
+    [secondTeacher, 'parent'],
+    [teacherParent, 'office'],
+    [teacherParent, 'accountant'],
+    [parent, 'teacher'],
+    [accountant, 'office'],
+  ] as const) {
+    const response = await dashboard(client, schoolA, MONDAY, audience)
+    assert.equal(response.status, 400, audience)
+    const body = (await response.json()) as ErrorBody
+    assert.equal(body.error.code, 'INVALID_REQUEST')
+  }
+  // A word that is not an audience at all is refused by the query shape.
+  const nonsense = await dashboard(teacherParent, schoolA, MONDAY, 'everyone')
+  assert.equal(nonsense.status, 400)
+})
+
+test('an accountant who is also a parent lands on the accountant home', async () => {
+  const byDefault = await read(accountantParent, PROBE)
+  assert.equal(byDefault.audience, 'accountant')
+  if (byDefault.audience !== 'accountant') return
+  assert.ok(byDefault.fees, 'the accountant home carries the fees block')
+  const asParent = await read(accountantParent, MONDAY, 'parent')
+  assert.equal(asParent.audience, 'parent')
+  if (asParent.audience !== 'parent') return
+  assert.deepEqual(asParent.children.map((child) => child.student.id), [studentA])
 })
 
 test('the day says school day, holiday or Sunday, and points at the next working day', async () => {
@@ -778,7 +890,8 @@ test('the class card belongs to the class teacher alone', async () => {
 })
 
 test('a teacher with no staff record gets an empty, honest answer', async () => {
-  const body = await read(unlinkedTeacher, PROBE)
+  // This member also keeps the books, so the accountant home comes first; they ask for the teacher one.
+  const body = await read(unlinkedTeacher, PROBE, 'teacher')
   // Nothing is invented for them: no week, no timeline, no class.
   if (body.audience !== 'teacher') throw new Error('not the teacher dashboard')
   assert.equal(body.staffLinked, false)
@@ -868,10 +981,14 @@ test('the response carries only the fields the contract allows', async () => {
 })
 
 test('the dashboard is a read; it does not accept a query that widens it', async () => {
-  // The only query the route accepts is the date; anything else is refused.
+  // The route accepts the date and one of the caller's own audiences; anything else is refused.
   const widened = await parent.fetch(`/api/schools/${schoolA}/dashboard?audience=office&schoolId=${schoolB}`)
   assert.equal(widened.status, 400)
+  const office = await dashboard(parent, schoolA, PROBE, 'office')
+  assert.equal(office.status, 400)
+  assert.equal(((await office.json()) as ErrorBody).error.code, 'INVALID_REQUEST')
   const body = await read(parent, PROBE)
-  // The audience is server-side state, so the query string changes nothing.
+  // The audience comes from the roles, so a parent's own home is the only one they can name.
   assert.equal(body.audience, 'parent')
+  assert.equal((await read(parent, PROBE, 'parent')).audience, 'parent')
 })

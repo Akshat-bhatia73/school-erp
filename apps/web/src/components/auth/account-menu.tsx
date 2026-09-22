@@ -1,18 +1,29 @@
 import { useNavigate } from '@tanstack/react-router'
-import { Building2, ChevronsUpDown, LogOut, Moon, ShieldCheck, Sun } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { Building2, Check, ChevronsUpDown, LogOut, Moon, ShieldCheck, Sun } from 'lucide-react'
 import { UserAvatar } from '@/components/shared/avatar'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { useDashboardView, viewLabel, type DashboardView } from '@/lib/dashboard-view'
 import { useSession } from '@/lib/session'
 import { useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
 /** The signed-in person, their school, and the few things they can do about either. */
 export function AccountMenu({ collapsed = false, onNavigate }: { collapsed?: boolean; onNavigate?: () => void }) {
-  const { user, school, activeMemberships, signOut } = useSession()
+  const { user, school, roleKeys, activeMemberships, signOut } = useSession()
   const { theme, toggle } = useTheme()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const name = user?.displayName ?? 'Signed in'
   const canSwitch = activeMemberships.length > 1
+  // Only a membership that earns more than one home gets a "Viewing as" choice.
+  const { view, options, setView } = useDashboardView(user?.id ?? null, roleKeys)
+  const canChangeView = options.length > 1
+
+  const chooseView = (next: DashboardView) => {
+    setView(next)
+    if (school) void queryClient.invalidateQueries({ queryKey: [school.id, 'dashboard'] })
+  }
 
   const go = (to: string) => {
     onNavigate?.()
@@ -40,6 +51,26 @@ export function AccountMenu({ collapsed = false, onNavigate }: { collapsed?: boo
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="top" className="w-64">
+        {canChangeView && (
+          <>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-[11.5px] font-medium text-muted-foreground">Viewing as</DropdownMenuLabel>
+              {options.map((option) => (
+                <DropdownMenuItem
+                  key={option}
+                  role="menuitemradio"
+                  aria-checked={option === view}
+                  onClick={() => chooseView(option)}
+                  className="gap-2 min-h-11 md:min-h-8"
+                >
+                  <span className="flex size-4 items-center justify-center">{option === view && <Check className="size-4" />}</span>
+                  {viewLabel(option)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+          </>
+        )}
         {canSwitch && (
           <DropdownMenuItem onClick={() => go('/select-school')} className="gap-2 min-h-11 md:min-h-8"><Building2 className="size-4" />Switch school</DropdownMenuItem>
         )}
