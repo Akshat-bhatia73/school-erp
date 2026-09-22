@@ -9,6 +9,7 @@ import { loadRelationshipFactsFor, type AuthzConnection } from '@erp/authz'
 import type { RequestContext } from '@erp/contracts/server'
 import type {
   DashboardBirthday,
+  DashboardClassAttendance,
   DashboardLesson,
   DashboardTimelineSlot,
   TeacherDashboard,
@@ -24,6 +25,7 @@ import {
 } from './calendar.ts'
 import { loadSchedules, scheduleForGrade, type Schedule } from './bell.ts'
 import { enrollmentScope, substitutionScope } from './office.ts'
+import { attendancePlans } from '../attendance/figures.ts'
 
 type WeekRow = {
   section_id: string
@@ -119,6 +121,49 @@ async function substitutionsOn(
   )
 }
 
+/**
+ * Today's register for one class, as its own class teacher sees it. The
+ * section must be one the caller's attendance plan reaches, and the absent
+ * count is only there once somebody has marked the day.
+ */
+async function classAttendanceToday(
+  conn: AuthzConnection,
+  context: RequestContext,
+  sectionId: string,
+  date: string,
+): Promise<DashboardClassAttendance | undefined> {
+  const plans = await attendancePlans(conn, context)
+  const schoolId = context.schoolId
+  const [row] = await rows<{ reaches: boolean; marked: number }>(
+    conn,
+    sql`SELECT EXISTS (SELECT 1 FROM sections
+                        WHERE sections.school_id = ${schoolId}::uuid
+                          AND sections.id = ${sectionId}::uuid
+                          AND (${plans.rosters})) AS reaches,
+               (SELECT count(*)::int FROM attendance_entries
+                 WHERE attendance_entries.school_id = ${schoolId}::uuid
+                   AND attendance_entries.section_id = ${sectionId}::uuid
+                   AND attendance_entries.date = ${date}::date
+                   AND (${plans.entries})) AS marked`,
+  )
+  if (row?.reaches !== true) return undefined
+  if (Number(row.marked ?? 0) === 0) return { date, marked: false }
+  const [absent] = await rows<{ total: number }>(
+    conn,
+    sql`SELECT count(*)::int AS total FROM (
+           SELECT DISTINCT ON (attendance_entries.student_id) attendance_entries.mark
+             FROM attendance_entries
+            WHERE attendance_entries.school_id = ${schoolId}::uuid
+              AND attendance_entries.section_id = ${sectionId}::uuid
+              AND attendance_entries.date = ${date}::date
+              AND (${plans.entries})
+            ORDER BY attendance_entries.student_id, attendance_entries.revision DESC
+         ) cur
+        WHERE cur.mark = 'absent'`,
+  )
+  return { date, marked: true, absent: absent?.total ?? 0 }
+}
+
 /** The class this teacher is the class teacher of, with its strength. */
 async function myClass(
   conn: AuthzConnection,
@@ -126,6 +171,7 @@ async function myClass(
   staffId: string,
   yearId: string,
   date: string,
+  schoolDay: boolean,
 ): Promise<TeacherDashboard['myClass']> {
   const sectionPlan = await readPlan(conn, context, 'sections.read_strengths', 'section')
   const enrollmentPredicate = await enrollmentScope(conn, context)
@@ -190,10 +236,17 @@ async function myClass(
     return birthdays.sort((a, b) => (a.date === b.date ? a.name.localeCompare(b.name) : a.date.localeCompare(b.date)))
   })
 
+  // The register is a thing that happens on a school day, so a Sunday or a
+  // holiday carries no line about it at all.
+  const attendanceToday = schoolDay
+    ? await optionalBlock(() => classAttendanceToday(conn, context, section.id, date))
+    : undefined
+
   return {
     section: { id: section.id, name: label(section.grade_name, section.section_name) },
     strength: Number(section.strength),
     ...(birthdaysThisWeek === undefined ? {} : { birthdaysThisWeek }),
+    ...(attendanceToday === undefined ? {} : { attendanceToday }),
   }
 }
 
@@ -291,7 +344,7 @@ export async function teacherDashboard(
     }
   }
 
-  const mine = await optionalBlock(() => myClass(conn, context, staffId, year.id, date))
+  const mine = await optionalBlock(() => myClass(conn, context, staffId, year.id, date, calendar.day.kind === 'school_day'))
 
   return {
     audience: 'teacher',

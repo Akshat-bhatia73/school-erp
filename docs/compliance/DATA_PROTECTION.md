@@ -164,6 +164,8 @@ Adopted in Task 12 and to be published to schools. The periods the code acts on 
 | Delivery outbox | 90 days | Sweep |
 | Audit events | 7 years, covering a child's time at the school plus the DPDP one-year log requirement | Archive whole years to cold storage; never edit |
 | Access logs | 180 days within India (CERT-In), 1 year preferred (DPDP Rules) | Provider retention setting |
+| Pupil attendance marks (`attendance_entries`) | With the pupil's sensitive fields: enrolled, plus 3 years after leaving | Nothing prunes them today; anonymisation clears nothing, because a mark is not identifying |
+| Staff attendance marks (`staff_attendance_entries`) | With the staff record: employed, plus 8 years after leaving | Nothing prunes them today |
 
 ## 8. SOC 2 readiness map
 
@@ -290,3 +292,27 @@ school and a task for later, and it is listed as a gap.
 **Where it sits.** In the same United States database as everything else. Building and releasing
 the module is fine, but **no real school's money goes in until the database has moved to an Indian
 region** (Task 17).
+
+## 12. Attendance, September 2026
+
+A short assessment of the attendance records, written when the module was built (Task 20).
+
+**What changed.** The system now holds, for every pupil and every school day, one of five marks (present, absent, late, leave, half day), and the same for every staff member. Each mark is a row that is never edited: a later save or an office correction is a new row that supersedes the old one, and the database refuses every UPDATE and DELETE. Who marked, and when, is on the row. The reason an office correction was made is a redactable audit note and is stored nowhere else.
+
+**Purpose and basis.** Running the school and keeping the attendance register the education rules require. It is not a new consent purpose: a school cannot run a class without knowing who was in it. The privacy notice and the processing agreement say so.
+
+**Who reads it.** Owner, principal and admin read, mark, correct and export every register, and the staff register too. A teacher reads and marks the sections they are assigned to and reads their own month of the staff register. A parent reads their own child's calendar and percentage, for every year the child was at the school, and nothing about any other child. The accountant reads the staff register as payroll input and holds no key over pupil attendance. Every read is bounded by the same plan its detail read uses, so a list never carries a row a person could not open.
+
+**What keeps it honest.**
+
+- Marking a day is one write of the whole roster, derived by the server from the enrolments. A body that names a pupil who was not in that section on that date is refused with nothing written.
+- A teacher's window closes at the end of the day in the school's timezone. After that only the office corrects, with a reason.
+- Nothing is edited. `attendance_entries` and `staff_attendance_entries` take INSERT and nothing else, by grant and by trigger. The current mark is the newest row; every earlier row stays.
+- `safe_changes` carries the section, the year, the date and counts. A reason somebody typed is an audit note.
+- Nobody marks their own attendance. The staff register refuses a body that names the caller's own row.
+- The percentage is worked out from the same rule everywhere (one set of common table expressions), so a screen, a file and the dashboard cannot disagree.
+
+**Anonymising a pupil, decided.** The marks stay. A mark says "present" or "absent" against a register line the school keeps permanently anyway; it identifies nobody on its own, and the register the education rules require is a register of attendance. So the anonymisation step clears nothing in these tables. The retention period is nevertheless the pupil's sensitive period (enrolled plus three years), and staff marks keep with staff records (eight years); nothing prunes either today, which is listed as a gap, as it is for the fee ledger.
+
+**Where it sits.** In the same United States database as everything else. No real school's data goes in until the database has moved to an Indian region (Task 17).
+

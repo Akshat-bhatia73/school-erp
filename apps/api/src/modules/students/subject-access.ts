@@ -4,6 +4,8 @@ import { planPredicate, scopedTableFor } from '@erp/authz'
 import { withTenantTransaction } from '@erp/db'
 import { SubjectAccessExport } from '@erp/contracts'
 import type {
+  AttendanceMark,
+  AttendanceYearRecord,
   ConsentMethod,
   ConsentPurpose,
   ConsentRecord,
@@ -15,6 +17,13 @@ import type {
 import type { RequestContext } from '@erp/contracts/server'
 import { decideAction } from '../../memberships/authorize.ts'
 import { readStatement } from '../fees/statement.ts'
+import {
+  attendanceFiguresCte,
+  attendancePlans,
+  schoolToday,
+  toSummary,
+  type FiguresRow,
+} from '../attendance/figures.ts'
 import { resolveDisplayNames, type MemberRow } from '../../memberships/directory.ts'
 import {
   allowedActionsFor,
@@ -312,6 +321,74 @@ async function loadAccessHistory(
   }))
 }
 
+/** A year of marks is long, but a pupil's whole school life is not endless. */
+const ATTENDANCE_MARK_LIMIT = 400
+
+/**
+ * Every mark this pupil carries, year by year, through the caller's own
+ * attendance plan and the same figures the screens use. A year the pupil was
+ * never enrolled in is not here, and the summary counts the whole year up to
+ * today.
+ */
+async function loadAttendanceYears(
+  conn: ModuleConnection,
+  context: RequestContext,
+  studentId: string,
+): Promise<AttendanceYearRecord[]> {
+  const schoolId = context.schoolId
+  const plans = await attendancePlans(conn, context)
+  const today = await schoolToday(conn, schoolId)
+  const years = await conn.db.execute<{ id: string; name: string; start_date: string; end_date: string }>(
+    sql`SELECT ay.id, ay.name,
+               to_char(ay.start_date, 'YYYY-MM-DD') AS start_date,
+               to_char(ay.end_date, 'YYYY-MM-DD') AS end_date
+          FROM academic_years ay
+         WHERE ay.school_id = ${schoolId}::uuid
+           AND EXISTS (SELECT 1 FROM enrollments
+                        WHERE enrollments.school_id = ay.school_id
+                          AND enrollments.academic_year_id = ay.id
+                          AND enrollments.student_id = ${studentId}::uuid)
+         ORDER BY ay.start_date, ay.id`,
+  )
+
+  const records: AttendanceYearRecord[] = []
+  for (const year of years.rows) {
+    const cte = attendanceFiguresCte({
+      schoolId,
+      from: year.start_date,
+      to: year.end_date,
+      asOf: today,
+      holidays: plans.holidays,
+      spans: sql`enrollments.student_id = ${studentId}::uuid
+                 AND enrollments.academic_year_id = ${year.id}::uuid
+                 AND EXISTS (SELECT 1 FROM students
+                              WHERE students.school_id = enrollments.school_id
+                                AND students.id = enrollments.student_id
+                                AND (${plans.pupils}))`,
+      entries: plans.entries,
+    })
+    const marks = await conn.db.execute<{ day: string; mark: AttendanceMark; corrected: boolean | null }>(
+      sql`${cte}
+          SELECT to_char(day, 'YYYY-MM-DD') AS day, mark, corrected
+            FROM att_pupil_days
+           WHERE mark IS NOT NULL
+           ORDER BY day
+           LIMIT ${ATTENDANCE_MARK_LIMIT}`,
+    )
+    const figures = await conn.db.execute<FiguresRow>(sql`${cte} SELECT * FROM att_figures`)
+    records.push({
+      academicYear: { id: year.id, name: year.name.slice(0, 160) },
+      marks: marks.rows.map((row) => ({
+        date: row.day,
+        mark: row.mark,
+        corrected: row.corrected === true,
+      })),
+      summary: toSummary(figures.rows[0]),
+    })
+  }
+  return records
+}
+
 /**
  * The subject access export of one student (Task 13): everything the system
  * holds about this child, assembled through the very reads the detail screens
@@ -339,6 +416,7 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ...(result.documents.length === 0 ? [] : ['documents']),
           ...(result.consents.length === 0 ? [] : ['consents']),
           ...(result.fees === undefined ? [] : ['fees']),
+          ...(result.attendance === undefined ? [] : ['attendance']),
           ...(result.accessHistory === undefined ? [] : ['accessHistory']),
         ],
       }),
@@ -437,6 +515,14 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
             })()
           : undefined
 
+        // Attendance is decided on the pupil, exactly as their own month is,
+        // and the block is left out altogether rather than emptied when the
+        // caller may not read it.
+        const attendanceDecision = await decideResource(conn, context, 'attendance.read', 'attendance', studentId)
+        const attendance = attendanceDecision.allowed
+          ? await loadAttendanceYears(conn, context, studentId)
+          : undefined
+
         // The trail is decided against the school as a whole: there is no one
         // audit row to decide, and the rows named here are this student's.
         const history = (await decideAction(conn, context, 'audit.read', context.schoolId, true))
@@ -455,6 +541,7 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           documents,
           consents,
           ...(fees === undefined ? {} : { fees }),
+          ...(attendance === undefined ? {} : { attendance }),
           ...(history === undefined ? {} : { accessHistory: history }),
         }
       })

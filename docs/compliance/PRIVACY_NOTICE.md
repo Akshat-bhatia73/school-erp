@@ -30,8 +30,10 @@ Last updated: `[date]`.
   an emergency.
 - **Documents.** Certificates and other papers you or we have uploaded, such as a birth
   certificate.
-- **Day-to-day records.** Attendance, timetable and section, and the reason recorded if your child
-  leaves.
+- **Day-to-day records.** Timetable and section, and the reason recorded if your child leaves.
+- **Attendance.** One mark for every school day: present, absent, late, leave or half day, who
+  recorded it and when, and any correction the office made afterwards. A mark is never edited or
+  deleted; a correction is a new entry that replaces the old one.
 - **Fees.** What your child is charged (tuition and any optional fee you have chosen, such as the
   bus, a sport or a club), any concession your child gets and the kind of concession it is, and
   every payment, refund and adjustment: the receipt number, the date, the amount, how it was paid,
@@ -115,10 +117,12 @@ Only the people at the school who need to, and only the parts they need.
   cannot open a child from another section, and cannot see salaries or other staff members' private
   details.
 - **You** see your own children, and nothing about any other family. That includes fees: you see
-  your own children's fee statements and receipts and nobody else's.
+  your own children's fee statements and receipts and nobody else's. It includes attendance too:
+  your child's calendar and monthly percentage, for every year your child has been here.
 - **Accounts staff** see what is needed for fees: each pupil's name, class, fees, payments and
   balance, and a contact number. They do not see health notes, documents or identity numbers.
-- **Teachers** see nothing about fees at all.
+- **Teachers** see nothing about fees at all. A class teacher marks and reads attendance for their own
+  sections only; the office corrects a past day, with a reason that is kept on record.
 
 This is not a matter of hiding buttons. The software checks who you are on every single request,
 and a list will never show you a row you would not be allowed to open. Every time someone opens
@@ -152,6 +156,7 @@ The short version:
 | Your child's personal details, health notes, documents and address | While your child is enrolled, and for 3 years after leaving. Then they are cleared |
 | Your details as a guardian | While any of your children is still within that period |
 | Fee records: what was charged, receipts, refunds, concessions and optional fees | 8 years after your child's last fee transaction, because account books must be kept. A receipt is never edited or deleted; a correction is a new entry |
+| Your child's attendance | With your child's personal details: while enrolled, plus 3 years after leaving |
 | The name of whoever paid, where it was written on a receipt | With your child's personal details: cleared 3 years after leaving. The receipt itself stays |
 | Staff records | While employed, and 8 years after leaving, for payroll law. Then contact details and identifiers are cleared |
 | Logins and passwords | While you have an account. 30 days after your last link to the school ends, the credentials are deleted |
@@ -202,8 +207,9 @@ investigation to finish before telling you.
 ## Staff
 
 The same applies to our staff. We also hold your employee code, designation, employment dates, your
-salary, the last four digits of your PAN and of your bank account, and records of absence and
-substitution. Only the people who run payroll and the head can see the pay and bank fields. Your
+salary, the last four digits of your PAN and of your bank account, records of absence and
+substitution, and the staff attendance register (one mark per working day, marked by the office,
+never by yourself; you can read your own month). Only the people who run payroll and the head can see the pay and bank fields. Your
 colleagues cannot. Your rights above are the same, and the grievance officer is the same person.
 
 ## Changes to this notice

@@ -201,8 +201,23 @@ uses, never to the internet; checklist item 16 checks both halves.
 Migrations run as `erp_migrator` and only at deploy time. The running service
 never holds that login.
 
-Migration `0015_fees.sql` is the fees release (Task 19), and it is the one
-release so far that needs **two** steps before the new code starts. The
+Migration `0016_attendance.sql` is the attendance release (Task 20). It is
+additive: two new append-only tables (`attendance_entries`,
+`staff_attendance_entries`) and one CHECK constraint widened
+(`export_jobs.kind` gains three attendance kinds), so the previous version of
+the code runs against it. Like the fees release it **changes the role
+templates**: the four `attendance.*` and the four `staff_attendance.*` keys
+become active, and every role but student gains grants. Every existing school
+therefore needs `pnpm db:sync-roles` with the migrator credential, after the
+migration and before the smoke test; a school on the previous templates gains
+29 grants (eight each for owner, principal and admin, three for teacher, one
+for parent and one for the accountant). Without it nobody in an existing
+school holds an attendance key: the Attendance screen is missing and every
+attendance route answers `ACCESS_DENIED`. The order is the same as for fees:
+migrate, `migrate:check`, `db:sync-roles`, merge, deploy, smoke.
+
+Migration `0015_fees.sql` is the fees release (Task 19), and it was the first
+release that needed **two** steps before the new code starts. The
 migration is additive: six new tables (`fee_heads`, `fee_structures`,
 `fee_student_heads`, `fee_concessions`, `fee_receipts`, `fee_receipt_lines`) and
 two CHECK constraints widened (`number_sequences.kind` gains `receipt`,
@@ -306,6 +321,8 @@ quote the same numbers. Periods start when the purpose ends, not when the row wa
 | Payer's name on a receipt (`fee_receipts.payer_name`) | The same period as the student sensitive fields | Cleared by the pupil's anonymisation; the money row stays | `POST /students/:id/anonymise`; the one UPDATE the ledger trigger allows |
 | A pupil's concessions and optional fees | With the fee ledger | Kept, because a balance cannot be explained without them; a concession's reason is an audit note, never a column | `fees.manage` routes only |
 | Fee heads and structures | Permanently; school setup, not personal data | Nothing | `fees.manage` routes only |
+| Pupil attendance (`attendance_entries`: one mark per pupil and school day, with its revision, who recorded it and the row it supersedes) | With the student sensitive fields: enrolled, plus 3 years after leaving | Nothing prunes it today, and anonymisation clears nothing here: a mark identifies nobody on its own | The runtime login holds no UPDATE or DELETE; the `attendance_entries_no_change` trigger refuses every edit |
+| Staff attendance (`staff_attendance_entries`) | With the staff record: employed, plus 8 years | Nothing prunes it today | The same grant and the `staff_attendance_entries_no_change` trigger |
 | Staff records (salary, identifier fragments, private contact) | Employed, plus 8 years after leaving for statutory payroll records | Anonymise contact and identifiers; keep employment dates and designation | `POST /staff/:id/anonymise` |
 | Login identity and credentials | While the person holds any active membership | Sessions end when the last membership is removed; credentials go 30 days later, keeping `auth_user.id` and the name for audit attribution | Membership removal, then `sweep_orphaned_credentials` |
 | Sessions, one-time codes, reset tokens, throttle rows, held text messages | Until expiry | Deleted | `sweep_auth_transients`, daily |
@@ -484,6 +501,10 @@ Rolling back the fees release is a code rollback only. The fee tables and the
 fee grants stay: the previous code never reads the tables, and it treats the fee
 keys as reserved, so a grant it does not recognise is simply never asked about.
 Do not try to empty `fee_receipts`: it refuses DELETE by design.
+
+The same holds for the attendance release: the two attendance tables and the
+attendance grants stay, the previous code never reads them and treats the keys
+as reserved, and both tables refuse UPDATE and DELETE by design.
 
 ## 12. Scope
 

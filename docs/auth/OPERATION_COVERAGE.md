@@ -23,7 +23,7 @@ Owner or permission changed:
 - `students.enrollments` scope is now also applied to the class summary carried on a student hit in the roster, the search and the detail read, so a caller with no enrolment grant sees the pupil without the class.
 - Attaching an existing guardian during admission needs `students.manage_guardians` as well as `students.create`.
 - `subjects.setGradeSubjects` answers `GradeSubjectList`, not `Subject` or `EmptySuccess`.
-- Export job status polling (`GET /api/schools/:schoolId/exports/:jobId`) and the export file download (`GET /api/schools/:schoolId/exports/:jobId/file`) are endpoints this inventory does not list. Each requires one of `students.export`, `staff.export`, `audit.export`, `timetable.read`, `fees.export` or `fees.read` and then re-decides the permission the job itself recorded. The download also needs the job to be ready and to belong to the caller, and it writes one audit row.
+- Export job status polling (`GET /api/schools/:schoolId/exports/:jobId`) and the export file download (`GET /api/schools/:schoolId/exports/:jobId/file`) are endpoints this inventory does not list. Each requires one of `students.export`, `staff.export`, `audit.export`, `timetable.read`, `fees.export`, `fees.read`, `attendance.export`, `attendance.read` or `staff_attendance.export` and then re-decides the permission the job itself recorded. The download also needs the job to be ready and to belong to the caller, and it writes one audit row.
 - Three export endpoints this inventory does not list were added by decision on 19 September 2026: `POST /students/:studentId/export-profile` (`students.export`) and `POST /staff/:staffId/export-profile` (`staff.export`) turn one record into a document, and `POST /timetable/export` (`timetable.read`) turns one week into a spreadsheet or a document. Exporting a timetable is reading it in another format, so it carries the read permission rather than an export permission of its own.
 - `auditLogs.list` redaction by audience is the scope term: `audit.read` and `audit.export` at the `finance` scope select only rows whose action is in `FINANCE_AUDIT_ACTIONS`, so an accountant's list, count and export never exceed the money trail.
 - `timetable.bellSchedules` and `timetable.bellFor` are school-wide rather than matched scope: `timetable.read` is a permission over timetable entries, so no read plan can be built for a bell schedule.
@@ -77,6 +77,13 @@ Owner or permission changed:
 | `/fees/setup` | `fees.read` / school or finance; writes `fees.manage` | `FeeHeadList`, `FeeStructureList` | Task 19 |
 | `/fees/students/:studentId` | `fees.read` / matched record scope; collect uses `fees.collect`, every other write `fees.manage` | `FeeStatement` | Task 19 |
 | `/fees/receipts/:receiptId` | `fees.read` / matched record scope; refund and cancel use `fees.manage` | `FeeReceiptDetail` | Task 19 |
+| `/attendance` | `attendance.read` / school, assigned sections or own children (a parent sees their own children; a caller with `staff_attendance.read` alone is sent to the staff register) | `AttendanceSectionsResponse` | Task 20 |
+| `/attendance/sections/:sectionId` | `attendance.read` / matched record scope; save uses `attendance.record` on today, corrections `attendance.manage` | `AttendanceDayResponse` | Task 20 |
+| `/attendance/sections/:sectionId/month` | `attendance.read` / matched record scope; export uses `attendance.export` | `AttendanceSectionMonthResponse` | Task 20 |
+| `/attendance/students/:studentId` | `attendance.read` / matched record scope; the PDF is the same read | `AttendanceStudentMonthResponse` | Task 20 |
+| `/attendance/staff` | `staff_attendance.read` / school or self; save uses `staff_attendance.record`, corrections `staff_attendance.manage` | `StaffAttendanceDayResponse` | Task 20 |
+| `/attendance/staff/month` | `staff_attendance.read` / school or self; export uses `staff_attendance.export` | `StaffAttendanceMonthResponse` | Task 20 |
+| `/attendance/staff/:staffId` | `staff_attendance.read` / matched record scope | `StaffAttendanceMemberMonthResponse` | Task 20 |
 
 ## API client operations
 
@@ -181,6 +188,25 @@ with its extra checks is in [protected school APIs](./PROTECTED_APIS.md#fees).
 | `fees.refund`, `fees.cancelReceipt`, `fees.adjust` | `fees.manage` / matched record scope; privileged; the reason is an audit note | `FeeReceiptDetail` | Task 19 |
 | `fees.exportReceipt` | `fees.read` / matched record scope: the same read in another format | `FeeExportJob` | Task 19 |
 | `fees.exportDues`, `fees.exportCollections` | `fees.export` / school or finance; privileged | `FeeExportJob` | Task 19 |
+
+The attendance module (Task 20) added these. Every one is a `protectedRoute` under `/attendance` or
+`/staff-attendance`; the route table with its extra checks is in
+[protected school APIs](./PROTECTED_APIS.md#attendance).
+
+| Operation | Permission / scope | Safe response family | Owner |
+|---|---|---|---|
+| `attendance.sections` (the day list) | `attendance.read` / school, assigned sections or own children | `AttendanceSectionsResponse` | Task 20 |
+| `attendance.day` | `attendance.read` / matched record scope (the section) | `AttendanceDayResponse` | Task 20 |
+| `attendance.mark` | `attendance.record` / matched record scope; privileged at school scope; today only, the whole roster | `AttendanceDayResponse` | Task 20 |
+| `attendance.correct` | `attendance.manage` / matched record scope; privileged; the reason is an audit note | `AttendanceDayResponse` | Task 20 |
+| `attendance.studentMonth` | `attendance.read` / matched record scope (the pupil); every read audited | `AttendanceStudentMonthResponse` | Task 20 |
+| `attendance.sectionMonth` | `attendance.read` / matched record scope (the section) | `AttendanceSectionMonthResponse` | Task 20 |
+| `attendance.exportSectionMonth` | `attendance.export` / matched record scope; privileged at school scope | `AttendanceExportJob` | Task 20 |
+| `attendance.exportStudentMonth` | `attendance.read` / matched record scope: the same read in another format | `AttendanceExportJob` | Task 20 |
+| `attendance.staffDay`, `attendance.staffMonth` | `staff_attendance.read` / school or self | `StaffAttendanceDayResponse`, `StaffAttendanceMonthResponse` | Task 20 |
+| `attendance.markStaff`, `attendance.correctStaff` | `staff_attendance.record`, `staff_attendance.manage` / school; privileged; never the caller's own row | `StaffAttendanceDayResponse` | Task 20 |
+| `attendance.staffMemberMonth` | `staff_attendance.read` / matched record scope; every read audited | `StaffAttendanceMemberMonthResponse` | Task 20 |
+| `attendance.exportStaffMonth` | `staff_attendance.export` / school; privileged | `AttendanceExportJob` | Task 20 |
 
 ## Read auditing
 

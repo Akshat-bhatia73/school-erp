@@ -348,18 +348,19 @@ export interface StaffFiguresInput extends CalendarInput {
  * with the same columns as `att_figures`, keyed by `staff_id`.
  *
  * A person is on the register from their joining date to their leaving date,
- * whatever their status says: someone on leave is still marked (as leave).
+ * whatever their status says: someone on leave is still marked (as leave). A
+ * record with no joining date on file has always been here.
  */
 export function staffFiguresCte(input: StaffFiguresInput): SQL {
   const school = sql`${input.schoolId}::uuid`
   return sql`WITH ${calendarDaysCte(input)},
     sta_people AS (
       SELECT staff.id AS staff_id,
-             GREATEST(staff.joining_date, ${input.from}::date) AS from_on,
+             GREATEST(COALESCE(staff.joining_date, '-infinity'::date), ${input.from}::date) AS from_on,
              LEAST(COALESCE(staff.leaving_date, 'infinity'::date), ${input.to}::date) AS to_on
         FROM staff
        WHERE staff.school_id = ${school}
-         AND staff.joining_date <= ${input.to}::date
+         AND (staff.joining_date IS NULL OR staff.joining_date <= ${input.to}::date)
          AND (staff.leaving_date IS NULL OR staff.leaving_date >= ${input.from}::date)
          AND (${input.people})
     ),

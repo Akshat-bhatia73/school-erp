@@ -73,6 +73,7 @@ function Page() {
   const detail = detailQuery.data
   const { staff, employment } = detail
   const canEditEmployment = allows(detail.allowedActions, 'staff.update_employment')
+  const canReadAttendance = hasPermission('staff_attendance.read')
   const canEditContact = allows(detail.allowedActions, 'staff.update_private')
   const canEditPay = allows(detail.allowedActions, 'staff.update_pay')
   const canSeeTeaching = allows(detail.allowedActions, 'staff.read_employment')
@@ -85,8 +86,13 @@ function Page() {
     <>
       <PageHeader
         crumbs={[{ label: 'Staff', to: '/staff', icon: <Users /> }, { label: staff.displayName }]}
-        actions={(canExport || canEditEmployment) ? (
+        actions={(canExport || canEditEmployment || canReadAttendance) ? (
           <>
+            {canReadAttendance && (
+              <Button asChild variant="outline" size="sm">
+                <Link to="/attendance/staff/$staffId" params={{ staffId }}>Attendance</Link>
+              </Button>
+            )}
             {canExport && (
               <Button variant="outline" size="sm" disabled={startExport.isPending} onClick={() => startExport.mutate()}>
                 <FileDown />{startExport.isPending ? 'Preparing…' : 'Export PDF'}

@@ -15,6 +15,7 @@ import * as staff from './staff'
 import * as timetable from './timetable'
 import * as dashboard from './dashboard'
 import * as fees from './fees'
+import * as attendance from './attendance'
 import * as searchModule from './search'
 import * as audit from './audit'
 import * as members from './members'
@@ -37,6 +38,7 @@ export const api = {
   },
   dashboard,
   fees,
+  attendance,
   search: {
     ...searchModule,
     /** The whole module is one call; `api.search.run(schoolId, q)` reads best at a call site. */

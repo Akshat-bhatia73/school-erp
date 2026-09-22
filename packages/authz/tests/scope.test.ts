@@ -9,12 +9,14 @@ import { sql } from 'drizzle-orm'
 
 import { createAuthorizationService } from '../src/service.ts'
 import {
+  attendanceScopedTable,
   createReadPlan,
   feeScopedTable,
   planPredicate,
   scopedGet,
   scopedList,
   scopedTableFor,
+  staffAttendanceScopedTable,
 } from '../src/scope.ts'
 import type { ScopedTable } from '../src/scope.ts'
 import {
@@ -27,6 +29,7 @@ import {
   insertGrade,
   insertGradeSubject,
   insertMembership,
+  insertMembershipStaffLink,
   insertSection,
   insertStaff,
   insertStudent,
@@ -940,4 +943,259 @@ test('an accountant fee plan selects the whole school', async () => {
   for (const row of foreign.rows) {
     assert.equal(receipts.includes(row.id), false, 'another school never appears')
   }
+})
+
+// ---------------------------------------------------------------------------
+// Attendance (Task 20). One plan of resource type 'attendance' is read through
+// three faces — the mark, the roster and the pupil — and a 'staff_attendance'
+// plan through two, so the same plan has to describe the same rows in each.
+
+/**
+ * A class of this suite's own with a teacher assigned to it, a mark for a
+ * pupil of that class, a mark for a parent's own child sitting in it and a
+ * mark in a class nobody here is related to, plus two staff rows.
+ *
+ * A mark refuses a DELETE even to the owner of the table, so neither these
+ * rows nor the class and pupil they point at are ever registered for cleanup:
+ * the test database is disposable and the ids are fresh on every run. The day
+ * is random for the same reason: two runs must never write the same mark.
+ */
+const ATTENDANCE_DAY = `2026-06-${String(1 + Math.floor(Math.random() * 28)).padStart(2, '0')}`
+
+let attendanceRows: Promise<{
+  teacher: { membershipId: string; userId: string }
+  sectionId: string
+  pupilId: string
+  teacherStaffId: string
+  otherStaffId: string
+  sectionEntryId: string
+  childEntryId: string
+  otherEntryId: string
+  ownStaffEntryId: string
+  otherStaffEntryId: string
+}> | null = null
+
+async function seedAttendanceRows(): Promise<NonNullable<Awaited<typeof attendanceRows>>> {
+  attendanceRows ??= (async () => {
+    const tag = crypto.randomUUID().slice(0, 8)
+    const section = await migrator.query<{ id: string }>(
+      `INSERT INTO sections(school_id,academic_year_id,grade_id,name) VALUES ($1,$2,$3,$4) RETURNING id`,
+      [schoolA, fx('yearA'), fx('gradeA'), `Att-${tag}`],
+    )
+    const sectionId = section.rows[0]!.id
+    const pupil = await migrator.query<{ id: string }>(
+      `INSERT INTO students(school_id,admission_number,first_name,status) VALUES ($1,$2,'Att pupil','active') RETURNING id`,
+      [schoolA, `ATT-${tag}`],
+    )
+    const pupilId = pupil.rows[0]!.id
+    await migrator.query(
+      `INSERT INTO enrollments(school_id,student_id,academic_year_id,section_id,joined_on)
+       VALUES ($1,$2,$3,$4,'2026-04-01')`,
+      [schoolA, pupilId, fx('yearA'), sectionId],
+    )
+    const staffRow = async () => {
+      const row = await migrator.query<{ id: string }>(
+        `INSERT INTO staff(school_id,employee_code,first_name,staff_type,designation,status,joining_date)
+         VALUES ($1,$2,'Att','teaching','Teacher','active','2026-04-01') RETURNING id`,
+        [schoolA, `ATT-${crypto.randomUUID().slice(0, 8)}`],
+      )
+      return row.rows[0]!.id
+    }
+    const teacherStaffId = await staffRow()
+    const otherStaffId = await staffRow()
+
+    const teacher = await insertMembership({ schoolId: schoolA, roleKeys: ['teacher'] })
+    await insertMembershipStaffLink(schoolA, teacher.membershipId, teacherStaffId)
+    await insertTeachingAssignment({
+      schoolId: schoolA,
+      staffId: teacherStaffId,
+      academicYearId: fx('yearA'),
+      sectionId,
+      subjectId: assignedSubjectId,
+    })
+
+    const mark = async (studentId: string, inSection: string) => {
+      const row = await migrator.query<{ id: string }>(
+        `INSERT INTO attendance_entries(school_id,student_id,section_id,academic_year_id,date,mark,
+                                        revision,kind,recorded_by_membership_id)
+         VALUES ($1,$2,$3,$4,$5::date,'present',1,'marking',$6) RETURNING id`,
+        [schoolA, studentId, inSection, fx('yearA'), ATTENDANCE_DAY, fx('ownerA')],
+      )
+      return row.rows[0]!.id
+    }
+    const staffMark = async (staffId: string) => {
+      const row = await migrator.query<{ id: string }>(
+        `INSERT INTO staff_attendance_entries(school_id,staff_id,date,mark,revision,kind,recorded_by_membership_id)
+         VALUES ($1,$2,$3::date,'present',1,'marking',$4) RETURNING id`,
+        [schoolA, staffId, ATTENDANCE_DAY, fx('ownerA')],
+      )
+      return row.rows[0]!.id
+    }
+    return {
+      teacher,
+      sectionId,
+      pupilId,
+      teacherStaffId,
+      otherStaffId,
+      sectionEntryId: await mark(pupilId, sectionId),
+      // studentA2 is parentA2's own child; studentA belongs to another family.
+      childEntryId: await mark(fx('studentA2'), sectionId),
+      otherEntryId: await mark(fx('studentA'), fx('sectionA')),
+      ownStaffEntryId: await staffMark(teacherStaffId),
+      otherStaffEntryId: await staffMark(otherStaffId),
+    }
+  })()
+  return attendanceRows
+}
+
+/** The ids one attendance face hands a plan, through the predicate alone. */
+async function attendanceIds(
+  context: RequestContext,
+  kind: Parameters<typeof attendanceScopedTable>[0],
+  table: string,
+): Promise<string[]> {
+  const plan = await authz.scopeQuery(context, 'attendance.read', 'attendance')
+  const rows = await withRuntime(context, (conn) =>
+    conn.db.execute<{ id: string }>(
+      sql`SELECT ${sql.raw(table)}.id FROM ${sql.raw(table)}
+           WHERE ${planPredicate(plan, attendanceScopedTable(kind))}`,
+    ),
+  )
+  return rows.rows.map((row) => row.id)
+}
+
+async function staffAttendanceIds(
+  context: RequestContext,
+  kind: Parameters<typeof staffAttendanceScopedTable>[0],
+  table: string,
+): Promise<string[]> {
+  const plan = await authz.scopeQuery(context, 'staff_attendance.read', 'staff_attendance')
+  const rows = await withRuntime(context, (conn) =>
+    conn.db.execute<{ id: string }>(
+      sql`SELECT ${sql.raw(table)}.id FROM ${sql.raw(table)}
+           WHERE ${planPredicate(plan, staffAttendanceScopedTable(kind))}`,
+    ),
+  )
+  return rows.rows.map((row) => row.id)
+}
+
+function attendanceTeacherContext(membershipId: string): RequestContext {
+  return contextFor({
+    schoolId: schoolA,
+    membershipId,
+    roleKeys: ['teacher'],
+    assurance: 'single_factor',
+  })
+}
+
+test('a teacher attendance plan reaches exactly the sections they are assigned', async () => {
+  const rows = await seedAttendanceRows()
+  const teacher = attendanceTeacherContext(rows.teacher.membershipId)
+
+  const entries = await attendanceIds(teacher, 'entry', 'attendance_entries')
+  assert.deepEqual(
+    [...entries].sort(),
+    [rows.sectionEntryId, rows.childEntryId].sort(),
+    'every mark of their own class, and no other',
+  )
+
+  assert.deepEqual(await attendanceIds(teacher, 'roster', 'sections'), [rows.sectionId])
+
+  // The pupil face answers through a current enrolment, exactly as a student
+  // does, so it is the roll of that one class.
+  const pupils = new Set(await attendanceIds(teacher, 'pupil', 'students'))
+  assert.equal(pupils.has(rows.pupilId), true)
+  assert.equal(pupils.has(fx('studentA')), false, 'a class they do not teach stays hidden')
+})
+
+test('a parent attendance plan reaches exactly their own children', async () => {
+  const rows = await seedAttendanceRows()
+  const parent = parentContext()
+
+  const entries = await attendanceIds(parent, 'entry', 'attendance_entries')
+  assert.deepEqual([...entries].sort(), [rows.childEntryId], 'a parent reads their own child')
+  assert.deepEqual(await attendanceIds(parent, 'pupil', 'students'), [fx('studentA2')])
+
+  // The roster is a shared row, so it answers through a class their own child
+  // currently sits in and no other.
+  const rosters = new Set(await attendanceIds(parent, 'roster', 'sections'))
+  assert.equal(rosters.has(parentSectionId), true)
+  assert.equal(rosters.has(fx('sectionA')), false)
+})
+
+test('the attendance list agrees with a single attendance decision, face by face', async () => {
+  const rows = await seedAttendanceRows()
+  const candidates = [
+    rows.sectionEntryId,
+    rows.childEntryId,
+    rows.otherEntryId,
+    rows.sectionId,
+    parentSectionId,
+    fx('sectionA'),
+    rows.pupilId,
+    fx('studentA'),
+    fx('studentA2'),
+  ]
+  const contexts: { name: string; context: RequestContext }[] = [
+    { name: 'teacher', context: attendanceTeacherContext(rows.teacher.membershipId) },
+    { name: 'parent', context: parentContext() },
+    { name: 'owner', context: ownerContext() },
+  ]
+  for (const { name, context } of contexts) {
+    const listed = new Set([
+      ...(await attendanceIds(context, 'entry', 'attendance_entries')),
+      ...(await attendanceIds(context, 'roster', 'sections')),
+      ...(await attendanceIds(context, 'pupil', 'students')),
+    ])
+    for (const id of candidates) {
+      const decision = await authz.authorize(context, 'attendance.read', {
+        schoolId: schoolA,
+        resourceType: 'attendance',
+        id,
+      })
+      assert.equal(listed.has(id), decision.allowed, `${name} disagrees with the decision on ${id}`)
+    }
+  }
+})
+
+test('a scoped get of one mark says what the list says', async () => {
+  const rows = await seedAttendanceRows()
+  const teacher = attendanceTeacherContext(rows.teacher.membershipId)
+  const plan = await authz.scopeQuery(teacher, 'attendance.read', 'attendance')
+  const got = await withRuntime(teacher, async (conn) => ({
+    own: await scopedGet<{ id: string }>(conn, plan, attendanceScopedTable('entry'), rows.sectionEntryId),
+    other: await scopedGet<{ id: string }>(conn, plan, attendanceScopedTable('entry'), rows.otherEntryId),
+  }))
+  assert.equal(got.own?.id, rows.sectionEntryId)
+  assert.equal(got.other, null, 'a mark outside their classes is not there at all')
+})
+
+test('a staff attendance plan at self lists only that person’s own rows', async () => {
+  const rows = await seedAttendanceRows()
+  const teacher = attendanceTeacherContext(rows.teacher.membershipId)
+
+  assert.deepEqual(await staffAttendanceIds(teacher, 'entry', 'staff_attendance_entries'), [
+    rows.ownStaffEntryId,
+  ])
+  assert.deepEqual(await staffAttendanceIds(teacher, 'person', 'staff'), [rows.teacherStaffId])
+
+  for (const [id, allowed] of [
+    [rows.ownStaffEntryId, true],
+    [rows.otherStaffEntryId, false],
+    [rows.teacherStaffId, true],
+    [rows.otherStaffId, false],
+  ] as [string, boolean][]) {
+    const decision = await authz.authorize(teacher, 'staff_attendance.read', {
+      schoolId: schoolA,
+      resourceType: 'staff_attendance',
+      id,
+    })
+    assert.equal(decision.allowed, allowed, `the self scope disagrees on ${id}`)
+  }
+
+  // An accountant holds the key at the whole school, so both rows are theirs.
+  const finance = accountantContext(accountant.membershipId)
+  const all = await staffAttendanceIds(finance, 'entry', 'staff_attendance_entries')
+  assert.equal(all.includes(rows.ownStaffEntryId), true)
+  assert.equal(all.includes(rows.otherStaffEntryId), true)
 })

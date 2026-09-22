@@ -9,6 +9,7 @@ import {
   CalendarX,
   Check,
   CheckCircle2,
+  ClipboardCheck,
   FileSignature,
   GraduationCap,
   KeyRound,
@@ -88,6 +89,24 @@ export function OfficeDashboard({ data, isLoading, error }: { data?: OfficeDashb
         <Cell col={4} rows={3}>
           <DashboardCard title="School at a glance" tone="blue" icon={<Users />} bodyClassName="pt-1">
             <GlanceTiles data={data} />
+          </DashboardCard>
+        </Cell>
+      )}
+
+      {data?.attendance && (
+        <Cell col={4} rows={2}>
+          <DashboardCard title="Attendance" description="Today's registers" tone="purple" icon={<ClipboardCheck />} bodyClassName="pt-1">
+            <StatRow cols={2}>
+              <StatTile
+                size="sm"
+                label="Registers marked"
+                value={`${data.attendance.sectionsMarked} of ${data.attendance.sectionsTotal}`}
+                tone="purple"
+                icon={<ClipboardCheck />}
+                to="/attendance"
+              />
+              <StatTile size="sm" label="Absent today" value={data.attendance.absent} tone="orange" icon={<UserMinus />} />
+            </StatRow>
           </DashboardCard>
         </Cell>
       )}

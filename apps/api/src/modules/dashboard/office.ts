@@ -10,6 +10,7 @@ import {
 import { planPredicate, scopedTableFor, type AuthzConnection } from '@erp/authz'
 import type { RequestContext } from '@erp/contracts/server'
 import type {
+  DashboardAttendance,
   DashboardAttentionItem,
   DashboardBirthday,
   DashboardClassStrength,
@@ -17,6 +18,7 @@ import type {
 } from '@erp/contracts'
 import { decideSchoolAction, readPlan } from '../shared/index.ts'
 import { readFeeSummary } from '../fees/statement.ts'
+import { attendancePlans, calendarDaysCte } from '../attendance/figures.ts'
 import { ApiFailure } from '../../http/errors.ts'
 import { label, predicateFor, rows } from './queries.ts'
 import {
@@ -219,12 +221,17 @@ async function attentionItems(
   context: RequestContext,
   year: CurrentYear | null,
   cover: CoverCounts | undefined,
+  date: string,
 ): Promise<DashboardAttentionItem[]> {
   const items: DashboardAttentionItem[] = []
   const add = (key: DashboardAttentionItem['key'], count: number | undefined): void => {
     if (count !== undefined) items.push({ key, count })
   }
   add('periods_without_cover', cover?.periodsWithoutCover)
+  add(
+    'students_absent_three_days',
+    await optionalBlock(() => countAbsentThreeDays(conn, context, date)),
+  )
   add('invitations_expiring', await countInvitationsExpiring(conn, context))
   add(
     'students_without_guardian_phone',
@@ -244,6 +251,117 @@ async function attentionItems(
   )
   add('staff_without_login', await countStaffWithoutLogin(conn, context))
   return items
+}
+
+/**
+ * Today's register, counted through the caller's own attendance plan. A
+ * section is on the list when somebody was enrolled in it that day, and it is
+ * marked when at least one current mark exists for it.
+ */
+async function attendanceToday(
+  conn: AuthzConnection,
+  context: RequestContext,
+  year: CurrentYear | null,
+  date: string,
+): Promise<DashboardAttendance> {
+  const plans = await attendancePlans(conn, context)
+  if (year === null) return { date, sectionsMarked: 0, sectionsTotal: 0, absent: 0 }
+  const schoolId = context.schoolId
+  const [sections] = await rows<{ total: number; marked: number }>(
+    conn,
+    sql`SELECT count(*)::int AS total,
+               count(*) FILTER (WHERE EXISTS (
+                 SELECT 1 FROM attendance_entries
+                  WHERE attendance_entries.school_id = ${schoolId}::uuid
+                    AND attendance_entries.section_id = sections.id
+                    AND attendance_entries.date = ${date}::date
+                    AND (${plans.entries})))::int AS marked
+          FROM sections
+         WHERE sections.school_id = ${schoolId}::uuid
+           AND sections.academic_year_id = ${year.id}::uuid
+           AND (${plans.rosters})
+           AND EXISTS (
+             SELECT 1 FROM enrollments
+              WHERE enrollments.school_id = ${schoolId}::uuid
+                AND enrollments.section_id = sections.id
+                AND enrollments.joined_on <= ${date}::date
+                AND (enrollments.left_on IS NULL OR enrollments.left_on >= ${date}::date)
+                AND EXISTS (SELECT 1 FROM students
+                             WHERE students.school_id = enrollments.school_id
+                               AND students.id = enrollments.student_id
+                               AND (${plans.pupils})))`,
+  )
+  // The mark that stands is the highest revision, so the count is taken over
+  // the newest row per pupil and never over the whole append-only history.
+  const [absent] = await rows<{ total: number }>(
+    conn,
+    sql`SELECT count(*)::int AS total FROM (
+           SELECT DISTINCT ON (attendance_entries.student_id) attendance_entries.mark
+             FROM attendance_entries
+            WHERE attendance_entries.school_id = ${schoolId}::uuid
+              AND attendance_entries.date = ${date}::date
+              AND (${plans.entries})
+              AND EXISTS (SELECT 1 FROM students
+                           WHERE students.school_id = attendance_entries.school_id
+                             AND students.id = attendance_entries.student_id
+                             AND (${plans.pupils}))
+            ORDER BY attendance_entries.student_id, attendance_entries.revision DESC
+         ) cur
+        WHERE cur.mark = 'absent'`,
+  )
+  return {
+    date,
+    sectionsTotal: sections?.total ?? 0,
+    sectionsMarked: sections?.marked ?? 0,
+    absent: absent?.total ?? 0,
+  }
+}
+
+/**
+ * Children marked absent on each of the last three school days. Three days is
+ * the point at which a school rings home, so the office sees the count rather
+ * than having to read three registers. Fewer than three school days behind
+ * the dashboard date is no answer at all, which is a zero.
+ */
+async function countAbsentThreeDays(
+  conn: AuthzConnection,
+  context: RequestContext,
+  date: string,
+): Promise<number> {
+  const plans = await attendancePlans(conn, context)
+  const schoolId = context.schoolId
+  const calendar = calendarDaysCte({
+    schoolId,
+    from: addDays(date, -30),
+    to: date,
+    asOf: date,
+    holidays: plans.holidays,
+  })
+  const [row] = await rows<{ total: number }>(
+    conn,
+    sql`WITH ${calendar},
+         recent AS (
+           SELECT day FROM att_days WHERE kind = 'school_day' AND NOT future ORDER BY day DESC LIMIT 3
+         ),
+         cur AS (
+           SELECT DISTINCT ON (attendance_entries.student_id, attendance_entries.date)
+                  attendance_entries.student_id, attendance_entries.date, attendance_entries.mark
+             FROM attendance_entries
+             JOIN recent ON recent.day = attendance_entries.date
+            WHERE attendance_entries.school_id = ${schoolId}::uuid
+              AND (${plans.entries})
+              AND EXISTS (SELECT 1 FROM students
+                           WHERE students.school_id = attendance_entries.school_id
+                             AND students.id = attendance_entries.student_id
+                             AND (${plans.pupils}))
+            ORDER BY attendance_entries.student_id, attendance_entries.date, attendance_entries.revision DESC
+         )
+         SELECT count(*)::int AS total FROM (
+           SELECT student_id FROM cur WHERE mark = 'absent'
+            GROUP BY student_id HAVING count(*) = 3
+         ) away`,
+  )
+  return row?.total ?? 0
 }
 
 export type Glance = NonNullable<OfficeDashboard['glance']>
@@ -531,8 +649,14 @@ export async function officeDashboard(
   const year = await currentAcademicYear(conn, context.schoolId)
 
   const today = await optionalBlock(() => coverCounts(conn, context, date))
-  const attention = await attentionItems(conn, context, year, today)
+  const attention = await attentionItems(conn, context, year, today, date)
   const glance = await optionalBlock(() => studentGlance(conn, context, date))
+  // The register is a thing that happens on a school day, so on a Sunday or a
+  // holiday the card is left out rather than showing a row of zeros.
+  const attendance =
+    calendar.day.kind === 'school_day'
+      ? await optionalBlock(() => attendanceToday(conn, context, year, date))
+      : undefined
   const perTeacher = await optionalBlock(() => studentsPerTeacher(conn, context))
   const strengths = await optionalBlock(() => classStrength(conn, context, year?.id ?? null))
   const admissions = await optionalBlock(() => admissionsByMonth(conn, context, year, date))
@@ -556,6 +680,7 @@ export async function officeDashboard(
     attention,
     ...(glance === undefined ? {} : { glance }),
     ...(fees === undefined ? {} : { fees }),
+    ...(attendance === undefined ? {} : { attendance }),
     ...(perTeacher === undefined ? {} : { studentsPerTeacher: perTeacher }),
     ...(strengths === undefined ? {} : { classStrength: strengths }),
     ...(admissions === undefined ? {} : { admissionsByMonth: admissions }),

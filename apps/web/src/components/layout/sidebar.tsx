@@ -1,6 +1,6 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, CalendarClock, CalendarDays, GraduationCap, IndianRupee, LayoutDashboard, ListChecks, PanelLeft, School, ScrollText, Search, ShieldCheck, Users, UserRound, BookOpen, Sparkles, X } from 'lucide-react'
+import { Building2, CalendarClock, CalendarDays, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, ListChecks, PanelLeft, School, ScrollText, Search, ShieldCheck, Users, UserRound, BookOpen, Sparkles, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { AccountMenu } from '@/components/auth/account-menu'
 import { SectionLabel } from '@/components/shared/page'
@@ -11,7 +11,8 @@ import { useSchoolContext } from '@/lib/session'
 import { useAcademicYear } from '@/lib/use-academic-year'
 import { cn } from '@/lib/utils'
 
-interface NavItem { label: string; to: string; icon: ReactNode; count?: number | string; permission?: PermissionKey; exact?: boolean }
+/** `permissions` means any one of them is enough; `permission` stays the single-key form. */
+interface NavItem { label: string; to: string; icon: ReactNode; count?: number | string; permission?: PermissionKey; permissions?: PermissionKey[]; exact?: boolean }
 
 function NavLink({ item, collapsed, onNavigate }: { item: NavItem; collapsed: boolean; onNavigate?: () => void }) {
   const path = useRouterState({ select: (s) => s.location.pathname })
@@ -63,6 +64,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
     { label: 'Staff', to: '/staff', icon: <Users />, count: staffCount?.count, permission: 'staff.read_directory' },
     { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
     { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
+    { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read'] },
   ]
   const setup: NavItem[] = [
     { label: 'School profile', to: '/setup/school', icon: <School />, permission: 'school.read' },
@@ -76,7 +78,10 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
     { label: 'Roles & permissions', to: '/settings/roles', icon: <ShieldCheck />, permission: 'roles.read' },
     { label: 'Audit log', to: '/settings/audit-log', icon: <ScrollText />, permission: 'audit.read' },
   ]
-  const visible = (items: NavItem[]) => items.filter((i) => !i.permission || hasPermission(i.permission))
+  const allowed = (item: NavItem) =>
+    (!item.permission || hasPermission(item.permission)) &&
+    (!item.permissions || item.permissions.some((key) => hasPermission(key)))
+  const visible = (items: NavItem[]) => items.filter(allowed)
 
   return (
     <aside className={cn('flex h-full min-h-0 flex-col bg-sidebar', drawer ? 'w-full' : 'shrink-0 border-r transition-[width] duration-200', !drawer && (collapsed ? 'w-14' : 'w-64'))}>
@@ -131,7 +136,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
           <>
             <SectionLabel>Coming next</SectionLabel>
             <div className="flex flex-col gap-0.5 opacity-60">
-              {[['Attendance', 'Phase 2'], ['Exams & marks', 'Phase 3'], ['Messages', 'Phase 2'], ['AI assistant', 'Phase 4']].map(([l, p]) => (
+              {[['Exams & marks', 'Phase 3'], ['Messages', 'Phase 2'], ['AI assistant', 'Phase 4']].map(([l, p]) => (
                 <div key={l} className="flex h-8 items-center justify-between px-2 text-[13px] text-muted-foreground"><span>{l}</span><span className="text-[11px]">{p}</span></div>
               ))}
             </div>
