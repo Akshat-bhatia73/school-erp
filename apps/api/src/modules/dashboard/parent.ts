@@ -10,6 +10,8 @@ import type {
 } from '@erp/contracts'
 import { CONSENT_PURPOSES, type ConsentPurpose } from '@erp/contracts'
 import { readPlan } from '../shared/index.ts'
+import { ApiFailure } from '../../http/errors.ts'
+import { readStatement } from '../fees/statement.ts'
 import { currentEnrollmentsFor, label, listOwnChildren, predicateFor, rows } from './queries.ts'
 import { buildCalendar, currentAcademicYear, dayOfWeek, optionalBlock } from './calendar.ts'
 import { loadSchedules, scheduleForGrade } from './bell.ts'
@@ -113,6 +115,28 @@ async function consentsWaiting(
 }
 
 /**
+ * What one child still owes this year: the balance at the foot of their
+ * statement, and nothing when the family is paid up or ahead. It is the same
+ * figure the statement and the dues list show, so the three never disagree.
+ */
+async function feesDueFor(
+  conn: AuthzConnection,
+  context: RequestContext,
+  studentId: string,
+  yearId: string,
+): Promise<number | undefined> {
+  try {
+    const statement = await readStatement(conn, context, studentId, yearId)
+    return Math.max(statement.totals.balancePaise, 0)
+  } catch (error) {
+    // A child the fee plan does not reach is answered like a record that is
+    // not there; the card is then simply left off, as a refused block is.
+    if (error instanceof ApiFailure && error.code === 'RESOURCE_NOT_FOUND') return undefined
+    throw error
+  }
+}
+
+/**
  * The parent dashboard: their own children and nothing beside them. The
  * relationship list decides which students belong here and the student plan
  * decides what may be read about them; both are applied.
@@ -160,8 +184,13 @@ export async function parentDashboard(
               }),
             )
     const waiting = await optionalBlock(() => consentsWaiting(conn, context, student.id))
+    const feesDuePaise =
+      year === null
+        ? undefined
+        : await optionalBlock(() => feesDueFor(conn, context, student.id, year.id))
     children.push({
       student,
+      ...(feesDuePaise === undefined ? {} : { feesDuePaise }),
       ...(enrollment === undefined ? {} : { enrollment }),
       ...(classTeacher === undefined ? {} : { classTeacher }),
       ...(todayLessons === undefined ? {} : { todayLessons }),

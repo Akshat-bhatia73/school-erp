@@ -121,13 +121,22 @@ function StudentPhotoPanel({ student, canReadConsents }: { student: StudentDetai
  * medical, guardian contacts) is simply not rendered: there is no placeholder for private data.
  */
 export function OverviewTab({ detail, showGuardianContacts }: { detail: StudentDetail; showGuardianContacts: boolean }) {
-  const { schoolId } = useSchoolContext()
+  const { schoolId, hasPermission } = useSchoolContext()
   const { student, sensitive, medical, guardianContacts, allowedActions } = detail
   return (
     <div className="grid gap-4">
       <Panel
         title="Student"
-        actions={<ExportRecordButton studentId={student.id} admissionNumber={student.admissionNumber} allowedActions={allowedActions} />}
+        actions={
+          <div className="flex items-center gap-2">
+            {hasPermission('fees.read') && (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/fees/students/$studentId" params={{ studentId: student.id }}>Fee statement</Link>
+              </Button>
+            )}
+            <ExportRecordButton studentId={student.id} admissionNumber={student.admissionNumber} allowedActions={allowedActions} />
+          </div>
+        }
       >
         <Facts
           columns={3}

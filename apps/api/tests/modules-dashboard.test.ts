@@ -839,16 +839,21 @@ test("a parent sees their child's own day and what is still waiting on them", as
   assert.ok(child.waitingOn.every((item) => item.kind === 'consent'))
 })
 
-test('an accountant gets the roll and a plain note about fees, and no class strengths', async () => {
+test('an accountant gets the roll and the money card, and no class strengths', async () => {
   const body = await read(accountant, PROBE)
   assert.equal(body.audience, 'accountant')
   if (body.audience !== 'accountant') return
-  assert.equal(body.feesNote, 'Fee cards arrive with the fees module')
+  // The accountant holds fees.read over the whole school's finances, so the
+  // money card is there. Its figures are whole paise and never negative.
+  assert.ok(body.fees, 'the accountant dashboard carries the fees block')
+  for (const value of Object.values(body.fees)) {
+    assert.ok(Number.isSafeInteger(value) && value >= 0, `${value} is not a whole count of paise`)
+  }
   // The accountant holds no sections.read_strengths, so the block is absent.
   assert.equal(body.classStrength, undefined)
   assert.deepEqual(
     Object.keys(body).sort(),
-    ['audience', 'day', 'feesNote', ...(body.glance ? ['glance'] : [])].sort(),
+    ['audience', 'day', 'fees', ...(body.glance ? ['glance'] : [])].sort(),
   )
 })
 

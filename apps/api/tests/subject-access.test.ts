@@ -30,6 +30,9 @@ const parentUserId = fixtureIds.parentA2User as string
 // Rows this file owns.
 const teacherUser = '10000000-0000-4000-8000-0000000009d1'
 const teacherMembership = '10000000-0000-4000-8000-0000000009d2'
+const feeHead = randomUUID()
+const childReceipt = randomUUID()
+const otherReceipt = randomUUID()
 
 let server: TestServer
 type Client = Awaited<ReturnType<typeof signInWithMfa>>
@@ -93,6 +96,30 @@ before(async () => {
      VALUES ($1, $2, $3, 'photographs', 'given', 'signed_form', $4)`,
     [schoolA, studentA2, guardianA2, fixtureIds.ownerA as string],
   )
+  // Money, for both children. An export is the whole record, and the accounts
+  // have to stand for eight years, so the fee statements belong in it.
+  await pool.query(
+    `INSERT INTO fee_heads(id,school_id,name,category,applies_to,frequency)
+     VALUES ($1,$2,$3,'tuition','class','yearly')`,
+    [feeHead, schoolA, `Subject access tuition ${randomUUID().slice(0, 8)}`],
+  )
+  for (const [receiptId, studentId, number] of [
+    [childReceipt, studentA2, `A/SAR/${randomUUID().slice(0, 8)}/R0001`],
+    [otherReceipt, studentA, `A/SAR/${randomUUID().slice(0, 8)}/R0002`],
+  ] as const) {
+    await pool.query(
+      `INSERT INTO fee_receipts(id,school_id,student_id,academic_year_id,kind,receipt_number,
+                                amount_paise,mode,received_on,payer_name,recorded_by_membership_id)
+       VALUES ($1,$2,$3,$4,'payment',$5,450000,'cash','2026-04-10','Subject Payer',$6)`,
+      [receiptId, schoolA, studentId, fixtureIds.yearA as string, number, fixtureIds.ownerA as string],
+    )
+    await pool.query(
+      `INSERT INTO fee_receipt_lines(school_id,receipt_id,fee_head_id,amount_paise)
+       VALUES ($1,$2,$3,450000)`,
+      [schoolA, receiptId, feeHead],
+    )
+  }
+
   await setFixturePassword(server, parentUserId, PASSWORD)
   await setFixturePassword(server, teacherUser, PASSWORD)
   owner = await signInWithMfa(server, { userId: ownerUserId, email: OWNER_EMAIL, password: PASSWORD })
@@ -123,6 +150,19 @@ test('a parent exports her own child and receives no audit history', async () =>
   assert.ok(guardian, 'the linked guardian belongs in the export')
   assert.equal(guardian.phone, undefined)
   assert.ok(result.consents.some((consent) => consent.purpose === 'photographs'))
+})
+
+test('the export carries the fee statements of that child alone', async () => {
+  const result = await parsedExport(parent, studentA2)
+  assert.ok(result.fees !== undefined, 'a parent may read their own child\'s fees')
+  assert.ok(result.fees.length > 0)
+  const numbers = result.fees.flatMap((statement) =>
+    statement.receipts.map((receipt) => receipt.id),
+  )
+  assert.ok(numbers.includes(childReceipt), 'the child\'s own receipt belongs in the export')
+  assert.equal(numbers.includes(otherReceipt), false, 'another child\'s receipt never appears')
+  // Every statement names the pupil the export is about.
+  for (const statement of result.fees) assert.equal(statement.student.id, studentA2)
 })
 
 test('a parent is refused another family\'s child', async () => {
@@ -184,6 +224,15 @@ test('an anonymised student exports the register fields only', async () => {
   assert.deepEqual(result.guardians, [])
   assert.deepEqual(result.documents, [])
   assert.deepEqual(result.consents, [])
+  // The money stays: the accounts outlive the personal record, so the
+  // statements are still there once everything else has been cleared.
+  assert.ok(result.fees !== undefined, 'an anonymised pupil still exports their fees')
+  assert.ok(
+    result.fees.some((statement) =>
+      statement.receipts.some((receipt) => receipt.id === otherReceipt),
+    ),
+    'the ledger row of the anonymised pupil is still exported',
+  )
 
   // The fixture is shared and this database is reused, so the record goes back
   // to being an ordinary student.

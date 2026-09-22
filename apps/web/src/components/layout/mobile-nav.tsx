@@ -1,5 +1,5 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { CalendarClock, GraduationCap, LayoutDashboard, Menu, Search, Users } from 'lucide-react'
+import { CalendarClock, GraduationCap, IndianRupee, LayoutDashboard, Menu, Search, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
 import { audienceFor, type PermissionKey } from '@/lib/permissions'
@@ -45,6 +45,7 @@ const TABS: Tab[] = [
   { label: 'Students', to: '/students', icon: <GraduationCap />, permission: 'students.read_basic' },
   { label: 'Staff', to: '/staff', icon: <Users />, permission: 'staff.read_directory' },
   { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
+  { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
 ]
 
 /**

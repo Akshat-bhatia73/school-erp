@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { CircleCheck, GraduationCap, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { CONSENT_PURPOSES, type ConsentPurpose, type ParentDashboard as ParentDashboardData } from '@erp/contracts'
@@ -17,7 +18,7 @@ import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
 import { PURPOSE_LABEL } from '@/lib/consent'
 import { allows } from '@/lib/permissions'
-import { formatDate, fullName } from '@/lib/utils'
+import { formatDate, formatPaise, fullName } from '@/lib/utils'
 import { ExportRecordButton } from '@/components/students/export-record-button'
 
 type ParentChild = ParentDashboardData['children'][number]
@@ -104,6 +105,16 @@ function holidayLine(holiday: NonNullable<ParentChild['nextHoliday']>): string {
     : `${holiday.name}, ${formatDate(holiday.startDate)} to ${formatDate(holiday.endDate)}`
 }
 
+/** What this family owes for one child, with a way to see how it is made up. */
+function FeesDue({ studentId, duePaise }: { studentId: string; duePaise: number }) {
+  if (duePaise === 0) return <span>No fees due</span>
+  return (
+    <Link to="/fees/students/$studentId" params={{ studentId }} className="link-dotted">
+      Fees due {formatPaise(duePaise)}
+    </Link>
+  )
+}
+
 /** The class name the way the student list writes it. */
 function classLabel(enrollment: NonNullable<ParentChild['enrollment']>): string {
   return `${enrollment.grade.name} ${enrollment.section.name}`
@@ -159,6 +170,9 @@ function ChildCard({ child, day }: { child: ParentChild; day: ParentDashboardDat
             { label: 'Class', value: enrollment ? classLabel(enrollment) : 'Not in a class this year' },
             { label: 'Class teacher', value: child.classTeacher?.name ?? 'Not set yet' },
             { label: 'Next holiday', value: child.nextHoliday ? holidayLine(child.nextHoliday) : 'No holiday in the next 30 days.' },
+            ...(child.feesDuePaise !== undefined
+              ? [{ label: 'Fees', value: <FeesDue studentId={student.id} duePaise={child.feesDuePaise} /> }]
+              : []),
           ]}
         />
 

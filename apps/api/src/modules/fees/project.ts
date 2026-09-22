@@ -14,8 +14,17 @@ import { toPaise } from './charges.ts'
  * strings and leave here as whole paise.
  */
 
-const asDate = (value: unknown): string =>
-  value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10)
+/**
+ * A calendar date as YYYY-MM-DD. The driver hands a `date` column back as a
+ * Date at local midnight, so it is read in local parts: reading it in UTC
+ * would move every date back a day anywhere east of Greenwich.
+ */
+const asDate = (value: unknown): string => {
+  if (!(value instanceof Date)) return String(value).slice(0, 10)
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${value.getFullYear()}-${month}-${day}`
+}
 
 export interface FeeHeadRow extends Record<string, unknown> {
   id: string

@@ -32,6 +32,12 @@ Last updated: `[date]`.
   certificate.
 - **Day-to-day records.** Attendance, timetable and section, and the reason recorded if your child
   leaves.
+- **Fees.** What your child is charged (tuition and any optional fee you have chosen, such as the
+  bus, a sport or a club), any concession your child gets and the kind of concession it is, and
+  every payment, refund and adjustment: the receipt number, the date, the amount, how it was paid,
+  the cheque, UPI or bank reference, and the name of whoever paid if the office wrote one down.
+  Payments are written down by the school office. The school does not take payments through this
+  system and it never sees or keeps a card number, a UPI PIN or a bank password.
 
 ## What we keep about you
 
@@ -71,6 +77,9 @@ where it was taken, are stripped out before it is stored. Staff photographs work
 - To run the school: admissions, classes, timetable, attendance and the admission register the
   state requires us to keep.
 - To reach you: about your child, about fees, and in an emergency.
+- To keep the school's accounts: to work out what is due, to give you a receipt for what you pay,
+  and to keep the books the law requires a school to keep. We do not ask for your consent for this,
+  because a school cannot take a fee without recording it.
 - To look after your child's health and safety.
 - To meet our legal duties as a school.
 
@@ -105,8 +114,11 @@ Only the people at the school who need to, and only the parts they need.
 - **Teachers** see the pupils in their own sections, and only the details teaching needs. A teacher
   cannot open a child from another section, and cannot see salaries or other staff members' private
   details.
-- **You** see your own children, and nothing about any other family.
-- **Accounts staff** see what is needed for fees.
+- **You** see your own children, and nothing about any other family. That includes fees: you see
+  your own children's fee statements and receipts and nobody else's.
+- **Accounts staff** see what is needed for fees: each pupil's name, class, fees, payments and
+  balance, and a contact number. They do not see health notes, documents or identity numbers.
+- **Teachers** see nothing about fees at all.
 
 This is not a matter of hiding buttons. The software checks who you are on every single request,
 and a list will never show you a row you would not be allowed to open. Every time someone opens
@@ -139,6 +151,8 @@ The short version:
 | The admission register (name, admission number, dates, classes, outcome) | Permanently, as the education rules require |
 | Your child's personal details, health notes, documents and address | While your child is enrolled, and for 3 years after leaving. Then they are cleared |
 | Your details as a guardian | While any of your children is still within that period |
+| Fee records: what was charged, receipts, refunds, concessions and optional fees | 8 years after your child's last fee transaction, because account books must be kept. A receipt is never edited or deleted; a correction is a new entry |
+| The name of whoever paid, where it was written on a receipt | With your child's personal details: cleared 3 years after leaving. The receipt itself stays |
 | Staff records | While employed, and 8 years after leaving, for payroll law. Then contact details and identifiers are cleared |
 | Logins and passwords | While you have an account. 30 days after your last link to the school ends, the credentials are deleted |
 | The record of who opened what | 7 years |

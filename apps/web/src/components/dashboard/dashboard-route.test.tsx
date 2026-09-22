@@ -107,9 +107,16 @@ describe('the dashboard route', () => {
   })
 
   it('shows the accountant screen when the server says accountant', async () => {
-    dashboardGet.mockResolvedValue({ audience: 'accountant', day: DAY, feesNote: 'Fee cards arrive with the fees module' })
+    dashboardGet.mockResolvedValue({
+      audience: 'accountant',
+      day: DAY,
+      fees: {
+        collectedTodayPaise: 125000, receiptsToday: 4, collectedThisMonthPaise: 45000000,
+        outstandingPaise: 12000000, studentsWithDues: 17,
+      },
+    })
     await renderRoute({ roleKeys: ['accountant'], capabilities: ['dashboard.read'] })
 
-    expect(await screen.findByText('Fee cards arrive with the fees module')).toBeInTheDocument()
+    expect(await screen.findByText('Collected today')).toBeInTheDocument()
   })
 })

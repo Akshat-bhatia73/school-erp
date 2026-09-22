@@ -1,10 +1,10 @@
 # Next implementation plan: readiness and the first school modules
 
-Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Tasks 15 and 18 are built; nothing else in this document is started.
+Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Tasks 15, 18 and 19 are built; nothing else in this document is started.
 
 ## 1. Where we are
 
-The platform has real login, fixed roles with relationship scope, tenant isolation enforced in the database, an audit trail that records reads, writes and refusals, consent and retention lifecycle, an access log, lockout, a subject-access export, branch protection and a runbook for incidents. It has students, staff, setup and timetable. It has no fees, attendance, exams, communication or report cards, and the accountant's home screen says so.
+The platform has real login, fixed roles with relationship scope, tenant isolation enforced in the database, an audit trail that records reads, writes and refusals, consent and retention lifecycle, an access log, lockout, a subject-access export, branch protection and a runbook for incidents. It has students, staff, setup and timetable. It has fees (Task 19, September 2026). It has no attendance, exams, communication or report cards.
 
 Two kinds of work remain. The first makes the platform fit for a real school's data: things the assessment and the release left open. The second builds the modules schools actually buy. The first must finish before the second goes live, but they can be built side by side.
 
@@ -67,9 +67,11 @@ Exit check met: both known-gap sections now name only gaps this task did not tak
 
 Each module follows the same shape: contracts and permissions first, then migration, then API, then screens, then documents, then the security and browser tests, then release. The reserved permissions already fix the scopes; the descriptions below say what the scopes mean in practice.
 
-### Task 19: Fees
+### Task 19: Fees — built, 21 September 2026
 
 The module schools ask for first and the one with the most sensitive data. Fee heads and structures per academic year and grade, with optional concessions per student; a statement per student showing dues, payments and balance; collection by the office with a receipt number assigned by the server (a counter per school and year, as admission numbers are); refunds and adjustments with a reason as a note; a dues list per class; a parent view of their own children's statements and receipts. Permissions: `fees.read` (school, own_children, finance), `fees.collect`, `fees.manage`, `fees.export` (school, finance). Owner, principal and accountant hold manage, collect and export; the office clerk role does not exist, so admin holds collect; parent holds read at own_children; teacher holds nothing. The accountant dashboard shows today's collection and outstanding dues. Money in paise; receipts are immutable rows, corrections are new rows. Retention: eight years after the last transaction, as for staff pay. Online payment is out of scope until a gateway is chosen; record it as a decision to take. A parent reads statements and receipts for every year their child was enrolled, with a year chip built from the child's own enrolments (the rule is in section 2). Exit check: a parent sees only their children's statements, including last year's after a promotion; an accountant collects and the receipt appears in the audit trail without the amount in `safe_changes`; a teacher gets 403 on every fee route; two collections committed at once get consecutive receipt numbers.
+
+Built as specified, with these decisions taken by the product owner before the build. Payments are recorded by hand only (cash, cheque, UPI reference, bank transfer, demand draft): there is no gateway, no online payment and no webhook, and **choosing an online payment gateway is a decision still to take** (section 6). Fee heads are the school's own list, never a fixed enum: a name, a category that only groups them, whether the head applies to everybody in a class or only to pupils who opt in (the bus, a sport, a club), and how often it is charged; an optional fee may carry the pupil's own amount, which is how a bus fare differs by route. The principal holds the same four keys as the owner, the accountant holds them at the finance scope, admin holds collect and read, parent holds read for their own children, teacher holds nothing. One receipt as a document runs under `fees.read`, so the counter and a parent can both print it. Anonymising a pupil keeps the money rows and their bank references for the eight years the accounts must stand, and clears the payer's name. A fee row answers `own_children` through its pupil, never through the current enrolment, so a parent keeps last year's statement and receipts after promotion (the rule in section 2). The release changes the role templates, so every existing school needs `pnpm db:sync-roles` after migration `0015`. The module is described in [PROTECTED_APIS.md](auth/PROTECTED_APIS.md) and [DATA_PROTECTION.md](compliance/DATA_PROTECTION.md) section 11. No real school's money goes in before the region move (Task 17).
 
 ### Task 20: Attendance
 
@@ -110,7 +112,7 @@ The readiness tasks are the release gate for the first paying school; the module
 | SMS provider and DLT registration entity | Product owner | Task 16 |
 | Database provider and region for the move | Product owner | Task 17 |
 | GitHub paid plan and repository visibility | Product owner | Task 17 |
-| Online payment gateway, or none for now | Product owner | Task 19 |
+| Online payment gateway. Decided for Task 19: none, payments are recorded by hand. Which gateway, if any, is still to decide | Product owner | Before any online payment work |
 | Which school is first, and its fee structure and grading scheme, to shape the fixtures | Product owner | Tasks 19 and 21 |
 | Named holders for the backup key and the security contact address | Product owner | Task 17 |
 

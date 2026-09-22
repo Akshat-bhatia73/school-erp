@@ -12,3 +12,6 @@ apps/api/.dev/
 .agents
 .claude
 skills-lock.json
+
+# The dev API's local document store
+apps/api/.documents/

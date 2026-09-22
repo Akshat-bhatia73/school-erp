@@ -94,13 +94,27 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
         // The photograph is bytes in the same store, so it leaves with them.
         if (current.photo_storage_key !== null) documentKeys.push(current.photo_storage_key)
         const guardians = await anonymiseOrphanedGuardians(conn, context.schoolId, studentId)
+        // The money rows stay, and so does the bank or cheque reference on
+        // them: the accounts have to stand for eight years. What goes is the
+        // name of the person who paid, which is the one edit the ledger
+        // allows at all.
+        const cleared = await conn.client.query(
+          `UPDATE fee_receipts SET payer_name = NULL
+            WHERE school_id = $1 AND student_id = $2 AND payer_name IS NOT NULL`,
+          [context.schoolId, studentId],
+        )
 
         await writeAudit(conn, context, {
           action: 'students.anonymise',
           targetType: 'student',
           targetId: studentId,
           summary: 'Anonymised a former student record after the retention period.',
-          safeChanges: { status: current.status, documents: documentKeys.length, guardians },
+          safeChanges: {
+            status: current.status,
+            documents: documentKeys.length,
+            guardians,
+            feeReceiptsCleared: cleared.rowCount ?? 0,
+          },
           note: body.reason,
         })
 

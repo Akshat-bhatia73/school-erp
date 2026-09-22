@@ -202,3 +202,23 @@ describe('office dashboard, permissions', () => {
     expect(screen.getByText('1 birthday today')).toBeInTheDocument()
   })
 })
+
+describe('office dashboard, the money cards', () => {
+  it('shows the four fee numbers when the block is there', () => {
+    renderOffice(office({
+      fees: {
+        collectedTodayPaise: 1_250_00, receiptsToday: 4, collectedThisMonthPaise: 4_50_000_00,
+        outstandingPaise: 1_20_000_00, studentsWithDues: 17,
+      },
+    }))
+    expect(screen.getByText('Collected today')).toBeInTheDocument()
+    expect(screen.getByText('4 receipts')).toBeInTheDocument()
+    expect(screen.getByText('Pupils with dues')).toBeInTheDocument()
+    expect(screen.getByText('Outstanding dues').closest('a')).toHaveAttribute('href', '/fees')
+  })
+
+  it('draws nothing about money when the block was not sent', () => {
+    renderOffice(office())
+    expect(screen.queryByText('Collected today')).not.toBeInTheDocument()
+  })
+})
