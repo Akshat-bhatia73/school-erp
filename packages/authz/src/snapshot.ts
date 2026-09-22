@@ -632,6 +632,65 @@ export async function loadResourceFacts(
         ...(found.academic_year_id === null ? {} : { academicYearId: found.academic_year_id }),
       })
     }
+    case 'attendance': {
+      // One resource type, three faces. The id is looked for as a mark, as a
+      // section (the roster being read or marked) and as a pupil (the month
+      // being read). Ids are random uuids, so at most one matches. A mark
+      // names its pupil, its section and its year; a section names itself and
+      // its year, plus a child of the caller currently sitting in it; a pupil
+      // names themselves and their current sections, exactly as a student.
+      const row = await conn.client.query<{
+        face: string
+        student_id: string | null
+        section_id: string | null
+        academic_year_id: string | null
+      }>(
+        `SELECT 'entry' AS face, student_id, section_id, academic_year_id
+           FROM attendance_entries WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT 'roster', NULL::uuid, id, academic_year_id FROM sections WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT 'pupil', id, NULL::uuid, NULL::uuid FROM students WHERE school_id = $1 AND id = $2
+         LIMIT 1`,
+        [schoolId, id],
+      )
+      const found = row.rows[0]
+      if (!found) return null
+      if (found.face === 'pupil' && found.student_id !== null) {
+        const sections = await currentSectionsOfStudent(conn, schoolId, found.student_id)
+        return facts(resource, { studentId: found.student_id, ...sections })
+      }
+      if (found.face === 'roster' && found.section_id !== null && found.academic_year_id !== null) {
+        const child = await ownChildBehind(conn, schoolId, context.membershipId, {
+          by: 'section',
+          sectionId: found.section_id,
+        })
+        return facts(resource, {
+          sectionIds: [found.section_id],
+          academicYearId: found.academic_year_id,
+          ...(child === undefined ? {} : { studentId: child }),
+        })
+      }
+      return facts(resource, {
+        ...(found.student_id === null ? {} : { studentId: found.student_id }),
+        ...(found.section_id === null ? {} : { sectionIds: [found.section_id] }),
+        ...(found.academic_year_id === null ? {} : { academicYearId: found.academic_year_id }),
+      })
+    }
+    case 'staff_attendance': {
+      // Two faces: a mark, which names its staff member, and the staff member
+      // themselves, whose row or month is being read.
+      const row = await conn.client.query<{ staff_id: string }>(
+        `SELECT staff_id FROM staff_attendance_entries WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT id FROM staff WHERE school_id = $1 AND id = $2
+         LIMIT 1`,
+        [schoolId, id],
+      )
+      const found = row.rows[0]
+      if (!found) return null
+      return facts(resource, { staffId: found.staff_id })
+    }
     case 'dashboard':
       // The dashboard is computed from the whole authorized dataset, so it has
       // no row of its own and relationship scopes answer for any relationship.

@@ -37,6 +37,8 @@ record that disappears by itself is a record nobody chose to lose.
 | **The name of whoever paid**, where the office wrote one on a receipt | The same period as the other pupil details: while enrolled, plus 3 years after leaving | The anonymisation step clears the name. The money row, its number and its bank reference stay, because the accounts still have to add up |
 | **A pupil's concessions and optional fees** (the bus, a sport, a club), and the category a concession was given under | With the fee ledger: 8 years after the last fee transaction | Kept with the ledger, because a balance cannot be explained without them. The reason a concession was given is never stored here: it is a note on the audit entry and can be redacted |
 | **What the school charges**: its fee heads and the amount for each class and year | Permanently, as school setup. It describes the school, not a person | Nothing |
+| **Your child's attendance**: one mark per school day (present, absent, late, leave or half day), who recorded it and when, and any correction the office made | With your child's personal details: while enrolled, plus 3 years after leaving | Nothing is cleared by the anonymisation step, because a mark on its own identifies nobody. A mark is never edited or deleted; a correction is a new entry that replaces the old one, and the old one stays |
+| **Staff attendance**: the same register for staff | With the staff record: while employed, plus 8 years after leaving | Nothing prunes it today |
 | **Logins and credentials**: password, second factor, backup codes | While the person holds an active membership at the school | Sessions end the moment the last membership is removed. The credentials themselves are deleted 30 days later. The identity's id and name are kept so old audit entries still say who did something |
 | **Sign-in sessions, one-time codes, password reset links, rate-limit counters, held text messages** | Until they expire, usually minutes to days | Deleted every night |
 | **Uploaded admission spreadsheets waiting to be confirmed** | 24 hours | Deleted every night, whether or not they were used |
@@ -77,3 +79,4 @@ software changes what it enforces.
 | 19 Sep 2026 | First version, taken from release runbook section 6.2. |
 | 19 Sep 2026 | Added the line for files a person exported. |
 | 21 Sep 2026 | Added the fee ledger, the payer's name, concessions and optional fees, and fee setup. |
+| 22 Sep 2026 | Added pupil attendance and staff attendance. |

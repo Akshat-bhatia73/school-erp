@@ -9,6 +9,7 @@ import {
   CalendarX,
   Check,
   CheckCircle2,
+  ClipboardCheck,
   FileSignature,
   GraduationCap,
   KeyRound,
@@ -88,6 +89,24 @@ export function OfficeDashboard({ data, isLoading, error }: { data?: OfficeDashb
         <Cell col={4} rows={3}>
           <DashboardCard title="School at a glance" tone="blue" icon={<Users />} bodyClassName="pt-1">
             <GlanceTiles data={data} />
+          </DashboardCard>
+        </Cell>
+      )}
+
+      {data?.attendance && (
+        <Cell col={4} rows={2}>
+          <DashboardCard title="Attendance" description="Today's registers" tone="purple" icon={<ClipboardCheck />} bodyClassName="pt-1">
+            <StatRow cols={2}>
+              <StatTile
+                size="sm"
+                label="Registers marked"
+                value={`${data.attendance.sectionsMarked} of ${data.attendance.sectionsTotal}`}
+                tone="purple"
+                icon={<ClipboardCheck />}
+                to="/attendance"
+              />
+              <StatTile size="sm" label="Absent today" value={data.attendance.absent} tone="orange" icon={<UserMinus />} />
+            </StatRow>
           </DashboardCard>
         </Cell>
       )}
@@ -420,6 +439,7 @@ const SETUP_STEPS: Record<'school' | 'years' | 'grades' | 'sections' | 'subjects
 
 const ATTENTION: Record<DashboardAttentionKey, { one: string; many: string; to: string; hint: string; tone: Tone; icon: ReactNode }> = {
   periods_without_cover: { one: 'period has no cover today', many: 'periods have no cover today', to: '/timetable/substitutions', hint: 'Open substitutions', tone: 'red', icon: <AlertTriangle /> },
+  students_absent_three_days: { one: 'pupil absent three school days running', many: 'pupils absent three school days running', to: '/attendance', hint: 'Open attendance', tone: 'orange', icon: <CalendarX /> },
   invitations_expiring: { one: 'invitation expiring soon', many: 'invitations expiring soon', to: '/settings/users', hint: 'Open users and logins', tone: 'blue', icon: <MailWarning /> },
   students_without_guardian_phone: { one: 'student without a guardian phone', many: 'students without a guardian phone', to: '/students', hint: 'Open the student list', tone: 'orange', icon: <PhoneOff /> },
   students_without_consent: { one: 'student without consent', many: 'students without consent', to: '/students', hint: 'Open the student list', tone: 'purple', icon: <FileSignature /> },

@@ -23,6 +23,7 @@ import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AccountSecurityRouteImport } from './routes/account/security'
 import { Route as MfaSetupRouteImport } from './routes/mfa/setup'
 import { Route as MfaVerifyRouteImport } from './routes/mfa/verify'
+import { Route as AppAttendanceIndexRouteImport } from './routes/_app/attendance/index'
 import { Route as AppFeesIndexRouteImport } from './routes/_app/fees/index'
 import { Route as AppFeesCollectionsRouteImport } from './routes/_app/fees/collections'
 import { Route as AppFeesSetupRouteImport } from './routes/_app/fees/setup'
@@ -46,8 +47,14 @@ import { Route as AppTimetableIndexRouteImport } from './routes/_app/timetable/i
 import { Route as AppTimetablePeriodsRouteImport } from './routes/_app/timetable/periods'
 import { Route as AppTimetableSubstitutionsRouteImport } from './routes/_app/timetable/substitutions'
 import { Route as AppTimetableTeachersRouteImport } from './routes/_app/timetable/teachers'
+import { Route as AppAttendanceStaffIndexRouteImport } from './routes/_app/attendance/staff/index'
+import { Route as AppAttendanceStaffStaffIdRouteImport } from './routes/_app/attendance/staff/$staffId'
+import { Route as AppAttendanceStaffMonthRouteImport } from './routes/_app/attendance/staff/month'
+import { Route as AppAttendanceStudentsStudentIdRouteImport } from './routes/_app/attendance/students/$studentId'
 import { Route as AppFeesReceiptsReceiptIdRouteImport } from './routes/_app/fees/receipts/$receiptId'
 import { Route as AppFeesStudentsStudentIdRouteImport } from './routes/_app/fees/students/$studentId'
+import { Route as AppAttendanceSectionsSectionIdIndexRouteImport } from './routes/_app/attendance/sections/$sectionId/index'
+import { Route as AppAttendanceSectionsSectionIdMonthRouteImport } from './routes/_app/attendance/sections/$sectionId/month'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -117,6 +124,11 @@ const MfaVerifyRoute = MfaVerifyRouteImport.update({
   id: '/mfa/verify',
   path: '/mfa/verify',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppAttendanceIndexRoute = AppAttendanceIndexRouteImport.update({
+  id: '/attendance/',
+  path: '/attendance/',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppFeesIndexRoute = AppFeesIndexRouteImport.update({
   id: '/fees/',
@@ -234,6 +246,28 @@ const AppTimetableTeachersRoute = AppTimetableTeachersRouteImport.update({
   path: '/timetable/teachers',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAttendanceStaffIndexRoute = AppAttendanceStaffIndexRouteImport.update({
+  id: '/attendance/staff/',
+  path: '/attendance/staff/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAttendanceStaffStaffIdRoute =
+  AppAttendanceStaffStaffIdRouteImport.update({
+    id: '/attendance/staff/$staffId',
+    path: '/attendance/staff/$staffId',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppAttendanceStaffMonthRoute = AppAttendanceStaffMonthRouteImport.update({
+  id: '/attendance/staff/month',
+  path: '/attendance/staff/month',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAttendanceStudentsStudentIdRoute =
+  AppAttendanceStudentsStudentIdRouteImport.update({
+    id: '/attendance/students/$studentId',
+    path: '/attendance/students/$studentId',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppFeesReceiptsReceiptIdRoute =
   AppFeesReceiptsReceiptIdRouteImport.update({
     id: '/fees/receipts/$receiptId',
@@ -244,6 +278,18 @@ const AppFeesStudentsStudentIdRoute =
   AppFeesStudentsStudentIdRouteImport.update({
     id: '/fees/students/$studentId',
     path: '/fees/students/$studentId',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppAttendanceSectionsSectionIdIndexRoute =
+  AppAttendanceSectionsSectionIdIndexRouteImport.update({
+    id: '/attendance/sections/$sectionId/',
+    path: '/attendance/sections/$sectionId/',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppAttendanceSectionsSectionIdMonthRoute =
+  AppAttendanceSectionsSectionIdMonthRouteImport.update({
+    id: '/attendance/sections/$sectionId/month',
+    path: '/attendance/sections/$sectionId/month',
     getParentRoute: () => AppRoute,
   } as any)
 
@@ -280,12 +326,19 @@ export interface FileRoutesByFullPath {
   '/timetable/periods': typeof AppTimetablePeriodsRoute
   '/timetable/substitutions': typeof AppTimetableSubstitutionsRoute
   '/timetable/teachers': typeof AppTimetableTeachersRoute
+  '/attendance/': typeof AppAttendanceIndexRoute
   '/fees/': typeof AppFeesIndexRoute
   '/staff/': typeof AppStaffIndexRoute
   '/students/': typeof AppStudentsIndexRoute
   '/timetable/': typeof AppTimetableIndexRoute
+  '/attendance/staff/$staffId': typeof AppAttendanceStaffStaffIdRoute
+  '/attendance/staff/month': typeof AppAttendanceStaffMonthRoute
+  '/attendance/students/$studentId': typeof AppAttendanceStudentsStudentIdRoute
   '/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
   '/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
+  '/attendance/staff/': typeof AppAttendanceStaffIndexRoute
+  '/attendance/sections/$sectionId/month': typeof AppAttendanceSectionsSectionIdMonthRoute
+  '/attendance/sections/$sectionId/': typeof AppAttendanceSectionsSectionIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -320,12 +373,19 @@ export interface FileRoutesByTo {
   '/timetable/periods': typeof AppTimetablePeriodsRoute
   '/timetable/substitutions': typeof AppTimetableSubstitutionsRoute
   '/timetable/teachers': typeof AppTimetableTeachersRoute
+  '/attendance': typeof AppAttendanceIndexRoute
   '/fees': typeof AppFeesIndexRoute
   '/staff': typeof AppStaffIndexRoute
   '/students': typeof AppStudentsIndexRoute
   '/timetable': typeof AppTimetableIndexRoute
+  '/attendance/staff/$staffId': typeof AppAttendanceStaffStaffIdRoute
+  '/attendance/staff/month': typeof AppAttendanceStaffMonthRoute
+  '/attendance/students/$studentId': typeof AppAttendanceStudentsStudentIdRoute
   '/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
   '/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
+  '/attendance/staff': typeof AppAttendanceStaffIndexRoute
+  '/attendance/sections/$sectionId/month': typeof AppAttendanceSectionsSectionIdMonthRoute
+  '/attendance/sections/$sectionId': typeof AppAttendanceSectionsSectionIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -362,12 +422,19 @@ export interface FileRoutesById {
   '/_app/timetable/periods': typeof AppTimetablePeriodsRoute
   '/_app/timetable/substitutions': typeof AppTimetableSubstitutionsRoute
   '/_app/timetable/teachers': typeof AppTimetableTeachersRoute
+  '/_app/attendance/': typeof AppAttendanceIndexRoute
   '/_app/fees/': typeof AppFeesIndexRoute
   '/_app/staff/': typeof AppStaffIndexRoute
   '/_app/students/': typeof AppStudentsIndexRoute
   '/_app/timetable/': typeof AppTimetableIndexRoute
+  '/_app/attendance/staff/$staffId': typeof AppAttendanceStaffStaffIdRoute
+  '/_app/attendance/staff/month': typeof AppAttendanceStaffMonthRoute
+  '/_app/attendance/students/$studentId': typeof AppAttendanceStudentsStudentIdRoute
   '/_app/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
   '/_app/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
+  '/_app/attendance/staff/': typeof AppAttendanceStaffIndexRoute
+  '/_app/attendance/sections/$sectionId/month': typeof AppAttendanceSectionsSectionIdMonthRoute
+  '/_app/attendance/sections/$sectionId/': typeof AppAttendanceSectionsSectionIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -404,12 +471,19 @@ export interface FileRouteTypes {
     | '/timetable/periods'
     | '/timetable/substitutions'
     | '/timetable/teachers'
+    | '/attendance/'
     | '/fees/'
     | '/staff/'
     | '/students/'
     | '/timetable/'
+    | '/attendance/staff/$staffId'
+    | '/attendance/staff/month'
+    | '/attendance/students/$studentId'
     | '/fees/receipts/$receiptId'
     | '/fees/students/$studentId'
+    | '/attendance/staff/'
+    | '/attendance/sections/$sectionId/month'
+    | '/attendance/sections/$sectionId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -444,12 +518,19 @@ export interface FileRouteTypes {
     | '/timetable/periods'
     | '/timetable/substitutions'
     | '/timetable/teachers'
+    | '/attendance'
     | '/fees'
     | '/staff'
     | '/students'
     | '/timetable'
+    | '/attendance/staff/$staffId'
+    | '/attendance/staff/month'
+    | '/attendance/students/$studentId'
     | '/fees/receipts/$receiptId'
     | '/fees/students/$studentId'
+    | '/attendance/staff'
+    | '/attendance/sections/$sectionId/month'
+    | '/attendance/sections/$sectionId'
   id:
     | '__root__'
     | '/'
@@ -485,12 +566,19 @@ export interface FileRouteTypes {
     | '/_app/timetable/periods'
     | '/_app/timetable/substitutions'
     | '/_app/timetable/teachers'
+    | '/_app/attendance/'
     | '/_app/fees/'
     | '/_app/staff/'
     | '/_app/students/'
     | '/_app/timetable/'
+    | '/_app/attendance/staff/$staffId'
+    | '/_app/attendance/staff/month'
+    | '/_app/attendance/students/$studentId'
     | '/_app/fees/receipts/$receiptId'
     | '/_app/fees/students/$studentId'
+    | '/_app/attendance/staff/'
+    | '/_app/attendance/sections/$sectionId/month'
+    | '/_app/attendance/sections/$sectionId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -608,6 +696,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/mfa/verify'
       preLoaderRoute: typeof MfaVerifyRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/attendance/': {
+      id: '/_app/attendance/'
+      path: '/attendance'
+      fullPath: '/attendance/'
+      preLoaderRoute: typeof AppAttendanceIndexRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/fees/': {
       id: '/_app/fees/'
@@ -770,6 +865,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTimetableTeachersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/attendance/staff/': {
+      id: '/_app/attendance/staff/'
+      path: '/attendance/staff'
+      fullPath: '/attendance/staff/'
+      preLoaderRoute: typeof AppAttendanceStaffIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/attendance/staff/$staffId': {
+      id: '/_app/attendance/staff/$staffId'
+      path: '/attendance/staff/$staffId'
+      fullPath: '/attendance/staff/$staffId'
+      preLoaderRoute: typeof AppAttendanceStaffStaffIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/attendance/staff/month': {
+      id: '/_app/attendance/staff/month'
+      path: '/attendance/staff/month'
+      fullPath: '/attendance/staff/month'
+      preLoaderRoute: typeof AppAttendanceStaffMonthRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/attendance/students/$studentId': {
+      id: '/_app/attendance/students/$studentId'
+      path: '/attendance/students/$studentId'
+      fullPath: '/attendance/students/$studentId'
+      preLoaderRoute: typeof AppAttendanceStudentsStudentIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/fees/receipts/$receiptId': {
       id: '/_app/fees/receipts/$receiptId'
       path: '/fees/receipts/$receiptId'
@@ -782,6 +905,20 @@ declare module '@tanstack/react-router' {
       path: '/fees/students/$studentId'
       fullPath: '/fees/students/$studentId'
       preLoaderRoute: typeof AppFeesStudentsStudentIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/attendance/sections/$sectionId/': {
+      id: '/_app/attendance/sections/$sectionId/'
+      path: '/attendance/sections/$sectionId'
+      fullPath: '/attendance/sections/$sectionId/'
+      preLoaderRoute: typeof AppAttendanceSectionsSectionIdIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/attendance/sections/$sectionId/month': {
+      id: '/_app/attendance/sections/$sectionId/month'
+      path: '/attendance/sections/$sectionId/month'
+      fullPath: '/attendance/sections/$sectionId/month'
+      preLoaderRoute: typeof AppAttendanceSectionsSectionIdMonthRouteImport
       parentRoute: typeof AppRoute
     }
   }
@@ -808,12 +945,19 @@ interface AppRouteChildren {
   AppTimetablePeriodsRoute: typeof AppTimetablePeriodsRoute
   AppTimetableSubstitutionsRoute: typeof AppTimetableSubstitutionsRoute
   AppTimetableTeachersRoute: typeof AppTimetableTeachersRoute
+  AppAttendanceIndexRoute: typeof AppAttendanceIndexRoute
   AppFeesIndexRoute: typeof AppFeesIndexRoute
   AppStaffIndexRoute: typeof AppStaffIndexRoute
   AppStudentsIndexRoute: typeof AppStudentsIndexRoute
   AppTimetableIndexRoute: typeof AppTimetableIndexRoute
+  AppAttendanceStaffStaffIdRoute: typeof AppAttendanceStaffStaffIdRoute
+  AppAttendanceStaffMonthRoute: typeof AppAttendanceStaffMonthRoute
+  AppAttendanceStudentsStudentIdRoute: typeof AppAttendanceStudentsStudentIdRoute
   AppFeesReceiptsReceiptIdRoute: typeof AppFeesReceiptsReceiptIdRoute
   AppFeesStudentsStudentIdRoute: typeof AppFeesStudentsStudentIdRoute
+  AppAttendanceStaffIndexRoute: typeof AppAttendanceStaffIndexRoute
+  AppAttendanceSectionsSectionIdMonthRoute: typeof AppAttendanceSectionsSectionIdMonthRoute
+  AppAttendanceSectionsSectionIdIndexRoute: typeof AppAttendanceSectionsSectionIdIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -837,12 +981,21 @@ const AppRouteChildren: AppRouteChildren = {
   AppTimetablePeriodsRoute: AppTimetablePeriodsRoute,
   AppTimetableSubstitutionsRoute: AppTimetableSubstitutionsRoute,
   AppTimetableTeachersRoute: AppTimetableTeachersRoute,
+  AppAttendanceIndexRoute: AppAttendanceIndexRoute,
   AppFeesIndexRoute: AppFeesIndexRoute,
   AppStaffIndexRoute: AppStaffIndexRoute,
   AppStudentsIndexRoute: AppStudentsIndexRoute,
   AppTimetableIndexRoute: AppTimetableIndexRoute,
+  AppAttendanceStaffStaffIdRoute: AppAttendanceStaffStaffIdRoute,
+  AppAttendanceStaffMonthRoute: AppAttendanceStaffMonthRoute,
+  AppAttendanceStudentsStudentIdRoute: AppAttendanceStudentsStudentIdRoute,
   AppFeesReceiptsReceiptIdRoute: AppFeesReceiptsReceiptIdRoute,
   AppFeesStudentsStudentIdRoute: AppFeesStudentsStudentIdRoute,
+  AppAttendanceStaffIndexRoute: AppAttendanceStaffIndexRoute,
+  AppAttendanceSectionsSectionIdMonthRoute:
+    AppAttendanceSectionsSectionIdMonthRoute,
+  AppAttendanceSectionsSectionIdIndexRoute:
+    AppAttendanceSectionsSectionIdIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

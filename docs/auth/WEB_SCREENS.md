@@ -134,8 +134,8 @@ where the row says so.
 
 | Screen | Endpoints | What each role sees | Not yet |
 |---|---|---|---|
-| Sidebar, mobile nav, command menu | `students/count`, `staff/count` (office only), `search`, academic years or sections through `useAcademicYear` | Office: every destination its permission allows, plus student and staff counts and the year name. Teacher: Dashboard, Students, Staff, Timetable. Parent: "My children" and Timetable, no quick actions, no year tag. Accountant: Dashboard, Students, Staff, School setup reads, Audit log | No count for a role without `students.read_basic` / `staff.read_directory`; no year name for a teacher or parent |
-| `/dashboard` | `dashboard` only: one request, `api.dashboard.get(schoolId)`. The screen calls no other endpoint; the parent consent block asks for a child's consents when the parent opens it | Office: one sentence about today (school day, holiday or Sunday, teachers away and periods without cover), the things needing a person with a link to each, the student mix and students per teacher, class strength per section, admissions by month, holidays and birthdays ahead, recent activity with a security list for an owner, and a setup checklist that disappears once all five steps are done. Teacher: what they are teaching now and next from the browser clock, today's timeline with cover duty marked, the whole week, their own class and the holidays ahead; an honest empty state when the login is not linked to a staff record. Parent: one card per child with class, class teacher, today's lessons, the next holiday and what the school is waiting on, plus "Manage consent" (Give and Withdraw when the list allows `students.manage_consents`, recorded through the portal) and "Download my child's record" for `students.export_subject`, saved as `<admission number>-record.json`. Accountant: the day, the student tiles and a note where fee cards will go (the accountant role holds no `sections.read_strengths`, so no class strength card is drawn) | A block the caller may not read is absent from the answer, so the screen says nothing rather than showing a zero. A teacher's export of their own week is not offered: nothing on the web side knows their staff id. Attendance, exam and fee cards: no table carries them yet |
+| Sidebar, mobile nav, command menu | `students/count`, `staff/count` (office only), `search`, academic years or sections through `useAcademicYear` | Office: every destination its permission allows, plus student and staff counts and the year name. Teacher: Dashboard, Students, Staff, Timetable, Attendance. Parent: "My children", Timetable, Fees and Attendance, no quick actions, no year tag. Accountant: Dashboard, Students, Staff, School setup reads, Audit log, Fees, and Attendance (the staff register) | No count for a role without `students.read_basic` / `staff.read_directory`; no year name for a teacher or parent |
+| `/dashboard` | `dashboard` only: one request, `api.dashboard.get(schoolId)`. The screen calls no other endpoint; the parent consent block asks for a child's consents when the parent opens it | Office: one sentence about today (school day, holiday or Sunday, teachers away and periods without cover), the things needing a person with a link to each, the student mix and students per teacher, class strength per section, admissions by month, holidays and birthdays ahead, recent activity with a security list for an owner, and a setup checklist that disappears once all five steps are done. Teacher: what they are teaching now and next from the browser clock, today's timeline with cover duty marked, the whole week, their own class and the holidays ahead; an honest empty state when the login is not linked to a staff record. Parent: one card per child with class, class teacher, today's lessons, the next holiday and what the school is waiting on, plus "Manage consent" (Give and Withdraw when the list allows `students.manage_consents`, recorded through the portal) and "Download my child's record" for `students.export_subject`, saved as `<admission number>-record.json`. Accountant: the day, the student tiles and the fee cards (the accountant role holds no `sections.read_strengths`, so no class strength card is drawn). Attendance since Task 20: the office sees "Registers marked X of Y" and "Absent today" tiles and a "pupils absent three school days running" attention row, each linking to the attendance screens; the teacher's "My class" card says whether today's register is marked and offers "Mark attendance" or "Open register"; the parent child card carries "Attendance" with this month's percentage so far, linking to the child's calendar | A block the caller may not read is absent from the answer, so the screen says nothing rather than showing a zero. A teacher's export of their own week is not offered: nothing on the web side knows their staff id. Attendance, exam and fee cards: no table carries them yet |
 
 ### Students
 
@@ -186,6 +186,19 @@ where the row says so.
 | Dashboard fee cards | `dashboard` | Office and accountant: collected today (with the receipt count), collected this month, outstanding dues and pupils with dues, each a link; absent when the server sent no `fees` block. Parent: "Fees due ₹X" per child, linking to the statement, or "No fees due" | — |
 | Student profile | — | "Fee statement" link on the Student panel for anybody holding `fees.read` | — |
 
+### Attendance
+
+| Screen | Endpoints | What each role sees | Not yet |
+|---|---|---|---|
+| `/attendance` | `attendance/sections` (date), `students` (a parent's children) | Office and teacher: one row per section of the day the date chip names (today by default): class, section, pupils on the roster, Marked or Not marked, present and absent counts, the last save; row click opens the register. A teacher sees the sections they teach or look after; the office sees them all. A "Staff register" button for `staff_attendance.read`. A parent: one card per child, linking to the child's calendar. A caller with `staff_attendance.read` alone (the accountant) is sent to the staff register | No filter by class; a section with nobody enrolled that day cannot be marked |
+| `/attendance/sections/:sectionId` | `attendance/sections/:id/days/:date`, `mark`, `correct` | The marking screen, a full page: roll, pupil, and five marks per row, everyone present to start with. The server's `window` decides the button: "Save attendance" on today for a caller the record allows `attendance.record` (sends the whole roster); "Save corrections" on a past day for `attendance.manage` (asks for a reason, sends only the changed rows); neither, with the server's own sentence, when the day is a Sunday, a holiday, outside the year, in the future, or the teacher's window has closed. A Day and a Month tab | The reason a correction was made is never shown back, by design |
+| `/attendance/sections/:sectionId/month` | `attendance/sections/:id/months/:month`, `attendance/sections/:id/months/:month/export` + `exports/:id` + `exports/:id/file` | The register for a month: one row per pupil, a letter per day (P, A, L, LV, H; blank when not enrolled; a dot for an unmarked school day), then the counts and the percentage. Export (Excel with the day grid, PDF with the summary) when the record allows `attendance.export` | — |
+| `/attendance/students/:studentId` | `attendance/students/:id/months/:month`, `students/:id/enrollments` (a parent's month list), `attendance/students/:id/months/:month/export` + `exports/:id` + `exports/:id/file` | One pupil's month: the summary (percentage, present, absent, late, leave, half day, school days, not marked) and a calendar grid with a mark per day, Sundays and holidays named, days before the pupil joined blank. A month chip: the school's years for an office role, the child's own enrolment years for a parent, so last year stays a chip away after promotion. "Download PDF" for anybody who can open the page | — |
+| `/attendance/staff` | `staff-attendance/days/:date`, `markStaff`, `correctStaff` | The staff register for a day: code, name, designation and five marks per row. The caller's own row carries "Marked by a colleague" and no picker, and the body never includes it. Save and Save corrections exactly as the pupil screen, under the `staff_attendance` keys. A teacher sees their own row alone and no save; the accountant sees everybody and no save | — |
+| `/attendance/staff/month` | `staff-attendance/months/:month`, `staff-attendance/months/:month/export` + `exports/:id` + `exports/:id/file` | The staff register for a month, the same grid as a section's; export for `staff_attendance.export` | — |
+| `/attendance/staff/:staffId` | `staff-attendance/staff/:id/months/:month` | One person's month, the same shape as a pupil's. A teacher reaches their own from the staff register row or the staff record | — |
+| Student profile and staff record | — | "Attendance" link on the Student panel for `attendance.read`; "Attendance" link on the staff record for `staff_attendance.read` | — |
+
 ### Access management and settings
 
 | Screen | Endpoints | What each role sees | Not yet |
@@ -227,12 +240,12 @@ mirrors the server's own audience rule.
 
 | Role | Navigation | Dashboard | Actions |
 |---|---|---|---|
-| Owner (71 grants) | Everything: Students, Staff, Timetable, Fees, all five School setup screens, Users and logins, Roles and permissions, Audit log | Office, with the security list | Every write in the app: admit, import, promote, export students; add and edit staff including pay; edit the timetable, periods and substitutions; all setup writes; invite, change roles, suspend, remove, restore, send a sign-in reset, explain access; read and export the audit log |
-| Principal (64) | Same as owner | Office | Same as owner except staff pay (no `staff.read_pay`/`update_pay`), ownership transfer and audit export. Can read the audit log |
-| Admin (56) | Same as principal, without Audit log | Office, with the fee cards | Same as principal, minus the audit log entirely; collects fees and reads statements but never sets, refunds, adjusts or exports them |
-| Accountant (21) | Dashboard, Students, Staff, Fees, School profile, Academic years, Classes, Subjects, Holidays, Audit log. No Timetable | Accountant — the day, the student tiles and the four fee cards; no class strength | Everything about fees: setup, collect, refund, cancel, adjust, export. Otherwise read-only, plus staff pay, staff export and audit export (the money trail only). No student, setup or member write |
-| Teacher (16) | Dashboard, Students, Staff, Timetable | Teacher — now and next, today's timeline, the week, their own class and the holidays ahead | None. Reads their own pupils, the staff directory, the timetable, classes, subjects and holidays. No Users, no audit log, no academic years |
-| Parent (13) | My children, Timetable, Fees | Parent — one card per child: class, class teacher, today's lessons, the next holiday, fees due and what the school is waiting on | None. Reads their own children, the timetable of their class, and their children's fee statements and receipts for every year they were enrolled |
+| Owner (79 grants) | Everything: Students, Staff, Timetable, Fees, Attendance, all five School setup screens, Users and logins, Roles and permissions, Audit log | Office, with the security list and the attendance card | Every write in the app: admit, import, promote, export students; add and edit staff including pay; edit the timetable, periods and substitutions; all setup writes; invite, change roles, suspend, remove, restore, send a sign-in reset, explain access; read and export the audit log |
+| Principal (72) | Same as owner | Office | Same as owner except staff pay (no `staff.read_pay`/`update_pay`), ownership transfer and audit export. Can read the audit log |
+| Admin (64) | Same as principal, without Audit log | Office, with the fee cards | Same as principal, minus the audit log entirely; collects fees and reads statements but never sets, refunds, adjusts or exports them |
+| Accountant (22) | Dashboard, Students, Staff, Fees, Attendance (the staff register only), School profile, Academic years, Classes, Subjects, Holidays, Audit log. No Timetable | Accountant — the day, the student tiles and the four fee cards; no class strength | Everything about fees: setup, collect, refund, cancel, adjust, export. Otherwise read-only, plus staff pay, staff export and audit export (the money trail only). No student, setup or member write |
+| Teacher (19) | Dashboard, Students, Staff, Timetable, Attendance | Teacher — now and next, today's timeline, the week, their own class (with whether today's register is marked) and the holidays ahead | Marks today's register for the sections they teach or look after, and re-saves it until the day ends. Otherwise reads their own pupils, the staff directory, the timetable, classes, subjects, holidays and their own month of the staff register. No Users, no audit log, no academic years |
+| Parent (14) | My children, Timetable, Fees, Attendance | Parent — one card per child: class, class teacher, today's lessons, the next holiday, this month's attendance, fees due and what the school is waiting on | None. Reads their own children, the timetable of their class, and their children's fee statements, receipts and attendance calendar for every year they were enrolled |
 
 The student role has no grants at all and cannot sign in; the server refuses the session and the
 app sends the person to `/access-unavailable?reason=student`.
@@ -268,9 +281,29 @@ its query on the capability and shows one sentence, so the refusal is only reach
 address. The year in each column is that role's own: the owner reads the year list and takes the
 one marked current, while a teacher or a parent infers it from the sections they can see.
 
+Task 20 live check, 22 September 2026, against the Sunrise seed on `127.0.0.1:3001` through the
+Vite proxy, driven by Playwright's Chromium with a fetch sign-in inside the tab. The class teacher of
+Nursery A (teacher1) saw "Attendance not marked yet" with a "Mark attendance" link on the dashboard,
+the day list with seven sections and three marked, opened the roster with everyone present, set one
+pupil absent and pressed "Save attendance"; the database then held 16 revision-1 rows (15 present,
+1 absent) and one `attendance.record` audit row, and the dashboard said "Attendance marked · 1
+absent". The parent (parent1, phone code) saw "100.0% this month · 0 absent" and "97.4% this month
+· 0 absent" on the two child cards, opened Ishaan's September calendar (19 school days, 19 present)
+and walked back to August. The owner saw "Registers marked 11 of 21" and "Absent today 7", the
+whole day list, the staff register with "Save attendance", saved it (30 people, one audit row), and
+the staff month grid with a letter per day and the percentage column. No console error on any
+screen. By curl: teacher3, whose assignment to Class 1 A ended on 31 August, gets 404 on that
+section's roster and on a mark, and the section is absent from their day list; teacher2, who
+teaches Nursery A but is not its class teacher, may read and mark it; the parent gets 404 for
+another family's child in either year and 403 on a write; the accountant gets 403 on every pupil
+route and reads the staff register with no save; the owner's correction of a past day left the
+original row at revision 1 and wrote a revision 2 row of kind `correction` whose reason is only in
+the audit note.
+
 ## Tests
 
-`pnpm --filter @erp/web test -- --run` — 31 files, 328 tests. The screen files added in Task 7, with the data lifecycle cases Task 12 added to them:
+`pnpm --filter @erp/web test -- --run` — 33 files, 352 tests after Task 20 (31 files, 328 tests when
+this section was first written). The screen files added in Task 7, with the data lifecycle cases Task 12 added to them:
 
 | File | Tests | What they prove |
 |---|---|---|
@@ -400,3 +433,12 @@ Six small changes the school office asked for, all of them on screens that alrea
 
 Automatic birthday greetings were asked for at the same time and are deferred to Task 22
 (communication), which is where messages get built.
+
+Task 20 adds `components/attendance/attendance-screens.test.tsx` (5): the day screen renders
+"Save attendance" only when the server's `window.record` is true and the record allows
+`attendance.record`, and sends the whole roster; it renders "Save corrections" and no
+"Save attendance" when only `window.correct` and `attendance.manage` apply, and sends only the
+changed rows with the reason; it renders neither and shows the server's sentence otherwise; the
+pupil month screen shows the percentage and a "Download PDF" button; and the staff register never
+sends the caller's own row.
+

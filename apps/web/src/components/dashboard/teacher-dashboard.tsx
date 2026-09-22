@@ -297,6 +297,23 @@ export function TeacherDashboard({ data, isLoading, error }: { data?: TeacherDas
         <StatRow>
           <StatTile size="sm" label={data.myClass.section.name} value={data.myClass.strength} hint="students" tone="purple" icon={<Users />} />
         </StatRow>
+        {data.myClass.attendanceToday && (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[13px] text-muted-foreground">
+              {data.myClass.attendanceToday.marked
+                ? `Attendance marked · ${data.myClass.attendanceToday.absent ?? 0} absent`
+                : 'Attendance not marked yet'}
+            </p>
+            <Link
+              to="/attendance/sections/$sectionId"
+              params={{ sectionId: data.myClass.section.id }}
+              search={{ date: data.myClass.attendanceToday.date }}
+              className="text-[13px] text-muted-foreground hover:text-foreground"
+            >
+              {data.myClass.attendanceToday.marked ? 'Open register' : 'Mark attendance'}
+            </Link>
+          </div>
+        )}
         {data.myClass.birthdaysThisWeek === undefined ? undefined : data.myClass.birthdaysThisWeek.length === 0 ? (
           <p className="text-[13px] text-muted-foreground">No birthdays in your class this week.</p>
         ) : (

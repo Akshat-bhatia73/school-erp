@@ -167,10 +167,14 @@ export const PERMISSION_CATALOGUE = {
   'fees.collect': active('fee', ['school', 'finance'], 'Record a fee payment and issue its receipt.', true),
   'fees.manage': active('fee', ['school', 'finance'], 'Set fee heads and structures, concessions and optional fees, and record refunds, cancellations and adjustments.', true),
   'fees.export': active('fee', ['school', 'finance'], 'Export the dues list and the collection register.', true),
-  'attendance.read': reserved('attendance', ['school', 'assigned_sections', 'own_children', 'own_record'], 'Reserved for attendance views.'),
-  'attendance.record': reserved('attendance', ['school', 'assigned_sections'], 'Reserved for recording attendance.', true),
-  'attendance.manage': reserved('attendance', ['school'], 'Reserved for correcting and administering attendance.', true),
-  'attendance.export': reserved('attendance', ['school', 'assigned_sections'], 'Reserved for exporting authorized attendance data.', true),
+  // A parent reading their own child's month and a teacher reading their own
+  // class sign in with one factor, so the read is not privileged. Marking and
+  // exporting are privileged only at school scope: a class teacher marks their
+  // own register single-factor, and the office does it behind a second step.
+  'attendance.read': active('attendance', ['school', 'assigned_sections', 'own_children', 'own_record'], 'Read the attendance register, a pupil\'s month and the monthly percentage within the granted scope.'),
+  'attendance.record': active('attendance', ['school', 'assigned_sections'], 'Mark a section\'s attendance for today, whole roster at once.', true, ['school']),
+  'attendance.manage': active('attendance', ['school'], 'Correct a past day\'s attendance with a reason, as a new row that supersedes the old one.', true),
+  'attendance.export': active('attendance', ['school', 'assigned_sections'], 'Export a section\'s monthly attendance register.', true, ['school']),
   'exams.read': reserved('exam', ['school', 'assigned_sections', 'assigned_subjects', 'own_children', 'own_record'], 'Reserved for published exam and result views.'),
   'exams.record_marks': reserved('exam', ['school', 'assigned_sections', 'assigned_subjects'], 'Reserved for recording marks for an assigned section and subject.', true),
   'exams.manage': reserved('exam', ['school'], 'Reserved for exam setup and administration.', true),
@@ -184,10 +188,12 @@ export const PERMISSION_CATALOGUE = {
   'report_cards.manage': reserved('report_card', ['school', 'assigned_sections', 'assigned_subjects'], 'Reserved for preparing report cards.', true),
   'report_cards.publish': reserved('report_card', ['school'], 'Reserved for publishing report cards.', true),
   'report_cards.export': reserved('report_card', ['school', 'assigned_sections', 'assigned_subjects', 'own_children'], 'Reserved for exporting authorized report cards.', true),
-  'staff_attendance.read': reserved('staff_attendance', ['school', 'self'], 'Reserved for reading staff attendance.'),
-  'staff_attendance.record': reserved('staff_attendance', ['school'], 'Reserved for recording staff attendance.', true),
-  'staff_attendance.manage': reserved('staff_attendance', ['school'], 'Reserved for correcting and administering staff attendance.', true),
-  'staff_attendance.export': reserved('staff_attendance', ['school'], 'Reserved for exporting authorized staff attendance.', true),
+  // A staff member reads their own month with one factor; the office marks,
+  // corrects and exports the register behind a second step.
+  'staff_attendance.read': active('staff_attendance', ['school', 'self'], 'Read the staff attendance register, or one\'s own month.'),
+  'staff_attendance.record': active('staff_attendance', ['school'], 'Mark the staff attendance register for today.', true),
+  'staff_attendance.manage': active('staff_attendance', ['school'], 'Correct a past day of the staff register with a reason.', true),
+  'staff_attendance.export': active('staff_attendance', ['school'], 'Export the staff attendance register for a month.', true),
   'ai_assistant.use': reserved('ai_assistant', ['school', 'self', 'assigned_sections', 'assigned_subjects', 'own_children', 'finance'], 'Reserved for an assistant that remains bounded by the caller’s permissions.'),
   'ai_assistant.manage': reserved('ai_assistant', ['school'], 'Reserved for school assistant configuration.', true),
 } as const satisfies Record<PermissionKey, PermissionMetadata>

@@ -134,6 +134,11 @@ export function OverviewTab({ detail, showGuardianContacts }: { detail: StudentD
                 <Link to="/fees/students/$studentId" params={{ studentId: student.id }}>Fee statement</Link>
               </Button>
             )}
+            {hasPermission('attendance.read') && (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/attendance/students/$studentId" params={{ studentId: student.id }}>Attendance</Link>
+              </Button>
+            )}
             <ExportRecordButton studentId={student.id} admissionNumber={student.admissionNumber} allowedActions={allowedActions} />
           </div>
         }

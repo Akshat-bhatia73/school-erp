@@ -45,6 +45,16 @@ export const ErrorReason = z.enum([
   'fee_amount_exceeds_balance',
   'fee_receipt_already_reversed',
   'fee_nothing_charged',
+  'attendance_date_outside_year',
+  'attendance_not_a_school_day',
+  'attendance_date_in_future',
+  'attendance_marking_window_closed',
+  'attendance_pupil_not_on_roster',
+  'attendance_roster_incomplete',
+  'attendance_month_outside_year',
+  'staff_attendance_own_record',
+  'staff_attendance_not_on_register',
+  'staff_attendance_register_incomplete',
 ])
 export type ErrorReason = z.infer<typeof ErrorReason>
 

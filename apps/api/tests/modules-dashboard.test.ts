@@ -592,6 +592,7 @@ test('the office attention list carries every key the owner may read', async () 
     body.attention.map((item) => item.key),
     [
       'periods_without_cover',
+      'students_absent_three_days',
       'invitations_expiring',
       'students_without_guardian_phone',
       'students_without_consent',

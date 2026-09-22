@@ -4,6 +4,7 @@ import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
 
 import {
   academicYears,
+  attendanceEntries,
   auditEvents,
   bellSchedules,
   enrollments,
@@ -17,6 +18,7 @@ import {
   holidays,
   sections,
   staff,
+  staffAttendanceEntries,
   studentDocuments,
   students,
   subjects,
@@ -128,6 +130,64 @@ export function feeScopedTable(kind: FeeTableKind): ScopedTable {
   return FEE_TABLES[kind]
 }
 
+/**
+ * The tables an `attendance` plan can be laid over. Attendance is one resource
+ * type with three faces: the marks themselves, the section whose register is
+ * being read or marked (`roster`), and the pupil whose month is being read
+ * (`pupil`). A mark answers own_children through its pupil and
+ * assigned_sections through its section and year; the roster answers through
+ * the section; the pupil answers own_children through their own id and
+ * assigned_sections through a current enrolment, exactly as a student does.
+ */
+const ATTENDANCE_TABLES = {
+  entry: {
+    table: attendanceEntries,
+    schoolId: attendanceEntries.schoolId,
+    id: attendanceEntries.id,
+    studentId: attendanceEntries.studentId,
+    sectionId: attendanceEntries.sectionId,
+    academicYearId: attendanceEntries.academicYearId,
+  },
+  roster: {
+    table: sections,
+    schoolId: sections.schoolId,
+    id: sections.id,
+    sectionId: sections.id,
+    academicYearId: sections.academicYearId,
+    gradeId: sections.gradeId,
+  },
+  pupil: { table: students, schoolId: students.schoolId, id: students.id, studentId: students.id },
+} as const satisfies Record<string, ScopedTable>
+
+export type AttendanceTableKind = keyof typeof ATTENDANCE_TABLES
+
+/** The descriptor of one attendance table, for planPredicate with an `attendance` plan. */
+export function attendanceScopedTable(kind: AttendanceTableKind): ScopedTable {
+  return ATTENDANCE_TABLES[kind]
+}
+
+/**
+ * The two faces of a `staff_attendance` plan: the marks, and the staff member
+ * whose row or month is being read. Both answer the self scope through the
+ * staff id.
+ */
+const STAFF_ATTENDANCE_TABLES = {
+  entry: {
+    table: staffAttendanceEntries,
+    schoolId: staffAttendanceEntries.schoolId,
+    id: staffAttendanceEntries.id,
+    staffId: staffAttendanceEntries.staffId,
+  },
+  person: { table: staff, schoolId: staff.schoolId, id: staff.id, staffId: staff.id },
+} as const satisfies Record<string, ScopedTable>
+
+export type StaffAttendanceTableKind = keyof typeof STAFF_ATTENDANCE_TABLES
+
+/** The descriptor of one staff attendance table, for planPredicate with a `staff_attendance` plan. */
+export function staffAttendanceScopedTable(kind: StaffAttendanceTableKind): ScopedTable {
+  return STAFF_ATTENDANCE_TABLES[kind]
+}
+
 const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
   student: { table: students, schoolId: students.schoolId, id: students.id },
   staff: { table: staff, schoolId: staff.schoolId, id: staff.id },
@@ -201,6 +261,10 @@ const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
   // The ledger is the fee table a bare `fee` plan lists. The other fee tables
   // come from feeScopedTable.
   fee: FEE_TABLES.receipt,
+  // The marks are what a bare attendance plan lists; the roster and the pupil
+  // faces come from attendanceScopedTable and staffAttendanceScopedTable.
+  attendance: ATTENDANCE_TABLES.entry,
+  staff_attendance: STAFF_ATTENDANCE_TABLES.entry,
 }
 
 /** The table a plan of this resource type lists, or null when there is none. */
@@ -345,6 +409,15 @@ function assignedSectionsTerm(plan: AuthorizedReadPlan, table: ScopedTable, pair
   switch (plan.resourceType) {
     case 'student':
       return enrollmentExists(table.id, table.schoolId, enrolledPairs)
+    case 'attendance':
+      // A mark and a roster carry their section and year; the pupil face is
+      // reached through a current enrolment, exactly as a student is.
+      if (table.sectionId !== undefined && table.academicYearId !== undefined) {
+        return pairTerm(table.sectionId, table.academicYearId, pairs)
+      }
+      return table.studentId === undefined
+        ? FALSE
+        : enrollmentExists(table.studentId, table.schoolId, enrolledPairs)
     case 'student_document':
       return table.studentId === undefined
         ? FALSE
@@ -405,7 +478,8 @@ function selfTerm(plan: AuthorizedReadPlan, table: ScopedTable, selfStaffId: str
   if (
     plan.resourceType !== 'timetable' &&
     plan.resourceType !== 'substitution' &&
-    plan.resourceType !== 'teaching_assignment'
+    plan.resourceType !== 'teaching_assignment' &&
+    plan.resourceType !== 'staff_attendance'
   ) {
     return FALSE
   }
@@ -429,6 +503,14 @@ function ownChildrenTerm(plan: AuthorizedReadPlan, table: ScopedTable, childIds:
       // A fee row answers through the pupil it belongs to. A head or a
       // structure belongs to the school and names no pupil, so it never does.
       return table.studentId === undefined ? FALSE : idInTerm(table.studentId, childIds)
+    case 'attendance':
+      // A mark and a pupil's month answer through the pupil, for every year
+      // the child was here, never through the current enrolment. The roster
+      // is a shared row, so it answers through a current enrolment of a
+      // child, as a section does.
+      if (table.studentId !== undefined) return idInTerm(table.studentId, childIds)
+      if (table.sectionId === undefined) return FALSE
+      return enrollmentExistsForChildren(sql`e.section_id = ${table.sectionId}`, table, childList)
     case 'section':
       return enrollmentExistsForChildren(sql`e.section_id = ${table.id}`, table, childList)
     case 'grade':

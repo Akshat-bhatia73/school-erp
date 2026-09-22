@@ -4,6 +4,7 @@ import { loadRelationshipFactsFor, type AuthzConnection } from '@erp/authz'
 import type { RequestContext } from '@erp/contracts/server'
 import type { z } from 'zod'
 import type {
+  DashboardChildAttendance,
   DashboardTimelineSlot,
   EnrollmentSummary,
   ParentDashboard,
@@ -12,6 +13,13 @@ import { CONSENT_PURPOSES, type ConsentPurpose } from '@erp/contracts'
 import { readPlan } from '../shared/index.ts'
 import { ApiFailure } from '../../http/errors.ts'
 import { readStatement } from '../fees/statement.ts'
+import {
+  attendanceFiguresCte,
+  attendancePlans,
+  monthBounds,
+  toSummary,
+  type FiguresRow,
+} from '../attendance/figures.ts'
 import { currentEnrollmentsFor, label, listOwnChildren, predicateFor, rows } from './queries.ts'
 import { buildCalendar, currentAcademicYear, dayOfWeek, optionalBlock } from './calendar.ts'
 import { loadSchedules, scheduleForGrade } from './bell.ts'
@@ -137,6 +145,54 @@ async function feesDueFor(
 }
 
 /**
+ * This month so far for one child, from the same figures the attendance
+ * screens use, so the card and the calendar can never disagree. A child the
+ * attendance plan does not reach carries no block at all.
+ */
+async function attendanceFor(
+  conn: AuthzConnection,
+  context: RequestContext,
+  studentId: string,
+  date: string,
+): Promise<DashboardChildAttendance | undefined> {
+  const plans = await attendancePlans(conn, context)
+  const schoolId = context.schoolId
+  const month = date.slice(0, 7)
+  const { from, to } = monthBounds(month)
+  const [reached] = await rows<{ ok: boolean }>(
+    conn,
+    sql`SELECT EXISTS (SELECT 1 FROM students
+                        WHERE students.school_id = ${schoolId}::uuid
+                          AND students.id = ${studentId}::uuid
+                          AND (${plans.pupils})) AS ok`,
+  )
+  if (reached?.ok !== true) return undefined
+
+  const cte = attendanceFiguresCte({
+    schoolId,
+    from,
+    to,
+    asOf: date,
+    holidays: plans.holidays,
+    spans: sql`enrollments.student_id = ${studentId}::uuid
+               AND EXISTS (SELECT 1 FROM students
+                            WHERE students.school_id = enrollments.school_id
+                              AND students.id = enrollments.student_id
+                              AND (${plans.pupils}))`,
+    entries: plans.entries,
+  })
+  const [figures] = await rows<FiguresRow>(conn, sql`${cte} SELECT * FROM att_figures`)
+  const summary = toSummary(figures)
+  return {
+    month,
+    percentage: summary.percentage,
+    present: summary.present,
+    absent: summary.absent,
+    schoolDays: summary.schoolDays,
+  }
+}
+
+/**
  * The parent dashboard: their own children and nothing beside them. The
  * relationship list decides which students belong here and the student plan
  * decides what may be read about them; both are applied.
@@ -188,8 +244,10 @@ export async function parentDashboard(
       year === null
         ? undefined
         : await optionalBlock(() => feesDueFor(conn, context, student.id, year.id))
+    const attendance = await optionalBlock(() => attendanceFor(conn, context, student.id, date))
     children.push({
       student,
+      ...(attendance === undefined ? {} : { attendance }),
       ...(feesDuePaise === undefined ? {} : { feesDuePaise }),
       ...(enrollment === undefined ? {} : { enrollment }),
       ...(classTeacher === undefined ? {} : { classTeacher }),

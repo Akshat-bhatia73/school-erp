@@ -115,6 +115,16 @@ function FeesDue({ studentId, duePaise }: { studentId: string; duePaise: number 
   )
 }
 
+/** This month so far for one child, with a way to see the days behind it. */
+function ChildAttendance({ studentId, attendance }: { studentId: string; attendance: NonNullable<ParentChild['attendance']> }) {
+  const line = attendance.percentage === null
+    ? 'No school days yet'
+    : `${attendance.percentage.toFixed(1)}% this month · ${attendance.absent} absent`
+  return (
+    <Link to="/attendance/students/$studentId" params={{ studentId }} className="link-dotted">{line}</Link>
+  )
+}
+
 /** The class name the way the student list writes it. */
 function classLabel(enrollment: NonNullable<ParentChild['enrollment']>): string {
   return `${enrollment.grade.name} ${enrollment.section.name}`
@@ -170,6 +180,9 @@ function ChildCard({ child, day }: { child: ParentChild; day: ParentDashboardDat
             { label: 'Class', value: enrollment ? classLabel(enrollment) : 'Not in a class this year' },
             { label: 'Class teacher', value: child.classTeacher?.name ?? 'Not set yet' },
             { label: 'Next holiday', value: child.nextHoliday ? holidayLine(child.nextHoliday) : 'No holiday in the next 30 days.' },
+            ...(child.attendance
+              ? [{ label: 'Attendance', value: <ChildAttendance studentId={student.id} attendance={child.attendance} /> }]
+              : []),
             ...(child.feesDuePaise !== undefined
               ? [{ label: 'Fees', value: <FeesDue studentId={student.id} duePaise={child.feesDuePaise} /> }]
               : []),

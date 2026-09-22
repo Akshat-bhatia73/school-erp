@@ -119,6 +119,21 @@ Nothing about dues is stored. What a pupil owes is worked out from the structure
 
 Two CHECK constraints are widened: `number_sequences.kind` gains `receipt` (the period is the academic year id, as for admissions) and `export_jobs.kind` gains `fee_receipt`, `fee_dues` and `fee_collections`. Everything is additive, so the release before this one runs against it unchanged. The release also changes the role templates, so every existing school needs `pnpm db:sync-roles` after the migration; see [the release runbook](./RELEASE.md#4-deploying-a-change).
 
+## Attendance
+
+Migration `0016_attendance.sql` adds two tenant tables, each with `school_id`, forced RLS under the same `tenant_isolation` policy as its neighbours, and composite foreign keys that include `school_id`, so a mark can never point at a pupil, a section, a staff member or a membership in another school. A pupil mark also names its academic year through the `sections (school_id, academic_year_id, id)` key, so the section and the year travel together.
+
+| Table | What it holds | Runtime grant |
+|---|---|---|
+| `attendance_entries` | One mark per pupil, date and revision: `mark` from the five, `revision` (1 for the first mark on a date, one more per row that supersedes it), `supersedes_entry_id`, `kind` (`marking` by whoever marks the register, `correction` by the office with a reason on the audit row), who recorded it and when. Unique per school, pupil, date and revision, so the current mark (the highest revision) is unambiguous | SELECT, INSERT |
+| `staff_attendance_entries` | The same shape per staff member and date | SELECT, INSERT |
+
+Both tables are append-only in the database. The runtime login holds no UPDATE and no DELETE, and the `attendance_entries_no_change` and `staff_attendance_entries_no_change` triggers refuse every UPDATE and every DELETE, whoever asks. The reason for a correction is never a column: it is the audit note. The migration gives no function to `erp_maintenance`, so it needs no CREATE grant on the schema.
+
+Nothing about a percentage is stored. Which days are school days, who was on a roster and what the current mark is are worked out in one set of common table expressions in `apps/api/src/modules/attendance/figures.ts`.
+
+One CHECK constraint is widened: `export_jobs.kind` gains `attendance_register`, `attendance_pupil_month` and `staff_attendance_register`. Everything is additive, so the release before this one runs against it unchanged. The release also changes the role templates, so every existing school needs `pnpm db:sync-roles` after the migration; see [the release runbook](./RELEASE.md#4-deploying-a-change).
+
 ## Observability
 
 Migration `0010_observability.sql` (Task 13) adds the access log and durable account lockout.

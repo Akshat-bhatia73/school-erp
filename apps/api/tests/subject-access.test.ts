@@ -120,6 +120,35 @@ before(async () => {
     )
   }
 
+  // Attendance, for both children. An export is the whole record, so the
+  // marks belong in it, one block per academic year the pupil was enrolled.
+  for (const studentId of [studentA2, studentA]) {
+    await pool.query(
+      `INSERT INTO enrollments(school_id,student_id,academic_year_id,section_id,joined_on)
+       VALUES ($1,$2,$3,$4,'2026-04-01') ON CONFLICT DO NOTHING`,
+      [schoolA, studentId, fixtureIds.yearA as string, fixtureIds.sectionA as string],
+    )
+    for (const [date, mark] of [
+      ['2026-04-06', 'present'],
+      ['2026-04-07', 'absent'],
+    ] as const) {
+      await pool.query(
+        `INSERT INTO attendance_entries(school_id,student_id,section_id,academic_year_id,date,mark,
+                                        revision,kind,recorded_by_membership_id)
+         VALUES ($1,$2,$3,$4,$5::date,$6,1,'marking',$7)`,
+        [
+          schoolA,
+          studentId,
+          fixtureIds.sectionA as string,
+          fixtureIds.yearA as string,
+          date,
+          mark,
+          fixtureIds.ownerA as string,
+        ],
+      )
+    }
+  }
+
   await setFixturePassword(server, parentUserId, PASSWORD)
   await setFixturePassword(server, teacherUser, PASSWORD)
   owner = await signInWithMfa(server, { userId: ownerUserId, email: OWNER_EMAIL, password: PASSWORD })
@@ -163,6 +192,21 @@ test('the export carries the fee statements of that child alone', async () => {
   assert.equal(numbers.includes(otherReceipt), false, 'another child\'s receipt never appears')
   // Every statement names the pupil the export is about.
   for (const statement of result.fees) assert.equal(statement.student.id, studentA2)
+})
+
+test('the export carries the attendance of that child alone', async () => {
+  const result = await parsedExport(parent, studentA2)
+  assert.ok(result.attendance !== undefined, 'a parent may read their own child\'s attendance')
+  const year = result.attendance.find((record) => record.academicYear.id === (fixtureIds.yearA as string))
+  assert.ok(year, 'the year the child was enrolled in is in the export')
+  const marks = new Map(year.marks.map((mark) => [mark.date, mark.mark]))
+  assert.equal(marks.get('2026-04-06'), 'present')
+  assert.equal(marks.get('2026-04-07'), 'absent')
+  // The summary follows the one percentage rule, over that year's school days.
+  assert.ok(year.summary.schoolDays >= 2)
+  assert.equal(year.summary.present, 1)
+  assert.equal(year.summary.absent, 1)
+  assert.equal(typeof year.summary.percentage, 'number')
 })
 
 test('a parent is refused another family\'s child', async () => {

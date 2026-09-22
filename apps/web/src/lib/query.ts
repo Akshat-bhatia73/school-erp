@@ -78,6 +78,14 @@ export const qk = {
   feeReceipts: (schoolId: string, params?: Params) => [schoolId, 'fees', 'receipts', params ?? {}] as const,
   feeReceipt: (schoolId: string, receiptId: string) => [schoolId, 'fees', 'receipt', receiptId] as const,
 
+  attendanceSections: (schoolId: string, params?: Params) => [schoolId, 'attendance', 'sections', params ?? {}] as const,
+  attendanceDay: (schoolId: string, sectionId: string, date: string) => [schoolId, 'attendance', 'day', sectionId, date] as const,
+  attendanceStudentMonth: (schoolId: string, studentId: string, month: string) => [schoolId, 'attendance', 'studentMonth', studentId, month] as const,
+  attendanceSectionMonth: (schoolId: string, sectionId: string, month: string) => [schoolId, 'attendance', 'sectionMonth', sectionId, month] as const,
+  staffAttendanceDay: (schoolId: string, date: string) => [schoolId, 'attendance', 'staffDay', date] as const,
+  staffAttendanceMonth: (schoolId: string, month: string) => [schoolId, 'attendance', 'staffMonth', month] as const,
+  staffAttendanceMember: (schoolId: string, staffId: string, month: string) => [schoolId, 'attendance', 'staffMember', staffId, month] as const,
+
   dashboard: (schoolId: string, params?: unknown) => [schoolId, 'dashboard', params ?? {}] as const,
   search: (schoolId: string, q: string) => [schoolId, 'search', q] as const,
   auditEvents: (schoolId: string, params?: Params) => [schoolId, 'audit', 'events', params ?? {}] as const,

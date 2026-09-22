@@ -34,11 +34,11 @@ Nothing in the services makes the Provider a fiduciary of the School's data.
 
 | Item | Detail |
 |---|---|
-| Subject matter | Running the School's pupil, staff, timetable and fee records in the Provider's software |
+| Subject matter | Running the School's pupil, staff, timetable, fee and attendance records in the Provider's software |
 | Duration | The term of the services agreement, plus the deletion window in clause 10 |
 | Nature and purpose | Storing, organising, displaying and deleting school records so School staff can do their jobs. For fees that means keeping the School's own record of what each pupil is charged and what the office has received by hand. The Provider does not collect, hold, move or settle money, is not a payment service, and processes no card, UPI or bank credential |
 | Categories of data subject | Pupils (children), their parents and guardians, School staff, and any other person the School gives a login |
-| Categories of personal data | As set out in section 3 of the Provider's data protection assessment: pupil identifiers and register fields; sensitive pupil fields including date of birth, category, religion, an encrypted Aadhaar number, the APAAR identifier, a photograph and free-text medical notes; guardian contact, office address, income and encrypted PAN and Aadhaar numbers; staff salary, identifier fragments, bank account fragment and a photograph; fee records: what each pupil is charged, the optional fees they take, the category of any concession, and every receipt, refund and adjustment with its amount, date, mode, the cheque, UPI or bank reference and the payer's name where the office wrote one; and login credentials |
+| Categories of personal data | As set out in section 3 of the Provider's data protection assessment: pupil identifiers and register fields; sensitive pupil fields including date of birth, category, religion, an encrypted Aadhaar number, the APAAR identifier, a photograph and free-text medical notes; guardian contact, office address, income and encrypted PAN and Aadhaar numbers; staff salary, identifier fragments, bank account fragment and a photograph; fee records: what each pupil is charged, the optional fees they take, the category of any concession, and every receipt, refund and adjustment with its amount, date, mode, the cheque, UPI or bank reference and the payer's name where the office wrote one; attendance: one mark per school day for each pupil and each staff member, who recorded it and any correction; and login credentials |
 
 The Provider does not sell personal data, does not use it to train any model, and does not use it
 for its own purposes.

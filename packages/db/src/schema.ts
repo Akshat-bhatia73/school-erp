@@ -1075,6 +1075,75 @@ export const feeReceiptLines = pgTable(
   ],
 )
 
+/**
+ * Task 20 attendance tables. Every row is an event: the current mark for a
+ * pupil or a staff member on a date is the row with the highest revision, a
+ * later save or a correction is a new row pointing at the one it supersedes,
+ * and a trigger refuses every edit and delete.
+ */
+export const attendanceEntries = pgTable(
+  'attendance_entries',
+  {
+    id: id(),
+    schoolId: tenant(),
+    studentId: uuid('student_id').notNull(),
+    sectionId: uuid('section_id').notNull(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    date: date('date').notNull(),
+    /** present, absent, late, leave or half_day. */
+    mark: text('mark').notNull(),
+    /** 1 for the first mark on a date, then one more per superseding row. */
+    revision: integer('revision').notNull(),
+    supersedesEntryId: uuid('supersedes_entry_id'),
+    /** 'marking' by whoever marks the register, 'correction' by the office with a reason. */
+    kind: text('kind').notNull(),
+    recordedByMembershipId: uuid('recorded_by_membership_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique('attendance_entries_school_id_id_key').on(t.schoolId, t.id),
+    unique('attendance_entries_school_id_student_id_date_revision_key').on(
+      t.schoolId,
+      t.studentId,
+      t.date,
+      t.revision,
+    ),
+    index('attendance_entries_section_date_idx').on(t.schoolId, t.sectionId, t.date),
+    index('attendance_entries_student_date_idx').on(t.schoolId, t.studentId, t.date),
+  ],
+)
+
+export const staffAttendanceEntries = pgTable(
+  'staff_attendance_entries',
+  {
+    id: id(),
+    schoolId: tenant(),
+    staffId: uuid('staff_id').notNull(),
+    date: date('date').notNull(),
+    mark: text('mark').notNull(),
+    revision: integer('revision').notNull(),
+    supersedesEntryId: uuid('supersedes_entry_id'),
+    kind: text('kind').notNull(),
+    recordedByMembershipId: uuid('recorded_by_membership_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique('staff_attendance_entries_school_id_id_key').on(t.schoolId, t.id),
+    unique('staff_attendance_entries_school_id_staff_id_date_revision_key').on(
+      t.schoolId,
+      t.staffId,
+      t.date,
+      t.revision,
+    ),
+    index('staff_attendance_entries_date_idx').on(t.schoolId, t.date),
+    index('staff_attendance_entries_staff_date_idx').on(t.schoolId, t.staffId, t.date),
+  ],
+)
+
 export const schoolTables = [
   schoolMemberships,
   roles,
@@ -1116,4 +1185,6 @@ export const schoolTables = [
   feeConcessions,
   feeReceipts,
   feeReceiptLines,
+  attendanceEntries,
+  staffAttendanceEntries,
 ] as const

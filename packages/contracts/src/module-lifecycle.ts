@@ -6,6 +6,7 @@ import {
 } from './responses.ts'
 import { DisplayName, Id, Phone, Reason, Timestamp, Version } from './common.ts'
 import { FeeStatement } from './module-fees.ts'
+import { AttendanceYearRecord } from './module-attendance.ts'
 
 /** The purposes a school may ask a guardian to consent to. */
 export const CONSENT_PURPOSES = [
@@ -144,6 +145,8 @@ export const SubjectAccessExport = z.strictObject({
   consents: z.array(ConsentRecord).max(100),
   /** One statement per academic year that holds fee data; needs `fees.read` on this pupil. */
   fees: z.array(FeeStatement).max(30).optional(),
+  /** One record per academic year with a mark; needs `attendance.read` on this pupil. */
+  attendance: z.array(AttendanceYearRecord).max(30).optional(),
   accessHistory: z.array(SubjectAccessEvent).max(200).optional(),
 })
 

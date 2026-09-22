@@ -25,7 +25,22 @@ export {
   lockMembershipForAccessChange,
 } from './versioning.ts'
 export type { LockedMembership } from './versioning.ts'
-export { createReadPlan, feeScopedTable, planPredicate, scopedGet, scopedList, scopedTableFor } from './scope.ts'
-export type { FeeTableKind, PageRequest, ScopedTable } from './scope.ts'
+export {
+  attendanceScopedTable,
+  createReadPlan,
+  feeScopedTable,
+  planPredicate,
+  scopedGet,
+  scopedList,
+  scopedTableFor,
+  staffAttendanceScopedTable,
+} from './scope.ts'
+export type {
+  AttendanceTableKind,
+  FeeTableKind,
+  PageRequest,
+  ScopedTable,
+  StaffAttendanceTableKind,
+} from './scope.ts'
 export { createAuthorizationService } from './service.ts'
 export type { AuthorizationServiceOptions, SchoolAuthorizationService } from './service.ts'

@@ -261,11 +261,15 @@ async function removePreviousSchool(client: pg.PoolClient): Promise<void> {
   // a developer machine, may switch that off to rebuild its own school.
   await client.query('ALTER TABLE fee_receipts DISABLE TRIGGER fee_receipts_no_change')
   await client.query('ALTER TABLE fee_receipt_lines DISABLE TRIGGER fee_receipt_lines_no_change')
+  // Attendance is append-only the same way.
+  await client.query('ALTER TABLE attendance_entries DISABLE TRIGGER attendance_entries_no_change')
+  await client.query('ALTER TABLE staff_attendance_entries DISABLE TRIGGER staff_attendance_entries_no_change')
   // Consent history is append-only in the same way, and it points at the
   // memberships and pupils removed below.
   await client.query('ALTER TABLE guardian_consents DISABLE TRIGGER guardian_consents_no_update')
   const tables = [
     'guardian_consents', 'audit_event_notes',
+    'attendance_entries', 'staff_attendance_entries',
     'fee_receipt_lines', 'fee_receipts', 'fee_concessions', 'fee_student_heads',
     'fee_structures', 'fee_heads',
     'export_jobs', 'student_import_previews',
@@ -284,6 +288,8 @@ async function removePreviousSchool(client: pg.PoolClient): Promise<void> {
   await client.query('ALTER TABLE audit_events ENABLE TRIGGER audit_no_update')
   await client.query('ALTER TABLE fee_receipts ENABLE TRIGGER fee_receipts_no_change')
   await client.query('ALTER TABLE fee_receipt_lines ENABLE TRIGGER fee_receipt_lines_no_change')
+  await client.query('ALTER TABLE attendance_entries ENABLE TRIGGER attendance_entries_no_change')
+  await client.query('ALTER TABLE staff_attendance_entries ENABLE TRIGGER staff_attendance_entries_no_change')
   await client.query('ALTER TABLE guardian_consents ENABLE TRIGGER guardian_consents_no_update')
   await client.query('DELETE FROM schools WHERE id = $1', [schoolId])
 
@@ -1068,6 +1074,8 @@ async function main(): Promise<void> {
     })
 
     const teacherLogins: StaffSeed[] = activeTeachers.slice(0, 5)
+    // Which membership marks a class register in the attendance seed below.
+    const teacherMembershipOf = new Map<string, string>()
     const ownerMembershipId = trustee.membershipId
     const approveAccess = async (
       guardianId: string,
@@ -1104,6 +1112,7 @@ async function main(): Promise<void> {
         alsoParent ? ['teacher', 'parent'] : ['teacher'],
       )
       await linkStaff(created.membershipId, member.id)
+      teacherMembershipOf.set(member.id, created.membershipId)
       let linkedTo = `staff ${member.code}`
       if (alsoParent) {
         // The child's first guardian is this teacher: one person, one record.
@@ -1609,6 +1618,120 @@ async function main(): Promise<void> {
     await client.query(
       `INSERT INTO number_sequences (school_id, kind, period, next_value) VALUES ($1, 'receipt', $2, $3)`,
       [schoolId, yearNow.id, receiptCounter + 1],
+    )
+
+    // ------------------------------------------------------------ attendance
+    // Four weeks of marked registers for every section up to yesterday, about
+    // half the sections marked today (never Nursery A, so its class teacher
+    // has a register to mark), a few office corrections, one pupil absent on
+    // the last three school days, a staff register for the same weeks, and a
+    // teacher whose assignment to a section ended last month.
+    const lastMonthEnd = `${shiftDays(`${runDate.slice(0, 7)}-01`, -1)}`
+    const leftLastMonth = teacherLogins[2] as StaffSeed
+    const class1A = findSection(yearNow.id, 4, 'A') as SectionSeed
+    await client.query(
+      `UPDATE teaching_assignments SET effective_to = $4::date
+        WHERE school_id = $1 AND staff_id = $2 AND section_id = $3 AND academic_year_id = $5`,
+      [schoolId, leftLastMonth.id, class1A.id, lastMonthEnd, yearNow.id],
+    )
+
+    const enrolled = await client.query<{ student_id: string; section_id: string; joined_on: string; left_on: string | null }>(
+      `SELECT student_id, section_id, to_char(joined_on, 'YYYY-MM-DD') AS joined_on,
+              to_char(left_on, 'YYYY-MM-DD') AS left_on
+         FROM enrollments WHERE school_id = $1 AND academic_year_id = $2`,
+      [schoolId, yearNow.id],
+    )
+    const rosterOn = (sectionId: string, date: string): string[] =>
+      enrolled.rows
+        .filter((row) => row.section_id === sectionId && row.joined_on <= date && (row.left_on === null || row.left_on >= date))
+        .map((row) => row.student_id)
+    const isSchoolDay = (date: string): boolean =>
+      date >= yearNow.start && date <= yearNow.end && weekdayOf(date) !== 0 && !onHoliday(date)
+    const markedDays: string[] = []
+    for (let back = 28; back >= 0; back -= 1) {
+      const date = shiftDays(runDate, -back)
+      if (isSchoolDay(date)) markedDays.push(date)
+    }
+    const pastDays = markedDays.filter((date) => date < runDate)
+    const todayIsSchoolDay = markedDays.includes(runDate)
+    const streakSection = sectionsNow[13] as SectionSeed
+    const streakDays = markedDays.slice(-3)
+    const streakPupil = rosterOn(streakSection.id, runDate)[2] as string
+    const markFor = (): string => {
+      const roll = random()
+      if (roll < 0.92) return 'present'
+      if (roll < 0.95) return 'absent'
+      if (roll < 0.97) return 'late'
+      if (roll < 0.99) return 'leave'
+      return 'half_day'
+    }
+    const principalMembership = principal.membershipId
+    const officeMembership = (adminLogins[0] as { membershipId: string }).membershipId
+    interface MarkRow { id: string; studentId: string; sectionId: string; date: string; mark: string; by: string }
+    const marks: MarkRow[] = []
+    for (const [index, section] of sectionsNow.entries()) {
+      const teacher = classTeacherOf.get(`${section.grade.sortOrder}-${section.name}`)
+      const by = (teacher && teacherMembershipOf.get(teacher.id)) ?? principalMembership
+      const days = index === 0 || index % 2 === 0 ? pastDays : markedDays
+      for (const date of days) {
+        for (const studentId of rosterOn(section.id, date)) {
+          const streak = studentId === streakPupil && streakDays.includes(date)
+          marks.push({ id: randomUUID(), studentId, sectionId: section.id, date, mark: streak ? 'absent' : markFor(), by })
+        }
+      }
+    }
+    for (let start = 0; start < marks.length; start += 500) {
+      const chunk = marks.slice(start, start + 500)
+      const values: unknown[] = []
+      const rows = chunk.map((row) => {
+        values.push(row.id, schoolId, row.studentId, row.sectionId, yearNow.id, row.date, row.mark, row.by)
+        const base = values.length - 8
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}::date, $${base + 7}, 1, NULL, 'marking', $${base + 8})`
+      })
+      await client.query(
+        `INSERT INTO attendance_entries (id, school_id, student_id, section_id, academic_year_id, date, mark,
+                                         revision, supersedes_entry_id, kind, recorded_by_membership_id)
+         VALUES ${rows.join(', ')}`,
+        values,
+      )
+    }
+    // Five office corrections: an absence that turned out to be leave.
+    const corrected = marks.filter((row) => row.mark === 'absent' && row.date < runDate && row.studentId !== streakPupil).slice(0, 5)
+    for (const row of corrected) {
+      await client.query(
+        `INSERT INTO attendance_entries (id, school_id, student_id, section_id, academic_year_id, date, mark,
+                                         revision, supersedes_entry_id, kind, recorded_by_membership_id)
+         VALUES ($1, $2, $3, $4, $5, $6::date, 'leave', 2, $7, 'correction', $8)`,
+        [randomUUID(), schoolId, row.studentId, row.sectionId, yearNow.id, row.date, row.id, officeMembership],
+      )
+    }
+    // The staff register, marked by the office up to yesterday; today waits.
+    const staffMarks: { staffId: string; date: string; mark: string }[] = []
+    for (const date of pastDays) {
+      for (const member of staffList) {
+        if (member.status === 'resigned' || member.status === 'retired' || member.joiningDate > date) continue
+        staffMarks.push({ staffId: member.id, date, mark: member.status === 'on_leave' ? 'leave' : markFor() })
+      }
+    }
+    for (let start = 0; start < staffMarks.length; start += 500) {
+      const chunk = staffMarks.slice(start, start + 500)
+      const values: unknown[] = []
+      const rows = chunk.map((row) => {
+        values.push(randomUUID(), schoolId, row.staffId, row.date, row.mark, officeMembership)
+        const base = values.length - 6
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}::date, $${base + 5}, 1, NULL, 'marking', $${base + 6})`
+      })
+      await client.query(
+        `INSERT INTO staff_attendance_entries (id, school_id, staff_id, date, mark, revision, supersedes_entry_id, kind, recorded_by_membership_id)
+         VALUES ${rows.join(', ')}`,
+        values,
+      )
+    }
+    console.info(
+      `Attendance: ${marks.length} marks over ${markedDays.length} school days` +
+        `${todayIsSchoolDay ? ', half the sections marked today' : ' (today is not a school day)'}, ` +
+        `${corrected.length} corrections, ${staffMarks.length} staff marks; ` +
+        `${leftLastMonth.firstName} ${leftLastMonth.lastName} left ${class1A.grade.name} ${class1A.name} on ${lastMonthEnd}.`,
     )
 
     await client.query('COMMIT')

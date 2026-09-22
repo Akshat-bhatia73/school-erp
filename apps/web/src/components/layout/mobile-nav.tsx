@@ -1,5 +1,5 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { CalendarClock, GraduationCap, IndianRupee, LayoutDashboard, Menu, Search, Users } from 'lucide-react'
+import { CalendarClock, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, Menu, Search, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
 import { audienceFor, type PermissionKey } from '@/lib/permissions'
@@ -38,7 +38,8 @@ export function MobileTopBar({ onOpenNav, onOpenQuickActions }: { onOpenNav: () 
   )
 }
 
-interface Tab { label: string; to: string; icon: ReactNode; permission?: PermissionKey; exact?: boolean }
+/** `permissions` means any one of them is enough; `permission` stays the single-key form. */
+interface Tab { label: string; to: string; icon: ReactNode; permission?: PermissionKey; permissions?: PermissionKey[]; exact?: boolean }
 
 const TABS: Tab[] = [
   { label: 'Home', to: '/dashboard', icon: <LayoutDashboard />, exact: true },
@@ -46,6 +47,7 @@ const TABS: Tab[] = [
   { label: 'Staff', to: '/staff', icon: <Users />, permission: 'staff.read_directory' },
   { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
   { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
+  { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read'] },
 ]
 
 /**
@@ -57,7 +59,7 @@ export function MobileTabBar() {
   const { roleKeys, hasPermission } = useSchoolContext()
   const isParent = audienceFor(roleKeys) === 'parent'
   const path = useRouterState({ select: (s) => s.location.pathname })
-  const tabs = TABS.filter((t) => !t.permission || hasPermission(t.permission))
+  const tabs = TABS.filter((t) => (!t.permission || hasPermission(t.permission)) && (!t.permissions || t.permissions.some((key) => hasPermission(key))))
     .map((t) => (t.to === '/dashboard' && isParent ? { ...t, label: 'My children' } : t))
   if (tabs.length === 0) return null
   return (
