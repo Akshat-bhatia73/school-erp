@@ -3,6 +3,7 @@ import {
   allows,
   assignableRolesFor,
   audienceFor,
+  audiencesFor,
   canManageTarget,
   describePermission,
   diffRoleChange,
@@ -107,10 +108,19 @@ describe('audienceFor', () => {
     expect(audienceFor(['admin'])).toBe('office')
   })
 
-  it('gives the highest responsibility the view', () => {
+  it('falls through office, accountant, teacher, parent', () => {
     expect(audienceFor(['parent', 'teacher'])).toBe('teacher')
     expect(audienceFor(['teacher', 'admin'])).toBe('office')
-    expect(audienceFor(['accountant', 'parent'])).toBe('parent')
+    expect(audienceFor(['accountant', 'parent'])).toBe('accountant')
+    expect(audienceFor(['parent', 'accountant', 'teacher'])).toBe('accountant')
+  })
+
+  it('lists every view the roles earn, in the same order', () => {
+    expect(audiencesFor(['parent', 'teacher'])).toEqual(['teacher', 'parent'])
+    expect(audiencesFor(['accountant', 'parent'])).toEqual(['accountant', 'parent'])
+    expect(audiencesFor(['owner', 'teacher'])).toEqual(['office', 'teacher'])
+    expect(audiencesFor(['principal'])).toEqual(['office'])
+    expect(audiencesFor(['student'])).toEqual([])
   })
 
   it('has nothing to show a role with no dashboard', () => {

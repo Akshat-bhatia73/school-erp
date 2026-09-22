@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { writeDashboardView } from '@/lib/dashboard-view'
 import { renderWithSession } from '@/test/session'
 
 vi.mock('@tanstack/react-router', async (importOriginal) => {
@@ -41,6 +42,7 @@ Element.prototype.scrollIntoView = vi.fn()
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.localStorage.clear()
   dashboardGet.mockResolvedValue({ audience: 'office', activeStudents: 16, staffCount: 29 })
   academicYears.mockResolvedValue([{ id: 'year-1', schoolId: SCHOOL, name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', status: 'current', version: 1 }])
   sections.mockResolvedValue([])
@@ -94,6 +96,49 @@ describe('Sidebar', () => {
     expect(screen.getByText('My children')).toBeInTheDocument()
     expect(screen.queryByText('Quick actions')).not.toBeInTheDocument()
     expect(screen.getAllByText('Saraswati Vidya Mandir').length).toBeGreaterThan(0)
+  })
+
+  it('shapes the nav by the chosen view, not the highest role', async () => {
+    writeDashboardView('user-1', 'parent')
+    const { Sidebar } = await import('./sidebar')
+    renderWithSession(<Sidebar onOpenQuickActions={() => {}} />, {
+      roleKeys: ['teacher', 'parent'],
+      capabilities: ['students.read_basic', 'timetable.read'],
+    })
+
+    expect(screen.getByText('My children')).toBeInTheDocument()
+    expect(screen.queryByText('Quick actions')).not.toBeInTheDocument()
+    // Rights are the union whatever the view: the student list is still there.
+    expect(screen.getByText('Students')).toBeInTheDocument()
+  })
+})
+
+describe('the Viewing as switcher', () => {
+  it('is absent for a membership that earns one home', async () => {
+    const { AccountMenu } = await import('@/components/auth/account-menu')
+    renderWithSession(<AccountMenu />, { roleKeys: ['teacher'], capabilities: [] })
+
+    await userEvent.click(screen.getByRole('button', { name: /Account menu/ }))
+    expect(await screen.findByText('Sign out')).toBeInTheDocument()
+    expect(screen.queryByText('Viewing as')).not.toBeInTheDocument()
+  })
+
+  it('lists the homes the roles earn, ticks the current one and remembers a choice', async () => {
+    const { AccountMenu } = await import('@/components/auth/account-menu')
+    const { queryClient } = renderWithSession(<AccountMenu />, { roleKeys: ['teacher', 'parent'], capabilities: [] })
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+
+    await userEvent.click(screen.getByRole('button', { name: /Account menu/ }))
+    expect(await screen.findByText('Viewing as')).toBeInTheDocument()
+    const teacher = screen.getByRole('menuitemradio', { name: 'Teacher' })
+    const parent = screen.getByRole('menuitemradio', { name: 'Parent' })
+    expect(teacher).toHaveAttribute('aria-checked', 'true')
+    expect(parent).toHaveAttribute('aria-checked', 'false')
+    expect(screen.queryByRole('menuitemradio', { name: 'Office' })).not.toBeInTheDocument()
+
+    await userEvent.click(parent)
+    expect(window.localStorage.getItem('erp.dashboardView.user-1')).toBe('parent')
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: [SCHOOL, 'dashboard'] })
   })
 })
 

@@ -12,6 +12,7 @@ import { validate, type FieldErrors } from '@/components/setup/field'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { needsSecondFactor, normaliseIndianPhone, sendPhoneOtp, signInWithEmail } from '@/lib/auth-client'
+import { rememberLoginSeed, type LoginSeed } from '@/lib/dashboard-view'
 import { sanitiseReturnTo } from '@/lib/return-to'
 import { announceSignIn, useSession } from '@/lib/session'
 
@@ -60,6 +61,7 @@ export function LoginScreen({ returnTo, audience }: { returnTo: string; audience
         <TabsContent value="administration" className="mt-4">
           <EmailPanel
             returnTo={returnTo}
+            seed="staff"
             hint="For owners, principals, administrators and accountants. A second step with your authenticator app follows."
           />
         </TabsContent>
@@ -67,7 +69,7 @@ export function LoginScreen({ returnTo, audience }: { returnTo: string; audience
           <TeacherPanel returnTo={returnTo} />
         </TabsContent>
         <TabsContent value="parent" className="mt-4">
-          <PhonePanel returnTo={returnTo} hint="We send a 6 digit code to the mobile number your school has on record." />
+          <PhonePanel returnTo={returnTo} seed="parent" hint="We send a 6 digit code to the mobile number your school has on record." />
         </TabsContent>
         <TabsContent value="student" className="mt-4">
           <StudentPanel />
@@ -84,6 +86,7 @@ function TeacherPanel({ returnTo }: { returnTo: string }) {
     return (
       <PhonePanel
         returnTo={returnTo}
+        seed="staff"
         hint="We send a 6 digit code to the mobile number your school has on record."
         switchLink={<button type="button" className={SECONDARY_LINK} onClick={() => setMethod('email')}>Use email instead</button>}
       />
@@ -92,13 +95,18 @@ function TeacherPanel({ returnTo }: { returnTo: string }) {
   return (
     <EmailPanel
       returnTo={returnTo}
+      seed="staff"
       hint="Use the email address your school has on record for you."
       switchLink={<button type="button" className={SECONDARY_LINK} onClick={() => setMethod('phone')}>Use a phone code instead</button>}
     />
   )
 }
 
-function EmailPanel({ returnTo, hint, switchLink }: { returnTo: string; hint: string; switchLink?: ReactNode }) {
+/**
+ * `seed` is what the tab says about the person: it is remembered once the sign-in is accepted, so
+ * the app can land them on the parent home or their highest staff view. It never changes rights.
+ */
+function EmailPanel({ returnTo, seed, hint, switchLink }: { returnTo: string; seed: LoginSeed; hint: string; switchLink?: ReactNode }) {
   const navigate = useNavigate()
   const session = useSession()
   const [email, setEmail] = useState('')
@@ -123,6 +131,8 @@ function EmailPanel({ returnTo, hint, switchLink }: { returnTo: string; hint: st
     setPending(true)
     try {
       const result = await signInWithEmail({ ...checked.data, sharedDevice })
+      // The password was accepted; the second step, if any, does not know which tab this was.
+      rememberLoginSeed(seed)
       if (needsSecondFactor(result)) {
         void navigate({ to: '/mfa/verify', search: { returnTo, sharedDevice: sharedDevice || undefined }, replace: true } as never)
         return
@@ -174,7 +184,7 @@ function EmailPanel({ returnTo, hint, switchLink }: { returnTo: string; hint: st
   )
 }
 
-function PhonePanel({ returnTo, hint, switchLink }: { returnTo: string; hint: string; switchLink?: ReactNode }) {
+function PhonePanel({ returnTo, seed, hint, switchLink }: { returnTo: string; seed: LoginSeed; hint: string; switchLink?: ReactNode }) {
   const navigate = useNavigate()
   const [phone, setPhone] = useState('')
   const [sharedDevice, setSharedDevice] = useState(false)
@@ -198,6 +208,8 @@ function PhonePanel({ returnTo, hint, switchLink }: { returnTo: string; hint: st
     setPending(true)
     try {
       await sendPhoneOtp(normalised)
+      // The code screen does not know which tab sent the person there, so the tab is noted here.
+      rememberLoginSeed(seed)
       void navigate({ to: '/verify-otp', search: { phone: normalised, returnTo, sharedDevice: sharedDevice || undefined } } as never)
     } catch (error) {
       const wait = throttleSeconds(error)

@@ -32,7 +32,7 @@ Owner or permission changed:
 - `students.list`, `students.count`, `students.search` and the search endpoint select no sensitive or medical column at all, rather than selecting them and dropping them in the projection.
 - `auditLogs.list` also carries the note attached to an event, joined under the same predicate and omitted once it has been redacted.
 - `dashboard.summary` has no `clerk` audience, because there is no `clerk` role key in this build; the office audience is owner, principal and admin.
-- `dashboard.summary` answers a whole home screen per audience rather than a couple of counts, and takes an optional `?date=YYYY-MM-DD` that moves the calendar without widening what is read. Every block sits behind the permission of the data it is made of, and a block the caller may not read is left out of the response instead of being sent as zero.
+- `dashboard.summary` answers a whole home screen per audience rather than a couple of counts, and takes an optional `?date=YYYY-MM-DD` that moves the calendar without widening what is read. A member with more than one role lands on the first home their roles earn (office, accountant, teacher, parent) and may ask for another of their own with `?audience=`; an audience the roles do not earn is `INVALID_REQUEST`. Every block sits behind the permission of the data it is made of, and a block the caller may not read is left out of the response instead of being sent as zero.
 
 ## Routes
 
@@ -145,7 +145,7 @@ Owner or permission changed:
 | `timetable.substitutions`, `timetable.absentTeacherPeriods` | `timetable.read` / school | `SubstitutionDay`, `AbsentTeacherPeriodList` | Task 5 |
 | `timetable.addSubstitution`, `timetable.removeSubstitution` | `timetable.manage_substitutions` / school | `Substitution`, `EmptySuccess` | Task 5 |
 | `timetable.markNotified` | `timetable.notify_substitutions` / school | `NotificationMarkResult` | Task 5 |
-| `dashboard.summary` | `dashboard.read` / matched audience scope; optional `?date=`, blocks omitted rather than zeroed | `DashboardByAudience` | Task 5, dashboard redesign |
+| `dashboard.summary` | `dashboard.read` / matched audience scope; optional `?date=` and `?audience=` (one of the caller's own homes, else `INVALID_REQUEST`), blocks omitted rather than zeroed | `DashboardByAudience` | Task 5, dashboard redesign, view switcher |
 
 ## Operations added after this inventory
 

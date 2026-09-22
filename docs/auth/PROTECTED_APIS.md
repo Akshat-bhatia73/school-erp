@@ -257,10 +257,17 @@ year still shows who was in each class. A pupil who left is not counted.
 ### What the dashboard answers
 
 One read builds the whole home screen, inside one tenant transaction. The audience comes from the
-caller's own roles through `audienceFor` (office = owner, principal, admin; then teacher, parent,
-accountant); the browser never asks for an audience and cannot pick one. `?date=` only moves the
-calendar the answer is about. It never widens what is read, and a date outside a `YYYY-MM-DD` shape
-or any other query parameter is `INVALID_REQUEST`.
+caller's own roles: `audiencesFor` lists every home the roles earn in the order office (owner,
+principal, admin), accountant, teacher, parent, and the first one is the default. A member who holds
+more than one role may ask for another of their own homes with `?audience=office|accountant|teacher|parent`;
+`resolveAudience` accepts it only when the roles earn it and the route answers `INVALID_REQUEST`
+before opening the transaction otherwise (a parent asking for `office`, a teacher asking for
+`parent`). The audience only picks which home is drawn: every block still sits behind its own
+permission and plan, so a teacher who is also a parent gets a parent home of their own children
+alone. `?date=` only moves the calendar the answer is about. Neither parameter widens what is read,
+and a date outside a `YYYY-MM-DD` shape, an audience outside the four, or any other query parameter
+is `INVALID_REQUEST`. The browser keeps the chosen view per user in its own storage (see
+`WEB_SCREENS.md`); it is not a session or database field.
 
 Blocks and the permission each one needs:
 

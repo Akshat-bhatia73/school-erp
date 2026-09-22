@@ -30,8 +30,10 @@ const FORBIDDEN_TEXT = [
   // The sandbox outbox hands out one-time codes in clear.
   '/api/dev/outbox',
   'DEV_SANDBOX_OUTBOX',
-  // The Phase 1 mock role switcher.
-  'Viewing as',
+  // The Phase 1 mock role switcher is gone; its store imports are still refused
+  // below. "Viewing as" is now the real dashboard view switcher in the account
+  // menu, which only picks between homes the server says the roles earn, so
+  // the phrase itself is no longer a sign of the mock.
   // A direct API address bypasses the same-origin /api rewrite.
   'localhost:3001',
   '127.0.0.1:3001',

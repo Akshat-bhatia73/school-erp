@@ -9,7 +9,10 @@
  * teacher see a colleague's periods or a cover in a class they do not teach,
  * can a parent with no approved link see anything of the school, and does any
  * audience's response carry a telephone number, an address, a date of birth or
- * the key of a stored file.
+ * the key of a stored file. Since the view switcher, it also asks whether a
+ * requested audience can ever widen the answer: a teacher who is also a parent
+ * gets a parent home of their own children alone, and a home their roles do
+ * not earn is refused.
  */
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
@@ -70,6 +73,8 @@ let parentOfMine: Client
 let lonelyParent: Client
 let accountant: Client
 let office: Client
+/** A teacher of `sectionMine` who is also the parent of a pupil there. */
+let teacherAndParent: Client
 let suspended: Client
 let suspendedMembershipId = ''
 
@@ -210,6 +215,15 @@ before(async () => {
   })
   parentOfMine = await signInMember(server, parentMember)
 
+  const dualMember = await createMember(schoolA, ['teacher', 'parent'], 'Security Teacher Parent')
+  await grantPortalAccess({
+    schoolId: schoolA,
+    membershipId: dualMember.membershipId,
+    studentId: myStudentId,
+    approvedBy: ownerA,
+  })
+  teacherAndParent = await signInMember(server, dualMember)
+
   const lonely = await createMember(schoolA, ['parent'], 'Security Lonely Parent')
   lonelyParent = await signInMember(server, lonely)
 
@@ -228,6 +242,7 @@ before(async () => {
     teacherMine.userId,
     teacherTheirs.userId,
     parentMember.userId,
+    dualMember.userId,
     lonely.userId,
     accountantMember.userId,
     officeMember.userId,
@@ -307,6 +322,35 @@ test('a parent with no approved child link never reaches the school at all', asy
   assert.ok(!raw.includes(myStudentId))
   assert.ok(!raw.includes(theirStudentId))
   assert.ok(!raw.includes(sectionMine))
+})
+
+test('a requested audience never widens: a teacher who is also a parent sees only their own child', async () => {
+  const byDefault = JSON.parse(await rawDashboard(teacherAndParent, schoolA, MONDAY)) as { audience: string }
+  assert.equal(byDefault.audience, 'teacher')
+  const response = await teacherAndParent.fetch(`/api/schools/${schoolA}/dashboard?date=${MONDAY}&audience=parent`)
+  assert.equal(response.status, 200)
+  const raw = await response.text()
+  const body = JSON.parse(raw) as { audience: string; children: { student: { id: string } }[] }
+  assert.equal(body.audience, 'parent')
+  assert.deepEqual(body.children.map((child) => child.student.id), [myStudentId])
+  assert.ok(!raw.includes(theirStudentId), 'the parent home of a teacher carries another family’s child')
+  assertNoForbiddenKeys(raw, 'teacher-as-parent')
+})
+
+test('a home the roles do not earn is refused, whoever asks', async () => {
+  for (const [client, audience] of [
+    [teacherAndParent, 'office'],
+    [teacherAndParent, 'accountant'],
+    [mine, 'parent'],
+    [parentOfMine, 'teacher'],
+    [parentOfMine, 'office'],
+    [accountant, 'office'],
+    [office, 'accountant'],
+  ] as const) {
+    const refused = await client.fetch(`/api/schools/${schoolA}/dashboard?date=${MONDAY}&audience=${audience}`)
+    assert.equal(refused.status, 400, audience)
+    assert.equal(await codeOf(refused), 'INVALID_REQUEST')
+  }
 })
 
 test('a parent never sees another family’s child', async () => {

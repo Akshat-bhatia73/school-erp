@@ -10,6 +10,14 @@ import { ConsentPurpose } from './module-lifecycle.ts'
 import { AuditEventSummary, EnrollmentSummary, NamedReference, StudentBasic } from './responses.ts'
 
 const Name = z.string().trim().min(1).max(160)
+
+/**
+ * The four homes, in the order the server picks one when a member holds more
+ * than one role and has not asked for a view: office, accountant, teacher,
+ * parent. A caller may ask for any audience their own roles earn and no other.
+ */
+export const DASHBOARD_AUDIENCES = ['office', 'accountant', 'teacher', 'parent'] as const
+export const DashboardAudienceKey = z.enum(DASHBOARD_AUDIENCES)
 const ClockTime = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
 
 /**
@@ -271,6 +279,7 @@ export const DashboardResponse = z.discriminatedUnion('audience', [
   AccountantDashboard,
 ])
 
+export type DashboardAudienceKey = z.infer<typeof DashboardAudienceKey>
 export type DashboardDay = z.infer<typeof DashboardDay>
 export type DashboardHoliday = z.infer<typeof DashboardHoliday>
 export type HolidayAhead = z.infer<typeof DashboardHoliday>

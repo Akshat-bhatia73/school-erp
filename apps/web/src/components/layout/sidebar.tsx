@@ -5,7 +5,8 @@ import type { ReactNode } from 'react'
 import { AccountMenu } from '@/components/auth/account-menu'
 import { SectionLabel } from '@/components/shared/page'
 import { api } from '@/lib/api'
-import { audienceFor, type PermissionKey } from '@/lib/permissions'
+import { useSchoolDashboardView } from '@/lib/dashboard-view'
+import type { PermissionKey } from '@/lib/permissions'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
 import { useAcademicYear } from '@/lib/use-academic-year'
@@ -41,8 +42,9 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
 }) {
   const drawer = variant === 'drawer'
   const collapsed = drawer ? false : !!collapsedProp
-  const { schoolId, school, roleKeys, hasPermission } = useSchoolContext()
-  const audience = audienceFor(roleKeys)
+  const { schoolId, school, hasPermission } = useSchoolContext()
+  // The view the person chose (or the first their roles earn) shapes the nav; rights do not change.
+  const { view: audience } = useSchoolDashboardView()
   const isParent = audience === 'parent'
   // Counts live under the module prefixes so the writes that change them refresh these badges too.
   const office = audience === 'office'
