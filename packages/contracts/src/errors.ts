@@ -74,6 +74,17 @@ export const ErrorReason = z.enum([
   'report_card_exams_changed',
   'report_card_nothing_to_publish',
   'report_card_pupil_not_on_roster',
+  'message_not_editable',
+  'message_not_sent',
+  'message_schedule_in_past',
+  'message_schedule_too_far',
+  'message_audience_empty',
+  'message_placeholder_unknown',
+  'message_attachment_too_large',
+  'message_attachment_type',
+  'message_too_many_attachments',
+  'message_template_archived',
+  'message_template_kind_mismatch',
 ])
 export type ErrorReason = z.infer<typeof ErrorReason>
 

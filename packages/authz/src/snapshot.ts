@@ -287,6 +287,7 @@ export async function loadRelationshipFactsFor(
     assignments,
     classTeacherSections,
     ownChildStudentIds: [...new Set(children.rows.map((row) => row.student_id))],
+    membershipId,
   }
 }
 
@@ -773,6 +774,68 @@ export async function loadResourceFacts(
         ...(found.section_id === null ? {} : { sectionIds: [found.section_id] }),
         ...(found.academic_year_id === null ? {} : { academicYearId: found.academic_year_id }),
         published: found.face === 'card',
+      })
+    }
+    case 'communication': {
+      // Messages are one resource type with several faces, looked for by id:
+      // a message, a recipient row (one person's copy and its delivery
+      // record), and the targets a message is proposed for: a section (the
+      // roster), a pupil (their family), and the school, a grade, a staff
+      // member or a template, which name no section and so are reached only
+      // at school scope. Ids are random uuids, so at most one face matches.
+      const row = await conn.client.query<{
+        face: string
+        student_id: string | null
+        section_id: string | null
+        academic_year_id: string | null
+        members: string[] | null
+      }>(
+        `SELECT 'message' AS face, m.student_id, m.section_id, m.academic_year_id,
+                array_remove(
+                  ARRAY[m.created_by_membership_id]
+                  || CASE WHEN m.status = 'sent' THEN ARRAY(
+                       SELECT r.membership_id FROM message_recipients r
+                        WHERE r.school_id = m.school_id AND r.message_id = m.id AND r.in_app)
+                     ELSE ARRAY[]::uuid[] END,
+                  NULL) AS members
+           FROM messages m WHERE m.school_id = $1 AND m.id = $2
+         UNION ALL
+         SELECT 'recipient', r.student_id, r.section_id, r.academic_year_id,
+                array_remove(ARRAY[r.sender_membership_id,
+                  CASE WHEN r.in_app AND m.status = 'sent' THEN r.membership_id END], NULL)
+           FROM message_recipients r
+           JOIN messages m ON m.school_id = r.school_id AND m.id = r.message_id
+          WHERE r.school_id = $1 AND r.id = $2
+         UNION ALL
+         SELECT 'roster', NULL::uuid, id, academic_year_id, NULL::uuid[] FROM sections WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT 'pupil', id, NULL::uuid, NULL::uuid, NULL::uuid[] FROM students WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT 'school', NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid[] FROM schools WHERE id = $1 AND id = $2
+         UNION ALL
+         SELECT 'grade', NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid[] FROM grades WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT 'staff', NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid[] FROM staff WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT 'template', NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid[]
+           FROM message_templates WHERE school_id = $1 AND id = $2
+         LIMIT 1`,
+        [schoolId, id],
+      )
+      const found = row.rows[0]
+      if (!found) return null
+      if (found.face === 'pupil' && found.student_id !== null) {
+        const sections = await currentSectionsOfStudent(conn, schoolId, found.student_id)
+        return facts(resource, { studentId: found.student_id, ...sections })
+      }
+      if (found.face === 'school' || found.face === 'grade' || found.face === 'staff' || found.face === 'template') {
+        return facts(resource, {})
+      }
+      return facts(resource, {
+        ...(found.student_id === null ? {} : { studentId: found.student_id }),
+        ...(found.section_id === null ? {} : { sectionIds: [found.section_id] }),
+        ...(found.academic_year_id === null ? {} : { academicYearId: found.academic_year_id }),
+        ...(found.members === null ? {} : { membershipIds: found.members }),
       })
     }
     case 'dashboard':

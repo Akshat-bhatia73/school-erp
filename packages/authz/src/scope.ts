@@ -19,6 +19,8 @@ import {
   grades,
   guardians,
   holidays,
+  messageRecipients,
+  messages,
   reportCardEntries,
   reportCardVersions,
   sections,
@@ -89,6 +91,12 @@ export interface ScopedTable {
    * reaches a row of these two types only where it holds.
    */
   readonly published?: SQL
+  /**
+   * Messages: a SQL boolean over the unaliased table that is true when the
+   * row belongs to this member, which is how the self scope reaches it (see
+   * COMMUNICATION_TABLES).
+   */
+  readonly addressedTo?: (membershipId: string) => SQL
 }
 
 /**
@@ -292,6 +300,58 @@ export function reportCardScopedTable(kind: ReportCardTableKind): ScopedTable {
   return REPORT_CARD_TABLES[kind]
 }
 
+/**
+ * The tables a `communication` plan can be laid over: a message and a
+ * recipient row (one person's copy and its delivery record). Both carry the
+ * section and year of a section message or a message about one pupil, so a
+ * teacher's assigned sections reach them; a message to the school, a grade or
+ * the staff names no section and is reached at school scope or by self.
+ *
+ * Self is by membership, for every kind of member. A message belongs to its
+ * author, and while it is sent to every member it shows for in the app; a
+ * recipient row to the message's author, and while the message is sent to
+ * the member it shows for. A withdrawn message leaves every inbox at once. No
+ * family scope reaches a message through the child it is about: a family
+ * reads what was addressed to them, so a guardian who has not agreed to
+ * messages reads nothing another guardian was sent.
+ */
+const COMMUNICATION_TABLES = {
+  message: {
+    table: messages,
+    schoolId: messages.schoolId,
+    id: messages.id,
+    studentId: messages.studentId,
+    sectionId: messages.sectionId,
+    academicYearId: messages.academicYearId,
+    addressedTo: (membershipId: string) =>
+      sql`(${messages.createdByMembershipId} = ${membershipId}::uuid OR (${messages.status} = 'sent' AND EXISTS (
+          SELECT 1 FROM message_recipients mr
+           WHERE mr.school_id = ${messages.schoolId} AND mr.message_id = ${messages.id}
+             AND mr.membership_id = ${membershipId}::uuid AND mr.in_app)))`,
+  },
+  recipient: {
+    table: messageRecipients,
+    schoolId: messageRecipients.schoolId,
+    id: messageRecipients.id,
+    studentId: messageRecipients.studentId,
+    sectionId: messageRecipients.sectionId,
+    academicYearId: messageRecipients.academicYearId,
+    addressedTo: (membershipId: string) =>
+      sql`(${messageRecipients.senderMembershipId} = ${membershipId}::uuid OR (
+          ${messageRecipients.membershipId} = ${membershipId}::uuid AND ${messageRecipients.inApp} AND EXISTS (
+          SELECT 1 FROM messages msg
+           WHERE msg.school_id = ${messageRecipients.schoolId} AND msg.id = ${messageRecipients.messageId}
+             AND msg.status = 'sent')))`,
+  },
+} as const satisfies Record<string, ScopedTable>
+
+export type CommunicationTableKind = keyof typeof COMMUNICATION_TABLES
+
+/** The descriptor of one communication table, for planPredicate with a `communication` plan. Over the unaliased table. */
+export function communicationScopedTable(kind: CommunicationTableKind): ScopedTable {
+  return COMMUNICATION_TABLES[kind]
+}
+
 const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
   student: { table: students, schoolId: students.schoolId, id: students.id },
   staff: { table: staff, schoolId: staff.schoolId, id: staff.id },
@@ -373,6 +433,9 @@ const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
   // faces come from examScopedTable and reportCardScopedTable.
   exam: EXAM_TABLES.mark,
   report_card: REPORT_CARD_TABLES.card,
+  // A bare communication plan lists messages; the recipient rows come from
+  // communicationScopedTable.
+  communication: COMMUNICATION_TABLES.message,
 }
 
 /** The table a plan of this resource type lists, or null when there is none. */
@@ -555,6 +618,13 @@ function assignedSectionsTerm(plan: AuthorizedReadPlan, table: ScopedTable, pair
       return table.studentId === undefined
         ? FALSE
         : enrollmentExists(table.studentId, table.schoolId, enrolledPairs)
+    case 'communication':
+      // A message and a recipient row carry the section and year of a
+      // section message or a message about one pupil; any other audience
+      // names no section and is never reached this way.
+      return table.sectionId === undefined || table.academicYearId === undefined
+        ? FALSE
+        : pairTerm(table.sectionId, table.academicYearId, pairs)
     case 'section':
       return table.academicYearId === undefined ? FALSE : pairTerm(table.id, table.academicYearId, pairs)
     case 'enrollment':
@@ -621,8 +691,14 @@ function assignedSubjectsTerm(
   return sql`(${table.sectionId}, ${table.academicYearId}, ${table.subjectId}) IN (${sql.join(tuples, sql`, `)})`
 }
 
-/** Rows whose staff column names the caller's own staff record. */
+/**
+ * Rows whose staff column names the caller's own staff record, or for
+ * messages the rows that belong to the caller's own membership.
+ */
 function selfTerm(plan: AuthorizedReadPlan, table: ScopedTable, selfStaffId: string | null): SQL {
+  if (plan.resourceType === 'communication') {
+    return table.addressedTo === undefined ? FALSE : table.addressedTo(plan.membershipId)
+  }
   if (selfStaffId === null) return FALSE
   if (plan.resourceType === 'staff') return sql`${table.id} = ${selfStaffId}::uuid`
   if (

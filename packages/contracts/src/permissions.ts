@@ -189,10 +189,15 @@ export const PERMISSION_CATALOGUE = {
   'exams.manage': active('exam', ['school'], 'Set the exam dates and re-check deadlines, the grade bands and the report card layout, and correct marks with a reason.', true),
   'exams.publish': active('exam', ['school'], 'Publish a section\'s results for one exam once its re-check deadline has passed.', true),
   'exams.export': active('exam', ['school', 'assigned_sections', 'assigned_subjects'], 'Export a section\'s marks register for one subject.', true, ['school']),
-  'communication.read': reserved('communication', ['school', 'assigned_sections', 'own_children', 'own_record'], 'Reserved for reading authorized school messages.'),
-  'communication.send': reserved('communication', ['school', 'assigned_sections'], 'Reserved for sending messages to an authorized audience.', true),
-  'communication.manage': reserved('communication', ['school'], 'Reserved for communication templates and administration.', true),
-  'communication.export': reserved('communication', ['school'], 'Reserved for exporting authorized communication records.', true),
+  // Messages (Task 22). `self` is the caller's own inbox and the messages
+  // they wrote, for any kind of member; a family reads what was addressed to
+  // them, so consent decided per guardian is never bypassed through a child
+  // (own_children and own_record are granted to nobody). A teacher sends to
+  // their own sections with one factor; the office sends anywhere.
+  'communication.read': active('communication', ['school', 'assigned_sections', 'own_children', 'own_record', 'self'], 'Read messages addressed to oneself, messages one wrote, and within the granted scope the school\'s messages and their delivery record.'),
+  'communication.send': active('communication', ['school', 'assigned_sections'], 'Write, schedule, send and withdraw messages to an authorized audience.', true, ['school']),
+  'communication.manage': active('communication', ['school'], 'Set the automatic messages and the school\'s templates, and withdraw or change anybody\'s message.', true),
+  'communication.export': active('communication', ['school'], 'Export the delivery record of a message.', true),
   'report_cards.read': active('report_card', ['school', 'assigned_sections', 'assigned_subjects', 'own_children', 'own_record'], 'Read report cards within the granted scope; a parent reads published cards only.'),
   'report_cards.manage': active('report_card', ['school', 'assigned_sections', 'assigned_subjects'], 'Enter a class\'s co-scholastic grades and remarks for a term.', true, ['school']),
   'report_cards.publish': active('report_card', ['school'], 'Publish report cards, and publish them again after a change.', true),

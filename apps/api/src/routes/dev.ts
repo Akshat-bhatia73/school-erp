@@ -41,6 +41,7 @@ export function registerDevRoutes(
         to: message.to,
         purpose: message.purpose,
         secret: message.secret,
+        ...(message.subject === undefined ? {} : { subject: message.subject }),
         createdAt: message.sentAt,
       })),
   }))

@@ -29,6 +29,8 @@ import { Route as AppExamsExamIdRouteImport } from './routes/_app/exams/$examId'
 import { Route as AppFeesIndexRouteImport } from './routes/_app/fees/index'
 import { Route as AppFeesCollectionsRouteImport } from './routes/_app/fees/collections'
 import { Route as AppFeesSetupRouteImport } from './routes/_app/fees/setup'
+import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages/index'
+import { Route as AppMessagesNewRouteImport } from './routes/_app/messages/new'
 import { Route as AppSettingsAuditLogRouteImport } from './routes/_app/settings/audit-log'
 import { Route as AppSettingsRolesRouteImport } from './routes/_app/settings/roles'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
@@ -60,6 +62,10 @@ import { Route as AppExamsSettingsIndexRouteImport } from './routes/_app/exams/s
 import { Route as AppExamsStudentsStudentIdRouteImport } from './routes/_app/exams/students/$studentId'
 import { Route as AppFeesReceiptsReceiptIdRouteImport } from './routes/_app/fees/receipts/$receiptId'
 import { Route as AppFeesStudentsStudentIdRouteImport } from './routes/_app/fees/students/$studentId'
+import { Route as AppMessagesMessageIdIndexRouteImport } from './routes/_app/messages/$messageId/index'
+import { Route as AppMessagesMessageIdEditRouteImport } from './routes/_app/messages/$messageId/edit'
+import { Route as AppMessagesSettingsIndexRouteImport } from './routes/_app/messages/settings/index'
+import { Route as AppMessagesTemplatesIndexRouteImport } from './routes/_app/messages/templates/index'
 import { Route as AppAttendanceSectionsSectionIdIndexRouteImport } from './routes/_app/attendance/sections/$sectionId/index'
 import { Route as AppAttendanceSectionsSectionIdMonthRouteImport } from './routes/_app/attendance/sections/$sectionId/month'
 import { Route as AppExamsReportCardsSectionsSectionIdRouteImport } from './routes/_app/exams/report-cards/sections/$sectionId'
@@ -161,6 +167,16 @@ const AppFeesCollectionsRoute = AppFeesCollectionsRouteImport.update({
 const AppFeesSetupRoute = AppFeesSetupRouteImport.update({
   id: '/fees/setup',
   path: '/fees/setup',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMessagesIndexRoute = AppMessagesIndexRouteImport.update({
+  id: '/messages/',
+  path: '/messages/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMessagesNewRoute = AppMessagesNewRouteImport.update({
+  id: '/messages/new',
+  path: '/messages/new',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsAuditLogRoute = AppSettingsAuditLogRouteImport.update({
@@ -326,6 +342,30 @@ const AppFeesStudentsStudentIdRoute =
     path: '/fees/students/$studentId',
     getParentRoute: () => AppRoute,
   } as any)
+const AppMessagesMessageIdIndexRoute =
+  AppMessagesMessageIdIndexRouteImport.update({
+    id: '/messages/$messageId/',
+    path: '/messages/$messageId/',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppMessagesMessageIdEditRoute =
+  AppMessagesMessageIdEditRouteImport.update({
+    id: '/messages/$messageId/edit',
+    path: '/messages/$messageId/edit',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppMessagesSettingsIndexRoute =
+  AppMessagesSettingsIndexRouteImport.update({
+    id: '/messages/settings/',
+    path: '/messages/settings/',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppMessagesTemplatesIndexRoute =
+  AppMessagesTemplatesIndexRouteImport.update({
+    id: '/messages/templates/',
+    path: '/messages/templates/',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppAttendanceSectionsSectionIdIndexRoute =
   AppAttendanceSectionsSectionIdIndexRouteImport.update({
     id: '/attendance/sections/$sectionId/',
@@ -362,6 +402,7 @@ export interface FileRoutesByFullPath {
   '/exams/$examId': typeof AppExamsExamIdRoute
   '/fees/collections': typeof AppFeesCollectionsRoute
   '/fees/setup': typeof AppFeesSetupRoute
+  '/messages/new': typeof AppMessagesNewRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/settings/roles': typeof AppSettingsRolesRoute
   '/settings/users': typeof AppSettingsUsersRoute
@@ -382,6 +423,7 @@ export interface FileRoutesByFullPath {
   '/attendance/': typeof AppAttendanceIndexRoute
   '/exams/': typeof AppExamsIndexRoute
   '/fees/': typeof AppFeesIndexRoute
+  '/messages/': typeof AppMessagesIndexRoute
   '/staff/': typeof AppStaffIndexRoute
   '/students/': typeof AppStudentsIndexRoute
   '/timetable/': typeof AppTimetableIndexRoute
@@ -393,9 +435,13 @@ export interface FileRoutesByFullPath {
   '/exams/students/$studentId': typeof AppExamsStudentsStudentIdRoute
   '/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
   '/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
+  '/messages/$messageId/edit': typeof AppMessagesMessageIdEditRoute
   '/attendance/staff/': typeof AppAttendanceStaffIndexRoute
   '/exams/report-cards/': typeof AppExamsReportCardsIndexRoute
   '/exams/settings/': typeof AppExamsSettingsIndexRoute
+  '/messages/$messageId/': typeof AppMessagesMessageIdIndexRoute
+  '/messages/settings/': typeof AppMessagesSettingsIndexRoute
+  '/messages/templates/': typeof AppMessagesTemplatesIndexRoute
   '/attendance/sections/$sectionId/month': typeof AppAttendanceSectionsSectionIdMonthRoute
   '/exams/report-cards/sections/$sectionId': typeof AppExamsReportCardsSectionsSectionIdRoute
   '/attendance/sections/$sectionId/': typeof AppAttendanceSectionsSectionIdIndexRoute
@@ -417,6 +463,7 @@ export interface FileRoutesByTo {
   '/exams/$examId': typeof AppExamsExamIdRoute
   '/fees/collections': typeof AppFeesCollectionsRoute
   '/fees/setup': typeof AppFeesSetupRoute
+  '/messages/new': typeof AppMessagesNewRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/settings/roles': typeof AppSettingsRolesRoute
   '/settings/users': typeof AppSettingsUsersRoute
@@ -437,6 +484,7 @@ export interface FileRoutesByTo {
   '/attendance': typeof AppAttendanceIndexRoute
   '/exams': typeof AppExamsIndexRoute
   '/fees': typeof AppFeesIndexRoute
+  '/messages': typeof AppMessagesIndexRoute
   '/staff': typeof AppStaffIndexRoute
   '/students': typeof AppStudentsIndexRoute
   '/timetable': typeof AppTimetableIndexRoute
@@ -448,9 +496,13 @@ export interface FileRoutesByTo {
   '/exams/students/$studentId': typeof AppExamsStudentsStudentIdRoute
   '/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
   '/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
+  '/messages/$messageId/edit': typeof AppMessagesMessageIdEditRoute
   '/attendance/staff': typeof AppAttendanceStaffIndexRoute
   '/exams/report-cards': typeof AppExamsReportCardsIndexRoute
   '/exams/settings': typeof AppExamsSettingsIndexRoute
+  '/messages/$messageId': typeof AppMessagesMessageIdIndexRoute
+  '/messages/settings': typeof AppMessagesSettingsIndexRoute
+  '/messages/templates': typeof AppMessagesTemplatesIndexRoute
   '/attendance/sections/$sectionId/month': typeof AppAttendanceSectionsSectionIdMonthRoute
   '/exams/report-cards/sections/$sectionId': typeof AppExamsReportCardsSectionsSectionIdRoute
   '/attendance/sections/$sectionId': typeof AppAttendanceSectionsSectionIdIndexRoute
@@ -474,6 +526,7 @@ export interface FileRoutesById {
   '/_app/exams/$examId': typeof AppExamsExamIdRoute
   '/_app/fees/collections': typeof AppFeesCollectionsRoute
   '/_app/fees/setup': typeof AppFeesSetupRoute
+  '/_app/messages/new': typeof AppMessagesNewRoute
   '/_app/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/_app/settings/roles': typeof AppSettingsRolesRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
@@ -494,6 +547,7 @@ export interface FileRoutesById {
   '/_app/attendance/': typeof AppAttendanceIndexRoute
   '/_app/exams/': typeof AppExamsIndexRoute
   '/_app/fees/': typeof AppFeesIndexRoute
+  '/_app/messages/': typeof AppMessagesIndexRoute
   '/_app/staff/': typeof AppStaffIndexRoute
   '/_app/students/': typeof AppStudentsIndexRoute
   '/_app/timetable/': typeof AppTimetableIndexRoute
@@ -505,9 +559,13 @@ export interface FileRoutesById {
   '/_app/exams/students/$studentId': typeof AppExamsStudentsStudentIdRoute
   '/_app/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
   '/_app/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
+  '/_app/messages/$messageId/edit': typeof AppMessagesMessageIdEditRoute
   '/_app/attendance/staff/': typeof AppAttendanceStaffIndexRoute
   '/_app/exams/report-cards/': typeof AppExamsReportCardsIndexRoute
   '/_app/exams/settings/': typeof AppExamsSettingsIndexRoute
+  '/_app/messages/$messageId/': typeof AppMessagesMessageIdIndexRoute
+  '/_app/messages/settings/': typeof AppMessagesSettingsIndexRoute
+  '/_app/messages/templates/': typeof AppMessagesTemplatesIndexRoute
   '/_app/attendance/sections/$sectionId/month': typeof AppAttendanceSectionsSectionIdMonthRoute
   '/_app/exams/report-cards/sections/$sectionId': typeof AppExamsReportCardsSectionsSectionIdRoute
   '/_app/attendance/sections/$sectionId/': typeof AppAttendanceSectionsSectionIdIndexRoute
@@ -531,6 +589,7 @@ export interface FileRouteTypes {
     | '/exams/$examId'
     | '/fees/collections'
     | '/fees/setup'
+    | '/messages/new'
     | '/settings/audit-log'
     | '/settings/roles'
     | '/settings/users'
@@ -551,6 +610,7 @@ export interface FileRouteTypes {
     | '/attendance/'
     | '/exams/'
     | '/fees/'
+    | '/messages/'
     | '/staff/'
     | '/students/'
     | '/timetable/'
@@ -562,9 +622,13 @@ export interface FileRouteTypes {
     | '/exams/students/$studentId'
     | '/fees/receipts/$receiptId'
     | '/fees/students/$studentId'
+    | '/messages/$messageId/edit'
     | '/attendance/staff/'
     | '/exams/report-cards/'
     | '/exams/settings/'
+    | '/messages/$messageId/'
+    | '/messages/settings/'
+    | '/messages/templates/'
     | '/attendance/sections/$sectionId/month'
     | '/exams/report-cards/sections/$sectionId'
     | '/attendance/sections/$sectionId/'
@@ -586,6 +650,7 @@ export interface FileRouteTypes {
     | '/exams/$examId'
     | '/fees/collections'
     | '/fees/setup'
+    | '/messages/new'
     | '/settings/audit-log'
     | '/settings/roles'
     | '/settings/users'
@@ -606,6 +671,7 @@ export interface FileRouteTypes {
     | '/attendance'
     | '/exams'
     | '/fees'
+    | '/messages'
     | '/staff'
     | '/students'
     | '/timetable'
@@ -617,9 +683,13 @@ export interface FileRouteTypes {
     | '/exams/students/$studentId'
     | '/fees/receipts/$receiptId'
     | '/fees/students/$studentId'
+    | '/messages/$messageId/edit'
     | '/attendance/staff'
     | '/exams/report-cards'
     | '/exams/settings'
+    | '/messages/$messageId'
+    | '/messages/settings'
+    | '/messages/templates'
     | '/attendance/sections/$sectionId/month'
     | '/exams/report-cards/sections/$sectionId'
     | '/attendance/sections/$sectionId'
@@ -642,6 +712,7 @@ export interface FileRouteTypes {
     | '/_app/exams/$examId'
     | '/_app/fees/collections'
     | '/_app/fees/setup'
+    | '/_app/messages/new'
     | '/_app/settings/audit-log'
     | '/_app/settings/roles'
     | '/_app/settings/users'
@@ -662,6 +733,7 @@ export interface FileRouteTypes {
     | '/_app/attendance/'
     | '/_app/exams/'
     | '/_app/fees/'
+    | '/_app/messages/'
     | '/_app/staff/'
     | '/_app/students/'
     | '/_app/timetable/'
@@ -673,9 +745,13 @@ export interface FileRouteTypes {
     | '/_app/exams/students/$studentId'
     | '/_app/fees/receipts/$receiptId'
     | '/_app/fees/students/$studentId'
+    | '/_app/messages/$messageId/edit'
     | '/_app/attendance/staff/'
     | '/_app/exams/report-cards/'
     | '/_app/exams/settings/'
+    | '/_app/messages/$messageId/'
+    | '/_app/messages/settings/'
+    | '/_app/messages/templates/'
     | '/_app/attendance/sections/$sectionId/month'
     | '/_app/exams/report-cards/sections/$sectionId'
     | '/_app/attendance/sections/$sectionId/'
@@ -837,6 +913,20 @@ declare module '@tanstack/react-router' {
       path: '/fees/setup'
       fullPath: '/fees/setup'
       preLoaderRoute: typeof AppFeesSetupRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/messages/': {
+      id: '/_app/messages/'
+      path: '/messages'
+      fullPath: '/messages/'
+      preLoaderRoute: typeof AppMessagesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/messages/new': {
+      id: '/_app/messages/new'
+      path: '/messages/new'
+      fullPath: '/messages/new'
+      preLoaderRoute: typeof AppMessagesNewRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/audit-log': {
@@ -1056,6 +1146,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFeesStudentsStudentIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/messages/$messageId/': {
+      id: '/_app/messages/$messageId/'
+      path: '/messages/$messageId'
+      fullPath: '/messages/$messageId/'
+      preLoaderRoute: typeof AppMessagesMessageIdIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/messages/$messageId/edit': {
+      id: '/_app/messages/$messageId/edit'
+      path: '/messages/$messageId/edit'
+      fullPath: '/messages/$messageId/edit'
+      preLoaderRoute: typeof AppMessagesMessageIdEditRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/messages/settings/': {
+      id: '/_app/messages/settings/'
+      path: '/messages/settings'
+      fullPath: '/messages/settings/'
+      preLoaderRoute: typeof AppMessagesSettingsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/messages/templates/': {
+      id: '/_app/messages/templates/'
+      path: '/messages/templates'
+      fullPath: '/messages/templates/'
+      preLoaderRoute: typeof AppMessagesTemplatesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/attendance/sections/$sectionId/': {
       id: '/_app/attendance/sections/$sectionId/'
       path: '/attendance/sections/$sectionId'
@@ -1085,6 +1203,7 @@ interface AppRouteChildren {
   AppExamsExamIdRoute: typeof AppExamsExamIdRoute
   AppFeesCollectionsRoute: typeof AppFeesCollectionsRoute
   AppFeesSetupRoute: typeof AppFeesSetupRoute
+  AppMessagesNewRoute: typeof AppMessagesNewRoute
   AppSettingsAuditLogRoute: typeof AppSettingsAuditLogRoute
   AppSettingsRolesRoute: typeof AppSettingsRolesRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRoute
@@ -1105,6 +1224,7 @@ interface AppRouteChildren {
   AppAttendanceIndexRoute: typeof AppAttendanceIndexRoute
   AppExamsIndexRoute: typeof AppExamsIndexRoute
   AppFeesIndexRoute: typeof AppFeesIndexRoute
+  AppMessagesIndexRoute: typeof AppMessagesIndexRoute
   AppStaffIndexRoute: typeof AppStaffIndexRoute
   AppStudentsIndexRoute: typeof AppStudentsIndexRoute
   AppTimetableIndexRoute: typeof AppTimetableIndexRoute
@@ -1116,9 +1236,13 @@ interface AppRouteChildren {
   AppExamsStudentsStudentIdRoute: typeof AppExamsStudentsStudentIdRoute
   AppFeesReceiptsReceiptIdRoute: typeof AppFeesReceiptsReceiptIdRoute
   AppFeesStudentsStudentIdRoute: typeof AppFeesStudentsStudentIdRoute
+  AppMessagesMessageIdEditRoute: typeof AppMessagesMessageIdEditRoute
   AppAttendanceStaffIndexRoute: typeof AppAttendanceStaffIndexRoute
   AppExamsReportCardsIndexRoute: typeof AppExamsReportCardsIndexRoute
   AppExamsSettingsIndexRoute: typeof AppExamsSettingsIndexRoute
+  AppMessagesMessageIdIndexRoute: typeof AppMessagesMessageIdIndexRoute
+  AppMessagesSettingsIndexRoute: typeof AppMessagesSettingsIndexRoute
+  AppMessagesTemplatesIndexRoute: typeof AppMessagesTemplatesIndexRoute
   AppAttendanceSectionsSectionIdMonthRoute: typeof AppAttendanceSectionsSectionIdMonthRoute
   AppExamsReportCardsSectionsSectionIdRoute: typeof AppExamsReportCardsSectionsSectionIdRoute
   AppAttendanceSectionsSectionIdIndexRoute: typeof AppAttendanceSectionsSectionIdIndexRoute
@@ -1129,6 +1253,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppExamsExamIdRoute: AppExamsExamIdRoute,
   AppFeesCollectionsRoute: AppFeesCollectionsRoute,
   AppFeesSetupRoute: AppFeesSetupRoute,
+  AppMessagesNewRoute: AppMessagesNewRoute,
   AppSettingsAuditLogRoute: AppSettingsAuditLogRoute,
   AppSettingsRolesRoute: AppSettingsRolesRoute,
   AppSettingsUsersRoute: AppSettingsUsersRoute,
@@ -1149,6 +1274,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAttendanceIndexRoute: AppAttendanceIndexRoute,
   AppExamsIndexRoute: AppExamsIndexRoute,
   AppFeesIndexRoute: AppFeesIndexRoute,
+  AppMessagesIndexRoute: AppMessagesIndexRoute,
   AppStaffIndexRoute: AppStaffIndexRoute,
   AppStudentsIndexRoute: AppStudentsIndexRoute,
   AppTimetableIndexRoute: AppTimetableIndexRoute,
@@ -1160,9 +1286,13 @@ const AppRouteChildren: AppRouteChildren = {
   AppExamsStudentsStudentIdRoute: AppExamsStudentsStudentIdRoute,
   AppFeesReceiptsReceiptIdRoute: AppFeesReceiptsReceiptIdRoute,
   AppFeesStudentsStudentIdRoute: AppFeesStudentsStudentIdRoute,
+  AppMessagesMessageIdEditRoute: AppMessagesMessageIdEditRoute,
   AppAttendanceStaffIndexRoute: AppAttendanceStaffIndexRoute,
   AppExamsReportCardsIndexRoute: AppExamsReportCardsIndexRoute,
   AppExamsSettingsIndexRoute: AppExamsSettingsIndexRoute,
+  AppMessagesMessageIdIndexRoute: AppMessagesMessageIdIndexRoute,
+  AppMessagesSettingsIndexRoute: AppMessagesSettingsIndexRoute,
+  AppMessagesTemplatesIndexRoute: AppMessagesTemplatesIndexRoute,
   AppAttendanceSectionsSectionIdMonthRoute:
     AppAttendanceSectionsSectionIdMonthRoute,
   AppExamsReportCardsSectionsSectionIdRoute:

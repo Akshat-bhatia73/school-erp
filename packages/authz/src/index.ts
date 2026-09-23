@@ -27,6 +27,7 @@ export {
 export type { LockedMembership } from './versioning.ts'
 export {
   attendanceScopedTable,
+  communicationScopedTable,
   createReadPlan,
   examScopedTable,
   feeScopedTable,
@@ -40,6 +41,7 @@ export {
 } from './scope.ts'
 export type {
   AttendanceTableKind,
+  CommunicationTableKind,
   ExamTableKind,
   FeeTableKind,
   ReportCardTableKind,
