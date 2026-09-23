@@ -163,7 +163,8 @@ TEST_DATABASE_URL=postgres://erp_migrator:erp_migrator@127.0.0.1:54329/erp_test 
 
 ## Known gaps
 
-- Reserved resource types (messages) have no resource facts and no predicates. They deny today and need loaders when those modules land.
+- Reserved resource types (messages) have no resource facts and no predicates.
+- For `exam` and `report_card`, `assigned_sections` is the class-teacher post alone. A school that wants a subject teacher to read the whole class's marks has no way to say so short of making them class teacher; that is deliberate. They deny today and need loaders when those modules land.
 - `planPredicate` covers ten listable resource types, and the tests exercise six of them against single reads. Memberships, invitations, audit events and timetable entries are read one at a time or not at all so far.
 - Nothing caches. Every call reloads the snapshot, the relationship facts and the resource facts inside its own transaction. That is deliberate for now: correctness first, and `access_version` gives a later cache a safe key.
 - Field group projection is not implemented here. A caller that ignores the returned `fieldGroups` still sees whole rows, which is why Task 5 owns every response shape.

@@ -45,6 +45,17 @@ const GAP = 12
 const ROW = 16
 const HEADER_ROW = 18
 const { foreground: FOREGROUND, muted: MUTED, border: BORDER } = PDF_COLOURS
+
+/**
+ * The largest size, down to 5.5 points, at which a text fits its cell on one
+ * line in the font already set. pdfkit wraps a narrow cell even when asked
+ * not to, so a figure is shrunk rather than broken over two lines.
+ */
+function fitSize(doc: PDFKit.PDFDocument, text: string, width: number, size: number): number {
+  let fitted = size
+  while (fitted > 5.5 && doc.fontSize(fitted).widthOfString(text) > width) fitted -= 0.5
+  return fitted
+}
 const { regular: REGULAR, semibold: SEMIBOLD } = PDF_FONTS
 
 /** Short column heads; the grading key spells them out. */
@@ -52,7 +63,7 @@ const COMPONENT_SHORT: Readonly<Record<ExamComponent, string>> = {
   periodic_test: 'PT',
   notebook: 'NB',
   subject_enrichment: 'SE',
-  written: 'Exam',
+  written: 'Ex',
 }
 
 /** The columns of one term: each exam's components, periodic test first. */
@@ -74,6 +85,12 @@ function markText(value: MarkValue | null | undefined): string {
 function percentText(value: number | null | undefined): string {
   if (value === null || value === undefined) return '—'
   return `${Number.isInteger(value) ? String(value) : value.toFixed(1)}%`
+}
+
+/** A figure in a column whose head already says it is a percentage. */
+function figureText(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—'
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }
 
 function termLabel(term: ExamTerm): string {
@@ -253,7 +270,7 @@ class CardPage {
         const width = widths[position] ?? 0
         doc
           .font(SEMIBOLD)
-          .fontSize(7.5)
+          .fontSize(fitSize(doc, column.header, width - 8, 7.5))
           .fillColor(MUTED)
           .text(column.header, x + 4, y + 5, {
             width: width - 8,
@@ -269,9 +286,9 @@ class CardPage {
         let cellX = MARGIN
         columns.forEach((column, position) => {
           const width = widths[position] ?? 0
+          doc.font(position === 0 ? SEMIBOLD : REGULAR)
           doc
-            .font(position === 0 ? SEMIBOLD : REGULAR)
-            .fontSize(8.5)
+            .fontSize(fitSize(doc, row[position] ?? '', width - 8, 8.5))
             .fillColor(FOREGROUND)
             .text(row[position] ?? '', cellX + 4, y + 4, {
               width: width - 8,
@@ -396,14 +413,14 @@ function drawScholastic(page: CardPage, content: ReportCardContent): void {
   terms.forEach((term, index) => {
     const list = perTerm[index] ?? []
     for (const entry of list) {
-      columns.push({ header: `${COMPONENT_SHORT[entry.component]} (${EXAM_COMPONENTS[entry.component].maxMarks})`, width: cellShare })
+      columns.push({ header: `${COMPONENT_SHORT[entry.component]}/${EXAM_COMPONENTS[entry.component].maxMarks}`, width: cellShare })
     }
-    columns.push({ header: 'Total', width: cellShare })
+    columns.push({ header: 'Total %', width: cellShare })
     columns.push({ header: 'Grade', width: cellShare })
     groups.push({ label: termLabel(term), span: list.length + 2 })
   })
   if (isFinal) {
-    columns.push({ header: 'Final', width: finalShare / 2 })
+    columns.push({ header: 'Final %', width: finalShare / 2 })
     columns.push({ header: 'Grade', width: finalShare / 2 })
     groups.push({ label: 'Year', span: 2 })
   }
@@ -415,18 +432,18 @@ function drawScholastic(page: CardPage, content: ReportCardContent): void {
         const value = found?.components.find((part) => part.exam === entry.exam && part.component === entry.component)
         cells.push(markText(value?.value))
       }
-      cells.push(percentText(found?.percentage))
+      cells.push(figureText(found?.percentage))
       cells.push(found?.grade ?? '—')
     })
     if (isFinal) {
-      cells.push(percentText(row.final?.percentage))
+      cells.push(figureText(row.final?.percentage))
       cells.push(row.final?.grade ?? '—')
     }
     return cells
   })
   page.sectionTitle(REPORT_CARD_BLOCKS.scholastic, HEADER_ROW * 2 + ROW)
   page.table(columns, rows, groups)
-  page.line('PT periodic test, NB notebook, SE subject enrichment, Exam half-yearly or annual exam. AB absent, ML medical, EX exempt.', {
+  page.line('PT periodic test, NB notebook, SE subject enrichment, Ex the written paper of the half-yearly or annual exam. AB absent, ML medical, EX exempt.', {
     size: 7.5,
     muted: true,
   })

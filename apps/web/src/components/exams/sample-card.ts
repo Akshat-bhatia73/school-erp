@@ -50,6 +50,8 @@ export function sampleCard(settings: {
   gradeBands: GradeBand[]
   layout: ReportCardLayout
   schoolName?: string
+  /** The school's own header lines from its profile, when this person may read it. */
+  header?: { affiliationNumber?: string; address?: string; contact?: string }
 }): { content: ReportCardContent; remarks: ReportCardRemarks } {
   const bands = settings.gradeBands
   const scholastic = SUBJECTS.map((subject) => {
@@ -64,9 +66,9 @@ export function sampleCard(settings: {
     card: 'final',
     school: {
       name: layout.headerLines.schoolName ? settings.schoolName ?? 'Your school' : undefined,
-      affiliationNumber: layout.headerLines.affiliationNumber ? '2130456' : undefined,
-      address: layout.headerLines.address ? '12 Station Road, Jaipur, Rajasthan 302001' : undefined,
-      contact: layout.headerLines.contact ? '0141 555 0199 · office@example.org' : undefined,
+      affiliationNumber: layout.headerLines.affiliationNumber ? (settings.header?.affiliationNumber ?? '2130456') : undefined,
+      address: layout.headerLines.address ? (settings.header?.address ?? '12 Station Road, Jaipur, Rajasthan 302001') : undefined,
+      contact: layout.headerLines.contact ? (settings.header?.contact ?? '0141 555 0199 · office@example.org') : undefined,
     },
     showLogo: layout.showLogo,
     student: { id: '00000000-0000-4000-8000-0000000000aa', name: 'Ananya Sharma', admissionNumber: 'ADM-2019-042', rollNumber: 7 },

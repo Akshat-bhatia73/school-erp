@@ -365,6 +365,10 @@ The app must be opened at `http://localhost:5173`; the API refuses any other ori
 
 Server gaps — a screen cannot do this until an endpoint or a contract field exists.
 
+- Exams: the report card screen asks for the logo without knowing when it last changed, because a parent cannot read the school profile; a changed logo can show from the browser's cache until the page is reloaded. A `logoUpdatedAt` on `ReportCardView` would remove that.
+- Exams: the settings preview draws a sample pupil. Its header lines come from the school profile when the person may read it, and from a sample school otherwise.
+- Exams: the section page's two tabs are a search parameter (`?tab=`), not `PageTabs`, because `PageTabs` needs a route per tab.
+
 - No school access version is readable, so ownership transfer (which needs
   `expectedSchoolAccessVersion`) is not built.
 - `GET /staff` has no staff-type, status or employment filter.

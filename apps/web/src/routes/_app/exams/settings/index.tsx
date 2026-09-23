@@ -57,7 +57,7 @@ function draftOf(settings: ExamSettingsRecord): Draft {
 }
 
 function Page() {
-  const { schoolId, school } = useSchoolContext()
+  const { schoolId, school, hasPermission } = useSchoolContext()
   const queryClient = useQueryClient()
   const settingsQuery = useQuery({ queryKey: qk.examSettings(schoolId), queryFn: () => api.reportCards.settings(schoolId) })
   const settings = settingsQuery.data
@@ -68,9 +68,26 @@ function Page() {
 
   const canManage = settings ? allows(settings.allowedActions, 'exams.manage') : false
   const bandsProblem = draft ? gradeBandsProblem(draft.gradeBands) : null
+  // The preview's header lines come from the school's own profile, so it
+  // looks like the card parents will get; the pupil and marks are a sample.
+  const profileQuery = useQuery({
+    queryKey: qk.school(schoolId),
+    queryFn: () => api.setup.school(schoolId),
+    enabled: hasPermission('school.read'),
+  })
+  const profile = profileQuery.data
+  const profileHeader = useMemo(() => {
+    if (!profile) return undefined
+    const contact = [profile.phone, profile.email].filter((part): part is string => !!part).join(' · ')
+    return {
+      ...(profile.affiliationNumber ? { affiliationNumber: profile.affiliationNumber } : {}),
+      ...(profile.address ? { address: profile.address } : {}),
+      ...(contact ? { contact } : {}),
+    }
+  }, [profile])
   const preview = useMemo(
-    () => (draft ? sampleCard({ ...draft, schoolName: school.name }) : null),
-    [draft, school.name],
+    () => (draft ? sampleCard({ ...draft, schoolName: school.name, ...(profileHeader ? { header: profileHeader } : {}) }) : null),
+    [draft, school.name, profileHeader],
   )
 
   const save = useMutation({
