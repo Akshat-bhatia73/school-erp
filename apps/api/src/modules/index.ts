@@ -19,6 +19,9 @@ import { registerAuditRoutes } from './audit/routes.ts'
 import { registerFileRoutes } from './files/routes.ts'
 import { registerFeeRoutes } from './fees/index.ts'
 import { registerAttendanceRoutes } from './attendance/index.ts'
+import { registerExamRoutes } from './exams/index.ts'
+import { registerReportCardRoutes } from './report-cards/index.ts'
+import { registerSchoolLogoRoutes } from './setup/logo.ts'
 
 export type { ModuleDependencies }
 
@@ -46,4 +49,7 @@ export function registerModuleRoutes(app: FastifyInstance, deps: ModuleDependenc
   registerFileRoutes(app, deps)
   registerFeeRoutes(app, deps)
   registerAttendanceRoutes(app, deps)
+  registerExamRoutes(app, deps)
+  registerReportCardRoutes(app, deps)
+  registerSchoolLogoRoutes(app, deps)
 }

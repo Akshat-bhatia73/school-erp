@@ -175,19 +175,28 @@ export const PERMISSION_CATALOGUE = {
   'attendance.record': active('attendance', ['school', 'assigned_sections'], 'Mark a section\'s attendance for today, whole roster at once.', true, ['school']),
   'attendance.manage': active('attendance', ['school'], 'Correct a past day\'s attendance with a reason, as a new row that supersedes the old one.', true),
   'attendance.export': active('attendance', ['school', 'assigned_sections'], 'Export a section\'s monthly attendance register.', true, ['school']),
-  'exams.read': reserved('exam', ['school', 'assigned_sections', 'assigned_subjects', 'own_children', 'own_record'], 'Reserved for published exam and result views.'),
-  'exams.record_marks': reserved('exam', ['school', 'assigned_sections', 'assigned_subjects'], 'Reserved for recording marks for an assigned section and subject.', true),
-  'exams.manage': reserved('exam', ['school'], 'Reserved for exam setup and administration.', true),
-  'exams.publish': reserved('exam', ['school'], 'Reserved for publishing results.', true),
-  'exams.export': reserved('exam', ['school', 'assigned_sections', 'assigned_subjects'], 'Reserved for exporting authorized exam data.', true),
+  // Exams and report cards (Task 21). A parent reading their own child's
+  // published results and a teacher entering their own subject's marks sign
+  // in with one factor, so the reads are not privileged and the section-level
+  // writes and files are privileged only at school scope. Setting an exam up,
+  // correcting after the re-check deadline and publishing are office work
+  // behind a second step. For these two resource types assigned_sections is
+  // the class-teacher post alone and never a teaching assignment, so a
+  // subject teacher reaches their own subject (assigned_subjects) and nothing
+  // else of the class; own_children and own_record match published rows only.
+  'exams.read': active('exam', ['school', 'assigned_sections', 'assigned_subjects', 'own_children', 'own_record'], 'Read exam dates, marks sheets and results within the granted scope; a parent reads published results only.'),
+  'exams.record_marks': active('exam', ['school', 'assigned_sections', 'assigned_subjects'], 'Enter marks for an assigned section and subject until the re-check deadline, whole sheet at once.', true, ['school']),
+  'exams.manage': active('exam', ['school'], 'Set the exam dates and re-check deadlines, the grade bands and the report card layout, and correct marks with a reason.', true),
+  'exams.publish': active('exam', ['school'], 'Publish a section\'s results for one exam once its re-check deadline has passed.', true),
+  'exams.export': active('exam', ['school', 'assigned_sections', 'assigned_subjects'], 'Export a section\'s marks register for one subject.', true, ['school']),
   'communication.read': reserved('communication', ['school', 'assigned_sections', 'own_children', 'own_record'], 'Reserved for reading authorized school messages.'),
   'communication.send': reserved('communication', ['school', 'assigned_sections'], 'Reserved for sending messages to an authorized audience.', true),
   'communication.manage': reserved('communication', ['school'], 'Reserved for communication templates and administration.', true),
   'communication.export': reserved('communication', ['school'], 'Reserved for exporting authorized communication records.', true),
-  'report_cards.read': reserved('report_card', ['school', 'assigned_sections', 'assigned_subjects', 'own_children', 'own_record'], 'Reserved for reading authorized published report cards.'),
-  'report_cards.manage': reserved('report_card', ['school', 'assigned_sections', 'assigned_subjects'], 'Reserved for preparing report cards.', true),
-  'report_cards.publish': reserved('report_card', ['school'], 'Reserved for publishing report cards.', true),
-  'report_cards.export': reserved('report_card', ['school', 'assigned_sections', 'assigned_subjects', 'own_children'], 'Reserved for exporting authorized report cards.', true),
+  'report_cards.read': active('report_card', ['school', 'assigned_sections', 'assigned_subjects', 'own_children', 'own_record'], 'Read report cards within the granted scope; a parent reads published cards only.'),
+  'report_cards.manage': active('report_card', ['school', 'assigned_sections', 'assigned_subjects'], 'Enter a class\'s co-scholastic grades and remarks for a term.', true, ['school']),
+  'report_cards.publish': active('report_card', ['school'], 'Publish report cards, and publish them again after a change.', true),
+  'report_cards.export': active('report_card', ['school', 'assigned_sections', 'assigned_subjects', 'own_children'], 'Download a published report card, or a section\'s cards as one document.', true, ['school']),
   // A staff member reads their own month with one factor; the office marks,
   // corrects and exports the register behind a second step.
   'staff_attendance.read': active('staff_attendance', ['school', 'self'], 'Read the staff attendance register, or one\'s own month.'),

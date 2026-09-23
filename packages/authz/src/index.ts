@@ -28,8 +28,11 @@ export type { LockedMembership } from './versioning.ts'
 export {
   attendanceScopedTable,
   createReadPlan,
+  examScopedTable,
   feeScopedTable,
   planPredicate,
+  planPredicateWithout,
+  reportCardScopedTable,
   scopedGet,
   scopedList,
   scopedTableFor,
@@ -37,7 +40,9 @@ export {
 } from './scope.ts'
 export type {
   AttendanceTableKind,
+  ExamTableKind,
   FeeTableKind,
+  ReportCardTableKind,
   PageRequest,
   ScopedTable,
   StaffAttendanceTableKind,

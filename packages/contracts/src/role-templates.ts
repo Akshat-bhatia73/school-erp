@@ -73,6 +73,18 @@ const feesFull = (scope: 'school' | 'finance'): readonly RoleGrant[] => [
  * Everything about attendance for the office: read, mark and correct the
  * pupil registers and export them, and the same for the staff register.
  */
+/**
+ * Everything about exams and report cards for the office: set the exams up,
+ * enter and correct marks, publish results and cards, and export them.
+ */
+const examsOffice: readonly RoleGrant[] = [
+  grant('exams.read', 'school'), grant('exams.record_marks', 'school'),
+  grant('exams.manage', 'school'), grant('exams.publish', 'school'),
+  grant('exams.export', 'school'),
+  grant('report_cards.read', 'school'), grant('report_cards.manage', 'school'),
+  grant('report_cards.publish', 'school'), grant('report_cards.export', 'school'),
+]
+
 const attendanceOffice: readonly RoleGrant[] = [
   grant('attendance.read', 'school'), grant('attendance.record', 'school'),
   grant('attendance.manage', 'school'), grant('attendance.export', 'school'),
@@ -100,6 +112,7 @@ export const ROLE_TEMPLATES = {
       grant('students.export_subject', 'school'), grant('audit.redact_notes', 'school'),
       ...feesFull('school'),
       ...attendanceOffice,
+      ...examsOffice,
     ],
   },
   principal: {
@@ -117,6 +130,7 @@ export const ROLE_TEMPLATES = {
       grant('students.export_subject', 'school'),
       ...feesFull('school'),
       ...attendanceOffice,
+      ...examsOffice,
     ],
   },
   admin: {
@@ -132,6 +146,7 @@ export const ROLE_TEMPLATES = {
       // The office counter takes money; it does not set fees or refund them.
       grant('fees.read', 'school'), grant('fees.collect', 'school'),
       ...attendanceOffice,
+      ...examsOffice,
     ],
   },
   accountant: {
@@ -167,6 +182,16 @@ export const ROLE_TEMPLATES = {
       // reads their own month of the staff register.
       grant('attendance.read', 'assigned_sections'), grant('attendance.record', 'assigned_sections'),
       grant('staff_attendance.read', 'self'),
+      // A subject teacher reads, enters and exports the marks of their own
+      // subject in their own section (assigned_subjects). A class teacher
+      // reads every subject of their own class, and prepares, reads and
+      // prints its report cards (assigned_sections, which for exams and
+      // report cards is the class-teacher post alone).
+      grant('exams.read', 'assigned_subjects'), grant('exams.read', 'assigned_sections'),
+      grant('exams.record_marks', 'assigned_subjects'),
+      grant('exams.export', 'assigned_subjects'), grant('exams.export', 'assigned_sections'),
+      grant('report_cards.read', 'assigned_sections'), grant('report_cards.manage', 'assigned_sections'),
+      grant('report_cards.export', 'assigned_sections'),
     ],
   },
   parent: {
@@ -184,6 +209,10 @@ export const ROLE_TEMPLATES = {
       grant('students.export_subject', 'own_children'),
       grant('fees.read', 'own_children'),
       grant('attendance.read', 'own_children'),
+      // Published results and report cards only: the scope term matches a
+      // published row and nothing else.
+      grant('exams.read', 'own_children'), grant('report_cards.read', 'own_children'),
+      grant('report_cards.export', 'own_children'),
     ],
   },
   student: { displayName: 'Student', enabled: false, requiredMfa: false, grants: [] },

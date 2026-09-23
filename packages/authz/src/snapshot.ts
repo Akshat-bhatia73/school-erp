@@ -691,6 +691,90 @@ export async function loadResourceFacts(
       if (!found) return null
       return facts(resource, { staffId: found.staff_id })
     }
+    case 'exam': {
+      // One resource type, four faces: the exam's own row, a paper, a mark
+      // and a pupil. Ids are random uuids, so at most one matches. A mark
+      // says whether it is published exactly as the list predicate works it
+      // out: a publication of its exam for its section at least as new as
+      // the mark. A pupil carries no marks of its own, so it is "published".
+      const row = await conn.client.query<{
+        face: string
+        student_id: string | null
+        section_id: string | null
+        academic_year_id: string | null
+        subject_id: string | null
+        published: boolean | null
+      }>(
+        `SELECT 'exam' AS face, NULL::uuid AS student_id, NULL::uuid AS section_id, academic_year_id,
+                NULL::uuid AS subject_id, NULL::boolean AS published
+           FROM exams WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT 'paper', NULL::uuid, section_id, academic_year_id, subject_id, NULL::boolean
+           FROM exam_papers WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT 'mark', m.student_id, m.section_id, m.academic_year_id, m.subject_id,
+                EXISTS (SELECT 1 FROM exam_publications pub
+                         WHERE pub.school_id = m.school_id AND pub.exam_id = m.exam_id
+                           AND pub.section_id = m.section_id AND pub.published_at >= m.recorded_at)
+           FROM exam_marks m WHERE m.school_id = $1 AND m.id = $2
+         UNION ALL
+         SELECT 'pupil', id, NULL::uuid, NULL::uuid, NULL::uuid, NULL::boolean
+           FROM students WHERE school_id = $1 AND id = $2
+         LIMIT 1`,
+        [schoolId, id],
+      )
+      const found = row.rows[0]
+      if (!found) return null
+      if (found.face === 'pupil' && found.student_id !== null) {
+        const sections = await currentSectionsOfStudent(conn, schoolId, found.student_id)
+        return facts(resource, { studentId: found.student_id, ...sections, published: true })
+      }
+      if (found.face === 'exam') {
+        return facts(resource, found.academic_year_id === null ? {} : { academicYearId: found.academic_year_id })
+      }
+      return facts(resource, {
+        ...(found.student_id === null ? {} : { studentId: found.student_id }),
+        ...(found.section_id === null ? {} : { sectionIds: [found.section_id] }),
+        ...(found.subject_id === null ? {} : { subjectIds: [found.subject_id] }),
+        ...(found.academic_year_id === null ? {} : { academicYearId: found.academic_year_id }),
+        published: found.published === true,
+      })
+    }
+    case 'report_card': {
+      // Four faces: a published version (published by being one), the class
+      // teacher's working entry (never published), the section whose cards
+      // are prepared, and the pupil whose cards are listed.
+      const row = await conn.client.query<{
+        face: string
+        student_id: string | null
+        section_id: string | null
+        academic_year_id: string | null
+      }>(
+        `SELECT 'card' AS face, student_id, section_id, academic_year_id
+           FROM report_card_versions WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT 'entry', student_id, section_id, academic_year_id
+           FROM report_card_entries WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT 'roster', NULL::uuid, id, academic_year_id FROM sections WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT 'pupil', id, NULL::uuid, NULL::uuid FROM students WHERE school_id = $1 AND id = $2
+         LIMIT 1`,
+        [schoolId, id],
+      )
+      const found = row.rows[0]
+      if (!found) return null
+      if (found.face === 'pupil' && found.student_id !== null) {
+        const sections = await currentSectionsOfStudent(conn, schoolId, found.student_id)
+        return facts(resource, { studentId: found.student_id, ...sections, published: true })
+      }
+      return facts(resource, {
+        ...(found.student_id === null ? {} : { studentId: found.student_id }),
+        ...(found.section_id === null ? {} : { sectionIds: [found.section_id] }),
+        ...(found.academic_year_id === null ? {} : { academicYearId: found.academic_year_id }),
+        published: found.face === 'card',
+      })
+    }
     case 'dashboard':
       // The dashboard is computed from the whole authorized dataset, so it has
       // no row of its own and relationship scopes answer for any relationship.

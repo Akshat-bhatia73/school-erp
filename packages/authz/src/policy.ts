@@ -41,6 +41,16 @@ export interface ResourceFacts {
   readonly academicYearId?: string
   /** The audited action of one audit event, which decides its finance audience. */
   readonly action?: string
+  /**
+   * Exams and report cards: whether this row is published, which is the only
+   * way a family scope (own_children, own_record) can reach it. A mark is
+   * published when a publication of its exam for its section is at least as
+   * new as the mark; a report card version is published by being one; a
+   * class teacher's working entry never is. A pupil face (the child whose
+   * results page is being opened) carries true, because it holds no marks
+   * of its own.
+   */
+  readonly published?: boolean
   /** Set for resources that summarise the whole authorized dataset, such as the dashboard. */
   readonly aggregate?: true
 }
@@ -103,6 +113,13 @@ export function matchesScope(scope: AccessScope, facts: RelationshipFacts, resou
       return resourceFacts.staffId === facts.selfStaffId
     case 'assigned_sections': {
       const looksAfter = facts.classTeacherSections ?? []
+      if (classTeacherOnly(resourceFacts.resourceType)) {
+        // Exams and report cards: the class-teacher post alone. A teaching
+        // assignment in the section is reached through assigned_subjects,
+        // one subject at a time, so a maths teacher never reads science.
+        if (resourceFacts.aggregate === true) return looksAfter.length > 0
+        return looksAfter.some((section) => sectionMatches(section, resourceFacts))
+      }
       if (resourceFacts.aggregate === true) return facts.assignments.length > 0 || looksAfter.length > 0
       return (
         facts.assignments.some((assignment) => sectionMatches(assignment, resourceFacts)) ||
@@ -111,6 +128,19 @@ export function matchesScope(scope: AccessScope, facts: RelationshipFacts, resou
     }
     case 'assigned_subjects':
       if (resourceFacts.aggregate === true) return facts.assignments.length > 0
+      // A report card is the whole class's subjects on one page; no single
+      // subject opens it.
+      if (resourceFacts.resourceType === 'report_card') return false
+      if (resourceFacts.resourceType === 'exam' && resourceFacts.subjectIds === undefined) {
+        // A pupil face names no subject: a teacher reaches the pupil when they
+        // teach any subject in the pupil's current section, and the marks
+        // shown are still narrowed subject by subject. An exam's own row names
+        // no section either, so it is never reached this way.
+        return (
+          (resourceFacts.sectionIds ?? []).length > 0 &&
+          facts.assignments.some((assignment) => sectionMatches(assignment, resourceFacts))
+        )
+      }
       return facts.assignments.some(
         (assignment) =>
           sectionMatches(assignment, resourceFacts) &&
@@ -118,11 +148,29 @@ export function matchesScope(scope: AccessScope, facts: RelationshipFacts, resou
       )
     case 'own_children':
       if (resourceFacts.aggregate === true) return facts.ownChildStudentIds.length > 0
-      return resourceFacts.studentId !== undefined && facts.ownChildStudentIds.includes(resourceFacts.studentId)
+      return ownPupilMatches(resourceFacts, facts.ownChildStudentIds)
     case 'own_record':
       // Student login is disabled, so nothing is ever the caller's own record.
-      return false
+      // The term is still written like own_children, published rows only, so
+      // turning student login on cannot open an unpublished mark.
+      return ownPupilMatches(resourceFacts, [])
   }
+}
+
+/** Resource types whose assigned_sections scope is the class-teacher post alone. */
+function classTeacherOnly(resourceType: ResourceType): boolean {
+  return resourceType === 'exam' || resourceType === 'report_card'
+}
+
+/** Resource types a family scope reaches only once they are published. */
+function publishedOnly(resourceType: ResourceType): boolean {
+  return resourceType === 'exam' || resourceType === 'report_card'
+}
+
+/** The resource belongs to one of these pupils, and is published where that matters. */
+function ownPupilMatches(resourceFacts: ResourceFacts, studentIds: readonly string[]): boolean {
+  if (resourceFacts.studentId === undefined || !studentIds.includes(resourceFacts.studentId)) return false
+  return !publishedOnly(resourceFacts.resourceType) || resourceFacts.published === true
 }
 
 function sectionMatches(

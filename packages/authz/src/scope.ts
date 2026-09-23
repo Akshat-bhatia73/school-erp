@@ -8,6 +8,9 @@ import {
   auditEvents,
   bellSchedules,
   enrollments,
+  examMarks,
+  examPapers,
+  exams,
   feeConcessions,
   feeHeads,
   feeReceipts,
@@ -16,6 +19,8 @@ import {
   grades,
   guardians,
   holidays,
+  reportCardEntries,
+  reportCardVersions,
   sections,
   staff,
   staffAttendanceEntries,
@@ -50,6 +55,8 @@ interface PlanInternals {
   readonly allows: readonly ResourceAccessRule[]
   readonly denies: readonly ResourceAccessRule[]
   readonly pairs: readonly AssignedPair[]
+  /** The sections the member is class teacher of, alone: assigned_sections for exams and report cards. */
+  readonly classTeacherPairs: readonly AssignedPair[]
   readonly triples: readonly AssignedTriple[]
   readonly subjectIds: readonly string[]
   readonly childStudentIds: readonly string[]
@@ -76,6 +83,12 @@ export interface ScopedTable {
   readonly staffId?: PgColumn
   /** The audited action of a row, for the finance scope over the audit trail. */
   readonly action?: PgColumn
+  /**
+   * Exams and report cards: a SQL boolean over the unaliased table that is
+   * true when the row is published. A family scope (own_children, own_record)
+   * reaches a row of these two types only where it holds.
+   */
+  readonly published?: SQL
 }
 
 /**
@@ -188,6 +201,97 @@ export function staffAttendanceScopedTable(kind: StaffAttendanceTableKind): Scop
   return STAFF_ATTENDANCE_TABLES[kind]
 }
 
+/**
+ * The tables an `exam` plan can be laid over. Exams are one resource type with
+ * four faces: the exam's own row (dates and deadline, the office's), a paper
+ * (one exam, section and subject: the sheet a teacher fills in), a mark, and
+ * the pupil whose results are being read.
+ *
+ * A paper and a mark carry their section, year and subject, so a subject
+ * teacher reaches them through assigned_subjects and a class teacher through
+ * assigned_sections, which for exams is the class-teacher post alone. A mark
+ * answers own_children through its pupil, for every year the child was here,
+ * and only once it is published: a publication of its exam for its section
+ * at least as new as the mark, so a parent sees each mark as it stood at the
+ * newest publication and never one written after it. An exam's own row and a
+ * paper name no pupil, so no family scope ever reaches them.
+ */
+const EXAM_TABLES = {
+  exam: { table: exams, schoolId: exams.schoolId, id: exams.id, academicYearId: exams.academicYearId },
+  paper: {
+    table: examPapers,
+    schoolId: examPapers.schoolId,
+    id: examPapers.id,
+    sectionId: examPapers.sectionId,
+    academicYearId: examPapers.academicYearId,
+    subjectId: examPapers.subjectId,
+  },
+  mark: {
+    table: examMarks,
+    schoolId: examMarks.schoolId,
+    id: examMarks.id,
+    studentId: examMarks.studentId,
+    sectionId: examMarks.sectionId,
+    academicYearId: examMarks.academicYearId,
+    subjectId: examMarks.subjectId,
+    published: sql`EXISTS (SELECT 1 FROM exam_publications pub
+        WHERE pub.school_id = ${examMarks.schoolId} AND pub.exam_id = ${examMarks.examId}
+          AND pub.section_id = ${examMarks.sectionId} AND pub.published_at >= ${examMarks.recordedAt})`,
+  },
+  pupil: { table: students, schoolId: students.schoolId, id: students.id, studentId: students.id, published: sql`TRUE` },
+} as const satisfies Record<string, ScopedTable>
+
+export type ExamTableKind = keyof typeof EXAM_TABLES
+
+/** The descriptor of one exam table, for planPredicate with an `exam` plan. Over the unaliased table. */
+export function examScopedTable(kind: ExamTableKind): ScopedTable {
+  return EXAM_TABLES[kind]
+}
+
+/**
+ * The tables a `report_card` plan can be laid over: a published version (the
+ * card itself, published by definition), the class teacher's working entry
+ * (co-scholastic grades and remarks, never published and so never a
+ * family's), the section whose cards are being prepared (`roster`), and the
+ * pupil whose cards are being listed.
+ */
+const REPORT_CARD_TABLES = {
+  card: {
+    table: reportCardVersions,
+    schoolId: reportCardVersions.schoolId,
+    id: reportCardVersions.id,
+    studentId: reportCardVersions.studentId,
+    sectionId: reportCardVersions.sectionId,
+    academicYearId: reportCardVersions.academicYearId,
+    published: sql`TRUE`,
+  },
+  entry: {
+    table: reportCardEntries,
+    schoolId: reportCardEntries.schoolId,
+    id: reportCardEntries.id,
+    studentId: reportCardEntries.studentId,
+    sectionId: reportCardEntries.sectionId,
+    academicYearId: reportCardEntries.academicYearId,
+    published: sql`FALSE`,
+  },
+  roster: {
+    table: sections,
+    schoolId: sections.schoolId,
+    id: sections.id,
+    sectionId: sections.id,
+    academicYearId: sections.academicYearId,
+    gradeId: sections.gradeId,
+  },
+  pupil: { table: students, schoolId: students.schoolId, id: students.id, studentId: students.id, published: sql`TRUE` },
+} as const satisfies Record<string, ScopedTable>
+
+export type ReportCardTableKind = keyof typeof REPORT_CARD_TABLES
+
+/** The descriptor of one report card table, for planPredicate with a `report_card` plan. Over the unaliased table. */
+export function reportCardScopedTable(kind: ReportCardTableKind): ScopedTable {
+  return REPORT_CARD_TABLES[kind]
+}
+
 const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
   student: { table: students, schoolId: students.schoolId, id: students.id },
   staff: { table: staff, schoolId: staff.schoolId, id: staff.id },
@@ -265,6 +369,10 @@ const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
   // faces come from attendanceScopedTable and staffAttendanceScopedTable.
   attendance: ATTENDANCE_TABLES.entry,
   staff_attendance: STAFF_ATTENDANCE_TABLES.entry,
+  // The marks and the published cards are what bare plans list; the other
+  // faces come from examScopedTable and reportCardScopedTable.
+  exam: EXAM_TABLES.mark,
+  report_card: REPORT_CARD_TABLES.card,
 }
 
 /** The table a plan of this resource type lists, or null when there is none. */
@@ -354,6 +462,18 @@ export function createReadPlan(
     accessVersion: snapshot.accessVersion,
   }) as unknown as AuthorizedReadPlan
 
+  const classTeacherPairs: AssignedPair[] = []
+  for (const section of facts.classTeacherSections ?? []) {
+    if (
+      classTeacherPairs.some(
+        (p) => p.sectionId === section.sectionId && p.academicYearId === section.academicYearId,
+      )
+    ) {
+      continue
+    }
+    classTeacherPairs.push({ sectionId: section.sectionId, academicYearId: section.academicYearId })
+  }
+
   const triples: AssignedTriple[] = []
   for (const assignment of facts.assignments) {
     if (
@@ -374,6 +494,7 @@ export function createReadPlan(
     allows,
     denies,
     pairs,
+    classTeacherPairs,
     triples,
     subjectIds: [...new Set(facts.assignments.map((assignment) => assignment.subjectId))],
     childStudentIds: [...facts.ownChildStudentIds],
@@ -422,6 +543,18 @@ function assignedSectionsTerm(plan: AuthorizedReadPlan, table: ScopedTable, pair
       return table.studentId === undefined
         ? FALSE
         : enrollmentExists(table.studentId, table.schoolId, enrolledPairs)
+    case 'exam':
+    case 'report_card':
+      // The caller passes the class-teacher pairs alone for these two. A
+      // paper, a mark, a card, an entry and a roster carry their section and
+      // year; a pupil is reached through a current enrolment, as a student
+      // is; an exam's own row names no section and is never reached.
+      if (table.sectionId !== undefined && table.academicYearId !== undefined) {
+        return pairTerm(table.sectionId, table.academicYearId, pairs)
+      }
+      return table.studentId === undefined
+        ? FALSE
+        : enrollmentExists(table.studentId, table.schoolId, enrolledPairs)
     case 'section':
       return table.academicYearId === undefined ? FALSE : pairTerm(table.id, table.academicYearId, pairs)
     case 'enrollment':
@@ -458,7 +591,24 @@ function assignedSubjectsTerm(
   triples: readonly AssignedTriple[],
 ): SQL {
   if (triples.length === 0) return FALSE
-  if (plan.resourceType !== 'timetable' && plan.resourceType !== 'teaching_assignment') return FALSE
+  if (plan.resourceType !== 'timetable' && plan.resourceType !== 'teaching_assignment' && plan.resourceType !== 'exam') {
+    return FALSE
+  }
+  if (
+    plan.resourceType === 'exam' &&
+    table.subjectId === undefined &&
+    table.sectionId === undefined &&
+    table.studentId !== undefined
+  ) {
+    // A pupil face: the pupil sits, today, in a section the caller teaches
+    // some subject in. The marks shown are still narrowed by the triple.
+    const taught: AssignedPair[] = []
+    for (const triple of triples) {
+      if (taught.some((p) => p.sectionId === triple.sectionId && p.academicYearId === triple.academicYearId)) continue
+      taught.push({ sectionId: triple.sectionId, academicYearId: triple.academicYearId })
+    }
+    return enrollmentExists(table.studentId, table.schoolId, pairTerm(sql`e.section_id`, sql`e.academic_year_id`, taught))
+  }
   if (table.sectionId === undefined || table.academicYearId === undefined || table.subjectId === undefined) {
     return FALSE
   }
@@ -499,6 +649,9 @@ function ownChildrenTerm(plan: AuthorizedReadPlan, table: ScopedTable, childIds:
     case 'enrollment':
     case 'student_document':
       return table.studentId === undefined ? FALSE : idInTerm(table.studentId, childIds)
+    case 'exam':
+    case 'report_card':
+      return ownPupilTerm(table, childIds)
     case 'fee':
       // A fee row answers through the pupil it belongs to. A head or a
       // structure belongs to the school and names no pupil, so it never does.
@@ -549,6 +702,17 @@ function ownChildrenTerm(plan: AuthorizedReadPlan, table: ScopedTable, childIds:
   }
 }
 
+/**
+ * A row of one of these pupils that is published. Exams and report cards
+ * answer a family scope through the pupil, for every year, and only once the
+ * row is published; a face that names no pupil, or says nothing about being
+ * published, is never reached.
+ */
+function ownPupilTerm(table: ScopedTable, studentIds: readonly string[]): SQL {
+  if (table.studentId === undefined || table.published === undefined) return FALSE
+  return sql`(${idInTerm(table.studentId, studentIds)} AND ${table.published})`
+}
+
 function enrollmentExistsForChildren(restriction: SQL, table: ScopedTable, childList: SQL): SQL {
   return sql`EXISTS (SELECT 1 FROM enrollments e
       WHERE e.school_id = ${table.schoolId} AND e.left_on IS NULL
@@ -580,14 +744,22 @@ function scopeTerm(plan: AuthorizedReadPlan, table: ScopedTable, scope: AccessSc
     case 'self':
       return selfTerm(plan, table, parts.selfStaffId)
     case 'assigned_sections':
-      return assignedSectionsTerm(plan, table, parts.pairs)
+      // For exams and report cards this is the class-teacher post alone.
+      return assignedSectionsTerm(
+        plan,
+        table,
+        plan.resourceType === 'exam' || plan.resourceType === 'report_card' ? parts.classTeacherPairs : parts.pairs,
+      )
     case 'assigned_subjects':
       if (plan.resourceType === 'subject') return idInTerm(table.id, parts.subjectIds)
       return assignedSubjectsTerm(plan, table, parts.triples)
     case 'own_children':
       return ownChildrenTerm(plan, table, parts.childStudentIds)
     case 'own_record':
-      // Student login is disabled, so this scope never selects a row.
+      // Student login is disabled, so this scope never selects a row. For
+      // exams and report cards the term is written like own_children,
+      // published rows only, with no pupil yet to match.
+      if (plan.resourceType === 'exam' || plan.resourceType === 'report_card') return ownPupilTerm(table, [])
       return FALSE
   }
 }
@@ -619,11 +791,31 @@ function orTerms(terms: readonly SQL[]): SQL {
 
 /** The boolean a list or detail read must add to its WHERE clause. */
 export function planPredicate(plan: AuthorizedReadPlan, table: ScopedTable): SQL {
+  return buildPredicate(plan, table, [])
+}
+
+/**
+ * The same predicate with some of the plan's scopes left out. It can only
+ * ever select fewer rows than planPredicate, never more. A reader that shapes
+ * a row differently for a family (exams and report cards, where a parent sees
+ * published figures and, under grades, no marks) asks with this whether the
+ * row is also reachable through a scope other than own_children and
+ * own_record; the plan itself is unchanged.
+ */
+export function planPredicateWithout(
+  plan: AuthorizedReadPlan,
+  table: ScopedTable,
+  excluded: readonly AccessScope[],
+): SQL {
+  return buildPredicate(plan, table, excluded)
+}
+
+function buildPredicate(plan: AuthorizedReadPlan, table: ScopedTable, excluded: readonly AccessScope[]): SQL {
   const parts = internals.get(plan)
   if (!parts) throw new AuthorizationError('ACCESS_DENIED', 'This read plan was not issued by the authorizer.')
 
   const allowTerms = [
-    ...parts.scopes.map((scope) => scopeTerm(plan, table, scope, parts)),
+    ...parts.scopes.filter((scope) => !excluded.includes(scope)).map((scope) => scopeTerm(plan, table, scope, parts)),
     ...parts.allows.map((rule) => ruleTerm(plan, table, rule)),
   ]
   const denyTerms = parts.denies.map((rule) => ruleTerm(plan, table, rule))

@@ -84,6 +84,14 @@ Owner or permission changed:
 | `/attendance/staff` | `staff_attendance.read` / school or self; save uses `staff_attendance.record`, corrections `staff_attendance.manage` | `StaffAttendanceDayResponse` | Task 20 |
 | `/attendance/staff/month` | `staff_attendance.read` / school or self; export uses `staff_attendance.export` | `StaffAttendanceMonthResponse` | Task 20 |
 | `/attendance/staff/:staffId` | `staff_attendance.read` / matched record scope | `StaffAttendanceMemberMonthResponse` | Task 20 |
+| `/exams` | `exams.read` / school, assigned subjects, the class-teacher post or own children (the office sees the year's exams, a teacher their own marks sheets, a parent is sent to their child's results) | `ExamListResponse`, `ExamPapersResponse` | Task 21 |
+| `/exams/:examId` | `exams.read` / school (the exam's own row); publishing uses `exams.publish` | `ExamOverview` | Task 21 |
+| `/exams/papers/:paperId` | `exams.read` / matched record scope (the paper); save uses `exams.record_marks` until the re-check deadline, corrections `exams.manage` | `ExamSheet` | Task 21 |
+| `/exams/students/:studentId` | `exams.read` and `report_cards.read` / matched record scope (the pupil); a parent sees published rows only | `ExamResultsResponse`, `StudentReportCardsResponse` | Task 21 |
+| `/exams/report-cards` | `report_cards.read` / school or the class-teacher post | `ReportCardSectionsResponse` | Task 21 |
+| `/exams/report-cards/sections/:sectionId` | `report_cards.read` / matched record scope (the section); entries use `report_cards.manage`, publishing `report_cards.publish` | `ReportCardEntriesResponse`, `ReportCardSectionResponse` | Task 21 |
+| `/exams/report-cards/:versionId` | `report_cards.read` / matched record scope (the card); the PDF uses `report_cards.export` | `ReportCardView` | Task 21 |
+| `/exams/settings` | `exams.read` / any scope to read; saving uses `exams.manage` at school scope | `ExamSettings` | Task 21 |
 
 ## API client operations
 

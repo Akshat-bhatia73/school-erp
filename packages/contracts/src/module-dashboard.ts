@@ -5,8 +5,10 @@
  * stands for "you are not allowed to know".
  */
 import { z } from 'zod'
-import { CalendarDate, DisplayName, Id } from './common.ts'
+import { CalendarDate, DisplayName, Id, Timestamp } from './common.ts'
 import { ConsentPurpose } from './module-lifecycle.ts'
+import { ExamKind } from './module-exams.ts'
+import { ReportCardKind } from './module-report-cards.ts'
 import { AuditEventSummary, EnrollmentSummary, NamedReference, StudentBasic } from './responses.ts'
 
 const Name = z.string().trim().min(1).max(160)
@@ -163,6 +165,51 @@ export const DashboardChildAttendance = z.strictObject({
   schoolDays: z.number().int().nonnegative(),
 })
 
+/**
+ * A marks sheet the teacher still has to fill in before its re-check
+ * deadline: one of their own papers whose window is open and which has an
+ * empty cell. Counted over the caller's own `exams.record_marks` plan.
+ */
+export const DashboardMarksToEnter = z.strictObject({
+  paperId: Id,
+  exam: z.strictObject({ id: Id, kind: ExamKind, recheckDeadline: CalendarDate }),
+  section: NamedReference,
+  grade: NamedReference,
+  subject: NamedReference,
+  entered: z.number().int().nonnegative(),
+  expected: z.number().int().nonnegative(),
+})
+
+/**
+ * The office's view of this year's exams: for each exam that is set up, how
+ * many papers still have empty cells and how many sections are ready to
+ * publish. Counted over the caller's own `exams.read` plan.
+ */
+export const DashboardExams = z.strictObject({
+  items: z
+    .array(
+      z.strictObject({
+        examId: Id,
+        kind: ExamKind,
+        recheckDeadline: CalendarDate,
+        locked: z.boolean(),
+        papersOutstanding: z.number().int().nonnegative(),
+        sectionsTotal: z.number().int().nonnegative(),
+        sectionsReadyToPublish: z.number().int().nonnegative(),
+        sectionsPublished: z.number().int().nonnegative(),
+      }),
+    )
+    .max(4),
+})
+
+/** The newest published report card of one child, for the child card's link. */
+export const DashboardReportCard = z.strictObject({
+  versionId: Id,
+  card: ReportCardKind,
+  academicYear: NamedReference,
+  publishedAt: Timestamp,
+})
+
 export const DashboardSetupStepKey = z.enum(['school', 'years', 'grades', 'sections', 'subjects'])
 
 export const OfficeDashboard = z.strictObject({
@@ -179,6 +226,8 @@ export const OfficeDashboard = z.strictObject({
   glance: Glance.optional(),
   fees: DashboardFees.optional(),
   attendance: DashboardAttendance.optional(),
+  /** This year's exams; absent for anybody without `exams.read` at school scope, or with no exam set up. */
+  exams: DashboardExams.optional(),
   studentsPerTeacher: z.number().nonnegative().optional(),
   classStrength: z.array(DashboardClassStrength).optional(),
   admissionsByMonth: z
@@ -240,6 +289,8 @@ export const TeacherDashboard = z.strictObject({
       attendanceToday: DashboardClassAttendance.optional(),
     })
     .optional(),
+  /** The caller's own papers with empty cells whose window is still open, soonest deadline first. */
+  marksToEnter: z.array(DashboardMarksToEnter).max(50).optional(),
   holidays: z.array(DashboardHoliday),
 })
 
@@ -257,6 +308,8 @@ export const ParentDashboard = z.strictObject({
       feesDuePaise: DashboardPaise.optional(),
       /** This month's attendance so far; needs `attendance.read` on this child. */
       attendance: DashboardChildAttendance.optional(),
+      /** The newest published report card of any year; needs `report_cards.read` on this child. */
+      latestReportCard: DashboardReportCard.optional(),
       waitingOn: z.array(
         z.strictObject({ kind: z.literal('consent'), purpose: ConsentPurpose }),
       ),
@@ -300,3 +353,6 @@ export type TeacherDashboard = z.infer<typeof TeacherDashboard>
 export type ParentDashboard = z.infer<typeof ParentDashboard>
 export type AccountantDashboard = z.infer<typeof AccountantDashboard>
 export type DashboardResponse = z.infer<typeof DashboardResponse>
+export type DashboardMarksToEnter = z.infer<typeof DashboardMarksToEnter>
+export type DashboardExams = z.infer<typeof DashboardExams>
+export type DashboardReportCard = z.infer<typeof DashboardReportCard>
