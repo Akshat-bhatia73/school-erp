@@ -5,6 +5,7 @@ import { CircleCheck, GraduationCap, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { CONSENT_PURPOSES, type ConsentPurpose, type ParentDashboard as ParentDashboardData } from '@erp/contracts'
 import { BentoGrid, Cell, DashboardCard } from './blocks/card'
+import { ReportCardLink } from '@/components/exams/dashboard-cards'
 import { DayTimeline } from './blocks/timeline'
 import { EmptyState, Facts, SectionLabel } from '@/components/shared/page'
 import { Tag, colorFor } from '@/components/shared/tag'
@@ -185,6 +186,9 @@ function ChildCard({ child, day }: { child: ParentChild; day: ParentDashboardDat
               : []),
             ...(child.feesDuePaise !== undefined
               ? [{ label: 'Fees', value: <FeesDue studentId={student.id} duePaise={child.feesDuePaise} /> }]
+              : []),
+            ...(child.latestReportCard
+              ? [{ label: 'Report card', value: <ReportCardLink card={child.latestReportCard} /> }]
               : []),
           ]}
         />

@@ -86,6 +86,20 @@ export const qk = {
   staffAttendanceMonth: (schoolId: string, month: string) => [schoolId, 'attendance', 'staffMonth', month] as const,
   staffAttendanceMember: (schoolId: string, staffId: string, month: string) => [schoolId, 'attendance', 'staffMember', staffId, month] as const,
 
+  exams: (schoolId: string, params?: Params) => [schoolId, 'exams', 'list', params ?? {}] as const,
+  examOverview: (schoolId: string, examId: string) => [schoolId, 'exams', 'overview', examId] as const,
+  examPapers: (schoolId: string, params?: Params) => [schoolId, 'exams', 'papers', params ?? {}] as const,
+  examSheet: (schoolId: string, paperId: string) => [schoolId, 'exams', 'sheet', paperId] as const,
+  examMarkHistory: (schoolId: string, paperId: string, studentId: string, component: string) => [schoolId, 'exams', 'sheet', paperId, 'history', studentId, component] as const,
+  examResults: (schoolId: string, studentId: string, params?: Params) => [schoolId, 'exams', 'results', studentId, params ?? {}] as const,
+
+  examSettings: (schoolId: string) => [schoolId, 'reportCards', 'settings'] as const,
+  reportCardEntries: (schoolId: string, sectionId: string, term: string) => [schoolId, 'reportCards', 'entries', sectionId, term] as const,
+  reportCardSections: (schoolId: string, params?: Params) => [schoolId, 'reportCards', 'sections', params ?? {}] as const,
+  reportCardSection: (schoolId: string, sectionId: string, card: string) => [schoolId, 'reportCards', 'section', sectionId, card] as const,
+  studentReportCards: (schoolId: string, studentId: string, params?: Params) => [schoolId, 'reportCards', 'student', studentId, params ?? {}] as const,
+  reportCardVersion: (schoolId: string, versionId: string) => [schoolId, 'reportCards', 'version', versionId] as const,
+
   dashboard: (schoolId: string, params?: unknown) => [schoolId, 'dashboard', params ?? {}] as const,
   search: (schoolId: string, q: string) => [schoolId, 'search', q] as const,
   auditEvents: (schoolId: string, params?: Params) => [schoolId, 'audit', 'events', params ?? {}] as const,

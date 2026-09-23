@@ -1,6 +1,6 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, CalendarClock, CalendarDays, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, ListChecks, PanelLeft, School, ScrollText, Search, ShieldCheck, Users, UserRound, BookOpen, Sparkles, X } from 'lucide-react'
+import { Building2, CalendarClock, CalendarDays, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, ListChecks, NotebookPen, PanelLeft, School, ScrollText, Search, ShieldCheck, Users, UserRound, BookOpen, Sparkles, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { AccountMenu } from '@/components/auth/account-menu'
 import { SectionLabel } from '@/components/shared/page'
@@ -67,6 +67,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
     { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
     { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
     { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read'] },
+    { label: 'Exams', to: '/exams', icon: <NotebookPen />, permissions: ['exams.read', 'report_cards.read'] },
   ]
   const setup: NavItem[] = [
     { label: 'School profile', to: '/setup/school', icon: <School />, permission: 'school.read' },
@@ -79,6 +80,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
     { label: 'Users & logins', to: '/settings/users', icon: <UserRound />, permission: 'members.read' },
     { label: 'Roles & permissions', to: '/settings/roles', icon: <ShieldCheck />, permission: 'roles.read' },
     { label: 'Audit log', to: '/settings/audit-log', icon: <ScrollText />, permission: 'audit.read' },
+    { label: 'Exams & report cards', to: '/exams/settings', icon: <NotebookPen />, permission: 'exams.manage' },
   ]
   const allowed = (item: NavItem) =>
     (!item.permission || hasPermission(item.permission)) &&
@@ -138,7 +140,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
           <>
             <SectionLabel>Coming next</SectionLabel>
             <div className="flex flex-col gap-0.5 opacity-60">
-              {[['Exams & marks', 'Phase 3'], ['Messages', 'Phase 2'], ['AI assistant', 'Phase 4']].map(([l, p]) => (
+              {[['Messages', 'Phase 2'], ['AI assistant', 'Phase 4']].map(([l, p]) => (
                 <div key={l} className="flex h-8 items-center justify-between px-2 text-[13px] text-muted-foreground"><span>{l}</span><span className="text-[11px]">{p}</span></div>
               ))}
             </div>

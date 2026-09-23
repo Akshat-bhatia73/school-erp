@@ -7,6 +7,8 @@ import {
 import { DisplayName, Id, Phone, Reason, Timestamp, Version } from './common.ts'
 import { FeeStatement } from './module-fees.ts'
 import { AttendanceYearRecord } from './module-attendance.ts'
+import { ExamResultsResponse } from './module-exams.ts'
+import { ReportCardView } from './module-report-cards.ts'
 
 /** The purposes a school may ask a guardian to consent to. */
 export const CONSENT_PURPOSES = [
@@ -147,6 +149,14 @@ export const SubjectAccessExport = z.strictObject({
   fees: z.array(FeeStatement).max(30).optional(),
   /** One record per academic year with a mark; needs `attendance.read` on this pupil. */
   attendance: z.array(AttendanceYearRecord).max(30).optional(),
+  /**
+   * One answer per academic year the pupil has a mark in, exactly as the
+   * results screen gives it to this caller: published marks only for a
+   * parent. Needs `exams.read` on this pupil.
+   */
+  exams: z.array(ExamResultsResponse).max(30).optional(),
+  /** Every published report card version, newest first; needs `report_cards.read` on this pupil. */
+  reportCards: z.array(ReportCardView).max(120).optional(),
   accessHistory: z.array(SubjectAccessEvent).max(200).optional(),
 })
 

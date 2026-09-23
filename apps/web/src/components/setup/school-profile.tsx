@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { UpdateSchoolRequest } from '@erp/contracts'
 import { Facts, Panel } from '@/components/shared/page'
+import { SchoolLogo } from '@/components/setup/school-logo'
 import { Field, toE164, validate, type FieldErrors } from '@/components/setup/field'
 import { CHECK_FIELDS, type FieldLabels } from '@/lib/validation'
 import { Input } from '@/components/ui/input'
@@ -123,12 +124,12 @@ export function SchoolProfileBody({ ctl }: { ctl: Controller }) {
   return (
     <div className="max-w-4xl space-y-4 p-5">
       <Panel bodyClassName="pt-4">
-        <div className="flex items-center gap-4">
-          <div className="flex size-16 items-center justify-center rounded-xl border bg-muted/60 text-[20px] font-semibold tracking-tight">{form.shortName}</div>
-          <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="min-w-0 flex-1">
             <h2 className="truncate text-[15px] font-semibold">{form.name}</h2>
             <p className="mt-0.5 text-[12.5px] text-muted-foreground">{BOARD_LABEL[form.board]}</p>
           </div>
+          {ctl.school && <SchoolLogo shortName={form.shortName} logo={ctl.school.logo} version={ctl.school.version} canEdit={canEdit} />}
         </div>
       </Panel>
 

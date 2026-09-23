@@ -24,6 +24,8 @@ import { Route as AccountSecurityRouteImport } from './routes/account/security'
 import { Route as MfaSetupRouteImport } from './routes/mfa/setup'
 import { Route as MfaVerifyRouteImport } from './routes/mfa/verify'
 import { Route as AppAttendanceIndexRouteImport } from './routes/_app/attendance/index'
+import { Route as AppExamsIndexRouteImport } from './routes/_app/exams/index'
+import { Route as AppExamsExamIdRouteImport } from './routes/_app/exams/$examId'
 import { Route as AppFeesIndexRouteImport } from './routes/_app/fees/index'
 import { Route as AppFeesCollectionsRouteImport } from './routes/_app/fees/collections'
 import { Route as AppFeesSetupRouteImport } from './routes/_app/fees/setup'
@@ -51,10 +53,16 @@ import { Route as AppAttendanceStaffIndexRouteImport } from './routes/_app/atten
 import { Route as AppAttendanceStaffStaffIdRouteImport } from './routes/_app/attendance/staff/$staffId'
 import { Route as AppAttendanceStaffMonthRouteImport } from './routes/_app/attendance/staff/month'
 import { Route as AppAttendanceStudentsStudentIdRouteImport } from './routes/_app/attendance/students/$studentId'
+import { Route as AppExamsPapersPaperIdRouteImport } from './routes/_app/exams/papers/$paperId'
+import { Route as AppExamsReportCardsIndexRouteImport } from './routes/_app/exams/report-cards/index'
+import { Route as AppExamsReportCardsVersionIdRouteImport } from './routes/_app/exams/report-cards/$versionId'
+import { Route as AppExamsSettingsIndexRouteImport } from './routes/_app/exams/settings/index'
+import { Route as AppExamsStudentsStudentIdRouteImport } from './routes/_app/exams/students/$studentId'
 import { Route as AppFeesReceiptsReceiptIdRouteImport } from './routes/_app/fees/receipts/$receiptId'
 import { Route as AppFeesStudentsStudentIdRouteImport } from './routes/_app/fees/students/$studentId'
 import { Route as AppAttendanceSectionsSectionIdIndexRouteImport } from './routes/_app/attendance/sections/$sectionId/index'
 import { Route as AppAttendanceSectionsSectionIdMonthRouteImport } from './routes/_app/attendance/sections/$sectionId/month'
+import { Route as AppExamsReportCardsSectionsSectionIdRouteImport } from './routes/_app/exams/report-cards/sections/$sectionId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -128,6 +136,16 @@ const MfaVerifyRoute = MfaVerifyRouteImport.update({
 const AppAttendanceIndexRoute = AppAttendanceIndexRouteImport.update({
   id: '/attendance/',
   path: '/attendance/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppExamsIndexRoute = AppExamsIndexRouteImport.update({
+  id: '/exams/',
+  path: '/exams/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppExamsExamIdRoute = AppExamsExamIdRouteImport.update({
+  id: '/exams/$examId',
+  path: '/exams/$examId',
   getParentRoute: () => AppRoute,
 } as any)
 const AppFeesIndexRoute = AppFeesIndexRouteImport.update({
@@ -268,6 +286,34 @@ const AppAttendanceStudentsStudentIdRoute =
     path: '/attendance/students/$studentId',
     getParentRoute: () => AppRoute,
   } as any)
+const AppExamsPapersPaperIdRoute = AppExamsPapersPaperIdRouteImport.update({
+  id: '/exams/papers/$paperId',
+  path: '/exams/papers/$paperId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppExamsReportCardsIndexRoute =
+  AppExamsReportCardsIndexRouteImport.update({
+    id: '/exams/report-cards/',
+    path: '/exams/report-cards/',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppExamsReportCardsVersionIdRoute =
+  AppExamsReportCardsVersionIdRouteImport.update({
+    id: '/exams/report-cards/$versionId',
+    path: '/exams/report-cards/$versionId',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppExamsSettingsIndexRoute = AppExamsSettingsIndexRouteImport.update({
+  id: '/exams/settings/',
+  path: '/exams/settings/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppExamsStudentsStudentIdRoute =
+  AppExamsStudentsStudentIdRouteImport.update({
+    id: '/exams/students/$studentId',
+    path: '/exams/students/$studentId',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppFeesReceiptsReceiptIdRoute =
   AppFeesReceiptsReceiptIdRouteImport.update({
     id: '/fees/receipts/$receiptId',
@@ -292,6 +338,12 @@ const AppAttendanceSectionsSectionIdMonthRoute =
     path: '/attendance/sections/$sectionId/month',
     getParentRoute: () => AppRoute,
   } as any)
+const AppExamsReportCardsSectionsSectionIdRoute =
+  AppExamsReportCardsSectionsSectionIdRouteImport.update({
+    id: '/exams/report-cards/sections/$sectionId',
+    path: '/exams/report-cards/sections/$sectionId',
+    getParentRoute: () => AppRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -307,6 +359,7 @@ export interface FileRoutesByFullPath {
   '/account/security': typeof AccountSecurityRoute
   '/mfa/setup': typeof MfaSetupRoute
   '/mfa/verify': typeof MfaVerifyRoute
+  '/exams/$examId': typeof AppExamsExamIdRoute
   '/fees/collections': typeof AppFeesCollectionsRoute
   '/fees/setup': typeof AppFeesSetupRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
@@ -327,6 +380,7 @@ export interface FileRoutesByFullPath {
   '/timetable/substitutions': typeof AppTimetableSubstitutionsRoute
   '/timetable/teachers': typeof AppTimetableTeachersRoute
   '/attendance/': typeof AppAttendanceIndexRoute
+  '/exams/': typeof AppExamsIndexRoute
   '/fees/': typeof AppFeesIndexRoute
   '/staff/': typeof AppStaffIndexRoute
   '/students/': typeof AppStudentsIndexRoute
@@ -334,10 +388,16 @@ export interface FileRoutesByFullPath {
   '/attendance/staff/$staffId': typeof AppAttendanceStaffStaffIdRoute
   '/attendance/staff/month': typeof AppAttendanceStaffMonthRoute
   '/attendance/students/$studentId': typeof AppAttendanceStudentsStudentIdRoute
+  '/exams/papers/$paperId': typeof AppExamsPapersPaperIdRoute
+  '/exams/report-cards/$versionId': typeof AppExamsReportCardsVersionIdRoute
+  '/exams/students/$studentId': typeof AppExamsStudentsStudentIdRoute
   '/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
   '/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
   '/attendance/staff/': typeof AppAttendanceStaffIndexRoute
+  '/exams/report-cards/': typeof AppExamsReportCardsIndexRoute
+  '/exams/settings/': typeof AppExamsSettingsIndexRoute
   '/attendance/sections/$sectionId/month': typeof AppAttendanceSectionsSectionIdMonthRoute
+  '/exams/report-cards/sections/$sectionId': typeof AppExamsReportCardsSectionsSectionIdRoute
   '/attendance/sections/$sectionId/': typeof AppAttendanceSectionsSectionIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -354,6 +414,7 @@ export interface FileRoutesByTo {
   '/account/security': typeof AccountSecurityRoute
   '/mfa/setup': typeof MfaSetupRoute
   '/mfa/verify': typeof MfaVerifyRoute
+  '/exams/$examId': typeof AppExamsExamIdRoute
   '/fees/collections': typeof AppFeesCollectionsRoute
   '/fees/setup': typeof AppFeesSetupRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
@@ -374,6 +435,7 @@ export interface FileRoutesByTo {
   '/timetable/substitutions': typeof AppTimetableSubstitutionsRoute
   '/timetable/teachers': typeof AppTimetableTeachersRoute
   '/attendance': typeof AppAttendanceIndexRoute
+  '/exams': typeof AppExamsIndexRoute
   '/fees': typeof AppFeesIndexRoute
   '/staff': typeof AppStaffIndexRoute
   '/students': typeof AppStudentsIndexRoute
@@ -381,10 +443,16 @@ export interface FileRoutesByTo {
   '/attendance/staff/$staffId': typeof AppAttendanceStaffStaffIdRoute
   '/attendance/staff/month': typeof AppAttendanceStaffMonthRoute
   '/attendance/students/$studentId': typeof AppAttendanceStudentsStudentIdRoute
+  '/exams/papers/$paperId': typeof AppExamsPapersPaperIdRoute
+  '/exams/report-cards/$versionId': typeof AppExamsReportCardsVersionIdRoute
+  '/exams/students/$studentId': typeof AppExamsStudentsStudentIdRoute
   '/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
   '/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
   '/attendance/staff': typeof AppAttendanceStaffIndexRoute
+  '/exams/report-cards': typeof AppExamsReportCardsIndexRoute
+  '/exams/settings': typeof AppExamsSettingsIndexRoute
   '/attendance/sections/$sectionId/month': typeof AppAttendanceSectionsSectionIdMonthRoute
+  '/exams/report-cards/sections/$sectionId': typeof AppExamsReportCardsSectionsSectionIdRoute
   '/attendance/sections/$sectionId': typeof AppAttendanceSectionsSectionIdIndexRoute
 }
 export interface FileRoutesById {
@@ -403,6 +471,7 @@ export interface FileRoutesById {
   '/account/security': typeof AccountSecurityRoute
   '/mfa/setup': typeof MfaSetupRoute
   '/mfa/verify': typeof MfaVerifyRoute
+  '/_app/exams/$examId': typeof AppExamsExamIdRoute
   '/_app/fees/collections': typeof AppFeesCollectionsRoute
   '/_app/fees/setup': typeof AppFeesSetupRoute
   '/_app/settings/audit-log': typeof AppSettingsAuditLogRoute
@@ -423,6 +492,7 @@ export interface FileRoutesById {
   '/_app/timetable/substitutions': typeof AppTimetableSubstitutionsRoute
   '/_app/timetable/teachers': typeof AppTimetableTeachersRoute
   '/_app/attendance/': typeof AppAttendanceIndexRoute
+  '/_app/exams/': typeof AppExamsIndexRoute
   '/_app/fees/': typeof AppFeesIndexRoute
   '/_app/staff/': typeof AppStaffIndexRoute
   '/_app/students/': typeof AppStudentsIndexRoute
@@ -430,10 +500,16 @@ export interface FileRoutesById {
   '/_app/attendance/staff/$staffId': typeof AppAttendanceStaffStaffIdRoute
   '/_app/attendance/staff/month': typeof AppAttendanceStaffMonthRoute
   '/_app/attendance/students/$studentId': typeof AppAttendanceStudentsStudentIdRoute
+  '/_app/exams/papers/$paperId': typeof AppExamsPapersPaperIdRoute
+  '/_app/exams/report-cards/$versionId': typeof AppExamsReportCardsVersionIdRoute
+  '/_app/exams/students/$studentId': typeof AppExamsStudentsStudentIdRoute
   '/_app/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
   '/_app/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
   '/_app/attendance/staff/': typeof AppAttendanceStaffIndexRoute
+  '/_app/exams/report-cards/': typeof AppExamsReportCardsIndexRoute
+  '/_app/exams/settings/': typeof AppExamsSettingsIndexRoute
   '/_app/attendance/sections/$sectionId/month': typeof AppAttendanceSectionsSectionIdMonthRoute
+  '/_app/exams/report-cards/sections/$sectionId': typeof AppExamsReportCardsSectionsSectionIdRoute
   '/_app/attendance/sections/$sectionId/': typeof AppAttendanceSectionsSectionIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -452,6 +528,7 @@ export interface FileRouteTypes {
     | '/account/security'
     | '/mfa/setup'
     | '/mfa/verify'
+    | '/exams/$examId'
     | '/fees/collections'
     | '/fees/setup'
     | '/settings/audit-log'
@@ -472,6 +549,7 @@ export interface FileRouteTypes {
     | '/timetable/substitutions'
     | '/timetable/teachers'
     | '/attendance/'
+    | '/exams/'
     | '/fees/'
     | '/staff/'
     | '/students/'
@@ -479,10 +557,16 @@ export interface FileRouteTypes {
     | '/attendance/staff/$staffId'
     | '/attendance/staff/month'
     | '/attendance/students/$studentId'
+    | '/exams/papers/$paperId'
+    | '/exams/report-cards/$versionId'
+    | '/exams/students/$studentId'
     | '/fees/receipts/$receiptId'
     | '/fees/students/$studentId'
     | '/attendance/staff/'
+    | '/exams/report-cards/'
+    | '/exams/settings/'
     | '/attendance/sections/$sectionId/month'
+    | '/exams/report-cards/sections/$sectionId'
     | '/attendance/sections/$sectionId/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -499,6 +583,7 @@ export interface FileRouteTypes {
     | '/account/security'
     | '/mfa/setup'
     | '/mfa/verify'
+    | '/exams/$examId'
     | '/fees/collections'
     | '/fees/setup'
     | '/settings/audit-log'
@@ -519,6 +604,7 @@ export interface FileRouteTypes {
     | '/timetable/substitutions'
     | '/timetable/teachers'
     | '/attendance'
+    | '/exams'
     | '/fees'
     | '/staff'
     | '/students'
@@ -526,10 +612,16 @@ export interface FileRouteTypes {
     | '/attendance/staff/$staffId'
     | '/attendance/staff/month'
     | '/attendance/students/$studentId'
+    | '/exams/papers/$paperId'
+    | '/exams/report-cards/$versionId'
+    | '/exams/students/$studentId'
     | '/fees/receipts/$receiptId'
     | '/fees/students/$studentId'
     | '/attendance/staff'
+    | '/exams/report-cards'
+    | '/exams/settings'
     | '/attendance/sections/$sectionId/month'
+    | '/exams/report-cards/sections/$sectionId'
     | '/attendance/sections/$sectionId'
   id:
     | '__root__'
@@ -547,6 +639,7 @@ export interface FileRouteTypes {
     | '/account/security'
     | '/mfa/setup'
     | '/mfa/verify'
+    | '/_app/exams/$examId'
     | '/_app/fees/collections'
     | '/_app/fees/setup'
     | '/_app/settings/audit-log'
@@ -567,6 +660,7 @@ export interface FileRouteTypes {
     | '/_app/timetable/substitutions'
     | '/_app/timetable/teachers'
     | '/_app/attendance/'
+    | '/_app/exams/'
     | '/_app/fees/'
     | '/_app/staff/'
     | '/_app/students/'
@@ -574,10 +668,16 @@ export interface FileRouteTypes {
     | '/_app/attendance/staff/$staffId'
     | '/_app/attendance/staff/month'
     | '/_app/attendance/students/$studentId'
+    | '/_app/exams/papers/$paperId'
+    | '/_app/exams/report-cards/$versionId'
+    | '/_app/exams/students/$studentId'
     | '/_app/fees/receipts/$receiptId'
     | '/_app/fees/students/$studentId'
     | '/_app/attendance/staff/'
+    | '/_app/exams/report-cards/'
+    | '/_app/exams/settings/'
     | '/_app/attendance/sections/$sectionId/month'
+    | '/_app/exams/report-cards/sections/$sectionId'
     | '/_app/attendance/sections/$sectionId/'
   fileRoutesById: FileRoutesById
 }
@@ -702,6 +802,20 @@ declare module '@tanstack/react-router' {
       path: '/attendance'
       fullPath: '/attendance/'
       preLoaderRoute: typeof AppAttendanceIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/exams/': {
+      id: '/_app/exams/'
+      path: '/exams'
+      fullPath: '/exams/'
+      preLoaderRoute: typeof AppExamsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/exams/$examId': {
+      id: '/_app/exams/$examId'
+      path: '/exams/$examId'
+      fullPath: '/exams/$examId'
+      preLoaderRoute: typeof AppExamsExamIdRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/fees/': {
@@ -893,6 +1007,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAttendanceStudentsStudentIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/exams/papers/$paperId': {
+      id: '/_app/exams/papers/$paperId'
+      path: '/exams/papers/$paperId'
+      fullPath: '/exams/papers/$paperId'
+      preLoaderRoute: typeof AppExamsPapersPaperIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/exams/report-cards/': {
+      id: '/_app/exams/report-cards/'
+      path: '/exams/report-cards'
+      fullPath: '/exams/report-cards/'
+      preLoaderRoute: typeof AppExamsReportCardsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/exams/report-cards/$versionId': {
+      id: '/_app/exams/report-cards/$versionId'
+      path: '/exams/report-cards/$versionId'
+      fullPath: '/exams/report-cards/$versionId'
+      preLoaderRoute: typeof AppExamsReportCardsVersionIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/exams/settings/': {
+      id: '/_app/exams/settings/'
+      path: '/exams/settings'
+      fullPath: '/exams/settings/'
+      preLoaderRoute: typeof AppExamsSettingsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/exams/students/$studentId': {
+      id: '/_app/exams/students/$studentId'
+      path: '/exams/students/$studentId'
+      fullPath: '/exams/students/$studentId'
+      preLoaderRoute: typeof AppExamsStudentsStudentIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/fees/receipts/$receiptId': {
       id: '/_app/fees/receipts/$receiptId'
       path: '/fees/receipts/$receiptId'
@@ -921,11 +1070,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAttendanceSectionsSectionIdMonthRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/exams/report-cards/sections/$sectionId': {
+      id: '/_app/exams/report-cards/sections/$sectionId'
+      path: '/exams/report-cards/sections/$sectionId'
+      fullPath: '/exams/report-cards/sections/$sectionId'
+      preLoaderRoute: typeof AppExamsReportCardsSectionsSectionIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
   AppDashboardRoute: typeof AppDashboardRoute
+  AppExamsExamIdRoute: typeof AppExamsExamIdRoute
   AppFeesCollectionsRoute: typeof AppFeesCollectionsRoute
   AppFeesSetupRoute: typeof AppFeesSetupRoute
   AppSettingsAuditLogRoute: typeof AppSettingsAuditLogRoute
@@ -946,6 +1103,7 @@ interface AppRouteChildren {
   AppTimetableSubstitutionsRoute: typeof AppTimetableSubstitutionsRoute
   AppTimetableTeachersRoute: typeof AppTimetableTeachersRoute
   AppAttendanceIndexRoute: typeof AppAttendanceIndexRoute
+  AppExamsIndexRoute: typeof AppExamsIndexRoute
   AppFeesIndexRoute: typeof AppFeesIndexRoute
   AppStaffIndexRoute: typeof AppStaffIndexRoute
   AppStudentsIndexRoute: typeof AppStudentsIndexRoute
@@ -953,15 +1111,22 @@ interface AppRouteChildren {
   AppAttendanceStaffStaffIdRoute: typeof AppAttendanceStaffStaffIdRoute
   AppAttendanceStaffMonthRoute: typeof AppAttendanceStaffMonthRoute
   AppAttendanceStudentsStudentIdRoute: typeof AppAttendanceStudentsStudentIdRoute
+  AppExamsPapersPaperIdRoute: typeof AppExamsPapersPaperIdRoute
+  AppExamsReportCardsVersionIdRoute: typeof AppExamsReportCardsVersionIdRoute
+  AppExamsStudentsStudentIdRoute: typeof AppExamsStudentsStudentIdRoute
   AppFeesReceiptsReceiptIdRoute: typeof AppFeesReceiptsReceiptIdRoute
   AppFeesStudentsStudentIdRoute: typeof AppFeesStudentsStudentIdRoute
   AppAttendanceStaffIndexRoute: typeof AppAttendanceStaffIndexRoute
+  AppExamsReportCardsIndexRoute: typeof AppExamsReportCardsIndexRoute
+  AppExamsSettingsIndexRoute: typeof AppExamsSettingsIndexRoute
   AppAttendanceSectionsSectionIdMonthRoute: typeof AppAttendanceSectionsSectionIdMonthRoute
+  AppExamsReportCardsSectionsSectionIdRoute: typeof AppExamsReportCardsSectionsSectionIdRoute
   AppAttendanceSectionsSectionIdIndexRoute: typeof AppAttendanceSectionsSectionIdIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppDashboardRoute: AppDashboardRoute,
+  AppExamsExamIdRoute: AppExamsExamIdRoute,
   AppFeesCollectionsRoute: AppFeesCollectionsRoute,
   AppFeesSetupRoute: AppFeesSetupRoute,
   AppSettingsAuditLogRoute: AppSettingsAuditLogRoute,
@@ -982,6 +1147,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppTimetableSubstitutionsRoute: AppTimetableSubstitutionsRoute,
   AppTimetableTeachersRoute: AppTimetableTeachersRoute,
   AppAttendanceIndexRoute: AppAttendanceIndexRoute,
+  AppExamsIndexRoute: AppExamsIndexRoute,
   AppFeesIndexRoute: AppFeesIndexRoute,
   AppStaffIndexRoute: AppStaffIndexRoute,
   AppStudentsIndexRoute: AppStudentsIndexRoute,
@@ -989,11 +1155,18 @@ const AppRouteChildren: AppRouteChildren = {
   AppAttendanceStaffStaffIdRoute: AppAttendanceStaffStaffIdRoute,
   AppAttendanceStaffMonthRoute: AppAttendanceStaffMonthRoute,
   AppAttendanceStudentsStudentIdRoute: AppAttendanceStudentsStudentIdRoute,
+  AppExamsPapersPaperIdRoute: AppExamsPapersPaperIdRoute,
+  AppExamsReportCardsVersionIdRoute: AppExamsReportCardsVersionIdRoute,
+  AppExamsStudentsStudentIdRoute: AppExamsStudentsStudentIdRoute,
   AppFeesReceiptsReceiptIdRoute: AppFeesReceiptsReceiptIdRoute,
   AppFeesStudentsStudentIdRoute: AppFeesStudentsStudentIdRoute,
   AppAttendanceStaffIndexRoute: AppAttendanceStaffIndexRoute,
+  AppExamsReportCardsIndexRoute: AppExamsReportCardsIndexRoute,
+  AppExamsSettingsIndexRoute: AppExamsSettingsIndexRoute,
   AppAttendanceSectionsSectionIdMonthRoute:
     AppAttendanceSectionsSectionIdMonthRoute,
+  AppExamsReportCardsSectionsSectionIdRoute:
+    AppExamsReportCardsSectionsSectionIdRoute,
   AppAttendanceSectionsSectionIdIndexRoute:
     AppAttendanceSectionsSectionIdIndexRoute,
 }

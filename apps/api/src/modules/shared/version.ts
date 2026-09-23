@@ -21,6 +21,9 @@ export type VersionedTable =
   | 'fee_structures'
   | 'fee_student_heads'
   | 'fee_concessions'
+  | 'exams'
+  | 'report_card_entries'
+  | 'exam_settings'
 
 /** The caller edited a record someone else has already changed. */
 export function assertVersion(expected: number, actual: number): void {

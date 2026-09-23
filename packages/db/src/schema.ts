@@ -214,6 +214,10 @@ export const schools = pgTable('schools', {
   principalName: text('principal_name'),
   establishedYear: integer('established_year'),
   logoUrl: text('logo_url'),
+  /** The logo in the private document store. Server state, never returned. */
+  logoStorageKey: text('logo_storage_key'),
+  logoContentType: text('logo_content_type'),
+  logoUpdatedAt: timestamp('logo_updated_at', { withTimezone: true }),
   accessVersion: integer('access_version').notNull().default(1),
   // The edit counter of the profile. access_version belongs to the access
   // locking protocol and never doubles as this.
@@ -1144,6 +1148,203 @@ export const staffAttendanceEntries = pgTable(
   ],
 )
 
+/**
+ * Task 21. One row per academic year and exam of the fixed CBSE pattern; the
+ * pattern itself (components and maximums) is a constant in @erp/contracts.
+ */
+export const exams = pgTable(
+  'exams',
+  {
+    id: id(),
+    schoolId: tenant(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    /** periodic_test_1, half_yearly, periodic_test_2 or annual. */
+    kind: text('kind').notNull(),
+    startsOn: date('starts_on').notNull(),
+    endsOn: date('ends_on').notNull(),
+    /** The last day a subject teacher may change a mark, in the school's timezone. */
+    recheckDeadline: date('recheck_deadline').notNull(),
+    version: integer('version').notNull().default(1),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('exams_school_id_id_key').on(t.schoolId, t.id),
+    unique('exams_school_id_academic_year_id_id_key').on(t.schoolId, t.academicYearId, t.id),
+    unique('exams_school_id_academic_year_id_kind_key').on(t.schoolId, t.academicYearId, t.kind),
+  ],
+)
+
+/** One sheet of marks: an exam, a section and a subject. */
+export const examPapers = pgTable(
+  'exam_papers',
+  {
+    id: id(),
+    schoolId: tenant(),
+    examId: uuid('exam_id').notNull(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    sectionId: uuid('section_id').notNull(),
+    subjectId: uuid('subject_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique('exam_papers_school_id_id_key').on(t.schoolId, t.id),
+    unique('exam_papers_school_id_exam_id_section_id_subject_id_key').on(
+      t.schoolId,
+      t.examId,
+      t.sectionId,
+      t.subjectId,
+    ),
+    index('exam_papers_section_idx').on(t.schoolId, t.sectionId),
+  ],
+)
+
+/**
+ * One mark, appended. The current mark of a pupil, paper and component is the
+ * highest revision; nothing is ever updated or deleted.
+ */
+export const examMarks = pgTable(
+  'exam_marks',
+  {
+    id: id(),
+    schoolId: tenant(),
+    paperId: uuid('paper_id').notNull(),
+    examId: uuid('exam_id').notNull(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    sectionId: uuid('section_id').notNull(),
+    subjectId: uuid('subject_id').notNull(),
+    studentId: uuid('student_id').notNull(),
+    /** periodic_test, notebook, subject_enrichment or written. */
+    component: text('component').notNull(),
+    /** marked, absent, medical or exempt. */
+    status: text('status').notNull(),
+    /** Whole tenths of a mark, set only when the status is marked. */
+    marksTenths: integer('marks_tenths'),
+    revision: integer('revision').notNull(),
+    supersedesMarkId: uuid('supersedes_mark_id'),
+    /** 'entry' from the marks sheet, 'correction' by the office with a reason. */
+    kind: text('kind').notNull(),
+    /** recheck, entry_error or other; the words are the audit note. */
+    reasonKind: text('reason_kind'),
+    recordedByMembershipId: uuid('recorded_by_membership_id').notNull(),
+    recordedAt: timestamp('recorded_at', { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    unique('exam_marks_school_id_id_key').on(t.schoolId, t.id),
+    unique('exam_marks_school_id_paper_id_student_id_component_revision_key').on(
+      t.schoolId,
+      t.paperId,
+      t.studentId,
+      t.component,
+      t.revision,
+    ),
+    index('exam_marks_student_idx').on(t.schoolId, t.studentId),
+    index('exam_marks_exam_section_idx').on(t.schoolId, t.examId, t.sectionId),
+  ],
+)
+
+/** The office publishing one exam's results for one section; appended, never changed. */
+export const examPublications = pgTable(
+  'exam_publications',
+  {
+    id: id(),
+    schoolId: tenant(),
+    examId: uuid('exam_id').notNull(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    sectionId: uuid('section_id').notNull(),
+    publishedByMembershipId: uuid('published_by_membership_id').notNull(),
+    publishedAt: timestamp('published_at', { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [unique('exam_publications_school_id_id_key').on(t.schoolId, t.id)],
+)
+
+/** The class teacher's co-scholastic grades and remarks for one pupil and term. */
+export const reportCardEntries = pgTable(
+  'report_card_entries',
+  {
+    id: id(),
+    schoolId: tenant(),
+    studentId: uuid('student_id').notNull(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    sectionId: uuid('section_id').notNull(),
+    /** term_1 or term_2. */
+    term: text('term').notNull(),
+    workEducation: text('work_education'),
+    artEducation: text('art_education'),
+    healthPhysicalEducation: text('health_physical_education'),
+    discipline: text('discipline'),
+    /** Free text about a child; cleared by anonymisation, never in an audit row. */
+    remarks: text('remarks'),
+    updatedByMembershipId: uuid('updated_by_membership_id').notNull(),
+    version: integer('version').notNull().default(1),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('report_card_entries_school_id_id_key').on(t.schoolId, t.id),
+    unique('report_card_entries_school_id_section_id_student_id_term_key').on(
+      t.schoolId,
+      t.sectionId,
+      t.studentId,
+      t.term,
+    ),
+  ],
+)
+
+/** A published report card, frozen. Only the remarks can ever be cleared. */
+export const reportCardVersions = pgTable(
+  'report_card_versions',
+  {
+    id: id(),
+    schoolId: tenant(),
+    studentId: uuid('student_id').notNull(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    sectionId: uuid('section_id').notNull(),
+    /** term_1 or final. */
+    card: text('card').notNull(),
+    versionNumber: integer('version_number').notNull(),
+    content: jsonb('content').notNull(),
+    remarks: jsonb('remarks'),
+    contentHash: text('content_hash').notNull(),
+    publishedByMembershipId: uuid('published_by_membership_id').notNull(),
+    publishedAt: timestamp('published_at', { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    unique('report_card_versions_school_id_id_key').on(t.schoolId, t.id),
+    unique('report_card_versions_school_id_student_id_academic_year_id_card_version_number_key').on(
+      t.schoolId,
+      t.studentId,
+      t.academicYearId,
+      t.card,
+      t.versionNumber,
+    ),
+    index('report_card_versions_section_idx').on(t.schoolId, t.sectionId, t.card),
+  ],
+)
+
+/** The school's grade bands, marks-or-grades choice and report card layout. */
+export const examSettings = pgTable(
+  'exam_settings',
+  {
+    id: id(),
+    schoolId: tenant().unique(),
+    /** marks or grades. */
+    displayMode: text('display_mode').notNull(),
+    gradeBands: jsonb('grade_bands').notNull(),
+    layout: jsonb('layout').notNull(),
+    updatedByMembershipId: uuid('updated_by_membership_id').notNull(),
+    version: integer('version').notNull().default(1),
+    ...timestamps(),
+  },
+  (t) => [unique('exam_settings_school_id_id_key').on(t.schoolId, t.id)],
+)
+
 export const schoolTables = [
   schoolMemberships,
   roles,
@@ -1187,4 +1388,11 @@ export const schoolTables = [
   feeReceiptLines,
   attendanceEntries,
   staffAttendanceEntries,
+  exams,
+  examPapers,
+  examMarks,
+  examPublications,
+  reportCardEntries,
+  reportCardVersions,
+  examSettings,
 ] as const

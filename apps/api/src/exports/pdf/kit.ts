@@ -26,6 +26,21 @@ const RADIUS = 12
 const REGULAR = 'inter'
 const SEMIBOLD = 'inter-semibold'
 
+/**
+ * The colours and fonts above, for a renderer that draws its own page (the
+ * report card) but must look like every other document. Nothing in this file
+ * reads these; they are the same values, handed out.
+ */
+export const PDF_COLOURS = { foreground: FOREGROUND, muted: MUTED, border: BORDER, canvas: CANVAS, panel: PANEL } as const
+export const PDF_RADIUS = RADIUS
+export const PDF_FONTS = { regular: REGULAR, semibold: SEMIBOLD } as const
+
+/** Register the two faces of Inter on a document under the names in PDF_FONTS. */
+export function registerPdfFonts(doc: PDFKit.PDFDocument): void {
+  doc.registerFont(REGULAR, Buffer.from(INTER_REGULAR_BASE64, 'base64'))
+  doc.registerFont(SEMIBOLD, Buffer.from(INTER_SEMIBOLD_BASE64, 'base64'))
+}
+
 /** Table text, and the smaller line a rich cell puts under its title. */
 const CELL_TEXT = 9
 const CELL_SMALL = 7.5

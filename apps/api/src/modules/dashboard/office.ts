@@ -19,6 +19,7 @@ import type {
 import { decideSchoolAction, readPlan } from '../shared/index.ts'
 import { readFeeSummary } from '../fees/statement.ts'
 import { attendancePlans, calendarDaysCte } from '../attendance/figures.ts'
+import { officeExams } from './exams.ts'
 import { ApiFailure } from '../../http/errors.ts'
 import { label, predicateFor, rows } from './queries.ts'
 import {
@@ -665,6 +666,7 @@ export async function officeDashboard(
   // simply left without the block.
   const fees =
     year === null ? undefined : await optionalBlock(() => readFeeSummary(conn, context, year.id, date))
+  const exams = year === null ? undefined : await optionalBlock(() => officeExams(conn, context, year.id, date))
   const birthdays = await birthdayLists(conn, context, date, year?.id ?? null)
   const recent = await optionalBlock(() => recentAuditEvents(conn, context, authPool))
   const setup = await setupSteps(conn, context)
@@ -681,6 +683,7 @@ export async function officeDashboard(
     ...(glance === undefined ? {} : { glance }),
     ...(fees === undefined ? {} : { fees }),
     ...(attendance === undefined ? {} : { attendance }),
+    ...(exams === undefined ? {} : { exams }),
     ...(perTeacher === undefined ? {} : { studentsPerTeacher: perTeacher }),
     ...(strengths === undefined ? {} : { classStrength: strengths }),
     ...(admissions === undefined ? {} : { admissionsByMonth: admissions }),

@@ -10,7 +10,9 @@ import type {
   ConsentPurpose,
   ConsentRecord,
   ConsentStatus,
+  ExamResultsResponse,
   PermissionKey,
+  ReportCardView,
   SubjectAccessEvent,
   SubjectSensitive,
 } from '@erp/contracts'
@@ -24,6 +26,9 @@ import {
   toSummary,
   type FiguresRow,
 } from '../attendance/figures.ts'
+import { examPlans, mayOnExam, mayOnReportCard, reportCardPlans } from '../exams/common.ts'
+import { readStudentResults } from '../exams/reads.ts'
+import { readReportCardView } from '../report-cards/reads.ts'
 import { resolveDisplayNames, type MemberRow } from '../../memberships/directory.ts'
 import {
   allowedActionsFor,
@@ -396,6 +401,62 @@ async function loadAttendanceYears(
  * at a time. The sensitive block carries the full APAAR id, because handing a
  * person what we hold about them is the whole point of the request.
  */
+
+/**
+ * The pupil's results for every year they have a mark in, each exactly as the
+ * results screen answers this caller. The years come from the marks the
+ * caller's own plan reaches, so a parent's copy names only years with a
+ * published mark, and each year is the published figure, never a live one.
+ */
+async function loadExamYears(
+  conn: ModuleConnection,
+  context: RequestContext,
+  studentId: string,
+): Promise<ExamResultsResponse[]> {
+  const plans = await examPlans(conn, context)
+  const years = await conn.db.execute<{ academic_year_id: string }>(
+    sql`SELECT exam_marks.academic_year_id
+          FROM exam_marks
+          JOIN academic_years ay ON ay.school_id = exam_marks.school_id AND ay.id = exam_marks.academic_year_id
+         WHERE exam_marks.school_id = ${context.schoolId}::uuid
+           AND exam_marks.student_id = ${studentId}::uuid
+           AND (${plans.marks})
+         GROUP BY exam_marks.academic_year_id, ay.start_date
+         ORDER BY ay.start_date DESC
+         LIMIT 30`,
+  )
+  const results: ExamResultsResponse[] = []
+  for (const row of years.rows) {
+    results.push(await readStudentResults(conn, context, studentId, row.academic_year_id))
+  }
+  return results
+}
+
+/**
+ * Every published report card version of the pupil the caller's plan reaches,
+ * newest first, each shaped for the caller's view exactly as the card screen
+ * shapes it (grades alone for a family when the card was published so).
+ */
+async function loadReportCards(
+  conn: ModuleConnection,
+  context: RequestContext,
+  studentId: string,
+): Promise<ReportCardView[]> {
+  const plans = await reportCardPlans(conn, context)
+  const versions = await conn.db.execute<{ id: string }>(
+    sql`SELECT report_card_versions.id
+          FROM report_card_versions
+         WHERE report_card_versions.school_id = ${context.schoolId}::uuid
+           AND report_card_versions.student_id = ${studentId}::uuid
+           AND (${plans.cards})
+         ORDER BY report_card_versions.published_at DESC, report_card_versions.version_number DESC
+         LIMIT 120`,
+  )
+  const cards: ReportCardView[] = []
+  for (const row of versions.rows) cards.push(await readReportCardView(conn, context, row.id))
+  return cards
+}
+
 export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDependencies): void {
   protectedRoute(app, deps, {
     method: 'GET',
@@ -417,6 +478,8 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ...(result.consents.length === 0 ? [] : ['consents']),
           ...(result.fees === undefined ? [] : ['fees']),
           ...(result.attendance === undefined ? [] : ['attendance']),
+          ...(result.exams === undefined ? [] : ['exams']),
+          ...(result.reportCards === undefined ? [] : ['reportCards']),
           ...(result.accessHistory === undefined ? [] : ['accessHistory']),
         ],
       }),
@@ -523,6 +586,17 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ? await loadAttendanceYears(conn, context, studentId)
           : undefined
 
+        // Marks and report cards are decided on the pupil, exactly as their
+        // results and their cards are, and each block is left out rather
+        // than emptied when refused. A family's plan reaches published rows
+        // only, so a parent's copy never holds a mark before it is published.
+        const exams = (await mayOnExam(conn, context, 'exams.read', studentId))
+          ? await loadExamYears(conn, context, studentId)
+          : undefined
+        const reportCards = (await mayOnReportCard(conn, context, 'report_cards.read', studentId))
+          ? await loadReportCards(conn, context, studentId)
+          : undefined
+
         // The trail is decided against the school as a whole: there is no one
         // audit row to decide, and the rows named here are this student's.
         const history = (await decideAction(conn, context, 'audit.read', context.schoolId, true))
@@ -542,6 +616,8 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           consents,
           ...(fees === undefined ? {} : { fees }),
           ...(attendance === undefined ? {} : { attendance }),
+          ...(exams === undefined ? {} : { exams }),
+          ...(reportCards === undefined ? {} : { reportCards }),
           ...(history === undefined ? {} : { accessHistory: history }),
         }
       })

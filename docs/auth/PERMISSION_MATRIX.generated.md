@@ -84,19 +84,19 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `attendance.record` | active | school | school | school | school | — | assigned_sections | — | — |
 | `attendance.manage` | active | school | school | school | school | — | — | — | — |
 | `attendance.export` | active | school | school | school | school | — | — | — | — |
-| `exams.read` | reserved | — | — | — | — | — | — | — | — |
-| `exams.record_marks` | reserved | school, assigned_sections, assigned_subjects | — | — | — | — | — | — | — |
-| `exams.manage` | reserved | school | — | — | — | — | — | — | — |
-| `exams.publish` | reserved | school | — | — | — | — | — | — | — |
-| `exams.export` | reserved | school, assigned_sections, assigned_subjects | — | — | — | — | — | — | — |
+| `exams.read` | active | — | school | school | school | — | assigned_subjects, assigned_sections | own_children | — |
+| `exams.record_marks` | active | school | school | school | school | — | assigned_subjects | — | — |
+| `exams.manage` | active | school | school | school | school | — | — | — | — |
+| `exams.publish` | active | school | school | school | school | — | — | — | — |
+| `exams.export` | active | school | school | school | school | — | assigned_subjects, assigned_sections | — | — |
 | `communication.read` | reserved | — | — | — | — | — | — | — | — |
 | `communication.send` | reserved | school, assigned_sections | — | — | — | — | — | — | — |
 | `communication.manage` | reserved | school | — | — | — | — | — | — | — |
 | `communication.export` | reserved | school | — | — | — | — | — | — | — |
-| `report_cards.read` | reserved | — | — | — | — | — | — | — | — |
-| `report_cards.manage` | reserved | school, assigned_sections, assigned_subjects | — | — | — | — | — | — | — |
-| `report_cards.publish` | reserved | school | — | — | — | — | — | — | — |
-| `report_cards.export` | reserved | school, assigned_sections, assigned_subjects, own_children | — | — | — | — | — | — | — |
+| `report_cards.read` | active | — | school | school | school | — | assigned_sections | own_children | — |
+| `report_cards.manage` | active | school | school | school | school | — | assigned_sections | — | — |
+| `report_cards.publish` | active | school | school | school | school | — | — | — | — |
+| `report_cards.export` | active | school | school | school | school | — | assigned_sections | own_children | — |
 | `staff_attendance.read` | active | — | school | school | school | school | self | — | — |
 | `staff_attendance.record` | active | school | school | school | school | — | — | — | — |
 | `staff_attendance.manage` | active | school | school | school | school | — | — | — | — |

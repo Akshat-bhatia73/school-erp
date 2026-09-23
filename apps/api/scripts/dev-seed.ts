@@ -26,7 +26,11 @@ import { createPools } from '../src/db.ts'
 import { createSandboxDelivery } from '../src/delivery/index.ts'
 import { createAuth, type AuthInstance } from '../src/auth/better-auth.ts'
 import { buildApp } from '../src/app.ts'
-import { createMemoryDocumentStorage } from '../src/files/storage.ts'
+import { createLocalDocumentStorage, createMemoryDocumentStorage } from '../src/files/storage.ts'
+import { crc32, deflateSync } from 'node:zlib'
+import { drizzle } from 'drizzle-orm/node-postgres'
+import { syncPapers } from '../src/modules/exams/setup.ts'
+import { buildReportCard } from '../src/modules/report-cards/build.ts'
 import { decodeBase32 } from './totp-secret.ts'
 
 /** Documented in docs/auth/WEB_SESSION.md. Development accounts only. */
@@ -264,12 +268,18 @@ async function removePreviousSchool(client: pg.PoolClient): Promise<void> {
   // Attendance is append-only the same way.
   await client.query('ALTER TABLE attendance_entries DISABLE TRIGGER attendance_entries_no_change')
   await client.query('ALTER TABLE staff_attendance_entries DISABLE TRIGGER staff_attendance_entries_no_change')
+  // Exam marks, publications and published cards are append-only too.
+  await client.query('ALTER TABLE exam_marks DISABLE TRIGGER exam_marks_no_change')
+  await client.query('ALTER TABLE exam_publications DISABLE TRIGGER exam_publications_no_change')
+  await client.query('ALTER TABLE report_card_versions DISABLE TRIGGER report_card_versions_no_change')
   // Consent history is append-only in the same way, and it points at the
   // memberships and pupils removed below.
   await client.query('ALTER TABLE guardian_consents DISABLE TRIGGER guardian_consents_no_update')
   const tables = [
     'guardian_consents', 'audit_event_notes',
     'attendance_entries', 'staff_attendance_entries',
+    'report_card_versions', 'report_card_entries', 'exam_publications', 'exam_marks', 'exam_papers', 'exams',
+    'exam_settings',
     'fee_receipt_lines', 'fee_receipts', 'fee_concessions', 'fee_student_heads',
     'fee_structures', 'fee_heads',
     'export_jobs', 'student_import_previews',
@@ -290,6 +300,9 @@ async function removePreviousSchool(client: pg.PoolClient): Promise<void> {
   await client.query('ALTER TABLE fee_receipt_lines ENABLE TRIGGER fee_receipt_lines_no_change')
   await client.query('ALTER TABLE attendance_entries ENABLE TRIGGER attendance_entries_no_change')
   await client.query('ALTER TABLE staff_attendance_entries ENABLE TRIGGER staff_attendance_entries_no_change')
+  await client.query('ALTER TABLE exam_marks ENABLE TRIGGER exam_marks_no_change')
+  await client.query('ALTER TABLE exam_publications ENABLE TRIGGER exam_publications_no_change')
+  await client.query('ALTER TABLE report_card_versions ENABLE TRIGGER report_card_versions_no_change')
   await client.query('ALTER TABLE guardian_consents ENABLE TRIGGER guardian_consents_no_update')
   await client.query('DELETE FROM schools WHERE id = $1', [schoolId])
 
@@ -1621,7 +1634,8 @@ async function main(): Promise<void> {
     )
 
     // ------------------------------------------------------------ attendance
-    // Four weeks of marked registers for every section up to yesterday, about
+    // Marked registers for every section from the first day of the year up to
+    // yesterday (so a report card's term attendance reads like a real one), about
     // half the sections marked today (never Nursery A, so its class teacher
     // has a register to mark), a few office corrections, one pupil absent on
     // the last three school days, a staff register for the same weeks, and a
@@ -1648,8 +1662,7 @@ async function main(): Promise<void> {
     const isSchoolDay = (date: string): boolean =>
       date >= yearNow.start && date <= yearNow.end && weekdayOf(date) !== 0 && !onHoliday(date)
     const markedDays: string[] = []
-    for (let back = 28; back >= 0; back -= 1) {
-      const date = shiftDays(runDate, -back)
+    for (let date = yearNow.start; date <= runDate; date = shiftDays(date, 1)) {
       if (isSchoolDay(date)) markedDays.push(date)
     }
     const pastDays = markedDays.filter((date) => date < runDate)
@@ -1732,6 +1745,357 @@ async function main(): Promise<void> {
         `${todayIsSchoolDay ? ', half the sections marked today' : ' (today is not a school day)'}, ` +
         `${corrected.length} corrections, ${staffMarks.length} staff marks; ` +
         `${leftLastMonth.firstName} ${leftLastMonth.lastName} left ${class1A.grade.name} ${class1A.name} on ${lastMonthEnd}.`,
+    )
+
+    // Last year's register too, every school day, so last year's final report
+    // cards carry a full year of attendance.
+    const enrolledPast = await client.query<{ student_id: string; section_id: string; joined_on: string; left_on: string | null }>(
+      `SELECT student_id, section_id, to_char(joined_on, 'YYYY-MM-DD') AS joined_on,
+              to_char(left_on, 'YYYY-MM-DD') AS left_on
+         FROM enrollments WHERE school_id = $1 AND academic_year_id = $2`,
+      [schoolId, yearPast.id],
+    )
+    const pastMarks: { studentId: string; sectionId: string; date: string; mark: string }[] = []
+    for (let date = yearPast.start; date <= yearPast.end; date = shiftDays(date, 1)) {
+      if (weekdayOf(date) === 0) continue
+      for (const row of enrolledPast.rows) {
+        if (row.joined_on > date || (row.left_on !== null && row.left_on < date)) continue
+        pastMarks.push({ studentId: row.student_id, sectionId: row.section_id, date, mark: markFor() })
+      }
+    }
+    for (let start = 0; start < pastMarks.length; start += 500) {
+      const chunk = pastMarks.slice(start, start + 500)
+      const values: unknown[] = []
+      const rows = chunk.map((row) => {
+        values.push(randomUUID(), schoolId, row.studentId, row.sectionId, yearPast.id, row.date, row.mark, principalMembership)
+        const base = values.length - 8
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}::date, $${base + 7}, 1, NULL, 'marking', $${base + 8})`
+      })
+      await client.query(
+        `INSERT INTO attendance_entries (id, school_id, student_id, section_id, academic_year_id, date, mark,
+                                         revision, supersedes_entry_id, kind, recorded_by_membership_id)
+         VALUES ${rows.join(', ')}`,
+        values,
+      )
+    }
+
+    // ----------------------------------------------------------------- exams
+    // Last year: all four exams set, marked, published, with a term 1 and a
+    // final report card for everybody. This year: periodic test 1 and the
+    // half-yearly marked and published for every section but one (Class 5 B,
+    // whose half-yearly still has empty cells, so only the office can finish
+    // it now), a few re-check corrections and one office correction after
+    // the deadline, co-scholastic grades and remarks, and term 1 cards;
+    // periodic test 2 open for entry today with two sections done; the annual
+    // exam set for March. Dates sit around the day the seed is run.
+    const conn = { client, db: drizzle(client) }
+    const clampInto = (year: { start: string; end: string }, date: string): string =>
+      date < year.start ? year.start : date > year.end ? year.end : date
+    const examPlan: { year: typeof yearNow; kind: string; starts: string; ends: string; deadline: string }[] = [
+      { year: yearPast, kind: 'periodic_test_1', starts: '2025-07-14', ends: '2025-07-16', deadline: '2025-07-25' },
+      { year: yearPast, kind: 'half_yearly', starts: '2025-09-15', ends: '2025-09-22', deadline: '2025-09-30' },
+      { year: yearPast, kind: 'periodic_test_2', starts: '2025-12-08', ends: '2025-12-10', deadline: '2025-12-19' },
+      { year: yearPast, kind: 'annual', starts: '2026-03-02', ends: '2026-03-12', deadline: '2026-03-20' },
+      ...[
+        { kind: 'periodic_test_1', starts: -70, ends: -68, deadline: -60 },
+        { kind: 'half_yearly', starts: -16, ends: -9, deadline: -4 },
+        { kind: 'periodic_test_2', starts: -2, ends: -1, deadline: 10 },
+        { kind: 'annual', starts: 150, ends: 158, deadline: 165 },
+      ].map((row) => ({
+        year: yearNow,
+        kind: row.kind,
+        starts: clampInto(yearNow, shiftDays(runDate, row.starts)),
+        ends: clampInto(yearNow, shiftDays(runDate, row.ends)),
+        deadline: clampInto(yearNow, shiftDays(runDate, row.deadline)),
+      })),
+    ]
+    const examIdOf = new Map<string, string>()
+    for (const exam of examPlan) {
+      const id = randomUUID()
+      examIdOf.set(`${exam.year.id}:${exam.kind}`, id)
+      await client.query(
+        `INSERT INTO exams (id, school_id, academic_year_id, kind, starts_on, ends_on, recheck_deadline)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [id, schoolId, exam.year.id, exam.kind, exam.starts, exam.ends, exam.deadline],
+      )
+      await syncPapers(conn, schoolId, { id, academic_year_id: exam.year.id })
+    }
+    const COMPONENTS: Record<string, [string, number][]> = {
+      periodic_test_1: [['periodic_test', 10]],
+      half_yearly: [['notebook', 5], ['subject_enrichment', 5], ['written', 80]],
+      periodic_test_2: [['periodic_test', 10]],
+      annual: [['notebook', 5], ['subject_enrichment', 5], ['written', 80]],
+    }
+    // Each pupil has a steady level, so their marks tell one story across exams.
+    const abilityOf = new Map<string, number>()
+    const ability = (studentId: string): number => {
+      const known = abilityOf.get(studentId)
+      if (known !== undefined) return known
+      const level = Math.min(0.97, Math.max(0.3, 0.55 + random() * 0.4))
+      abilityOf.set(studentId, level)
+      return level
+    }
+    const markValue = (studentId: string, max: number): { status: string; tenths: number | null } => {
+      const roll = random()
+      if (max === 80 && roll < 0.012) return { status: 'absent', tenths: null }
+      if (max === 80 && roll < 0.018) return { status: 'medical', tenths: null }
+      const raw = (ability(studentId) + (random() - 0.5) * 0.2) * max
+      // Whole or half marks, as teachers give them.
+      const halves = Math.round(Math.min(max, Math.max(0, raw)) * 2)
+      return { status: 'marked', tenths: halves * 5 }
+    }
+    const subjectById = new Map(subjects.map((subject) => [subject.id, subject]))
+    const incompleteSection = findSection(yearNow.id, 8, 'B') as SectionSeed
+    const enrolledIn = (rows: { student_id: string; section_id: string; joined_on: string; left_on: string | null }[], sectionId: string, date: string): string[] =>
+      rows
+        .filter((row) => row.section_id === sectionId && row.joined_on <= date && (row.left_on === null || row.left_on >= date))
+        .map((row) => row.student_id)
+    interface ExamMarkRow { id: string; paperId: string; examId: string; yearId: string; sectionId: string; subjectId: string; studentId: string; component: string; status: string; tenths: number | null; by: string }
+    const examMarks: ExamMarkRow[] = []
+    const papers = await client.query<{ id: string; exam_id: string; academic_year_id: string; section_id: string; subject_id: string }>(
+      'SELECT id, exam_id, academic_year_id, section_id, subject_id FROM exam_papers WHERE school_id = $1',
+      [schoolId],
+    )
+    const pt2Sections = new Set([findSection(yearNow.id, 9, 'A')?.id, findSection(yearNow.id, 9, 'B')?.id])
+    for (const exam of examPlan) {
+      const examId = examIdOf.get(`${exam.year.id}:${exam.kind}`) as string
+      const current = exam.year.id === yearNow.id
+      // This year's periodic test 2 is under way in two sections; the annual exam is ahead.
+      if (current && exam.kind === 'annual') continue
+      const rows = current ? enrolled.rows : enrolledPast.rows
+      for (const paper of papers.rows.filter((row) => row.exam_id === examId)) {
+        if (current && exam.kind === 'periodic_test_2' && !pt2Sections.has(paper.section_id)) continue
+        const subject = subjectById.get(paper.subject_id)
+        const teacher = current ? teacherFor.get(`${paper.section_id}:${paper.subject_id}`) : undefined
+        const by = (teacher && teacherMembershipOf.get(teacher.id)) ?? principalMembership
+        const roster = enrolledIn(rows, paper.section_id, exam.starts)
+        for (const [index, studentId] of roster.entries()) {
+          // Class 5 B's half-yearly is not finished: three pupils still have no written mark in the first subject.
+          for (const [component, max] of COMPONENTS[exam.kind] as [string, number][]) {
+            if (
+              current && exam.kind === 'half_yearly' && paper.section_id === incompleteSection.id &&
+              component === 'written' && index >= roster.length - 3 &&
+              paper.subject_id === (subjectsFor(incompleteSection.grade).find((s) => s.type !== 'co_scholastic') as SubjectSeed).id
+            ) continue
+            // An optional subject a pupil does not take is marked exempt.
+            const value = subject?.optional === true && index % 3 === 0 ? { status: 'exempt', tenths: null } : markValue(studentId, max)
+            examMarks.push({
+              id: randomUUID(), paperId: paper.id, examId, yearId: exam.year.id, sectionId: paper.section_id,
+              subjectId: paper.subject_id, studentId, component, status: value.status, tenths: value.tenths, by,
+            })
+          }
+        }
+      }
+    }
+    for (let start = 0; start < examMarks.length; start += 400) {
+      const chunk = examMarks.slice(start, start + 400)
+      const values: unknown[] = []
+      const rows = chunk.map((row) => {
+        values.push(row.id, schoolId, row.paperId, row.examId, row.yearId, row.sectionId, row.subjectId, row.studentId, row.component, row.status, row.tenths, row.by)
+        const base = values.length - 12
+        return `(${Array.from({ length: 12 }, (_, i) => `$${base + i + 1}`).join(', ')}, 1, NULL, 'entry', NULL)`
+      })
+      await client.query(
+        `INSERT INTO exam_marks (id, school_id, paper_id, exam_id, academic_year_id, section_id, subject_id, student_id,
+                                 component, status, marks_tenths, recorded_by_membership_id,
+                                 revision, supersedes_mark_id, kind, reason_kind)
+         VALUES ${rows.join(', ')}`,
+        values,
+      )
+    }
+    // Re-checks in class: four written marks raised by the subject teacher
+    // before the deadline, and one the office corrected after it. The words
+    // of each reason are the audit note, as the API writes them.
+    const halfYearly = examIdOf.get(`${yearNow.id}:half_yearly`) as string
+    const written = examMarks.filter(
+      (row) => row.examId === halfYearly && row.component === 'written' && row.status === 'marked' && (row.tenths ?? 0) <= 700 &&
+        row.sectionId !== incompleteSection.id,
+    )
+    const reChecked = [written[3], written[40], written[97], written[160]].filter((row): row is ExamMarkRow => row !== undefined)
+    const officeFix = written.find((row) => row.sectionId === class1A.id && !reChecked.includes(row))
+    const correctionAudit = async (
+      row: ExamMarkRow, by: string, action: string, kind: string, reasonKind: string, note: string, summary: string,
+    ): Promise<void> => {
+      const eventId = randomUUID()
+      await client.query(
+        `INSERT INTO audit_events (id, school_id, actor_membership_id, action, target_type, target_id, result, summary, safe_changes, request_id)
+         VALUES ($1, $2, $3, $4, 'exam_paper', $5, 'allowed', $6, $7::jsonb, 'dev-seed')`,
+        [eventId, schoolId, by, action, row.paperId, summary,
+          JSON.stringify({ paperId: row.paperId, examId: row.examId, sectionId: row.sectionId, subjectId: row.subjectId, [kind === 'correction' ? 'corrected' : 'changed']: 1, reasonKind })],
+      )
+      await client.query(
+        'INSERT INTO audit_event_notes (school_id, audit_event_id, note) VALUES ($1, $2, $3)',
+        [schoolId, eventId, note],
+      )
+    }
+    for (const row of reChecked) {
+      await client.query(
+        `INSERT INTO exam_marks (school_id, paper_id, exam_id, academic_year_id, section_id, subject_id, student_id,
+                                 component, status, marks_tenths, revision, supersedes_mark_id, kind, reason_kind,
+                                 recorded_by_membership_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'marked', $9, 2, $10, 'entry', 'recheck', $11)`,
+        [schoolId, row.paperId, row.examId, row.yearId, row.sectionId, row.subjectId, row.studentId, row.component,
+          Math.min(800, (row.tenths ?? 0) + 30), row.id, row.by],
+      )
+      await correctionAudit(row, row.by, 'exams.record_marks', 'entry', 'recheck',
+        'Re-checked in class: one answer was marked short by three marks.', 'Saved marks for a paper.')
+    }
+    if (officeFix) {
+      await client.query(
+        `INSERT INTO exam_marks (school_id, paper_id, exam_id, academic_year_id, section_id, subject_id, student_id,
+                                 component, status, marks_tenths, revision, supersedes_mark_id, kind, reason_kind,
+                                 recorded_by_membership_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'marked', $9, 2, $10, 'correction', 'entry_error', $11)`,
+        [schoolId, officeFix.paperId, officeFix.examId, officeFix.yearId, officeFix.sectionId, officeFix.subjectId,
+          officeFix.studentId, officeFix.component, Math.min(800, (officeFix.tenths ?? 0) + 50), officeFix.id, officeMembership],
+      )
+      await correctionAudit(officeFix, officeMembership, 'exams.manage', 'correction', 'entry_error',
+        'The page total was copied wrongly onto the marks sheet; corrected from the answer book.', 'Corrected marks on a paper.')
+    }
+    // Publications: every exam of last year, and this year's periodic test 1
+    // everywhere and the half-yearly everywhere but Class 5 B.
+    const allSections = sections.map((section) => section.id)
+    for (const exam of examPlan) {
+      if (exam.year.id === yearNow.id && (exam.kind === 'periodic_test_2' || exam.kind === 'annual')) continue
+      const examId = examIdOf.get(`${exam.year.id}:${exam.kind}`) as string
+      for (const section of sections.filter((row) => row.yearId === exam.year.id)) {
+        if (exam.year.id === yearNow.id && exam.kind === 'half_yearly' && section.id === incompleteSection.id) continue
+        if (!papers.rows.some((paper) => paper.exam_id === examId && paper.section_id === section.id)) continue
+        await client.query(
+          `INSERT INTO exam_publications (school_id, exam_id, academic_year_id, section_id, published_by_membership_id)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [schoolId, examId, exam.year.id, section.id, principalMembership],
+        )
+      }
+    }
+    // The class teacher's part: co-scholastic grades and remarks for every
+    // term that has been assessed.
+    const REMARKS = [
+      'Works steadily and asks good questions. Should read more at home.',
+      'A cheerful member of the class who helps others. Needs to take more care with handwriting.',
+      'Has made real progress this term. Keep practising the tables every day.',
+      'Participates well in class discussions. Must complete homework on time.',
+      'Shows a keen interest in science projects. Should revise regularly before tests.',
+      'Polite and attentive. Needs more confidence when speaking in front of the class.',
+    ]
+    const coGrade = (): string => {
+      const roll = random()
+      return roll < 0.55 ? 'A' : roll < 0.9 ? 'B' : 'C'
+    }
+    const termEntries: { section: SectionSeed; term: string; roster: string[] }[] = []
+    for (const section of sections) {
+      const past = section.yearId === yearPast.id
+      if (!past && section.id === incompleteSection.id) continue
+      const rows = past ? enrolledPast.rows : enrolled.rows
+      for (const [term, kind] of past ? [['term_1', 'half_yearly'], ['term_2', 'annual']] : [['term_1', 'half_yearly']]) {
+        const exam = examPlan.find((row) => row.year.id === section.yearId && row.kind === kind)
+        if (!exam) continue
+        termEntries.push({ section, term: term as string, roster: enrolledIn(rows, section.id, exam.starts) })
+      }
+    }
+    let remarkIndex = 0
+    for (const entry of termEntries) {
+      const teacher = entry.section.yearId === yearNow.id ? classTeacherOf.get(`${entry.section.grade.sortOrder}-${entry.section.name}`) : undefined
+      const by = (teacher && teacherMembershipOf.get(teacher.id)) ?? principalMembership
+      for (const studentId of entry.roster) {
+        await client.query(
+          `INSERT INTO report_card_entries (school_id, student_id, academic_year_id, section_id, term, work_education,
+                                            art_education, health_physical_education, discipline, remarks, updated_by_membership_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [schoolId, studentId, entry.section.yearId, entry.section.id, entry.term, coGrade(), coGrade(), coGrade(), coGrade(),
+            REMARKS[remarkIndex++ % REMARKS.length], by],
+        )
+      }
+    }
+
+    // The logo, a small emblem drawn here so no image file has to ship: a
+    // navy disc with an orange sun rising over a white horizon.
+    const logoPng = (): Uint8Array => {
+      const size = 192
+      const raw = Buffer.alloc((size * 4 + 1) * size)
+      const centre = size / 2
+      for (let y = 0; y < size; y += 1) {
+        raw[y * (size * 4 + 1)] = 0
+        for (let x = 0; x < size; x += 1) {
+          const at = y * (size * 4 + 1) + 1 + x * 4
+          const dx = x - centre + 0.5
+          const dy = y - centre + 0.5
+          const r = Math.sqrt(dx * dx + dy * dy)
+          let colour: [number, number, number, number] = [0, 0, 0, 0]
+          if (r <= centre - 2) colour = [30, 41, 95, 255]
+          if (r <= centre - 2 && r >= centre - 10) colour = [245, 158, 11, 255]
+          const sunY = centre + 22
+          const sun = Math.sqrt(dx * dx + (y - sunY) ** 2)
+          if (r <= centre - 10 && y <= sunY && sun <= 44) colour = [251, 146, 60, 255]
+          if (r <= centre - 10 && Math.abs(y - sunY) <= 3) colour = [255, 255, 255, 255]
+          raw[at] = colour[0]
+          raw[at + 1] = colour[1]
+          raw[at + 2] = colour[2]
+          raw[at + 3] = colour[3]
+        }
+      }
+      const chunk = (type: string, data: Buffer): Buffer => {
+        const length = Buffer.alloc(4)
+        length.writeUInt32BE(data.length)
+        const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+        const crc = Buffer.alloc(4)
+        crc.writeUInt32BE(crc32(body) >>> 0)
+        return Buffer.concat([length, body, crc])
+      }
+      const header = Buffer.alloc(13)
+      header.writeUInt32BE(size, 0)
+      header.writeUInt32BE(size, 4)
+      header[8] = 8
+      header[9] = 6
+      return new Uint8Array(Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        chunk('IHDR', header),
+        chunk('IDAT', deflateSync(raw)),
+        chunk('IEND', Buffer.alloc(0)),
+      ]))
+    }
+    if (process.env.DOCUMENT_STORAGE === 'blob') {
+      console.warn('The logo was not seeded: DOCUMENT_STORAGE is blob, and this seed only writes to the local store.')
+    } else {
+      const logoKey = `logos/${schoolId}-${randomBytes(16).toString('hex')}`
+      await createLocalDocumentStorage(process.env.DOCUMENT_STORAGE_DIR ?? '.documents').write(logoKey, logoPng(), 'image/png')
+      await client.query(
+        `UPDATE schools SET logo_storage_key = $2, logo_content_type = 'image/png', logo_updated_at = now() WHERE id = $1`,
+        [schoolId, logoKey],
+      )
+    }
+
+    // Published report cards, built by the same code the office's publish
+    // uses: this year's term 1 card wherever the half-yearly is published,
+    // and last year's term 1 and final cards.
+    let cardsPublished = 0
+    for (const entry of termEntries) {
+      const cards = entry.section.yearId === yearNow.id ? ['term_1'] : entry.term === 'term_1' ? ['term_1'] : ['final']
+      for (const card of cards) {
+        for (const studentId of entry.roster) {
+          const built = await buildReportCard(conn, schoolId, {
+            studentId,
+            sectionId: entry.section.id,
+            academicYearId: entry.section.yearId,
+            card: card as 'term_1' | 'final',
+            today: runDate,
+          })
+          await client.query(
+            `INSERT INTO report_card_versions (school_id, student_id, academic_year_id, section_id, card, version_number,
+                                               content, remarks, content_hash, published_by_membership_id)
+             VALUES ($1, $2, $3, $4, $5, 1, $6::jsonb, $7::jsonb, $8, $9)`,
+            [schoolId, studentId, entry.section.yearId, entry.section.id, card, JSON.stringify(built.content),
+              Object.keys(built.remarks).length === 0 ? null : JSON.stringify(built.remarks), built.hash, principalMembership],
+          )
+          cardsPublished += 1
+        }
+      }
+    }
+    console.info(
+      `Exams: ${examPlan.length} exams over two years, ${papers.rows.length} papers, ${examMarks.length} marks, ` +
+        `${reChecked.length} re-checks and ${officeFix ? 1 : 0} office correction; ` +
+        `${incompleteSection.grade.name} ${incompleteSection.name} left unfinished; ${cardsPublished} report cards published; ` +
+        `${allSections.length} sections.`,
     )
 
     await client.query('COMMIT')

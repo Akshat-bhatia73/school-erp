@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { CalendarDate, Email, Id, Phone, Version } from './common.ts'
+import { CalendarDate, Email, Id, Phone, Timestamp, Version } from './common.ts'
 import { AllowedActions, NamedReference } from './responses.ts'
 
 const Name = z.string().trim().min(1).max(160)
@@ -14,7 +14,12 @@ const schoolFields = {
  * policy service for that one record. A screen shows a record's controls from
  * this list, never from a school-wide capability.
  */
-export const SchoolProfile = z.strictObject({ id: Id, ...schoolFields, version: Version, allowedActions: AllowedActions })
+export const SchoolProfile = z.strictObject({
+  id: Id, ...schoolFields, version: Version, allowedActions: AllowedActions,
+  // Whether the school has a logo and when it last changed. The bytes come
+  // from GET /school/logo; the storage key never leaves the server.
+  logo: z.strictObject({ contentType: z.enum(['image/png', 'image/jpeg']), updatedAt: Timestamp }).optional(),
+})
 export const UpdateSchoolRequest = z.strictObject({ ...schoolFields, expectedVersion: Version })
 
 export const AcademicYearInput = z.strictObject({
