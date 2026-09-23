@@ -248,7 +248,7 @@ export const ReportCardScholasticRow = z.strictObject({
 
 export const ReportCardAttendance = z.strictObject({
   term: ExamTerm,
-  /** School days in the term while the pupil was enrolled, up to the day it was published. */
+  /** School days in the term while the pupil was enrolled, up to the day it was published, less their leave days. */
   workingDays: z.number().int().nonnegative(),
   /** Present and late as whole days, half days as half. */
   daysPresent: z.number().nonnegative(),

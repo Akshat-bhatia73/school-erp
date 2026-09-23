@@ -19,6 +19,7 @@ import { timeLabel, weekdayName } from '@/components/dashboard/format'
 import { dayName } from '@/components/dashboard/day'
 import { EmptyState, SectionLabel } from '@/components/shared/page'
 import { Tag, colorFor } from '@/components/shared/tag'
+import { MarksToEnterCard } from '@/components/exams/dashboard-cards'
 import { DAY_LABELS } from '@/components/timetable/day-selector'
 import { TimetableGrid, mergeBellSchedules } from '@/components/timetable/timetable-grid'
 import type { BellScheduleRecord, TimetableCellRecord } from '@/lib/api/timetable'
@@ -349,6 +350,12 @@ export function TeacherDashboard({ data, isLoading, error }: { data?: TeacherDas
       {myClassCard && (
         <Cell col={4} rows={2}>
           {myClassCard}
+        </Cell>
+      )}
+
+      {data.marksToEnter && (
+        <Cell col={12} rows={3}>
+          <MarksToEnterCard items={data.marksToEnter} />
         </Cell>
       )}
 

@@ -134,6 +134,30 @@ Nothing about a percentage is stored. Which days are school days, who was on a r
 
 One CHECK constraint is widened: `export_jobs.kind` gains `attendance_register`, `attendance_pupil_month` and `staff_attendance_register`. Everything is additive, so the release before this one runs against it unchanged. The release also changes the role templates, so every existing school needs `pnpm db:sync-roles` after the migration; see [the release runbook](./RELEASE.md#4-deploying-a-change).
 
+## Exams and report cards
+
+Migration `0017_exams.sql` (Task 21) adds seven tenant tables, each with `school_id`, forced RLS under the same `tenant_isolation` policy as its neighbours, and composite foreign keys that include `school_id`, so a mark, a publication or a card can never point at a pupil, an exam, a section, a subject or a membership in another school. An exam, a paper, a mark, a publication and a card all name their academic year through the `(school_id, academic_year_id, ...)` keys, so a paper can never join an exam to a section of another year.
+
+The exam pattern is not a table. Every class follows the CBSE two-term scheme, which is a constant in `@erp/contracts`; a school sets only when each exam happens.
+
+| Table | What it holds | Runtime grants |
+|---|---|---|
+| `exams` | One row per academic year and exam kind (`periodic_test_1`, `half_yearly`, `periodic_test_2`, `annual`): first and last day and the re-check deadline, in that order by CHECK; versioned | SELECT, INSERT, UPDATE |
+| `exam_papers` | One sheet per exam, section and subject, made from `grade_subjects` when the office saves the exam | SELECT, INSERT, DELETE (a paper with a mark cannot be deleted: the foreign key from `exam_marks` refuses it) |
+| `exam_marks` | One mark per paper, pupil, component and revision. `marks_tenths` is a whole number of tenths, so 7.5 is 75 and no float is stored; `status` is `marked`, `absent`, `medical` or `exempt`, and only `marked` carries a number. A CHECK holds each component to its maximum (100, 50, 50 and 800 tenths). `revision`, `supersedes_mark_id`, `kind` (`entry` or `correction`) and `reason_kind` (`recheck`, `entry_error`, `other`), which a CHECK requires on every revision after the first and on every correction. The exam, year, section and subject are copied from the paper through one composite foreign key. `recorded_at` defaults to `clock_timestamp()` | SELECT, INSERT |
+| `exam_publications` | One row each time the office publishes an exam's results for a section; publishing again appends. `published_at` defaults to `clock_timestamp()` | SELECT, INSERT |
+| `report_card_entries` | The class teacher's co-scholastic grades (A, B or C for four areas) and remarks for one pupil, section and term; versioned | SELECT, INSERT, UPDATE |
+| `report_card_versions` | A published card, frozen: `content` (the figures, bands, display choice and layout at that moment), `remarks` kept apart, `content_hash`, `version_number` unique per pupil, year and card | SELECT, INSERT, and UPDATE on `remarks` only |
+| `exam_settings` | One row per school: `display_mode`, `grade_bands` and `layout` as JSON checked by the API against the contracts; versioned. A school with no row uses the defaults | SELECT, INSERT, UPDATE |
+
+Marks and publications are append-only in the database. The runtime login holds no UPDATE and no DELETE on them, and the `exam_marks_no_change` and `exam_publications_no_change` triggers refuse every UPDATE and every DELETE, whoever asks. A published card refuses DELETE and every UPDATE except one that sets `remarks` to NULL and changes nothing else (`report_card_versions_no_change`), which is what anonymising a pupil needs. The reason somebody typed for a change is never a column: it is the audit note.
+
+Both timestamps that decide what a parent sees use `clock_timestamp()`, not `now()`. A mark is published when a publication of its exam for its section is at least as new as the mark, and both writers take the school lock first, so the time each row was really written orders them even when one transaction began before the other committed.
+
+`schools` gains `logo_storage_key`, `logo_content_type` (PNG or JPEG) and `logo_updated_at`, with a CHECK that the key and the type are set together. The older `logo_url` stays and is unused. One CHECK constraint is widened: `export_jobs.kind` gains `exam_marks_register`, `report_card` and `report_cards_section`. Nothing is given to `erp_maintenance`, so the migration needs no CREATE grant on the schema.
+
+Nothing about a total or a grade is stored outside a published card: the current mark is the highest revision, a total follows from the scoring rule in `@erp/contracts`, a grade from the school's bands. Everything is additive, so the release before this one runs against it unchanged. The release also changes the role templates, so every existing school needs `pnpm db:sync-roles` after the migration; see [the release runbook](./RELEASE.md#4-deploying-a-change).
+
 ## Observability
 
 Migration `0010_observability.sql` (Task 13) adds the access log and durable account lockout.

@@ -1,12 +1,23 @@
 import type { AuthzConnection } from '@erp/authz'
 import type { RequestContext } from '@erp/contracts/server'
+import type { DocumentStorage } from '../files/storage.ts'
+
+/**
+ * What the runner lends a producer besides the transaction: the private
+ * document store, for a producer that prints a stored picture (the school
+ * logo on a report card). A producer never writes to it.
+ */
+export interface ProducerIo {
+  readonly documents: DocumentStorage
+}
 
 /**
  * The kinds of file an export job can produce. Three are lists of records as a
  * spreadsheet, four are one record as a document (two profiles, a fee receipt
  * and one pupil's month of attendance), and the timetable, the fee dues list,
  * the collection register and the two attendance registers are either, chosen
- * by the request.
+ * by the request. A paper's marks register is a spreadsheet; one report card
+ * and a section's report cards are documents.
  */
 export type ExportJobKind =
   | 'students'
@@ -21,6 +32,9 @@ export type ExportJobKind =
   | 'attendance_register'
   | 'attendance_pupil_month'
   | 'staff_attendance_register'
+  | 'exam_marks_register'
+  | 'report_card'
+  | 'report_cards_section'
 
 /** What a producer hands back. The bytes are never stored anywhere else. */
 export interface ExportFile {
@@ -46,5 +60,6 @@ export interface ExportProducer {
     conn: AuthzConnection,
     context: RequestContext,
     criteria: unknown,
+    io?: ProducerIo,
   ): Promise<ExportFile>
 }

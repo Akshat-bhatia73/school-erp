@@ -104,6 +104,23 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
           [context.schoolId, studentId],
         )
 
+        // Remarks a teacher wrote about the child follow the pupil's own
+        // retention period, so they go now: the working rows (with a version
+        // bump, like every edit to them) and the published copies, where the
+        // database allows clearing remarks and nothing else. Marks, grades
+        // and the published figures stay: they are the academic record.
+        const entriesCleared = await conn.client.query(
+          `UPDATE report_card_entries
+              SET remarks = NULL, version = version + 1, updated_at = now(), updated_by_membership_id = $3
+            WHERE school_id = $1 AND student_id = $2 AND remarks IS NOT NULL`,
+          [context.schoolId, studentId, context.membershipId],
+        )
+        const versionsCleared = await conn.client.query(
+          `UPDATE report_card_versions SET remarks = NULL
+            WHERE school_id = $1 AND student_id = $2 AND remarks IS NOT NULL`,
+          [context.schoolId, studentId],
+        )
+
         await writeAudit(conn, context, {
           action: 'students.anonymise',
           targetType: 'student',
@@ -114,6 +131,8 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
             documents: documentKeys.length,
             guardians,
             feeReceiptsCleared: cleared.rowCount ?? 0,
+            reportCardRemarksCleared: entriesCleared.rowCount ?? 0,
+            reportCardVersionRemarksCleared: versionsCleared.rowCount ?? 0,
           },
           note: body.reason,
         })

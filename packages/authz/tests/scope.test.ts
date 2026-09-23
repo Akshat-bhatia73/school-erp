@@ -11,8 +11,10 @@ import { createAuthorizationService } from '../src/service.ts'
 import {
   attendanceScopedTable,
   createReadPlan,
+  examScopedTable,
   feeScopedTable,
   planPredicate,
+  reportCardScopedTable,
   scopedGet,
   scopedList,
   scopedTableFor,
@@ -28,6 +30,7 @@ import {
   insertEnrollment,
   insertGrade,
   insertGradeSubject,
+  insertGuardianLink,
   insertMembership,
   insertMembershipStaffLink,
   insertSection,
@@ -1198,4 +1201,509 @@ test('a staff attendance plan at self lists only that person’s own rows', asyn
   const all = await staffAttendanceIds(finance, 'entry', 'staff_attendance_entries')
   assert.equal(all.includes(rows.ownStaffEntryId), true)
   assert.equal(all.includes(rows.otherStaffEntryId), true)
+})
+
+// ---------------------------------------------------------------------------
+// Exams and report cards. One resource type each, laid over several faces, so
+// for every face and every relationship the list has to select exactly what a
+// single decision allows. assigned_sections is the class-teacher post alone
+// for both; assigned_subjects is the (section, year, subject) triple of a live
+// teaching assignment; a family reaches only published rows.
+//
+// Marks, publications and published cards refuse a DELETE, so none of these
+// rows (nor the classes, pupils and staff they point at) are ever registered
+// for cleanup: the test database is disposable and the ids are fresh. The
+// API suite runs on the same database after this one and counts school A's
+// cards, so these rows live in school B, and nothing here touches a fixture
+// pupil or a fixture year: the years, the class, the child and the parent
+// are all this block's own.
+
+type Membership = { membershipId: string; userId: string }
+
+let examRows: Promise<{
+  parent: Membership
+  child: string
+  subjectTeacher: Membership
+  classTeacher: Membership
+  endedTeacher: Membership
+  sectionOne: string
+  sectionTwo: string
+  lastYearSection: string
+  examId: string
+  lastYearExamId: string
+  paperOneMaths: string
+  paperOneScience: string
+  paperTwoMaths: string
+  lastYearPaper: string
+  pupilOne: string
+  pupilTwo: string
+  markPupilMaths: string
+  markChildMaths: string
+  markChildMathsLate: string
+  markPupilScience: string
+  markChildScience: string
+  markTwoMaths: string
+  lastYearChildMark: string
+  lastYearPupilMark: string
+  entryPupil: string
+  entryChild: string
+  entryTwo: string
+  cardPupil: string
+  cardChild: string
+  lastYearChildCard: string
+  lastYearPupilCard: string
+}> | null = null
+
+async function seedExamRows(): Promise<NonNullable<Awaited<typeof examRows>>> {
+  examRows ??= (async () => {
+    const tag = crypto.randomUUID().slice(0, 8)
+    const one = async (text: string, values: unknown[]) => (await migrator.query<{ id: string }>(text, values)).rows[0]!.id
+    const gradeId = await one(
+      `INSERT INTO grades(school_id,name,short_name,sort_order) VALUES ($1,$2,$3,9) RETURNING id`,
+      [schoolB, `Exam grade ${tag}`, tag.slice(0, 4)],
+    )
+    const section = (yearId: string, name: string) =>
+      one(`INSERT INTO sections(school_id,academic_year_id,grade_id,name) VALUES ($1,$2,$3,$4) RETURNING id`, [
+        schoolB,
+        yearId,
+        gradeId,
+        `${name}-${tag}`,
+      ])
+    const subject = (name: string) =>
+      one(`INSERT INTO subjects(school_id,name,code,type) VALUES ($1,$2,$3,'scholastic') RETURNING id`, [
+        schoolB,
+        name,
+        `${name}-${tag}`,
+      ])
+    const pupil = (name: string) =>
+      one(`INSERT INTO students(school_id,admission_number,first_name,status) VALUES ($1,$2,$3,'active') RETURNING id`, [
+        schoolB,
+        `EXM-${name}-${tag}`,
+        name,
+      ])
+    const staffRow = () =>
+      one(
+        `INSERT INTO staff(school_id,employee_code,first_name,staff_type,designation,status,joining_date)
+         VALUES ($1,$2,'Exam','teaching','Teacher','active','2025-04-01') RETURNING id`,
+        [schoolB, `EXM-${crypto.randomUUID().slice(0, 8)}`],
+      )
+    const enrol = (studentId: string, yearId: string, sectionId: string, joinedOn: string, leftOn: string | null) =>
+      migrator.query(
+        `INSERT INTO enrollments(school_id,student_id,academic_year_id,section_id,joined_on,left_on,outcome)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [schoolB, studentId, yearId, sectionId, joinedOn, leftOn, leftOn === null ? 'ongoing' : 'promoted'],
+      )
+
+    const thisYear = await one(
+      `INSERT INTO academic_years(school_id,name,start_date,end_date,status)
+       VALUES ($1,$2,'2026-04-01','2027-03-31','upcoming') RETURNING id`,
+      [schoolB, `Exams this year ${tag}`],
+    )
+    const lastYear = await one(
+      `INSERT INTO academic_years(school_id,name,start_date,end_date,status)
+       VALUES ($1,$2,'2025-04-01','2026-03-31','closed') RETURNING id`,
+      [schoolB, `Exams last year ${tag}`],
+    )
+    const sectionOne = await section(thisYear, 'ExamOne')
+    const sectionTwo = await section(thisYear, 'ExamTwo')
+    const lastYearSection = await section(lastYear, 'ExamLast')
+    const maths = await subject('ExMaths')
+    const science = await subject('ExScience')
+    const child = await pupil('Exam child')
+    const pupilOne = await pupil('Exam pupil one')
+    const pupilTwo = await pupil('Exam pupil two')
+    // The child is the parent's own: promoted from last year's class into
+    // section one. Pupil one sat beside them in both years, in another family.
+    await enrol(child, lastYear, lastYearSection, '2025-04-01', '2026-03-31')
+    await enrol(pupilOne, lastYear, lastYearSection, '2025-04-01', '2026-03-31')
+    await enrol(child, thisYear, sectionOne, '2026-04-01', null)
+    await enrol(pupilOne, thisYear, sectionOne, '2026-04-01', null)
+    await enrol(pupilTwo, thisYear, sectionTwo, '2026-04-01', null)
+
+    // The parent reaches the child through a verified guardian link and an
+    // approved portal grant, exactly as the fixture parents do.
+    const parent = await insertMembership({ schoolId: schoolB, roleKeys: ['parent'] })
+    const guardian = await one(`INSERT INTO guardians(school_id,first_name) VALUES ($1,'Exam guardian') RETURNING id`, [
+      schoolB,
+    ])
+    await insertGuardianLink(schoolB, parent.membershipId, guardian)
+    await migrator.query(
+      `INSERT INTO student_guardians(school_id,student_id,guardian_id,relation) VALUES ($1,$2,$3,'guardian')`,
+      [schoolB, child, guardian],
+    )
+    await migrator.query(
+      `INSERT INTO guardian_student_access(school_id,guardian_id,student_id,status,areas,approved_by_membership_id,approved_at)
+       VALUES ($1,$2,$3,'approved',ARRAY['basic'],$4,'2026-01-01')`,
+      [schoolB, guardian, child, fx('ownerB')],
+    )
+
+    // The subject teacher teaches maths in section one and nothing else. The
+    // class teacher of section one teaches nothing. The third teacher taught
+    // maths in section one until last month.
+    const subjectTeacher = await insertMembership({ schoolId: schoolB, roleKeys: ['teacher'] })
+    const subjectStaff = await staffRow()
+    await insertMembershipStaffLink(schoolB, subjectTeacher.membershipId, subjectStaff)
+    await insertTeachingAssignment({
+      schoolId: schoolB,
+      staffId: subjectStaff,
+      academicYearId: thisYear,
+      sectionId: sectionOne,
+      subjectId: maths,
+    })
+    const classTeacher = await insertMembership({ schoolId: schoolB, roleKeys: ['teacher'] })
+    const classStaff = await staffRow()
+    await insertMembershipStaffLink(schoolB, classTeacher.membershipId, classStaff)
+    await migrator.query('UPDATE sections SET class_teacher_staff_id = $2 WHERE id = $1', [sectionOne, classStaff])
+    const endedTeacher = await insertMembership({ schoolId: schoolB, roleKeys: ['teacher'] })
+    const endedStaff = await staffRow()
+    await insertMembershipStaffLink(schoolB, endedTeacher.membershipId, endedStaff)
+    await insertTeachingAssignment({
+      schoolId: schoolB,
+      staffId: endedStaff,
+      academicYearId: thisYear,
+      sectionId: sectionOne,
+      subjectId: maths,
+      effectiveTo: '2026-05-15',
+    })
+
+    const exam = (yearId: string, startsOn: string) =>
+      one(
+        `INSERT INTO exams(school_id,academic_year_id,kind,starts_on,ends_on,recheck_deadline)
+         VALUES ($1,$2,'periodic_test_1',$3::date,$3::date,$3::date + 7) RETURNING id`,
+        [schoolB, yearId, startsOn],
+      )
+    const examId = await exam(thisYear, '2026-05-04')
+    const lastYearExamId = await exam(lastYear, '2025-05-05')
+    const paper = (examOf: string, yearId: string, sectionId: string, subjectId: string) =>
+      one(
+        `INSERT INTO exam_papers(school_id,exam_id,academic_year_id,section_id,subject_id)
+         VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+        [schoolB, examOf, yearId, sectionId, subjectId],
+      )
+    const paperOneMaths = await paper(examId, thisYear, sectionOne, maths)
+    const paperOneScience = await paper(examId, thisYear, sectionOne, science)
+    const paperTwoMaths = await paper(examId, thisYear, sectionTwo, maths)
+    const lastYearPaper = await paper(lastYearExamId, lastYear, lastYearSection, maths)
+    const papers: Record<string, [string, string, string, string]> = {
+      [paperOneMaths]: [examId, thisYear, sectionOne, maths],
+      [paperOneScience]: [examId, thisYear, sectionOne, science],
+      [paperTwoMaths]: [examId, thisYear, sectionTwo, maths],
+      [lastYearPaper]: [lastYearExamId, lastYear, lastYearSection, maths],
+    }
+    const mark = (paperId: string, studentId: string, tenths: number, supersedes: string | null = null) =>
+      one(
+        `INSERT INTO exam_marks(school_id,paper_id,exam_id,academic_year_id,section_id,subject_id,student_id,
+                                component,status,marks_tenths,revision,supersedes_mark_id,kind,reason_kind,
+                                recorded_by_membership_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'periodic_test','marked',$8,$9,$10,$11,$12,$13) RETURNING id`,
+        [
+          schoolB,
+          paperId,
+          ...papers[paperId]!,
+          studentId,
+          tenths,
+          supersedes === null ? 1 : 2,
+          supersedes,
+          supersedes === null ? 'entry' : 'correction',
+          supersedes === null ? null : 'recheck',
+          fx('ownerB'),
+        ],
+      )
+    const publish = (examOf: string, yearId: string, sectionId: string) =>
+      migrator.query(
+        `INSERT INTO exam_publications(school_id,exam_id,academic_year_id,section_id,published_by_membership_id)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [schoolB, examOf, yearId, sectionId, fx('ownerB')],
+      )
+
+    const lastYearChildMark = await mark(lastYearPaper, child, 80)
+    const lastYearPupilMark = await mark(lastYearPaper, pupilOne, 70)
+    await publish(lastYearExamId, lastYear, lastYearSection)
+
+    const markPupilMaths = await mark(paperOneMaths, pupilOne, 60)
+    const markChildMaths = await mark(paperOneMaths, child, 50)
+    const markPupilScience = await mark(paperOneScience, pupilOne, 40)
+    const markChildScience = await mark(paperOneScience, child, 30)
+    const markTwoMaths = await mark(paperTwoMaths, pupilTwo, 20)
+    await publish(examId, thisYear, sectionOne)
+    // A correction after publishing: the family keeps seeing the mark as it
+    // stood at the publication until the office publishes again.
+    const markChildMathsLate = await mark(paperOneMaths, child, 90, markChildMaths)
+
+    const entry = (studentId: string, sectionId: string) =>
+      one(
+        `INSERT INTO report_card_entries(school_id,student_id,academic_year_id,section_id,term,discipline,remarks,
+                                         updated_by_membership_id)
+         VALUES ($1,$2,$3,$4,'term_1','A','Works hard',$5) RETURNING id`,
+        [schoolB, studentId, thisYear, sectionId, fx('ownerB')],
+      )
+    const card = (studentId: string, yearId: string, sectionId: string) =>
+      one(
+        `INSERT INTO report_card_versions(school_id,student_id,academic_year_id,section_id,card,version_number,
+                                          content,content_hash,published_by_membership_id)
+         VALUES ($1,$2,$3,$4,'term_1',1,'{}'::jsonb,$5,$6) RETURNING id`,
+        [schoolB, studentId, yearId, sectionId, `hash-${crypto.randomUUID()}`, fx('ownerB')],
+      )
+    return {
+      parent,
+      child,
+      subjectTeacher,
+      classTeacher,
+      endedTeacher,
+      sectionOne,
+      sectionTwo,
+      lastYearSection,
+      examId,
+      lastYearExamId,
+      paperOneMaths,
+      paperOneScience,
+      paperTwoMaths,
+      lastYearPaper,
+      pupilOne,
+      pupilTwo,
+      markPupilMaths,
+      markChildMaths,
+      markChildMathsLate,
+      markPupilScience,
+      markChildScience,
+      markTwoMaths,
+      lastYearChildMark,
+      lastYearPupilMark,
+      entryPupil: await entry(pupilOne, sectionOne),
+      entryChild: await entry(child, sectionOne),
+      entryTwo: await entry(pupilTwo, sectionTwo),
+      cardPupil: await card(pupilOne, thisYear, sectionOne),
+      cardChild: await card(child, thisYear, sectionOne),
+      lastYearChildCard: await card(child, lastYear, lastYearSection),
+      lastYearPupilCard: await card(pupilOne, lastYear, lastYearSection),
+    }
+  })()
+  return examRows
+}
+
+const EXAM_FACES = [
+  ['exam', 'exams'],
+  ['paper', 'exam_papers'],
+  ['mark', 'exam_marks'],
+  ['pupil', 'students'],
+] as const
+const REPORT_CARD_FACES = [
+  ['card', 'report_card_versions'],
+  ['entry', 'report_card_entries'],
+  ['roster', 'sections'],
+  ['pupil', 'students'],
+] as const
+
+/** Every id one plan selects on one face, through the predicate alone. */
+async function examFaceIds(
+  context: RequestContext,
+  permission: PermissionKey,
+  resourceType: 'exam' | 'report_card',
+  face: string,
+  table: string,
+): Promise<string[]> {
+  const plan = await authz.scopeQuery(context, permission, resourceType)
+  const scoped =
+    resourceType === 'exam'
+      ? examScopedTable(face as Parameters<typeof examScopedTable>[0])
+      : reportCardScopedTable(face as Parameters<typeof reportCardScopedTable>[0])
+  const rows = await withRuntime(context, (conn) =>
+    conn.db.execute<{ id: string }>(
+      sql`SELECT ${sql.raw(table)}.id FROM ${sql.raw(table)} WHERE ${planPredicate(plan, scoped)}`,
+    ),
+  )
+  return rows.rows.map((row) => row.id)
+}
+
+/**
+ * Lists every face, checks each candidate's single decision agrees with the
+ * list, and returns the candidates the list selected, sorted.
+ */
+async function examAgree(
+  name: string,
+  context: RequestContext,
+  permission: PermissionKey,
+  resourceType: 'exam' | 'report_card',
+  candidates: readonly string[],
+): Promise<string[]> {
+  const faces = resourceType === 'exam' ? EXAM_FACES : REPORT_CARD_FACES
+  const listed = new Set<string>()
+  for (const [face, table] of faces) {
+    for (const id of await examFaceIds(context, permission, resourceType, face, table)) listed.add(id)
+  }
+  for (const id of candidates) {
+    const decision = await authz.authorize(context, permission, { schoolId: schoolB, resourceType, id })
+    assert.equal(listed.has(id), decision.allowed, `${name}: ${permission} list and decision disagree on ${id}`)
+  }
+  return candidates.filter((id) => listed.has(id)).sort()
+}
+
+function examCandidates(rows: Awaited<ReturnType<typeof seedExamRows>>): string[] {
+  return [
+    rows.examId,
+    rows.lastYearExamId,
+    rows.paperOneMaths,
+    rows.paperOneScience,
+    rows.paperTwoMaths,
+    rows.lastYearPaper,
+    rows.markPupilMaths,
+    rows.markChildMaths,
+    rows.markChildMathsLate,
+    rows.markPupilScience,
+    rows.markChildScience,
+    rows.markTwoMaths,
+    rows.lastYearChildMark,
+    rows.lastYearPupilMark,
+    rows.pupilOne,
+    rows.pupilTwo,
+    rows.child,
+  ]
+}
+
+function cardCandidates(rows: Awaited<ReturnType<typeof seedExamRows>>): string[] {
+  return [
+    rows.cardPupil,
+    rows.cardChild,
+    rows.lastYearChildCard,
+    rows.lastYearPupilCard,
+    rows.entryPupil,
+    rows.entryChild,
+    rows.entryTwo,
+    rows.sectionOne,
+    rows.sectionTwo,
+    rows.lastYearSection,
+    rows.pupilOne,
+    rows.pupilTwo,
+    rows.child,
+  ]
+}
+
+function examTeacher(member: Membership): RequestContext {
+  return contextFor({ schoolId: schoolB, membershipId: member.membershipId, roleKeys: ['teacher'], assurance: 'single_factor' })
+}
+
+const sorted = (ids: readonly string[]) => [...ids].sort()
+
+test('a subject teacher reaches their subject in their section and nothing else', async () => {
+  const rows = await seedExamRows()
+  const teacher = examTeacher(rows.subjectTeacher)
+  const exams = await examAgree('subject teacher', teacher, 'exams.read', 'exam', examCandidates(rows))
+  assert.deepEqual(
+    exams,
+    sorted([
+      rows.paperOneMaths,
+      rows.markPupilMaths,
+      rows.markChildMaths,
+      rows.markChildMathsLate,
+      // The pupil face: both pupils sit, today, in a class they teach in.
+      rows.pupilOne,
+      rows.child,
+    ]),
+    'not science in the same class, not maths in another class, not the exam row',
+  )
+  // Recording follows the same triple.
+  const recording = await examAgree('subject teacher', teacher, 'exams.record_marks', 'exam', examCandidates(rows))
+  assert.equal(recording.includes(rows.paperOneMaths), true)
+  assert.equal(recording.includes(rows.paperOneScience), false)
+  assert.equal(recording.includes(rows.paperTwoMaths), false)
+  // Teaching a subject in a class is not looking after it: no report card rows.
+  const cards = await examAgree('subject teacher', teacher, 'report_cards.read', 'report_card', cardCandidates(rows))
+  assert.deepEqual(cards, [], 'the assigned_sections narrowing: a subject teacher reads no card, entry or roster')
+})
+
+test('a class teacher who teaches nothing reaches every paper, mark and card of their class', async () => {
+  const rows = await seedExamRows()
+  const teacher = examTeacher(rows.classTeacher)
+  const exams = await examAgree('class teacher', teacher, 'exams.read', 'exam', examCandidates(rows))
+  assert.deepEqual(
+    exams,
+    sorted([
+      rows.paperOneMaths,
+      rows.paperOneScience,
+      rows.markPupilMaths,
+      rows.markChildMaths,
+      rows.markChildMathsLate,
+      rows.markPupilScience,
+      rows.markChildScience,
+      rows.pupilOne,
+      rows.child,
+    ]),
+  )
+  // The post names no subject, so it never opens recording marks.
+  const recording = await examAgree('class teacher', teacher, 'exams.record_marks', 'exam', examCandidates(rows))
+  assert.deepEqual(recording, [])
+  const cards = await examAgree('class teacher', teacher, 'report_cards.read', 'report_card', cardCandidates(rows))
+  assert.deepEqual(
+    cards,
+    sorted([rows.cardPupil, rows.cardChild, rows.entryPupil, rows.entryChild, rows.sectionOne, rows.pupilOne, rows.child]),
+    'last year’s cards were another class teacher’s',
+  )
+  const managed = await examAgree('class teacher', teacher, 'report_cards.manage', 'report_card', cardCandidates(rows))
+  assert.deepEqual(managed, cards)
+})
+
+test('a teacher whose assignment ended reaches nothing', async () => {
+  const rows = await seedExamRows()
+  const teacher = examTeacher(rows.endedTeacher)
+  assert.deepEqual(await examAgree('ended teacher', teacher, 'exams.read', 'exam', examCandidates(rows)), [])
+  assert.deepEqual(
+    await examAgree('ended teacher', teacher, 'report_cards.read', 'report_card', cardCandidates(rows)),
+    [],
+  )
+})
+
+test('a parent reaches published marks and every card of their own child, in every year', async () => {
+  const rows = await seedExamRows()
+  const parent = contextFor({
+    schoolId: schoolB,
+    membershipId: rows.parent.membershipId,
+    roleKeys: ['parent'],
+    assurance: 'single_factor',
+  })
+  const exams = await examAgree('parent', parent, 'exams.read', 'exam', examCandidates(rows))
+  assert.deepEqual(
+    exams,
+    sorted([rows.markChildMaths, rows.markChildScience, rows.lastYearChildMark, rows.child]),
+    'the correction after publishing is not selected; another family’s child never is',
+  )
+  const late = await authz.authorize(parent, 'exams.read', {
+    schoolId: schoolB,
+    resourceType: 'exam',
+    id: rows.markChildMathsLate,
+  })
+  assert.equal(late.allowed, false, 'a mark recorded after the newest publication is refused')
+  const cards = await examAgree('parent', parent, 'report_cards.read', 'report_card', cardCandidates(rows))
+  assert.deepEqual(
+    cards,
+    sorted([rows.cardChild, rows.lastYearChildCard, rows.child]),
+    'every version of their own child’s card, no working entry, no roster',
+  )
+})
+
+test('an office role reaches every exam and card row of the school', async () => {
+  const rows = await seedExamRows()
+  const owner = contextFor({ schoolId: schoolB, membershipId: fx('ownerB'), roleKeys: ['owner'] })
+  assert.deepEqual(
+    await examAgree('owner', owner, 'exams.read', 'exam', examCandidates(rows)),
+    sorted(examCandidates(rows)),
+  )
+  assert.deepEqual(
+    await examAgree('owner', owner, 'report_cards.read', 'report_card', cardCandidates(rows)),
+    sorted(cardCandidates(rows)),
+  )
+})
+
+test('the accountant has no exam or report card plan at all', async () => {
+  await seedExamRows()
+  const finance = accountantContext(accountant.membershipId)
+  for (const [permission, resourceType] of [
+    ['exams.read', 'exam'],
+    ['exams.record_marks', 'exam'],
+    ['report_cards.read', 'report_card'],
+  ] as const) {
+    await assert.rejects(authz.scopeQuery(finance, permission, resourceType), (error: unknown) => {
+      assert.equal((error as { code?: string }).code, 'ACCESS_DENIED', permission)
+      return true
+    })
+  }
 })

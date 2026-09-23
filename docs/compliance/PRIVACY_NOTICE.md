@@ -34,6 +34,14 @@ Last updated: `[date]`.
 - **Attendance.** One mark for every school day: present, absent, late, leave or half day, who
   recorded it and when, and any correction the office made afterwards. A mark is never edited or
   deleted; a correction is a new entry that replaces the old one.
+- **Exam results and report cards.** Your child's marks in each part of each exam (periodic
+  tests, notebook, subject enrichment and the half-yearly and annual exams), or whether they were
+  absent, on medical leave or exempt; any change to a mark after it was first saved, who made it and
+  the kind of reason (a re-check, a correction of an entry error, or another reason); the grades
+  for work education, art education, health and physical education and discipline; the class
+  teacher's remarks for each term; and every report card the school has published. A mark is never
+  edited or deleted: a change is a new entry and the old one stays. Nothing here is visible to you
+  until the school publishes it.
 - **Fees.** What your child is charged (tuition and any optional fee you have chosen, such as the
   bus, a sport or a club), any concession your child gets and the kind of concession it is, and
   every payment, refund and adjustment: the receipt number, the date, the amount, how it was paid,
@@ -76,8 +84,9 @@ where it was taken, are stripped out before it is stored. Staff photographs work
 
 ## Why we keep it
 
-- To run the school: admissions, classes, timetable, attendance and the admission register the
-  state requires us to keep.
+- To run the school: admissions, classes, timetable, attendance, exams and report cards, and the
+  admission register the state requires us to keep. We do not ask for your consent for exam
+  results, because a school cannot assess a child without recording the result.
 - To reach you: about your child, about fees, and in an emergency.
 - To keep the school's accounts: to work out what is due, to give you a receipt for what you pay,
   and to keep the books the law requires a school to keep. We do not ask for your consent for this,
@@ -118,7 +127,13 @@ Only the people at the school who need to, and only the parts they need.
   details.
 - **You** see your own children, and nothing about any other family. That includes fees: you see
   your own children's fee statements and receipts and nobody else's. It includes attendance too:
-  your child's calendar and monthly percentage, for every year your child has been here.
+  your child's calendar and monthly percentage, for every year your child has been here. It
+  includes exam results and report cards: you see them only once the school has published them,
+  and then for every year your child has been here.
+- **Subject teachers** see and enter the marks of their own subject in their own sections, and
+  nothing of another subject. A **class teacher** sees every subject of their own class, enters the
+  co-scholastic grades and remarks, and reads their class's report cards. Only the office changes a
+  mark after the re-check deadline, and every change keeps the original and a reason on record.
 - **Accounts staff** see what is needed for fees: each pupil's name, class, fees, payments and
   balance, and a contact number. They do not see health notes, documents or identity numbers.
 - **Teachers** see nothing about fees at all. A class teacher marks and reads attendance for their own
@@ -157,6 +172,8 @@ The short version:
 | Your details as a guardian | While any of your children is still within that period |
 | Fee records: what was charged, receipts, refunds, concessions and optional fees | 8 years after your child's last fee transaction, because account books must be kept. A receipt is never edited or deleted; a correction is a new entry |
 | Your child's attendance | With your child's personal details: while enrolled, plus 3 years after leaving |
+| Your child's marks, co-scholastic grades and published report cards | Permanently, as part of your child's academic record, like the admission register |
+| The class teacher's remarks about your child | With your child's personal details: cleared 3 years after leaving. The marks and grades stay |
 | The name of whoever paid, where it was written on a receipt | With your child's personal details: cleared 3 years after leaving. The receipt itself stays |
 | Staff records | While employed, and 8 years after leaving, for payroll law. Then contact details and identifiers are cleared |
 | Logins and passwords | While you have an account. 30 days after your last link to the school ends, the credentials are deleted |

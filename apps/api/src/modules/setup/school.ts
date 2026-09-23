@@ -32,6 +32,8 @@ interface SchoolRow {
   readonly affiliationNumber: string | null
   readonly udiseCode: string | null
   readonly version: number
+  readonly logoContentType: string | null
+  readonly logoUpdatedAt: string | null
 }
 
 /** The profile as the contract wants it, read the same way before and after a save. */
@@ -46,6 +48,9 @@ const columns = {
   affiliationNumber: schools.affiliationNumber,
   udiseCode: schools.udiseCode,
   version: schools.version,
+  // Whether there is a logo and when it changed; the key itself stays here.
+  logoContentType: sql<string | null>`CASE WHEN ${schools.logoStorageKey} IS NULL THEN NULL ELSE ${schools.logoContentType} END`,
+  logoUpdatedAt: sql<string | null>`to_char(${schools.logoUpdatedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
 }
 
 const BOARDS = ['cbse', 'icse', 'state', 'ib', 'other'] as const
@@ -68,6 +73,9 @@ function toProfile(row: SchoolRow, allowedActions: readonly PermissionKey[]): Pr
     ...optional('affiliationNumber', row.affiliationNumber),
     ...optional('udiseCode', row.udiseCode),
     version: row.version,
+    ...((row.logoContentType === 'image/png' || row.logoContentType === 'image/jpeg') && row.logoUpdatedAt !== null
+      ? { logo: { contentType: row.logoContentType, updatedAt: row.logoUpdatedAt } }
+      : {}),
     allowedActions: [...allowedActions],
   } as Profile
 }

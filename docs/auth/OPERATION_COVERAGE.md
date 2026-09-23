@@ -23,7 +23,7 @@ Owner or permission changed:
 - `students.enrollments` scope is now also applied to the class summary carried on a student hit in the roster, the search and the detail read, so a caller with no enrolment grant sees the pupil without the class.
 - Attaching an existing guardian during admission needs `students.manage_guardians` as well as `students.create`.
 - `subjects.setGradeSubjects` answers `GradeSubjectList`, not `Subject` or `EmptySuccess`.
-- Export job status polling (`GET /api/schools/:schoolId/exports/:jobId`) and the export file download (`GET /api/schools/:schoolId/exports/:jobId/file`) are endpoints this inventory does not list. Each requires one of `students.export`, `staff.export`, `audit.export`, `timetable.read`, `fees.export`, `fees.read`, `attendance.export`, `attendance.read` or `staff_attendance.export` and then re-decides the permission the job itself recorded. The download also needs the job to be ready and to belong to the caller, and it writes one audit row.
+- Export job status polling (`GET /api/schools/:schoolId/exports/:jobId`) and the export file download (`GET /api/schools/:schoolId/exports/:jobId/file`) are endpoints this inventory does not list. Each requires one of `students.export`, `staff.export`, `audit.export`, `timetable.read`, `fees.export`, `fees.read`, `attendance.export`, `attendance.read`, `staff_attendance.export`, `exams.export` or `report_cards.export` and then re-decides the permission the job itself recorded. The download also needs the job to be ready and to belong to the caller, and it writes one audit row.
 - Three export endpoints this inventory does not list were added by decision on 19 September 2026: `POST /students/:studentId/export-profile` (`students.export`) and `POST /staff/:staffId/export-profile` (`staff.export`) turn one record into a document, and `POST /timetable/export` (`timetable.read`) turns one week into a spreadsheet or a document. Exporting a timetable is reading it in another format, so it carries the read permission rather than an export permission of its own.
 - `auditLogs.list` redaction by audience is the scope term: `audit.read` and `audit.export` at the `finance` scope select only rows whose action is in `FINANCE_AUDIT_ACTIONS`, so an accountant's list, count and export never exceed the money trail.
 - `timetable.bellSchedules` and `timetable.bellFor` are school-wide rather than matched scope: `timetable.read` is a permission over timetable entries, so no read plan can be built for a bell schedule.
@@ -215,6 +215,32 @@ The attendance module (Task 20) added these. Every one is a `protectedRoute` und
 | `attendance.markStaff`, `attendance.correctStaff` | `staff_attendance.record`, `staff_attendance.manage` / school; privileged; never the caller's own row | `StaffAttendanceDayResponse` | Task 20 |
 | `attendance.staffMemberMonth` | `staff_attendance.read` / matched record scope; every read audited | `StaffAttendanceMemberMonthResponse` | Task 20 |
 | `attendance.exportStaffMonth` | `staff_attendance.export` / school; privileged | `AttendanceExportJob` | Task 20 |
+
+The exams and report cards modules (Task 21) added these. Every one is a `protectedRoute` under
+`/exams` or `/report-cards` except the three logo byte routes, registered by hand like a
+photograph; the route tables with their extra checks are in
+[protected school APIs](./PROTECTED_APIS.md#exams).
+
+| Operation | Permission / scope | Safe response family | Owner |
+|---|---|---|---|
+| `exams.list` | `exams.read` / school (the exam's own row; other scopes list nothing) | `ExamListResponse` | Task 21 |
+| `exams.create`, `exams.update` | `exams.manage` / school; privileged | `ExamSchedule` | Task 21 |
+| `exams.overview` | `exams.read` / school (the exam's own row) | `ExamOverview` | Task 21 |
+| `exams.papers` | `exams.read` / school, assigned subjects or the class-teacher post | `ExamPapersResponse` | Task 21 |
+| `exams.sheet` | `exams.read` / matched record scope (the paper) | `ExamSheet` | Task 21 |
+| `exams.saveMarks` | `exams.record_marks` / matched record scope (the paper); privileged at school scope; until the re-check deadline; a change needs a reason, which is an audit note | `ExamSheet` | Task 21 |
+| `exams.correct` | `exams.manage` / school; privileged; always a reason, which is an audit note | `ExamSheet` | Task 21 |
+| `exams.history` | `exams.read` / matched record scope (the paper) | `ExamMarkHistory` | Task 21 |
+| `exams.publish` | `exams.publish` / school; privileged; after the deadline and complete | `ExamSectionStatus` | Task 21 |
+| `exams.results` | `exams.read` / matched record scope (the pupil); published rows only for own children; every read audited | `ExamResultsResponse` | Task 21 |
+| `exams.exportRegister` | `exams.export` / matched record scope (the paper); privileged at school scope | `ExamExportJob` | Task 21 |
+| `reportCards.settings`, `reportCards.saveSettings` | `exams.read` to read; `exams.manage` / school to save; privileged | `ExamSettings` | Task 21 |
+| `reportCards.entries`, `reportCards.saveEntries` | `report_cards.read`, `report_cards.manage` / matched record scope (the section: the class-teacher post or the school) | `ReportCardEntriesResponse` | Task 21 |
+| `reportCards.sections`, `reportCards.section` | `report_cards.read` / school or the class-teacher post | `ReportCardSectionsResponse`, `ReportCardSectionResponse` | Task 21 |
+| `reportCards.publish` | `report_cards.publish` / school; privileged | `ReportCardPublishResponse` | Task 21 |
+| `reportCards.forStudent`, `reportCards.version` | `report_cards.read` / matched record scope; published cards only for own children; one card audited | `StudentReportCardsResponse`, `ReportCardView` | Task 21 |
+| `reportCards.exportVersion`, `reportCards.exportSection` | `report_cards.export` / matched record scope; privileged at school scope; a parent prints their own child's card | `ReportCardExportJob` | Task 21 |
+| `school.uploadLogo`, `school.removeLogo`, `school.logo` | `school.update` / school; privileged; the read under `holidays.read` / school | `204`, or a byte stream | Task 21 |
 
 ## Read auditing
 

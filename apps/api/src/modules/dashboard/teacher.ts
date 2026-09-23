@@ -26,6 +26,7 @@ import {
 import { loadSchedules, scheduleForGrade, type Schedule } from './bell.ts'
 import { enrollmentScope, substitutionScope } from './office.ts'
 import { attendancePlans } from '../attendance/figures.ts'
+import { marksToEnter } from './exams.ts'
 
 type WeekRow = {
   section_id: string
@@ -345,6 +346,8 @@ export async function teacherDashboard(
   }
 
   const mine = await optionalBlock(() => myClass(conn, context, staffId, year.id, date, calendar.day.kind === 'school_day'))
+  // Absent, not empty, for a teacher who records marks nowhere.
+  const toEnter = await optionalBlock(() => marksToEnter(conn, context, year.id, date))
 
   return {
     audience: 'teacher',
@@ -362,6 +365,7 @@ export async function teacherDashboard(
     })),
     periods: schedule === null ? [] : schedule.periods.map((period) => ({ ...period })),
     ...(mine === undefined ? {} : { myClass: mine }),
+    ...(toEnter === undefined ? {} : { marksToEnter: toEnter }),
     holidays: calendar.holidays,
   }
 }

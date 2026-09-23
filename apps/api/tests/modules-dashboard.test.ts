@@ -72,6 +72,11 @@ const bellScheduleId = randomUUID()
 const otherStaffId = randomUUID()
 const secondStaffId = randomUUID()
 const suffix = randomUUID().slice(0, 8)
+// The exam blocks: one periodic test of the current year, open on the probe day.
+const dashExam = randomUUID()
+const dashPaperOwn = randomUUID()
+const dashPaperOther = randomUUID()
+const dashCard = randomUUID()
 
 let server: TestServer
 type Client = Awaited<ReturnType<typeof signInWithMfa>>
@@ -410,6 +415,13 @@ before(async () => {
 
 after(async () => {
   const pool = adminPool()
+  // The exam rows this suite made. A published card is frozen for everybody,
+  // so its trigger is lifted for the tidy-up alone.
+  await pool.query('ALTER TABLE report_card_versions DISABLE TRIGGER report_card_versions_no_change')
+  await pool.query('DELETE FROM report_card_versions WHERE school_id = $1 AND id = $2', [schoolA, dashCard])
+  await pool.query('ALTER TABLE report_card_versions ENABLE TRIGGER report_card_versions_no_change')
+  await pool.query('DELETE FROM exam_papers WHERE school_id = $1 AND exam_id = $2', [schoolA, dashExam])
+  await pool.query('DELETE FROM exams WHERE school_id = $1 AND id = $2', [schoolA, dashExam])
   for (const table of ['guardian_student_access', 'student_guardians', 'membership_guardian_links']) {
     await pool.query(`DELETE FROM ${table} WHERE school_id = $1 AND guardian_id = ANY($2::uuid[])`, [
       schoolA,
@@ -991,4 +1003,72 @@ test('the dashboard is a read; it does not accept a query that widens it', async
   // The audience comes from the roles, so a parent's own home is the only one they can name.
   assert.equal(body.audience, 'parent')
   assert.equal((await read(parent, PROBE, 'parent')).audience, 'parent')
+})
+
+test('the exam blocks: marks to enter, the office card and the newest report card', async () => {
+  const pool = adminPool()
+  // Before any exam is set up, the office card is absent, not empty, and a
+  // parent sees no exam figure anywhere.
+  const bare = await read(owner, PROBE)
+  if (bare.audience !== 'office') throw new Error('not the office dashboard')
+  assert.equal(bare.exams, undefined)
+
+  await pool.query(
+    `INSERT INTO exams(id,school_id,academic_year_id,kind,starts_on,ends_on,recheck_deadline)
+     VALUES ($1,$2,$3,'periodic_test_1','2026-12-01','2026-12-05','2026-12-20')`,
+    [dashExam, schoolA, yearA],
+  )
+  await pool.query(
+    `INSERT INTO exam_papers(id,school_id,exam_id,academic_year_id,section_id,subject_id)
+     VALUES ($1,$3,$4,$5,$6,$8), ($2,$3,$4,$5,$7,$8)`,
+    [dashPaperOwn, dashPaperOther, schoolA, dashExam, yearA, sectionA, otherSectionId, subjectId],
+  )
+
+  // The fixture teacher teaches the subject in Six A only, so only that paper
+  // is theirs to fill in, with nothing entered yet.
+  const mine = await read(teacher, PROBE)
+  if (mine.audience !== 'teacher') throw new Error('not the teacher dashboard')
+  assert.ok(mine.marksToEnter, 'a teacher who records marks has the block')
+  assert.deepEqual(mine.marksToEnter.map((row) => row.paperId), [dashPaperOwn])
+  const own = mine.marksToEnter[0]!
+  assert.equal(own.entered, 0)
+  assert.ok(own.expected >= 2, 'the roster of Six A on the first day of the exam')
+  assert.equal(own.exam.recheckDeadline, '2026-12-20')
+  // After the re-check deadline the window is shut and the paper leaves the list.
+  const late = await read(teacher, '2026-12-28')
+  if (late.audience !== 'teacher') throw new Error('not the teacher dashboard')
+  assert.deepEqual(late.marksToEnter, [])
+
+  const office = await read(owner, PROBE)
+  if (office.audience !== 'office') throw new Error('not the office dashboard')
+  assert.deepEqual(office.exams?.items, [
+    {
+      examId: dashExam,
+      kind: 'periodic_test_1',
+      recheckDeadline: '2026-12-20',
+      locked: false,
+      papersOutstanding: office.exams?.items[0]?.papersOutstanding,
+      sectionsTotal: 2,
+      sectionsReadyToPublish: 0,
+      sectionsPublished: 0,
+    },
+  ])
+  assert.ok((office.exams?.items[0]?.papersOutstanding ?? 0) >= 1)
+
+  // A parent sees no card until one is published, then the newest one.
+  const before = await read(parent, PROBE)
+  if (before.audience !== 'parent') throw new Error('not the parent dashboard')
+  assert.equal(before.children.find((child) => child.student.id === studentA2)?.latestReportCard, undefined)
+  await pool.query(
+    `INSERT INTO report_card_versions(id,school_id,student_id,academic_year_id,section_id,card,version_number,
+                                      content,content_hash,published_by_membership_id)
+     VALUES ($1,$2,$3,$4,$5,'term_1',1,'{}'::jsonb,$6,$7)`,
+    [dashCard, schoolA, studentA2, yearA, sectionA, 'd'.repeat(64), ownerMembershipId],
+  )
+  const after = await read(parent, PROBE)
+  if (after.audience !== 'parent') throw new Error('not the parent dashboard')
+  const card = after.children.find((child) => child.student.id === studentA2)?.latestReportCard
+  assert.equal(card?.versionId, dashCard)
+  assert.equal(card?.card, 'term_1')
+  assert.equal(card?.academicYear.id, yearA)
 })

@@ -66,6 +66,10 @@ const EXPORT_PERMISSIONS: readonly PermissionKeyType[] = [
   'attendance.export',
   'attendance.read',
   'staff_attendance.export',
+  // A paper's marks register and the report card files. A parent holds
+  // report_cards.export at their own children, so they print their own copy.
+  'exams.export',
+  'report_cards.export',
 ]
 
 /**
@@ -152,6 +156,11 @@ const SINGLE_RECORD_KINDS: Readonly<
   staff_profile: { resourceType: 'staff', field: 'staffId' },
   fee_receipt: { resourceType: 'fee', field: 'receiptId' },
   attendance_pupil_month: { resourceType: 'attendance', field: 'studentId' },
+  // A teacher whose assignment has ended cannot download their old register,
+  // and a family whose link has gone cannot download the card they printed.
+  exam_marks_register: { resourceType: 'exam', field: 'paperId' },
+  report_card: { resourceType: 'report_card', field: 'versionId' },
+  report_cards_section: { resourceType: 'report_card', field: 'sectionId' },
 }
 
 /**

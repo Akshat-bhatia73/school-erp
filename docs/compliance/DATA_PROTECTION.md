@@ -166,6 +166,9 @@ Adopted in Task 12 and to be published to schools. The periods the code acts on 
 | Access logs | 180 days within India (CERT-In), 1 year preferred (DPDP Rules) | Provider retention setting |
 | Pupil attendance marks (`attendance_entries`) | With the pupil's sensitive fields: enrolled, plus 3 years after leaving | Nothing prunes them today; anonymisation clears nothing, because a mark is not identifying |
 | Staff attendance marks (`staff_attendance_entries`) | With the staff record: employed, plus 8 years after leaving | Nothing prunes them today |
+| Exam marks, publications and co-scholastic grades (`exam_marks`, `exam_publications`, the grades in `report_card_entries`) | Permanently, as the academic record | Nothing; a school issues mark statements and transfer certificates from them years later |
+| Published report cards (`report_card_versions.content`) | Permanently, with the exam results | Nothing |
+| The class teacher's remarks (`report_card_entries.remarks`, `report_card_versions.remarks`) | With the pupil's sensitive fields: enrolled, plus 3 years after leaving | Anonymise: cleared in both tables; the database allows exactly that change to a published card |
 
 ## 8. SOC 2 readiness map
 
@@ -315,4 +318,27 @@ A short assessment of the attendance records, written when the module was built 
 **Anonymising a pupil, decided.** The marks stay. A mark says "present" or "absent" against a register line the school keeps permanently anyway; it identifies nobody on its own, and the register the education rules require is a register of attendance. So the anonymisation step clears nothing in these tables. The retention period is nevertheless the pupil's sensitive period (enrolled plus three years), and staff marks keep with staff records (eight years); nothing prunes either today, which is listed as a gap, as it is for the fee ledger.
 
 **Where it sits.** In the same United States database as everything else. No real school's data goes in until the database has moved to an Indian region (Task 17).
+
+## 13. Exams and report cards, September 2026
+
+A short assessment of the exam records, written when the module was built (Task 21).
+
+**What changed.** The system now holds, for every pupil, paper and exam component, a mark (a number with at most one decimal place) or a status (absent, medical leave, exempt), the co-scholastic grades and the class teacher's remarks for each term, and every report card the school publishes, frozen as it was published. Each mark is a row that is never edited: a later save or an office correction is a new row that supersedes the old one, and the database refuses every UPDATE and DELETE. Every change after the first save carries the kind of reason (re-check, entry error, other) on the row; the words someone typed are a redactable audit note and are stored nowhere else. The school's logo is an image in the private document store, like a pupil photograph, and prints on the card.
+
+**Purpose and basis.** Running the school: assessing pupils and issuing the report cards and mark statements a school must issue. It is not a new consent purpose. The privacy notice and the processing agreement say so.
+
+**Who reads it.** Owner, principal and admin set the exams up, read, correct, publish and export everything. A subject teacher reads and enters the marks of their own subject in their own section, and nothing of another subject in the same class: for exams and report cards the class-teacher relationship counts only for the class teacher, never for a teaching assignment. A class teacher reads every subject of their own class, enters the co-scholastic grades and remarks, and reads and prints their class's cards. A parent reads their own child's published results and report cards for every year the child was at the school, and nothing unpublished: the scope term itself matches published rows only, so no screen can show them by mistake. When the school chooses grades, a parent receives grades only; the marks are removed on the server. The accountant reads nothing here.
+
+**What keeps it honest.**
+
+- The marks sheet is one write of the whole paper. The roster is the pupils enrolled in the section on the exam's first day, derived by the server; a body naming anybody else is refused with nothing written.
+- The subject teacher's window closes at the end of the re-check deadline in the school's timezone. After that only the office changes a mark, always with a reason, and results can be published only after the deadline and only when every pupil has a mark or a status.
+- Nothing is edited. `exam_marks` and `exam_publications` take INSERT and nothing else, by grant and by trigger. A published card can only have its remarks cleared.
+- A parent sees each mark as it stood when the results were last published. A correction after publishing stays invisible to the family until the office publishes again, and a card is republished as a new version with the earlier one kept.
+- `safe_changes` carries ids, counts and the kind of reason. Remarks are never in an audit row at all, so clearing them clears them.
+- No class average is shown to a parent, so a family cannot work out another child's marks.
+
+**Anonymising a pupil, decided.** Marks, grades and published figures stay: they are the academic record a school must be able to certify, and a mark on its own identifies nobody. The class teacher's remarks are free text about a child and are cleared by the anonymisation step, in the working record and on every published version; the database allows exactly that change and no other.
+
+**Where it sits.** In the same United States database as everything else. No real school's data goes in until the database has moved to an Indian region (Task 17). Result notices to parents wait for Task 22: this module sends no email and no text message.
 

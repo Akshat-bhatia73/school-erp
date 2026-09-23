@@ -70,6 +70,7 @@ function storageKeyFor(schoolId: string, jobId: string, contentType: string): st
  * unable to record the failure it just caused.
  */
 async function tryProduce(
+  deps: ExportDependencies,
   conn: AuthzConnection,
   context: RequestContext,
   kind: string,
@@ -79,7 +80,7 @@ async function tryProduce(
   if (!producer) return null
   await conn.client.query('SAVEPOINT export_produce')
   try {
-    const file = await producer.produce(conn, context, criteria)
+    const file = await producer.produce(conn, context, criteria, { documents: deps.documents })
     await conn.client.query('RELEASE SAVEPOINT export_produce')
     return file
   } catch {
@@ -129,7 +130,7 @@ export async function produceJob(
       : summary(jobId, row.status)
   }
 
-  const file = await tryProduce(conn, context, row.kind, row.criteria)
+  const file = await tryProduce(deps, conn, context, row.kind, row.criteria)
   if (!file) {
     await conn.client.query(
       `UPDATE export_jobs SET status = 'failed', updated_at = now()

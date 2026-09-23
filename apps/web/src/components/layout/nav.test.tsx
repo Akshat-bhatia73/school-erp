@@ -86,6 +86,31 @@ describe('Sidebar', () => {
     expect(dashboardGet).not.toHaveBeenCalled()
   })
 
+  it('offers Exams to anybody who reads exams or report cards, and its settings to the office', async () => {
+    const { Sidebar } = await import('./sidebar')
+    const { unmount } = renderWithSession(<Sidebar onOpenQuickActions={() => {}} />, {
+      roleKeys: ['owner'],
+      capabilities: ['exams.read', 'exams.manage', 'members.read'],
+    })
+    expect(screen.getByText('Exams')).toBeInTheDocument()
+    expect(screen.getByText('Exams & report cards')).toBeInTheDocument()
+    expect(screen.queryByText('Exams & marks')).not.toBeInTheDocument()
+    unmount()
+
+    renderWithSession(<Sidebar onOpenQuickActions={() => {}} />, {
+      roleKeys: ['parent'],
+      capabilities: ['report_cards.read'],
+    })
+    expect(screen.getByText('Exams')).toBeInTheDocument()
+    expect(screen.queryByText('Exams & report cards')).not.toBeInTheDocument()
+  })
+
+  it('hides Exams from somebody who reads neither', async () => {
+    const { Sidebar } = await import('./sidebar')
+    renderWithSession(<Sidebar onOpenQuickActions={() => {}} />, { roleKeys: ['accountant'], capabilities: ['fees.read'] })
+    expect(screen.queryByText('Exams')).not.toBeInTheDocument()
+  })
+
   it('greets a parent with My children and no quick actions', async () => {
     const { Sidebar } = await import('./sidebar')
     renderWithSession(<Sidebar onOpenQuickActions={() => {}} />, {

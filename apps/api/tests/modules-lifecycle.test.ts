@@ -28,6 +28,9 @@ const leaverDocument = randomUUID()
 const STORAGE_KEY = `lifecycle/${randomUUID()}.pdf`
 const leaverFeeHead = randomUUID()
 const leaverReceipt = randomUUID()
+const leaverEntry = randomUUID()
+const leaverVersion = randomUUID()
+const LEAVER_CARD_CONTENT = { figures: 'kept as the academic record' }
 const LEAVER_CHEQUE = `CHQ-${randomUUID().slice(0, 8)}`
 
 const unlinkStudent = randomUUID()
@@ -134,6 +137,32 @@ before(async () => {
     [schoolA, leaverReceipt, leaverFeeHead],
   )
 
+  // The class teacher's remarks, on the working row and on a published card.
+  // Remarks follow the pupil's own retention period; the grades and the
+  // published figures are the academic record and stay.
+  await pool.query(
+    `INSERT INTO report_card_entries(id,school_id,student_id,academic_year_id,section_id,term,
+                                     discipline,remarks,updated_by_membership_id)
+     VALUES ($1,$2,$3,$4,$5,'term_1','A','A thoughtful pupil',$6)`,
+    [leaverEntry, schoolA, leaver, fixtureIds.yearA as string, fixtureIds.sectionA as string, fixtureIds.ownerA as string],
+  )
+  await pool.query(
+    `INSERT INTO report_card_versions(id,school_id,student_id,academic_year_id,section_id,card,version_number,
+                                      content,remarks,content_hash,published_by_membership_id)
+     VALUES ($1,$2,$3,$4,$5,'term_1',1,$6::jsonb,$7::jsonb,$8,$9)`,
+    [
+      leaverVersion,
+      schoolA,
+      leaver,
+      fixtureIds.yearA as string,
+      fixtureIds.sectionA as string,
+      JSON.stringify(LEAVER_CARD_CONTENT),
+      JSON.stringify({ term_1: 'A thoughtful pupil' }),
+      'a'.repeat(64),
+      fixtureIds.ownerA as string,
+    ],
+  )
+
   // A student who is still here, for the unlink rules.
   await pool.query(
     `INSERT INTO students(id,school_id,admission_number,first_name,status)
@@ -214,6 +243,12 @@ after(async () => {
   await pool.query('ALTER TABLE fee_receipts ENABLE TRIGGER fee_receipts_no_change')
   await pool.query('ALTER TABLE fee_receipt_lines ENABLE TRIGGER fee_receipt_lines_no_change')
   await pool.query('DELETE FROM fee_heads WHERE id = $1', [leaverFeeHead])
+  // A published card is frozen for everybody, so its trigger is lifted the
+  // same way for the tidy-up alone.
+  await pool.query('DELETE FROM report_card_entries WHERE id = $1', [leaverEntry])
+  await pool.query('ALTER TABLE report_card_versions DISABLE TRIGGER report_card_versions_no_change')
+  await pool.query('DELETE FROM report_card_versions WHERE id = $1', [leaverVersion])
+  await pool.query('ALTER TABLE report_card_versions ENABLE TRIGGER report_card_versions_no_change')
   await pool.query('DELETE FROM students WHERE id = ANY($1::uuid[])', [[leaver, sibling, unlinkStudent]])
   await pool.query('DELETE FROM staff WHERE id = $1', [retiree])
   await pool.query('DELETE FROM membership_roles WHERE membership_id = ANY($1::uuid[])', [
@@ -318,6 +353,30 @@ test('after the retention period the record keeps its register fields and nothin
   assert.equal('reason' in (audit.rows[0]?.safe_changes ?? {}), false)
   // The audit row counts the ledger rows it touched and names no amount.
   assert.equal(audit.rows[0]?.safe_changes.feeReceiptsCleared, 1)
+  assert.equal(audit.rows[0]?.safe_changes.reportCardRemarksCleared, 1)
+  assert.equal(audit.rows[0]?.safe_changes.reportCardVersionRemarksCleared, 1)
+  assert.ok(!JSON.stringify(audit.rows[0]).includes('thoughtful'), 'a remark never reaches the audit row')
+
+  // Remarks are gone from the working row and the published card; the grade
+  // and the published content are exactly as they were.
+  const entry = (
+    await adminPool().query<{ remarks: string | null; discipline: string | null; version: number }>(
+      'SELECT remarks, discipline, version FROM report_card_entries WHERE id = $1',
+      [leaverEntry],
+    )
+  ).rows[0]
+  assert.equal(entry?.remarks, null)
+  assert.equal(entry?.discipline, 'A')
+  assert.equal(entry?.version, 2)
+  const version = (
+    await adminPool().query<{ remarks: unknown; content: unknown; content_hash: string }>(
+      'SELECT remarks, content, content_hash FROM report_card_versions WHERE id = $1',
+      [leaverVersion],
+    )
+  ).rows[0]
+  assert.equal(version?.remarks, null)
+  assert.deepEqual(version?.content, LEAVER_CARD_CONTENT)
+  assert.equal(version?.content_hash, 'a'.repeat(64))
 
   // The money stands. Only the payer's name is gone, because that is the one
   // edit the append-only ledger allows at all.

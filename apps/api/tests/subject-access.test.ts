@@ -33,6 +33,12 @@ const teacherMembership = '10000000-0000-4000-8000-0000000009d2'
 const feeHead = randomUUID()
 const childReceipt = randomUUID()
 const otherReceipt = randomUUID()
+// A year of exams of the suite's own, so no other suite's exams share it.
+const examYear = randomUUID()
+const examSection = randomUUID()
+const examSubject = randomUUID()
+const examPt1 = randomUUID()
+const examHalf = randomUUID()
 
 let server: TestServer
 type Client = Awaited<ReturnType<typeof signInWithMfa>>
@@ -149,6 +155,58 @@ before(async () => {
     }
   }
 
+  // Marks, for the parent's child: periodic test 1 is published, the
+  // half-yearly exam is not. The export is the results screen's answer, so a
+  // parent's copy carries the published exam alone.
+  const suffix = randomUUID().slice(0, 8)
+  await pool.query(
+    `INSERT INTO academic_years(id,school_id,name,start_date,end_date,status)
+     VALUES ($1,$2,$3,'2025-04-01','2026-03-31','closed')`,
+    [examYear, schoolA, `SAR-${suffix}`],
+  )
+  await pool.query(
+    `INSERT INTO sections(id,school_id,academic_year_id,grade_id,name) VALUES ($1,$2,$3,$4,$5)`,
+    [examSection, schoolA, examYear, fixtureIds.gradeA as string, `SAR-${suffix.slice(0, 4)}`],
+  )
+  await pool.query(`INSERT INTO subjects(id,school_id,name,code,type) VALUES ($1,$2,$3,$4,'scholastic')`, [
+    examSubject,
+    schoolA,
+    `Subject access maths ${suffix}`,
+    `SAR${suffix}`,
+  ])
+  await pool.query(
+    `INSERT INTO enrollments(school_id,student_id,academic_year_id,section_id,joined_on)
+     VALUES ($1,$2,$3,$4,'2025-04-01')`,
+    [schoolA, studentA2, examYear, examSection],
+  )
+  await pool.query(
+    `INSERT INTO exams(id,school_id,academic_year_id,kind,starts_on,ends_on,recheck_deadline) VALUES
+       ($1,$3,$4,'periodic_test_1','2025-05-05','2025-05-06','2025-05-10'),
+       ($2,$3,$4,'half_yearly','2025-09-01','2025-09-10','2025-09-15')`,
+    [examPt1, examHalf, schoolA, examYear],
+  )
+  for (const [examId, component, tenths] of [
+    [examPt1, 'periodic_test', 70],
+    [examHalf, 'written', 500],
+  ] as const) {
+    const paperId = randomUUID()
+    await pool.query(
+      `INSERT INTO exam_papers(id,school_id,exam_id,academic_year_id,section_id,subject_id) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [paperId, schoolA, examId, examYear, examSection, examSubject],
+    )
+    await pool.query(
+      `INSERT INTO exam_marks (school_id, paper_id, exam_id, academic_year_id, section_id, subject_id, student_id,
+                               component, status, marks_tenths, revision, kind, recorded_by_membership_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'marked',$9,1,'entry',$10)`,
+      [schoolA, paperId, examId, examYear, examSection, examSubject, studentA2, component, tenths, fixtureIds.ownerA as string],
+    )
+  }
+  await pool.query(
+    `INSERT INTO exam_publications (school_id, exam_id, academic_year_id, section_id, published_by_membership_id)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [schoolA, examPt1, examYear, examSection, fixtureIds.ownerA as string],
+  )
+
   await setFixturePassword(server, parentUserId, PASSWORD)
   await setFixturePassword(server, teacherUser, PASSWORD)
   owner = await signInWithMfa(server, { userId: ownerUserId, email: OWNER_EMAIL, password: PASSWORD })
@@ -207,6 +265,32 @@ test('the export carries the attendance of that child alone', async () => {
   assert.equal(year.summary.present, 1)
   assert.equal(year.summary.absent, 1)
   assert.equal(typeof year.summary.percentage, 'number')
+})
+
+test("a parent's export carries published marks only", async () => {
+  const result = await parsedExport(parent, studentA2)
+  assert.ok(result.exams !== undefined, "a parent may read their own child's results")
+  const year = result.exams.find((answer) => answer.academicYear.id === examYear)
+  assert.ok(year, 'the year the child has a published mark in is in the export')
+  assert.equal(year.view, 'family')
+  assert.deepEqual(
+    year.exams.map((exam) => exam.exam.kind),
+    ['periodic_test_1'],
+    'the unpublished half-yearly exam is not in a parent\'s copy',
+  )
+  // No card is published, so the block is there and empty.
+  assert.deepEqual(result.reportCards, [])
+})
+
+test("the owner's export carries the live marks of every exam", async () => {
+  const result = await parsedExport(owner, studentA2)
+  const year = result.exams?.find((answer) => answer.academicYear.id === examYear)
+  assert.ok(year)
+  assert.equal(year.view, 'staff')
+  assert.deepEqual(
+    year.exams.map((exam) => exam.exam.kind).sort(),
+    ['half_yearly', 'periodic_test_1'],
+  )
 })
 
 test('a parent is refused another family\'s child', async () => {

@@ -201,6 +201,27 @@ uses, never to the internet; checklist item 16 checks both halves.
 Migrations run as `erp_migrator` and only at deploy time. The running service
 never holds that login.
 
+Migration `0017_exams.sql` is the exams and report cards release (Task 21).
+It is additive: seven new tables (`exams`, `exam_papers`, the append-only
+`exam_marks` and `exam_publications`, `report_card_entries`, the frozen
+`report_card_versions` and `exam_settings`), three nullable logo columns on
+`schools`, and one CHECK constraint widened (`export_jobs.kind` gains
+`exam_marks_register`, `report_card` and `report_cards_section`), so the
+previous version of the code runs against it. **It changes the role
+templates**: the five `exams.*` and the four `report_cards.*` keys become
+active. Every existing school therefore needs `pnpm db:sync-roles` with the
+migrator credential, after the migration and before the smoke test; a school
+on the previous templates gains 38 grants (nine each for owner, principal and
+admin, eight for teacher, three for parent, none for the accountant). Without
+it nobody in an existing school holds an exam key: the Exams screen is missing
+and every exam and report card route answers `ACCESS_DENIED`. The order is the
+same as for fees and attendance: migrate, `migrate:check`, `db:sync-roles`,
+merge, deploy, smoke. The mark and publication tables refuse UPDATE and DELETE
+by trigger, and a published card allows only its remarks to be cleared, so a
+rollback of the code leaves them in place. No real school's data goes in
+before the database moves to an Indian region (Task 17), and no result notice
+goes to a parent before Task 22.
+
 Migration `0016_attendance.sql` is the attendance release (Task 20). It is
 additive: two new append-only tables (`attendance_entries`,
 `staff_attendance_entries`) and one CHECK constraint widened
@@ -323,6 +344,8 @@ quote the same numbers. Periods start when the purpose ends, not when the row wa
 | Fee heads and structures | Permanently; school setup, not personal data | Nothing | `fees.manage` routes only |
 | Pupil attendance (`attendance_entries`: one mark per pupil and school day, with its revision, who recorded it and the row it supersedes) | With the student sensitive fields: enrolled, plus 3 years after leaving | Nothing prunes it today, and anonymisation clears nothing here: a mark identifies nobody on its own | The runtime login holds no UPDATE or DELETE; the `attendance_entries_no_change` trigger refuses every edit |
 | Staff attendance (`staff_attendance_entries`) | With the staff record: employed, plus 8 years | Nothing prunes it today | The same grant and the `staff_attendance_entries_no_change` trigger |
+| Exam marks and publications (`exam_marks`, `exam_publications`), co-scholastic grades (`report_card_entries`) and published report cards (`report_card_versions.content`) | Permanently, as the pupil's academic record | Nothing | The runtime login holds no UPDATE or DELETE on marks and publications and the `exam_marks_no_change` and `exam_publications_no_change` triggers refuse every edit; `report_card_versions_no_change` refuses every edit of a published card except clearing its remarks |
+| The class teacher's remarks (`report_card_entries.remarks`, `report_card_versions.remarks`) | With the student sensitive fields: enrolled, plus 3 years after leaving | Anonymise | `POST /students/:studentId/anonymise` clears both in the same transaction |
 | Staff records (salary, identifier fragments, private contact) | Employed, plus 8 years after leaving for statutory payroll records | Anonymise contact and identifiers; keep employment dates and designation | `POST /staff/:id/anonymise` |
 | Login identity and credentials | While the person holds any active membership | Sessions end when the last membership is removed; credentials go 30 days later, keeping `auth_user.id` and the name for audit attribution | Membership removal, then `sweep_orphaned_credentials` |
 | Sessions, one-time codes, reset tokens, throttle rows, held text messages | Until expiry | Deleted | `sweep_auth_transients`, daily |

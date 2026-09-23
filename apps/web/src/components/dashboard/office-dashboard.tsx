@@ -40,6 +40,7 @@ import { HeroCard, type HeroChip } from '@/components/dashboard/blocks/hero'
 import { CalendarTile, SimpleList, type SimpleListItem } from '@/components/dashboard/blocks/list'
 import { StatRow, StatTile } from '@/components/dashboard/blocks/stat'
 import { calendarParts, longDayDate, plural, weekdayName } from '@/components/dashboard/format'
+import { ExamsCard } from '@/components/exams/dashboard-cards'
 import { FeeStatTiles } from '@/components/fees/dashboard-cards'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Tag } from '@/components/shared/tag'
@@ -108,6 +109,12 @@ export function OfficeDashboard({ data, isLoading, error }: { data?: OfficeDashb
               <StatTile size="sm" label="Absent today" value={data.attendance.absent} tone="orange" icon={<UserMinus />} />
             </StatRow>
           </DashboardCard>
+        </Cell>
+      )}
+
+      {data?.exams && (
+        <Cell col={4} rows={3}>
+          <ExamsCard exams={data.exams} />
         </Cell>
       )}
 

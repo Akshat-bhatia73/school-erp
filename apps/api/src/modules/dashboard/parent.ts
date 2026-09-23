@@ -21,6 +21,7 @@ import {
   type FiguresRow,
 } from '../attendance/figures.ts'
 import { currentEnrollmentsFor, label, listOwnChildren, predicateFor, rows } from './queries.ts'
+import { latestReportCard } from './exams.ts'
 import { buildCalendar, currentAcademicYear, dayOfWeek, optionalBlock } from './calendar.ts'
 import { loadSchedules, scheduleForGrade } from './bell.ts'
 
@@ -245,10 +246,12 @@ export async function parentDashboard(
         ? undefined
         : await optionalBlock(() => feesDueFor(conn, context, student.id, year.id))
     const attendance = await optionalBlock(() => attendanceFor(conn, context, student.id, date))
+    const reportCard = await optionalBlock(() => latestReportCard(conn, context, student.id))
     children.push({
       student,
       ...(attendance === undefined ? {} : { attendance }),
       ...(feesDuePaise === undefined ? {} : { feesDuePaise }),
+      ...(reportCard === undefined ? {} : { latestReportCard: reportCard }),
       ...(enrollment === undefined ? {} : { enrollment }),
       ...(classTeacher === undefined ? {} : { classTeacher }),
       ...(todayLessons === undefined ? {} : { todayLessons }),

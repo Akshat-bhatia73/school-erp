@@ -20,6 +20,9 @@ import * as searchModule from './search'
 import * as audit from './audit'
 import * as members from './members'
 import * as files from './files'
+import * as exams from './exams'
+import * as reportCards from './report-cards'
+import * as logo from './logo'
 
 export const api = {
   setup,
@@ -50,6 +53,9 @@ export const api = {
   },
   members,
   files,
+  exams,
+  reportCards,
+  logo,
 } as const
 
 export * from './shared'

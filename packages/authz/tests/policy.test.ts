@@ -353,3 +353,101 @@ test('explain lists the sources behind a decision', () => {
   assert.equal(denied.allowed, false)
   assert.deepEqual(denied.sources.map((s) => s.kind), ['invariant', 'exception'])
 })
+
+test('exams: a teaching assignment opens one subject in one section, never the class or its cards', () => {
+  const facts: RelationshipFacts = {
+    selfStaffId: 'staff-1',
+    assignments: [{ sectionId: 'section-1', subjectId: 'subject-1', academicYearId: 'year-1' }],
+    ownChildStudentIds: [],
+  }
+  const mark: ResourceFacts = {
+    resourceType: 'exam',
+    id: 'mark-1',
+    studentId: 'pupil-1',
+    sectionIds: ['section-1'],
+    subjectIds: ['subject-1'],
+    academicYearId: 'year-1',
+    published: false,
+  }
+  assert.equal(matchesScope('assigned_subjects', facts, mark), true)
+  assert.equal(matchesScope('assigned_subjects', facts, { ...mark, subjectIds: ['subject-2'] }), false)
+  assert.equal(matchesScope('assigned_subjects', facts, { ...mark, sectionIds: ['section-2'] }), false)
+  // For exams and report cards, assigned_sections is the class-teacher post
+  // alone, so teaching one subject never opens the whole class.
+  assert.equal(matchesScope('assigned_sections', facts, mark), false)
+  const card: ResourceFacts = {
+    resourceType: 'report_card',
+    id: 'card-1',
+    studentId: 'pupil-1',
+    sectionIds: ['section-1'],
+    academicYearId: 'year-1',
+    published: true,
+  }
+  assert.equal(matchesScope('assigned_sections', facts, card), false)
+  assert.equal(matchesScope('assigned_subjects', facts, { ...card, subjectIds: ['subject-1'] }), false)
+  // An exam's own row names no section and no subject.
+  const exam: ResourceFacts = { resourceType: 'exam', id: 'exam-1', academicYearId: 'year-1' }
+  assert.equal(matchesScope('assigned_subjects', facts, exam), false)
+  assert.equal(matchesScope('assigned_sections', facts, exam), false)
+})
+
+test('exams: the class teacher reaches every subject of the class and its cards', () => {
+  const facts: RelationshipFacts = {
+    selfStaffId: 'staff-1',
+    assignments: [],
+    classTeacherSections: [{ sectionId: 'section-1', academicYearId: 'year-1' }],
+    ownChildStudentIds: [],
+  }
+  for (const resourceType of ['exam', 'report_card'] as const) {
+    const row: ResourceFacts = {
+      resourceType,
+      id: 'row-1',
+      studentId: 'pupil-1',
+      sectionIds: ['section-1'],
+      subjectIds: ['subject-7'],
+      academicYearId: 'year-1',
+      published: false,
+    }
+    assert.equal(matchesScope('assigned_sections', facts, row), true, resourceType)
+    assert.equal(matchesScope('assigned_sections', facts, { ...row, sectionIds: ['section-2'] }), false)
+    assert.equal(matchesScope('assigned_sections', facts, { ...row, academicYearId: 'year-0' }), false)
+    assert.equal(matchesScope('assigned_subjects', facts, row), false)
+  }
+})
+
+test('exams: a family reaches only published rows of their own child', () => {
+  const facts: RelationshipFacts = { selfStaffId: null, assignments: [], ownChildStudentIds: ['pupil-1'] }
+  for (const resourceType of ['exam', 'report_card'] as const) {
+    const row: ResourceFacts = {
+      resourceType,
+      id: 'row-1',
+      studentId: 'pupil-1',
+      sectionIds: ['section-1'],
+      academicYearId: 'year-0',
+      published: true,
+    }
+    assert.equal(matchesScope('own_children', facts, row), true, `${resourceType} published, any year`)
+    assert.equal(matchesScope('own_children', facts, { ...row, published: false }), false)
+    assert.equal(matchesScope('own_children', facts, { ...row, published: undefined }), false)
+    assert.equal(matchesScope('own_children', facts, { ...row, studentId: 'pupil-2' }), false)
+    // Student login is off, so own_record never reaches anything.
+    assert.equal(matchesScope('own_record', { ...facts, ownChildStudentIds: [] }, row), false)
+  }
+})
+
+test('exams: the accountant holds no exam or report card permission', () => {
+  const accountant = snapshotFor(['accountant'])
+  assert.equal(
+    accountant.grants.some((grant) => grant.permission.startsWith('exams.') || grant.permission.startsWith('report_cards.')),
+    false,
+  )
+  const decision = evaluate({
+    context: contextFor({ roleKeys: ['accountant'] }),
+    permission: 'exams.read',
+    resource: reference('exam'),
+    snapshot: accountant,
+    facts: relatedFacts,
+    resourceFacts: { ...resourceFactsFor('exam'), published: true },
+  })
+  assert.equal(decision.allowed, false)
+})
