@@ -38,7 +38,7 @@ import type { AccessScope, ResourceAccessRule, ResourceType, RoleKey } from '@er
 import type { AuthorizedReadPlan, PolicySnapshot, RequestContext } from '@erp/contracts/server'
 
 import { AuthorizationError } from './errors.ts'
-import type { RelationshipFacts } from './policy.ts'
+import { studentKindConsistent, type RelationshipFacts } from './policy.ts'
 import type { AuthzConnection } from './snapshot.ts'
 
 /** A (section, year) pair the member teaches. Both parts must match together. */
@@ -62,6 +62,8 @@ interface PlanInternals {
   readonly triples: readonly AssignedTriple[]
   readonly subjectIds: readonly string[]
   readonly childStudentIds: readonly string[]
+  /** The pupil a student membership is: the own_record scope's only pupil. */
+  readonly ownStudentIds: readonly string[]
   readonly selfStaffId: string | null
 }
 
@@ -469,9 +471,7 @@ export function createReadPlan(
   if (!PermissionKey.safeParse(permission).success) throw new AuthorizationError('ACCESS_DENIED')
   const metadata = PERMISSION_CATALOGUE[permission]
   if (metadata.availability !== 'active') throw new AuthorizationError('ACCESS_DENIED')
-  if (context.membershipKind === 'student' || context.roleKeys.includes('student')) {
-    throw new AuthorizationError('FEATURE_DISABLED')
-  }
+  if (!studentKindConsistent(context)) throw new AuthorizationError('ACCESS_DENIED')
   if (resourceType !== metadata.resourceType) throw new AuthorizationError('RESOURCE_NOT_FOUND')
   if (snapshot.accessVersion !== context.accessVersion) throw new AuthorizationError('ACCESS_DENIED')
   if (context.roleKeys.some((role: RoleKey) => ROLE_TEMPLATES[role].requiredMfa) && context.assurance !== 'mfa') {
@@ -561,6 +561,7 @@ export function createReadPlan(
     triples,
     subjectIds: [...new Set(facts.assignments.map((assignment) => assignment.subjectId))],
     childStudentIds: [...facts.ownChildStudentIds],
+    ownStudentIds: facts.ownStudentId ? [facts.ownStudentId] : [],
     selfStaffId: facts.selfStaffId,
   })
   return plan
@@ -832,11 +833,13 @@ function scopeTerm(plan: AuthorizedReadPlan, table: ScopedTable, scope: AccessSc
     case 'own_children':
       return ownChildrenTerm(plan, table, parts.childStudentIds)
     case 'own_record':
-      // Student login is disabled, so this scope never selects a row. For
-      // exams and report cards the term is written like own_children,
-      // published rows only, with no pupil yet to match.
-      if (plan.resourceType === 'exam' || plan.resourceType === 'report_card') return ownPupilTerm(table, [])
-      return FALSE
+      // Exactly own_children with the pupil themself as the only child, so a
+      // list answers what the decision answers: published results and report
+      // cards only, shared rows (a section, its timetable) through the pupil's
+      // current enrolment. A message never answers through the pupil it is
+      // about; a pupil's inbox is the self scope.
+      if (plan.resourceType === 'communication') return FALSE
+      return ownChildrenTerm(plan, table, parts.ownStudentIds)
   }
 }
 

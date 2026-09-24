@@ -96,13 +96,21 @@ test('MFA summaries represent completed verification, not an enrollment flag', (
   assert.equal(c.SessionSummary.safeParse({ ...session, token: 'secret' }).success, false)
 })
 
-test('student activation is disabled in login choices and membership responses', () => {
-  assert.equal(c.LOGIN_METHODS.student.enabled, false)
-  assert.deepEqual(c.LOGIN_METHODS.student.methods, [])
+test('a pupil login holds the student role alone and never an adult one', () => {
+  assert.equal(c.LOGIN_METHODS.student.enabled, true)
+  assert.deepEqual(c.LOGIN_METHODS.student.methods, ['school_code_password'])
+  assert.equal(c.LOGIN_METHODS.student.requiresMfa, false)
   const membership = { id: 'member-1', school: { id: 'school-1', name: 'School', code: 'school' }, status: 'active', kind: 'adult', roleKeys: ['teacher'], accessVersion: 1 }
   assert.equal(c.MembershipSummary.safeParse(membership).success, true)
-  assert.equal(c.MembershipSummary.safeParse({ ...membership, kind: 'student', roleKeys: ['student'] }).success, false)
+  assert.equal(c.MembershipSummary.safeParse({ ...membership, kind: 'student', roleKeys: ['student'] }).success, true)
+  assert.equal(c.MembershipSummary.safeParse({ ...membership, kind: 'student', roleKeys: ['student', 'parent'] }).success, false)
+  assert.equal(c.MembershipSummary.safeParse({ ...membership, kind: 'student', roleKeys: ['teacher'] }).success, false)
   assert.equal(c.MembershipSummary.safeParse({ ...membership, roleKeys: ['teacher', 'student'] }).success, false)
+  // The sign-in request is three fields and a device flag; nothing else is accepted.
+  const signIn = { schoolCode: 'sunrise', admissionNumber: 'SPS/2026/001', password: 'k7m3-p9xq-4tad' }
+  assert.equal(c.StudentSignInRequest.safeParse(signIn).success, true)
+  assert.equal(c.StudentSignInRequest.safeParse({ ...signIn, email: 'x@student.invalid' }).success, false)
+  assert.equal(c.StudentSignInRequest.safeParse({ ...signIn, admissionNumber: ' ' }).success, false)
 })
 
 test('documents and audit summaries cannot return storage credentials or raw private changes', () => {

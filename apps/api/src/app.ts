@@ -9,6 +9,7 @@ import type { DocumentStorage } from './files/storage.ts'
 import { AuthorizationError, createAuthorizationService } from '@erp/authz'
 import { isAllowedAuthRoute } from './auth/provider-routes.ts'
 import { registerIdentityRoutes } from './routes/identity.ts'
+import { registerStudentSignInRoute } from './auth/student-sign-in.ts'
 import { registerDevRoutes, registerHeldSmsRoute } from './routes/dev.ts'
 import { reportDenial, reportError } from './observability.ts'
 import { registerAccessLog } from './http/access-log.ts'
@@ -198,7 +199,7 @@ export function buildApp({
   // Schoolless and minimal: it must never hint at who has an account.
   app.get('/api/auth-config', async () => ({
     deliveryMode: delivery.mode,
-    studentLoginEnabled: false,
+    studentLoginEnabled: true,
     // A test build holds text messages for a tester instead of sending them.
     textMessagesHeld: config.HELD_SMS_TOKEN !== undefined,
   }))
@@ -210,6 +211,7 @@ export function buildApp({
   registerDevRoutes(app, { config, delivery, authPool: pools.auth })
   registerHeldSmsRoute(app, { config, delivery, authPool: pools.auth })
   registerIdentityRoutes(app, { auth, pools, authz })
+  registerStudentSignInRoute(app, { config, auth, pools })
   registerSessionRoutes(app, { auth, pools })
   registerMembershipRoutes(app, { auth, pools, authz, delivery })
   registerInvitationRoutes(app, { auth, pools, authz, delivery })

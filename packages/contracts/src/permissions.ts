@@ -25,7 +25,7 @@ const permissionKeys = [
   'students.manage_enrollment', 'students.manage_guardians', 'students.import',
   'students.export', 'students.promote',
   'students.read_consents', 'students.manage_consents', 'students.anonymise',
-  'students.export_subject',
+  'students.export_subject', 'students.manage_login',
   'staff.read_directory', 'staff.read_employment', 'staff.read_private', 'staff.read_pay',
   'staff.create', 'staff.update_employment', 'staff.update_private', 'staff.update_pay',
   'staff.manage_assignments', 'staff.export', 'staff.anonymise',
@@ -91,12 +91,12 @@ export const PERMISSION_CATALOGUE = {
   'school.update': active('school', ['school'], 'Update the selected school profile.', true),
   'academic_years.read': active('academic_year', ['school'], 'Read academic years.'),
   'academic_years.manage': active('academic_year', ['school'], 'Create, update, open, or close academic years.', true),
-  'grades.read': active('grade', ['school', 'assigned_sections', 'own_children'], 'Read class definitions relevant to the granted scope.'),
+  'grades.read': active('grade', ['school', 'assigned_sections', 'own_children', 'own_record'], 'Read class definitions relevant to the granted scope.'),
   'grades.manage': active('grade', ['school'], 'Create, update, or remove classes.', true),
-  'sections.read': active('section', ['school', 'assigned_sections', 'own_children'], 'Read section definitions relevant to the granted scope.'),
+  'sections.read': active('section', ['school', 'assigned_sections', 'own_children', 'own_record'], 'Read section definitions relevant to the granted scope.'),
   'sections.read_strengths': active('section', ['school', 'assigned_sections'], 'Read authorized section student counts.'),
   'sections.manage': active('section', ['school'], 'Create, update, or remove sections.', true),
-  'subjects.read': active('subject', ['school', 'assigned_subjects', 'own_children'], 'Read subjects relevant to the granted scope.'),
+  'subjects.read': active('subject', ['school', 'assigned_subjects', 'own_children', 'own_record'], 'Read subjects relevant to the granted scope.'),
   'subjects.manage': active('subject', ['school'], 'Create, update, remove, or map subjects to classes.', true),
   'holidays.read': active('holiday', ['school'], 'Read the school calendar.'),
   'holidays.manage': active('holiday', ['school'], 'Create, update, or remove holidays.', true),
@@ -125,6 +125,8 @@ export const PERMISSION_CATALOGUE = {
   // A parent asking for their own child's record is answering a subject access
   // request about themselves, so the office answer is the only privileged one.
   'students.export_subject': active('student', ['school', 'own_children'], 'Export everything the system holds about one authorized student.', true, ['school']),
+  // A pupil's own login: issue it, reset its password, switch it off and on.
+  'students.manage_login': active('student', ['school'], 'Issue, reset, switch off or switch on a pupil\'s own login.', true),
   'staff.read_directory': active('staff', ['school', 'self', 'assigned_sections', 'own_children'], 'Read a minimal staff directory or timetable attribution.'),
   'staff.read_employment': active('staff', ['school', 'self'], 'Read authorized employment fields, excluding private and pay data.'),
   'staff.read_private': active('staff', ['school', 'self', 'finance'], 'Read private staff contact, identity, or bank fields.', true, ['school', 'finance']),
@@ -160,7 +162,7 @@ export const PERMISSION_CATALOGUE = {
   'timetable.read_teacher_loads': active('teaching_assignment', ['school'], 'Read school-wide teacher workload aggregates.', true),
   'timetable.manage_substitutions': active('substitution', ['school'], 'Create or remove teacher substitutions.', true),
   'timetable.notify_substitutions': active('substitution', ['school'], 'Mark substitution notices as sent.', true),
-  'dashboard.read': active('dashboard', ['school', 'self', 'assigned_sections', 'own_children', 'finance'], 'Read a safe dashboard variant computed from the authorized dataset.'),
+  'dashboard.read': active('dashboard', ['school', 'self', 'assigned_sections', 'own_children', 'own_record', 'finance'], 'Read a safe dashboard variant computed from the authorized dataset.'),
   // A parent reading their own child's statement signs in with a phone code, so
   // the read is not privileged; every fee write and every fee file is.
   'fees.read': active('fee', ['school', 'own_children', 'finance'], 'Read fee heads, structures, statements, receipts and the dues list within the granted scope.'),

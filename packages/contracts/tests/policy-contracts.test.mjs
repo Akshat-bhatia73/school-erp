@@ -14,7 +14,16 @@ test('every role grants only supported active permission/scope pairs, without du
       seen.add(key)
     }
   }
-  assert.deepEqual(c.ROLE_TEMPLATES.student.grants, [])
+  // A pupil's own login reads their own published learning record and nothing
+  // financial or administrative: own_record or self, and the school calendar.
+  for (const grant of c.ROLE_TEMPLATES.student.grants) {
+    const allowed = grant.scope === 'own_record' || grant.scope === 'self' ||
+      (grant.permission === 'holidays.read' && grant.scope === 'school')
+    assert.equal(allowed, true, `student: ${grant.permission}:${grant.scope}`)
+    assert.equal(c.PERMISSION_CATALOGUE[grant.permission].privilegedScopes.includes(grant.scope), false, grant.permission)
+    assert.equal(/^(fees|staff|members|roles|access|audit|ownership|school\.update)|manage|export|record|create|update|send|publish|import|promote|anonymise|consents|guardian|sensitive|medical|documents/.test(grant.permission), false, grant.permission)
+  }
+  assert.equal(c.ROLE_TEMPLATES.student.requiredMfa, false)
 })
 
 test('malformed grants cannot introduce reserved actions, arbitrary scopes or bypass flags', () => {

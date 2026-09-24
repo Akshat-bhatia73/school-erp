@@ -5,7 +5,10 @@ import type { RequestContext } from '@erp/contracts/server'
 export {
   activeMembershipsForUser,
   createIdentityPool,
+  studentLoginState,
+  studentSignInUser,
   userHasStudentMembership,
+  type ActiveMembershipRow,
 } from './identity.ts'
 
 export class DatabaseConfigurationError extends Error {}

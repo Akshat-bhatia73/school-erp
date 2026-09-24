@@ -10,16 +10,16 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `school.update` | active | school | school | school | school | — | — | — | — |
 | `academic_years.read` | active | — | school | school | school | school | — | — | — |
 | `academic_years.manage` | active | school | school | school | school | — | — | — | — |
-| `grades.read` | active | — | school | school | school | school | assigned_sections | own_children | — |
+| `grades.read` | active | — | school | school | school | school | assigned_sections | own_children | own_record |
 | `grades.manage` | active | school | school | school | school | — | — | — | — |
-| `sections.read` | active | — | school | school | school | school | assigned_sections | own_children | — |
+| `sections.read` | active | — | school | school | school | school | assigned_sections | own_children | own_record |
 | `sections.read_strengths` | active | — | school | school | school | — | assigned_sections | — | — |
 | `sections.manage` | active | school | school | school | school | — | — | — | — |
-| `subjects.read` | active | — | school | school | school | school | assigned_subjects | own_children | — |
+| `subjects.read` | active | — | school | school | school | school | assigned_subjects | own_children | own_record |
 | `subjects.manage` | active | school | school | school | school | — | — | — | — |
-| `holidays.read` | active | — | school | school | school | school | school | school | — |
+| `holidays.read` | active | — | school | school | school | school | school | school | school |
 | `holidays.manage` | active | school | school | school | school | — | — | — | — |
-| `students.read_basic` | active | — | school | school | school | finance | assigned_sections | own_children | — |
+| `students.read_basic` | active | — | school | school | school | finance | assigned_sections | own_children | own_record |
 | `students.read_sensitive` | active | school, own_children, own_record | school | school | school | — | — | — | — |
 | `students.read_medical` | active | school, own_children, own_record | school | school | — | — | — | — | — |
 | `students.read_guardian_contact` | active | — | school | school | school | finance | assigned_sections | own_children | — |
@@ -27,7 +27,7 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `students.read_siblings` | active | — | school | school | school | — | — | — | — |
 | `students.read_documents` | active | school, own_children, own_record | school | school | school | — | — | — | — |
 | `students.download_documents` | active | school, own_children, own_record | school | school | school | — | — | — | — |
-| `students.read_enrollments` | active | — | school | school | school | — | assigned_sections | own_children | — |
+| `students.read_enrollments` | active | — | school | school | school | — | assigned_sections | own_children | own_record |
 | `students.create` | active | school | school | school | school | — | — | — | — |
 | `students.update_basic` | active | school | school | school | school | — | — | — | — |
 | `students.update_sensitive` | active | school | school | school | school | — | — | — | — |
@@ -40,6 +40,7 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `students.manage_consents` | active | school | school | school | school | — | — | own_children | — |
 | `students.anonymise` | active | school | school | school | — | — | — | — | — |
 | `students.export_subject` | active | school | school | school | — | — | — | own_children | — |
+| `students.manage_login` | active | school | school | school | school | — | — | — | — |
 | `staff.read_directory` | active | — | school | school | school | school | self | — | — |
 | `staff.read_employment` | active | — | school | school | school | school | self | — | — |
 | `staff.read_private` | active | school, finance | school | school | school | finance | self | — | — |
@@ -67,7 +68,7 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `audit.read` | active | school, finance | school | school | — | finance | — | — | — |
 | `audit.export` | active | school, finance | school | — | — | finance | — | — | — |
 | `audit.redact_notes` | active | school | school | — | — | — | — | — | — |
-| `timetable.read` | active | — | school | school | school | — | self, assigned_sections, assigned_subjects | own_children | — |
+| `timetable.read` | active | — | school | school | school | — | self, assigned_sections, assigned_subjects | own_children | own_record |
 | `timetable.manage_periods` | active | school | school | school | school | — | — | — | — |
 | `timetable.manage_entries` | active | school | school | school | school | — | — | — | — |
 | `timetable.generate` | active | school | school | school | school | — | — | — | — |
@@ -75,25 +76,25 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `timetable.read_teacher_loads` | active | school | school | school | school | — | — | — | — |
 | `timetable.manage_substitutions` | active | school | school | school | school | — | — | — | — |
 | `timetable.notify_substitutions` | active | school | school | school | school | — | — | — | — |
-| `dashboard.read` | active | — | school | school | school | finance | assigned_sections | own_children | — |
+| `dashboard.read` | active | — | school | school | school | finance | assigned_sections | own_children | own_record |
 | `fees.read` | active | — | school | school | school | finance | — | own_children | — |
 | `fees.collect` | active | school, finance | school | school | school | finance | — | — | — |
 | `fees.manage` | active | school, finance | school | school | — | finance | — | — | — |
 | `fees.export` | active | school, finance | school | school | — | finance | — | — | — |
-| `attendance.read` | active | — | school | school | school | — | assigned_sections | own_children | — |
+| `attendance.read` | active | — | school | school | school | — | assigned_sections | own_children | own_record |
 | `attendance.record` | active | school | school | school | school | — | assigned_sections | — | — |
 | `attendance.manage` | active | school | school | school | school | — | — | — | — |
 | `attendance.export` | active | school | school | school | school | — | — | — | — |
-| `exams.read` | active | — | school | school | school | — | assigned_subjects, assigned_sections | own_children | — |
+| `exams.read` | active | — | school | school | school | — | assigned_subjects, assigned_sections | own_children | own_record |
 | `exams.record_marks` | active | school | school | school | school | — | assigned_subjects | — | — |
 | `exams.manage` | active | school | school | school | school | — | — | — | — |
 | `exams.publish` | active | school | school | school | school | — | — | — | — |
 | `exams.export` | active | school | school | school | school | — | assigned_subjects, assigned_sections | — | — |
-| `communication.read` | active | — | school | school | school | self | self, assigned_sections | self | — |
+| `communication.read` | active | — | school | school | school | self | self, assigned_sections | self | self |
 | `communication.send` | active | school | school | school | school | — | assigned_sections | — | — |
 | `communication.manage` | active | school | school | school | school | — | — | — | — |
 | `communication.export` | active | school | school | school | school | — | — | — | — |
-| `report_cards.read` | active | — | school | school | school | — | assigned_sections | own_children | — |
+| `report_cards.read` | active | — | school | school | school | — | assigned_sections | own_children | own_record |
 | `report_cards.manage` | active | school | school | school | school | — | assigned_sections | — | — |
 | `report_cards.publish` | active | school | school | school | school | — | — | — | — |
 | `report_cards.export` | active | school | school | school | school | — | assigned_sections | own_children | — |

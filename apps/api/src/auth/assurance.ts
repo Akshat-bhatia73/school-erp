@@ -44,6 +44,10 @@ export function sessionLimitsFor(
   if (roleKeys.includes('teacher')) {
     return { absoluteSeconds: 12 * 3600, idleSeconds: 60 * 60 }
   }
+  // A pupil's own login: a school day, and an hour idle.
+  if (roleKeys.includes('student')) {
+    return { absoluteSeconds: 12 * 3600, idleSeconds: 60 * 60 }
+  }
   if (roleKeys.length > 0 && roleKeys.every((key) => key === 'parent')) {
     return { absoluteSeconds: 7 * 24 * 3600, idleSeconds: null }
   }

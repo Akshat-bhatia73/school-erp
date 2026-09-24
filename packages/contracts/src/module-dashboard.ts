@@ -14,11 +14,12 @@ import { AuditEventSummary, EnrollmentSummary, NamedReference, StudentBasic } fr
 const Name = z.string().trim().min(1).max(160)
 
 /**
- * The four homes, in the order the server picks one when a member holds more
- * than one role and has not asked for a view: office, accountant, teacher,
- * parent. A caller may ask for any audience their own roles earn and no other.
+ * The homes, in the order the server picks one when a member holds more than
+ * one role and has not asked for a view: office, accountant, teacher, parent.
+ * A caller may ask for any audience their own roles earn and no other. The
+ * student home belongs to a pupil's own login, which holds no other role.
  */
-export const DASHBOARD_AUDIENCES = ['office', 'accountant', 'teacher', 'parent'] as const
+export const DASHBOARD_AUDIENCES = ['office', 'accountant', 'teacher', 'parent', 'student'] as const
 export const DashboardAudienceKey = z.enum(DASHBOARD_AUDIENCES)
 const ClockTime = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
 
@@ -317,6 +318,27 @@ export const ParentDashboard = z.strictObject({
   ),
 })
 
+/**
+ * A pupil's own home: the same card a parent sees for one child, without
+ * fees or consents, and the holidays ahead. Each block needs the pupil's
+ * own_record grant for it and is absent otherwise.
+ */
+export const StudentDashboard = z.strictObject({
+  audience: z.literal('student'),
+  day: DashboardDay,
+  me: z.strictObject({
+    student: StudentBasic,
+    enrollment: EnrollmentSummary.optional(),
+    classTeacher: NamedReference.optional(),
+    todayLessons: z.array(DashboardTimelineSlot).optional(),
+    /** This month's attendance so far. */
+    attendance: DashboardChildAttendance.optional(),
+    /** The newest published report card of any year. */
+    latestReportCard: DashboardReportCard.optional(),
+  }),
+  holidays: z.array(DashboardHoliday),
+})
+
 export const AccountantDashboard = z.strictObject({
   audience: z.literal('accountant'),
   day: DashboardDay,
@@ -330,6 +352,7 @@ export const DashboardResponse = z.discriminatedUnion('audience', [
   TeacherDashboard,
   ParentDashboard,
   AccountantDashboard,
+  StudentDashboard,
 ])
 
 export type DashboardAudienceKey = z.infer<typeof DashboardAudienceKey>
@@ -352,6 +375,7 @@ export type OfficeDashboard = z.infer<typeof OfficeDashboard>
 export type TeacherDashboard = z.infer<typeof TeacherDashboard>
 export type ParentDashboard = z.infer<typeof ParentDashboard>
 export type AccountantDashboard = z.infer<typeof AccountantDashboard>
+export type StudentDashboard = z.infer<typeof StudentDashboard>
 export type DashboardResponse = z.infer<typeof DashboardResponse>
 export type DashboardMarksToEnter = z.infer<typeof DashboardMarksToEnter>
 export type DashboardExams = z.infer<typeof DashboardExams>

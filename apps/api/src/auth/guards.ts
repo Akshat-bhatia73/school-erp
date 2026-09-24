@@ -40,6 +40,10 @@ export function requireMembership(
     )
     if (!membership) throw new ApiFailure('SCHOOL_ACCESS_UNAVAILABLE')
 
+    // A password the school texted is replaced before any school data is
+    // read. /api/me and the provider's change-password route stay open.
+    if (verified.passwordChangeRequired) throw new ApiFailure('PASSWORD_CHANGE_REQUIRED')
+
     if (
       membershipRequiresMfa(membership.roleKeys) &&
       verified.assurance !== 'mfa'

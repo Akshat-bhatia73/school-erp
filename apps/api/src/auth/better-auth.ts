@@ -4,7 +4,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { phoneNumber, twoFactor } from 'better-auth/plugins'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import type { Pool } from 'pg'
-import { userHasStudentMembership } from '@erp/db'
+import { studentLoginState, userHasStudentMembership } from '@erp/db'
 import {
   authAccounts,
   authRateLimit,
@@ -36,6 +36,7 @@ import {
   OTP_LENGTH,
   normalizeIndianPhone,
 } from './phone-otp.ts'
+import { isStudentEmail, studentSignInScope } from './student-sign-in.ts'
 
 /** A generated identifier for a phone-only adult: never a real mailbox. */
 const PLACEHOLDER_EMAIL_SUFFIX = '.invalid'
@@ -51,7 +52,7 @@ export function createAuth(
   config: ApiConfig,
   authPool: Pool,
   delivery: DeliveryAdapter,
-  /** Identity connection used only to refuse student sign-in. */
+  /** Identity connection used to decide whether a pupil's own login is on. */
   identityPool?: Pool,
 ) {
   const db = drizzle(authPool)
@@ -87,12 +88,13 @@ export function createAuth(
     databaseHooks: {
       session: {
         create: {
-          // A student identity must never obtain a session, whichever login
-          // method was used. The check happens before the row is written.
+          // A pupil whose login was switched off or ended never obtains a
+          // session, whichever door was used. The check happens before the
+          // row is written.
           before: async (session) => {
             if (!identityPool) return
             const userId = String(session.userId)
-            if (await userHasStudentMembership(identityPool, userId))
+            if ((await studentLoginState(identityPool, userId)) === 'inactive')
               return false
           },
         },
@@ -126,6 +128,17 @@ export function createAuth(
           purpose: 'verification',
           secret: token,
         })
+      },
+    },
+    user: {
+      additionalFields: {
+        // Set when the school generated the password and texted it; the API
+        // refuses every school route until the person chooses their own.
+        mustChangePassword: {
+          type: 'boolean',
+          required: false,
+          input: false,
+        },
       },
     },
     session: {
@@ -167,6 +180,14 @@ export function createAuth(
         // answered with the provider's own refusal for this door.
         if (ctx.path === '/sign-in/email') {
           const email = (ctx.body as { email?: unknown } | undefined)?.email
+          // A pupil's generated address is accepted from the school code and
+          // admission number route only, never typed into the email form.
+          if (
+            typeof email === 'string' &&
+            isStudentEmail(email) &&
+            studentSignInScope.getStore() !== true
+          )
+            throw invalidCredentialsError()
           if (
             typeof email === 'string' &&
             (await identityIsBlocked(authPool, { email }))
@@ -212,6 +233,17 @@ export function createAuth(
           return
         }
         if (returned instanceof Error) return
+        if (ctx.path === '/change-password') {
+          // The person chose their own password, so the one the school sent
+          // no longer stands in the way.
+          const userId = ctx.context.session?.user.id
+          if (typeof userId === 'string' && userId.length > 0)
+            await authPool.query(
+              'UPDATE auth_user SET must_change_password = false WHERE id = $1 AND must_change_password',
+              [userId],
+            )
+          return
+        }
         if (MFA_ENROLMENT_PATHS.includes(ctx.path)) {
           // The authenticator changed, so no earlier proof of it stands.
           const userId = ctx.context.session?.user.id

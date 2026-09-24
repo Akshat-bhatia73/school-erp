@@ -1,6 +1,6 @@
 import {
   activeMembershipsForUser,
-  userHasStudentMembership,
+  studentLoginState,
   withTenantTransaction,
 } from '@erp/db'
 import { MembershipSummary, type RoleKey } from '@erp/contracts'
@@ -8,13 +8,6 @@ import type { ApiPools } from '../db.ts'
 import { createRequestContext } from '../auth/request-context.ts'
 
 export type MembershipSummaryValue = ReturnType<typeof MembershipSummary.parse>
-
-interface ActiveMembershipRow {
-  membership_id: string
-  school_id: string
-  version: number
-  access_version: number
-}
 
 /**
  * Memberships and roles are never readable by the Better Auth connection.
@@ -25,10 +18,7 @@ export async function resolveMemberships(
   pools: ApiPools,
   input: { requestId: string; userId: string; sessionId: string },
 ): Promise<MembershipSummaryValue[]> {
-  const rows = (await activeMembershipsForUser(
-    pools.identity,
-    input.userId,
-  )) as ActiveMembershipRow[]
+  const rows = await activeMembershipsForUser(pools.identity, input.userId)
 
   const summaries: MembershipSummaryValue[] = []
   for (const row of rows) {
@@ -40,7 +30,7 @@ export async function resolveMemberships(
       sessionId: input.sessionId,
       schoolId: row.school_id,
       membershipId: row.membership_id,
-      membershipKind: 'adult',
+      membershipKind: row.kind,
       accessVersion: row.access_version,
       roleKeys: [],
       assurance: 'single_factor',
@@ -77,7 +67,7 @@ export async function resolveMemberships(
         id: row.membership_id,
         school: read.school,
         status: 'active',
-        kind: 'adult',
+        kind: row.kind,
         roleKeys: read.roleKeys as RoleKey[],
         accessVersion: row.access_version,
       }),
@@ -86,10 +76,13 @@ export async function resolveMemberships(
   return summaries
 }
 
-/** Student identities can never hold a session. */
-export function hasStudentIdentity(
+/**
+ * True for a pupil whose own login was switched off or ended: such an identity
+ * never holds a session. An adult, and a pupil whose login is on, are false.
+ */
+export async function studentLoginIsInactive(
   pools: ApiPools,
   userId: string,
 ): Promise<boolean> {
-  return userHasStudentMembership(pools.identity, userId)
+  return (await studentLoginState(pools.identity, userId)) === 'inactive'
 }
