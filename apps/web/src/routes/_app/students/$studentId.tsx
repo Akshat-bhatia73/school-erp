@@ -9,6 +9,7 @@ import { useExportDownload } from '@/components/shared/export-download'
 import { colorFor, Tag } from '@/components/shared/tag'
 import { MarkLeftDialog, MoveSectionDialog } from '@/components/students/student-dialogs'
 import { classLabel, StudentStatusTag } from '@/components/students/student-columns'
+import { StudentLoginPanel } from '@/components/students/student-login-panel'
 import { StudentBasicSheet, StudentSensitiveSheet } from '@/components/students/student-edit-sheet'
 import { AnonymisePanel, ConsentsTab, DocumentsTab, EnrollmentsTab, GuardiansTab, OverviewTab, SiblingsTab } from '@/components/students/student-profile'
 import { Button } from '@/components/ui/button'
@@ -83,6 +84,7 @@ function Page() {
   const canReadConsents = allows(allowedActions, 'students.read_consents')
   const canAnonymise = allows(allowedActions, 'students.anonymise')
   const canExport = allows(allowedActions, 'students.export')
+  const canManageLogin = hasPermission('students.manage_login')
   const hasActions = canEditBasic || canEditSensitive || canManageEnrollment || canExport
 
   const menuItems = (
@@ -167,6 +169,7 @@ function Page() {
           </TabsList>
           <TabsContent value="overview" className="space-y-4">
             <OverviewTab detail={detail} showGuardianContacts={!canReadGuardians} />
+            {canManageLogin && <StudentLoginPanel studentId={student.id} />}
             {canAnonymise && !student.anonymised && <AnonymisePanel student={student} />}
           </TabsContent>
           {canReadGuardians && (

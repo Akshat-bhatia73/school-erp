@@ -368,3 +368,25 @@ A short assessment of the messages module, written when it was built (Task 22).
 **Sub-processor.** Resend now carries message bodies and files about children, not only credentials. The sub-processor list says so. Its account data and logs are in the United States.
 
 **Where it sits.** In the same United States database as everything else. On 23 September 2026 the product owner decided to stay on Neon in us-east-1 for the test environment and to move the database to an Indian region only when the first real customer signs, before any of their data goes in (Task 17). No real school's messages are sent before then.
+
+## 15. Student login, September 2026
+
+A short assessment of pupils' own logins, written when they were built (Task 23).
+
+**What changed.** A pupil in Class 9 to 12 can sign in with the school's login code, their admission number and a password, and read their own timetable, attendance, published results and report cards, and the notices the school addressed to pupils. The school creates the login when the pupil is admitted or promoted into those classes and texts a generated password to the primary guardian's phone; the pupil chooses their own password at first sign-in. Only the office switches a login off; it ends when the pupil leaves.
+
+**Purpose and basis.** Education: the pupil seeing their own record is the purpose the school already holds it for, and nothing new is collected from the child. The login itself holds only the pupil's name, a generated address that is never used, the password hash and the sessions. A notice to pupils is shown only in the school's own app, never by email or text to the child, so it needs no separate consent; notices to families keep the `communication` consent exactly as before.
+
+**Who reads what.** A pupil reads their own record and nothing about any other pupil, their guardians, fees, consents, documents, health or identity numbers. Results and report cards reach them only once published, exactly as for a parent. A notice to families is never in a pupil's inbox and a notice to pupils is never in a guardian's. The office sees each pupil's login state, never the password or the generated address.
+
+**What keeps it honest.**
+
+- The generated password exists only in memory between generation and the text message. It is never stored, logged, audited or returned; the outbox row keeps a masked number only.
+- The email sign-in door refuses a pupil's generated address, so a pupil signs in only through the school code and admission number, and every failure (unknown school, unknown number, wrong password, switched off) looks the same. Ten wrong passwords lock the login for fifteen minutes, as for adults; the office's password reset clears the lock.
+- Until the pupil chooses their own password, the API refuses every school route.
+- A switched-off or ended login loses every live session on its next request.
+- Every issue, reset, switch-off and switch-on is one audit row naming the pupil; the switch-off reason is a redactable note.
+
+**Retention.** The login ends when the pupil leaves or is anonymised; its credentials are deleted 30 days later by the sweep that already removes adults' credentials. Pupil message rows follow the two-year messages rule.
+
+**Open point.** Text messages are still held for testers (Task 16), so in a real school the password text needs the SMS provider before logins are useful.

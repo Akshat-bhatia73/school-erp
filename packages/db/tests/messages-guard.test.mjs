@@ -67,9 +67,9 @@ function refusedWith(codes, sql, values) {
 async function notice(status, extra = {}) {
   const sentAt = status === 'sent' || status === 'withdrawn' ? new Date() : null
   const row = await admin.query(
-    `INSERT INTO messages(school_id,kind,audience,section_id,academic_year_id,title,body,status,sent_at,
+    `INSERT INTO messages(school_id,kind,audience,recipients,section_id,academic_year_id,title,body,status,sent_at,
                           withdrawn_at,created_by_membership_id,updated_at)
-     VALUES ($1,'notice','section',$2,$3,'Sports day','Bring water bottles',$4,$5,$6,$7,coalesce($8,now()))
+     VALUES ($1,'notice','section','families',$2,$3,'Sports day','Bring water bottles',$4,$5,$6,$7,coalesce($8,now()))
      RETURNING id`,
     [
       i.schoolA,
@@ -99,6 +99,8 @@ test('a sent message keeps its words and its audience', async () => {
   await refusedWith(refusal, `UPDATE messages SET body = 'Changed' WHERE id = $1`, [id])
   await refusedWith(refusal, `UPDATE messages SET audience = 'school', section_id = NULL, academic_year_id = NULL WHERE id = $1`, [id])
   await refusedWith(refusal, `UPDATE messages SET sent_at = now() - interval '1 day' WHERE id = $1`, [id])
+  // Task 23: who of the pupils' people it went to is part of its audience.
+  await refusedWith(refusal, `UPDATE messages SET recipients = 'both' WHERE id = $1`, [id])
   // A blank title without redacted_at is not anonymisation.
   await refusedWith(['P0001', '23000', '23514'], `UPDATE messages SET title = '', body = '' WHERE id = $1`, [id])
 })
@@ -124,8 +126,8 @@ test('the application deletes a draft and nothing else', async () => {
   const sent = await notice('sent')
   await refusedWith(['P0001', '23000'], `DELETE FROM messages WHERE id = $1`, [sent])
   const scheduled = await admin.query(
-    `INSERT INTO messages(school_id,kind,audience,title,body,status,send_at,created_by_membership_id)
-     VALUES ($1,'notice','school','Later','Later body','scheduled',now() + interval '1 day',$2) RETURNING id`,
+    `INSERT INTO messages(school_id,kind,audience,recipients,title,body,status,send_at,created_by_membership_id)
+     VALUES ($1,'notice','school','families','Later','Later body','scheduled',now() + interval '1 day',$2) RETURNING id`,
     [i.schoolA, i.adult],
   )
   await refusedWith(['P0001', '23000'], `DELETE FROM messages WHERE id = $1`, [scheduled.rows[0].id])

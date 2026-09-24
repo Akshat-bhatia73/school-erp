@@ -21,6 +21,7 @@ const columns = {
   shortName: grades.shortName,
   order: grades.sortOrder,
   stream: grades.stream,
+  level: grades.level,
   version: grades.version,
 }
 
@@ -33,6 +34,7 @@ interface GradeRow {
   shortName: string
   order: number
   stream: string | null
+  level: number | null
   version: number
 }
 
@@ -45,6 +47,7 @@ function toGrade(row: GradeRow, allowedActions: readonly PermissionKey[]): Grade
     shortName: row.shortName,
     order: row.order,
     ...optional('stream', stream),
+    ...optional('level', row.level),
     version: row.version,
     allowedActions: [...allowedActions],
   } as GradeResponse
@@ -96,9 +99,9 @@ export function registerGradeRoutes(app: FastifyInstance, deps: ModuleDependenci
         if (duplicate.rowCount !== null && duplicate.rowCount > 0) throw new ApiFailure('INVALID_REQUEST')
 
         const inserted = await conn.client.query<{ id: string }>(
-          `INSERT INTO grades(school_id, name, short_name, sort_order, stream)
-           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-          [context.schoolId, body.name, body.shortName, body.order, body.stream ?? null],
+          `INSERT INTO grades(school_id, name, short_name, sort_order, stream, level)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+          [context.schoolId, body.name, body.shortName, body.order, body.stream ?? null, body.level ?? null],
         )
         const id = requireFound(inserted.rows[0]).id
         await writeAudit(conn, context, {
@@ -106,6 +109,7 @@ export function registerGradeRoutes(app: FastifyInstance, deps: ModuleDependenci
           targetType: 'grade',
           targetId: id,
           summary: 'Created a class.',
+          ...(body.level === undefined ? {} : { safeChanges: { level: body.level } }),
         })
         const rows = await conn.db.select(columns).from(grades).where(eq(grades.id, id)).limit(1)
         const actions = await allowedActionsFor(conn, context, {
@@ -133,6 +137,14 @@ export function registerGradeRoutes(app: FastifyInstance, deps: ModuleDependenci
           [context.schoolId, body.name, id],
         )
         if (clash.rowCount !== null && clash.rowCount > 0) throw new ApiFailure('INVALID_REQUEST')
+        // The class number decides which pupils may have their own login, so a
+        // change to it is recorded on the audit row. Left out means none.
+        const before = await conn.client.query<{ level: number | null }>(
+          'SELECT level FROM grades WHERE school_id = $1 AND id = $2',
+          [context.schoolId, id],
+        )
+        const levelBefore = before.rows[0]?.level ?? null
+        const levelAfter = body.level ?? null
 
         await bumpVersion(conn, 'grades', {
           schoolId: context.schoolId,
@@ -143,6 +155,7 @@ export function registerGradeRoutes(app: FastifyInstance, deps: ModuleDependenci
             short_name: body.shortName,
             sort_order: body.order,
             stream: body.stream ?? null,
+            level: levelAfter,
           },
         })
         await writeAudit(conn, context, {
@@ -150,6 +163,7 @@ export function registerGradeRoutes(app: FastifyInstance, deps: ModuleDependenci
           targetType: 'grade',
           targetId: id,
           summary: 'Updated a class.',
+          ...(levelBefore === levelAfter ? {} : { safeChanges: { level: levelAfter, previousLevel: levelBefore } }),
         })
         const rows = await conn.db.select(columns).from(grades).where(eq(grades.id, id)).limit(1)
         const actions = await allowedActionsFor(conn, context, {

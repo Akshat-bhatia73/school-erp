@@ -6,7 +6,7 @@ import type { AuthInstance } from './better-auth.ts'
 import { sessionLimitsFor, type SessionLimits } from './assurance.ts'
 import { userIsDisabled } from './lockout.ts'
 import {
-  hasStudentIdentity,
+  studentLoginIsInactive,
   resolveMemberships,
   type MembershipSummaryValue,
 } from '../identity/resolve.ts'
@@ -29,6 +29,11 @@ export interface VerifiedSession {
   effectiveExpiresAt: Date
   assurance: 'single_factor' | 'mfa'
   mfaVerifiedAt: string | null
+  /**
+   * The school generated this password and texted it. Until the person
+   * chooses their own, requireMembership refuses every school route.
+   */
+  passwordChangeRequired: boolean
 }
 
 export interface SessionDependencies {
@@ -70,7 +75,9 @@ export async function resolveSession(
     mfaVerifiedAt?: Date | string | null
     sharedDevice?: boolean | null
   }
-  const user = result.user as unknown as VerifiedSession['user']
+  const user = result.user as unknown as VerifiedSession['user'] & {
+    mustChangePassword?: boolean | null
+  }
 
   // An operator-disabled identity loses every live session at once, so a
   // cookie taken before the disable stops working on its next request.
@@ -80,8 +87,9 @@ export async function resolveSession(
     throw new ApiFailure('AUTHENTICATION_REQUIRED')
   }
 
-  // Student identities can never hold a session, whichever door they used.
-  if (await hasStudentIdentity(deps.pools, user.id)) {
+  // A pupil whose login was switched off or ended loses every live session
+  // at once, whichever door it came through.
+  if (await studentLoginIsInactive(deps.pools, user.id)) {
     const context = await deps.auth.$context
     await context.internalAdapter.deleteUserSessions(user.id)
     throw new ApiFailure('FEATURE_DISABLED')
@@ -147,6 +155,7 @@ export async function resolveSession(
         : absoluteExpiresAt,
     assurance: mfaVerifiedAt ? 'mfa' : 'single_factor',
     mfaVerifiedAt,
+    passwordChangeRequired: user.mustChangePassword === true,
   }
 }
 

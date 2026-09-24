@@ -34,6 +34,10 @@ export function AppGate({ children }: { children: ReactNode }) {
     )
   }
 
+  // A password the school texted is replaced before anything else opens; the school routes would
+  // answer PASSWORD_CHANGE_REQUIRED anyway.
+  if (session.passwordChangeRequired) return <RedirectOnce to="/account/change-password" search={{ returnTo }} />
+
   if (session.activeMemberships.length === 0) {
     return <RedirectOnce to="/access-unavailable" search={{ reason: 'no_membership' }} />
   }

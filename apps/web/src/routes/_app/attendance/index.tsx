@@ -6,7 +6,7 @@
  * accountant holds nothing but the staff register, so they get the way into it.
  */
 import { useQuery } from '@tanstack/react-query'
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, Navigate, useNavigate } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
 import { ClipboardCheck } from 'lucide-react'
 import { useMemo } from 'react'
@@ -84,6 +84,13 @@ function ParentChildren() {
 }
 
 function Page() {
+  const { ownStudentId } = useSchoolContext()
+  // A pupil has one record to read here: their own.
+  if (ownStudentId) return <Navigate to="/attendance/students/$studentId" params={{ studentId: ownStudentId }} replace />
+  return <Registers />
+}
+
+function Registers() {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const { schoolId, roleKeys, hasPermission } = useSchoolContext()

@@ -14,6 +14,7 @@ interface DueRow {
   id: string
   audience: MessageAudienceKind
   grade_id: string | null
+  grade_to_id: string | null
   section_id: string | null
   student_id: string | null
   created_by_membership_id: string | null
@@ -22,17 +23,22 @@ interface DueRow {
 /** How many scheduled messages one run sends, so a run stays bounded. */
 const SCHEDULED_PER_RUN = 100
 
-/** The record `communication.send` is decided on: the section, the pupil, the grade, or the school. */
-function targetOf(row: DueRow, schoolId: string): string {
+/**
+ * The records `communication.send` is decided on: the section, the pupil, the
+ * grade, both ends of a range of classes, or the school.
+ */
+function targetsOf(row: DueRow, schoolId: string): string[] {
   switch (row.audience) {
     case 'section':
-      return row.section_id ?? schoolId
+      return [row.section_id ?? schoolId]
     case 'pupil':
-      return row.student_id ?? schoolId
+      return [row.student_id ?? schoolId]
     case 'grade':
-      return row.grade_id ?? schoolId
+      return [row.grade_id ?? schoolId]
+    case 'grade_range':
+      return [...new Set([row.grade_id ?? schoolId, row.grade_to_id ?? schoolId])]
     default:
-      return schoolId
+      return [schoolId]
   }
 }
 
@@ -69,8 +75,11 @@ async function authorMaySend(
     assurance: 'mfa',
     mfaVerifiedAt: new Date().toISOString(),
   })
-  const decision = await decideResource(conn, author, 'communication.send', 'communication', targetOf(row, schoolId))
-  return decision.allowed
+  for (const target of targetsOf(row, schoolId)) {
+    const decision = await decideResource(conn, author, 'communication.send', 'communication', target)
+    if (!decision.allowed) return false
+  }
+  return true
 }
 
 /**
@@ -100,7 +109,7 @@ export async function runMessagePump(
     )
 
     const due = await conn.client.query<DueRow>(
-      `SELECT id, audience, grade_id, section_id, student_id, created_by_membership_id
+      `SELECT id, audience, grade_id, grade_to_id, section_id, student_id, created_by_membership_id
          FROM messages
         WHERE school_id = $1 AND status = 'scheduled' AND send_at <= now()
         ORDER BY send_at, id

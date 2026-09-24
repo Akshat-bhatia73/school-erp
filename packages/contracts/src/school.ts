@@ -33,6 +33,9 @@ export const CurrentAcademicYear = AcademicYear.nullable()
 export const GradeInput = z.strictObject({
   name: Name, shortName: Name, order: z.number().int().nonnegative(),
   stream: z.enum(['science', 'commerce', 'arts']).optional(),
+  // Class 1 to 12; left out for Nursery, LKG and UKG. Pupils in 9 to 12 get
+  // their own login (STUDENT_LOGIN_LEVELS).
+  level: z.number().int().min(1).max(12).optional(),
 })
 export const Grade = z.strictObject({ id: Id, schoolId: Id, ...GradeInput.shape, version: Version, allowedActions: AllowedActions })
 export const GradeList = z.array(Grade)

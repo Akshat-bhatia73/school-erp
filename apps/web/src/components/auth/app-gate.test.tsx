@@ -30,8 +30,14 @@ function renderAt(initial: string) {
     validateSearch: (search: Record<string, unknown>) => ({ returnTo: typeof search.returnTo === 'string' ? search.returnTo : undefined }),
     component: () => <p>Sign in page</p>,
   })
+  const changeRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/account/change-password',
+    validateSearch: (search: Record<string, unknown>) => ({ returnTo: typeof search.returnTo === 'string' ? search.returnTo : undefined }),
+    component: () => <p>Choose your password</p>,
+  })
   const router = createRouter({
-    routeTree: rootRoute.addChildren([appRoute, loginRoute]),
+    routeTree: rootRoute.addChildren([appRoute, loginRoute, changeRoute]),
     history: createMemoryHistory({ initialEntries: [initial] }),
   })
   render(<RouterProvider router={router as never} />)
@@ -59,6 +65,15 @@ describe('AppGate', () => {
     await waitFor(() => expect(screen.getByText('Sign in page')).toBeInTheDocument())
     expect(router.state.location.pathname).toBe('/login')
     expect(router.state.location.search).toEqual({ returnTo: '/students' })
+  })
+
+  it('sends a pupil still on the texted password to choose their own first', async () => {
+    useSession.mockReturnValue(session({ activeMemberships: [{} as never], membership: {} as never, context: 'password_change_required', passwordChangeRequired: true }))
+    const router = renderAt('/students')
+    await waitFor(() => expect(screen.getByText('Choose your password')).toBeInTheDocument())
+    expect(router.state.location.pathname).toBe('/account/change-password')
+    expect(router.state.location.search).toEqual({ returnTo: '/students' })
+    expect(screen.queryByText('Student list')).not.toBeInTheDocument()
   })
 
   it('renders the app once the context is ready', async () => {

@@ -8,6 +8,7 @@ import type {
   MessageCounts,
   MessageDetail,
   MessageKind,
+  MessageRecipients,
   MessageSender,
   MessageStatus,
   MessageSummary,
@@ -53,7 +54,11 @@ export type MessageRow = {
   id: string
   kind: MessageKind
   audience: MessageAudienceKind
+  /** Null exactly for the staff audiences. */
+  recipients: MessageRecipients | null
   grade_id: string | null
+  /** The last class of a `grade_range`. */
+  grade_to_id: string | null
   section_id: string | null
   academic_year_id: string | null
   student_id: string | null
@@ -73,8 +78,8 @@ export type MessageRow = {
 }
 
 /** The columns of a message, over the unaliased table the authorizer names. */
-export const MESSAGE_COLUMNS = `messages.id, messages.kind, messages.audience, messages.grade_id, messages.section_id,
-       messages.academic_year_id, messages.student_id, messages.staff_id, messages.title, messages.body,
+export const MESSAGE_COLUMNS = `messages.id, messages.kind, messages.audience, messages.recipients, messages.grade_id,
+       messages.grade_to_id, messages.section_id, messages.academic_year_id, messages.student_id, messages.staff_id, messages.title, messages.body,
        messages.status, ${isoOf('messages.send_at')} AS send_at, ${isoOf('messages.sent_at')} AS sent_at,
        ${isoOf('messages.withdrawn_at')} AS withdrawn_at, messages.cancel_reason,
        messages.created_by_membership_id, messages.template_id, messages.redacted_at IS NOT NULL AS redacted,
@@ -146,17 +151,22 @@ export async function assertMayAct(
 
 /** The audience a person chose, rebuilt from the stored row, for deciding it again. */
 export function audienceInputOf(row: MessageRow): MessageAudienceInput | null {
+  const recipients = row.recipients ?? 'families'
   switch (row.audience) {
     case 'school':
-      return { kind: 'school' }
+      return { kind: 'school', recipients }
     case 'staff':
       return { kind: 'staff' }
     case 'grade':
-      return row.grade_id === null ? null : { kind: 'grade', gradeId: row.grade_id }
+      return row.grade_id === null ? null : { kind: 'grade', gradeId: row.grade_id, recipients }
+    case 'grade_range':
+      return row.grade_id === null || row.grade_to_id === null
+        ? null
+        : { kind: 'grade_range', fromGradeId: row.grade_id, toGradeId: row.grade_to_id, recipients }
     case 'section':
-      return row.section_id === null ? null : { kind: 'section', sectionId: row.section_id }
+      return row.section_id === null ? null : { kind: 'section', sectionId: row.section_id, recipients }
     case 'pupil':
-      return row.student_id === null ? null : { kind: 'pupil', studentId: row.student_id }
+      return row.student_id === null ? null : { kind: 'pupil', studentId: row.student_id, recipients }
     default:
       return null
   }
@@ -388,12 +398,24 @@ export async function labelMessages(
   context: RequestContext,
   rows: readonly Pick<
     MessageRow,
-    'id' | 'audience' | 'grade_id' | 'section_id' | 'student_id' | 'staff_id' | 'created_by_membership_id'
+    | 'id'
+    | 'audience'
+    | 'recipients'
+    | 'grade_id'
+    | 'grade_to_id'
+    | 'section_id'
+    | 'student_id'
+    | 'staff_id'
+    | 'created_by_membership_id'
   >[],
 ): Promise<MessageLabels> {
   const schoolId = context.schoolId
   // One after another: they share the transaction's single connection.
-  const grades = await gradeNames(conn, schoolId, rows.flatMap((row) => (row.audience === 'grade' && row.grade_id ? [row.grade_id] : [])))
+  const grades = await gradeNames(conn, schoolId, rows.flatMap((row) =>
+    row.audience === 'grade' || row.audience === 'grade_range'
+      ? [row.grade_id, row.grade_to_id].filter((gradeId): gradeId is string => gradeId !== null)
+      : [],
+  ))
   const sections = await sectionLabels(conn, schoolId, rows.flatMap((row) => (row.audience === 'section' && row.section_id ? [row.section_id] : [])))
   const pupils = await readablePupils(conn, context, rows.flatMap((row) => (row.audience === 'pupil' && row.student_id ? [row.student_id] : [])))
   const staffNames = await readableStaff(conn, context, rows.flatMap((row) => (row.staff_id ? [row.staff_id] : [])))
@@ -420,7 +442,7 @@ export async function labelMessages(
 }
 
 function audienceView(
-  row: Pick<MessageRow, 'audience' | 'grade_id' | 'section_id' | 'student_id' | 'staff_id'>,
+  row: Pick<MessageRow, 'audience' | 'recipients' | 'grade_id' | 'grade_to_id' | 'section_id' | 'student_id' | 'staff_id'>,
   names: {
     grades: Map<string, string>
     sections: Map<string, { label: string }>
@@ -428,20 +450,39 @@ function audienceView(
     staffNames: Map<string, string>
   },
 ): MessageAudienceView {
+  // Every pupil audience says who of it the message is for; the staff ones never do.
+  const recipients = row.recipients ?? 'families'
   switch (row.audience) {
     case 'school':
-      return { kind: 'school', label: 'Whole school (families)' }
+      return {
+        kind: 'school',
+        label: recipients === 'families' ? 'Whole school (families)' : 'Whole school',
+        recipients,
+      }
     case 'staff':
       return { kind: 'staff', label: 'All staff' }
     case 'grade':
       return {
         kind: 'grade',
         label: (row.grade_id && names.grades.get(row.grade_id)) || 'A class',
+        recipients,
         ...(row.grade_id ? { gradeId: row.grade_id } : {}),
       }
+    case 'grade_range': {
+      const first = row.grade_id ? names.grades.get(row.grade_id) : undefined
+      const last = row.grade_to_id ? names.grades.get(row.grade_to_id) : undefined
+      return {
+        kind: 'grade_range',
+        label: (first && last ? `${first} to ${last}` : 'A range of classes').slice(0, 200),
+        recipients,
+        ...(row.grade_id ? { gradeId: row.grade_id } : {}),
+        ...(row.grade_to_id ? { toGradeId: row.grade_to_id } : {}),
+      }
+    }
     case 'section':
       return {
         kind: 'section',
+        recipients,
         label: (row.section_id && names.sections.get(row.section_id)?.label) || 'A section',
         ...(row.section_id ? { sectionId: row.section_id } : {}),
       }
@@ -449,7 +490,8 @@ function audienceView(
       const pupil = row.student_id ? names.pupils.get(row.student_id) : undefined
       return {
         kind: 'pupil',
-        label: pupil ? `Family of ${pupil.name}` : 'One family',
+        label: pupilAudienceLabel(pupil?.name, recipients),
+        recipients,
         ...(row.student_id ? { studentId: row.student_id } : {}),
         ...(row.section_id ? { sectionId: row.section_id } : {}),
       }
@@ -462,6 +504,18 @@ function audienceView(
         ...(row.staff_id ? { staffId: row.staff_id } : {}),
       }
     }
+  }
+}
+
+/** "Family of Aarav Sharma", "Aarav Sharma" or "Aarav Sharma and family"; the same without a name when it is not readable. */
+function pupilAudienceLabel(name: string | undefined, recipients: MessageRecipients): string {
+  switch (recipients) {
+    case 'families':
+      return name ? `Family of ${name}` : 'One family'
+    case 'students':
+      return name ?? 'One pupil'
+    case 'both':
+      return name ? `${name} and family` : 'One pupil and family'
   }
 }
 
@@ -494,6 +548,7 @@ export async function messageCounts(
   const result = await conn.db.execute<Record<string, string | number>>(
     sql`SELECT message_recipients.message_id,
                count(*)::int AS recipients,
+               count(*) FILTER (WHERE is_student)::int AS pupils,
                count(*) FILTER (WHERE outcome = 'delivered')::int AS delivered,
                count(*) FILTER (WHERE outcome = 'no_consent')::int AS no_consent,
                count(*) FILTER (WHERE outcome = 'not_receiving')::int AS not_receiving,
@@ -508,13 +563,14 @@ export async function messageCounts(
          GROUP BY message_recipients.message_id`,
   )
   const empty: MessageCounts = {
-    recipients: 0, delivered: 0, noConsent: 0, notReceiving: 0, noContact: 0,
+    recipients: 0, pupils: 0, delivered: 0, noConsent: 0, notReceiving: 0, noContact: 0,
     inApp: 0, read: 0, emailSent: 0, emailPending: 0, emailFailed: 0,
   }
   for (const id of ids) counts.set(id, empty)
   for (const row of result.rows) {
     counts.set(String(row.message_id), {
       recipients: Number(row.recipients),
+      pupils: Number(row.pupils),
       delivered: Number(row.delivered),
       noConsent: Number(row.no_consent),
       notReceiving: Number(row.not_receiving),

@@ -143,6 +143,10 @@ Only the people at the school who need to, and only the parts they need.
   nothing of another subject. A **class teacher** sees every subject of their own class, enters the
   co-scholastic grades and remarks, and reads their class's report cards. Only the office changes a
   mark after the re-check deadline, and every change keeps the original and a reason on record.
+- **Your child**, if they are in Class 9 to 12, has their own login and sees their own timetable,
+  attendance, published results and report cards, and the notices the school sends to pupils. They
+  do not see fees, your details, consents, documents or health notes. The school texts their first
+  password to the primary guardian's phone; only the school office can switch their login off.
 - **Messages** you read are the ones addressed to you. The office sees every message the school
   sent and who it reached; a teacher sees the messages sent to their own sections. Another guardian
   of your child does not see a message addressed to you, and you do not see one addressed to them.

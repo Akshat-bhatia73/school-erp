@@ -75,6 +75,9 @@ import {
   updateGuardian,
   updateSensitive,
 } from './writes.ts'
+import { registerStudentLoginRoutes } from './logins.ts'
+import { issueStudentLogins } from '../../memberships/student-logins.ts'
+import { endAllSessions } from '../../identity/provision.ts'
 
 /** The scoped table description of a resource type, or a startup failure. */
 function tableFor(resourceType: 'guardian' | 'student_document' | 'enrollment') {
@@ -99,6 +102,7 @@ async function requireVisibleStudent(
 }
 
 export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependencies): void {
+  registerStudentLoginRoutes(app, deps)
   const inTransaction = <T>(context: RequestContext, work: (conn: ModuleConnection) => Promise<T>) =>
     withTenantTransaction(deps.pools.runtime, context, work)
 
@@ -465,13 +469,20 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
     body: StudentsAdmitRequest,
     response: StudentCreated,
     successStatus: 201,
-    handler: async ({ context, body }) =>
-      inTransaction(context, async (conn) => {
+    handler: async ({ context, body, request }) => {
+      const admitted = await inTransaction(context, async (conn) => {
         const studentId = await admitStudent(conn, context, body, deps.config.DATA_ENCRYPTION_KEY)
         const plan = await readPlan(conn, context, 'students.read_basic', 'student')
         const visible = await enrollmentVisibility(conn, context)
         return toStudentBasic(requireFound(await getStudent(conn, plan, visible, studentId)))
-      }),
+      })
+      // Only after the admission committed; a login that cannot be issued
+      // never fails the admission (Task 23).
+      await issueStudentLogins(deps, context, [admitted.id], 'admission', (fields, line) =>
+        request.log.warn({ requestId: request.id, ...fields }, line),
+      )
+      return admitted
+    },
   })
 
   protectedRoute(app, deps, {
@@ -553,9 +564,9 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
     body: EndEnrollmentRequest,
     response: EmptySuccess,
     successStatus: 204,
-    handler: async ({ context, body, param }) => {
+    handler: async ({ context, body, param, request }) => {
       const studentId = assertUuidParam(param('studentId'))
-      return inTransaction(context, async (conn) => {
+      const ended = await inTransaction(context, async (conn) => {
         const enrollment = requireFound(await currentEnrollment(conn, context.schoolId, studentId))
         await authorizeResource(
           conn,
@@ -564,9 +575,16 @@ export function registerStudentRoutes(app: FastifyInstance, deps: ModuleDependen
           'enrollment',
           enrollment.id,
         )
-        await endEnrollment(conn, context, studentId, enrollment, body)
-        return null
+        return endEnrollment(conn, context, studentId, enrollment, body)
       })
+      // A pupil who left loses their own login's sessions once that committed.
+      // The login is already refused by then, so a failure here is only logged.
+      if (ended) {
+        await endAllSessions(deps.auth, ended.userId).catch((error: unknown) =>
+          request.log.warn({ requestId: request.id, err: error }, 'pupil sessions could not be ended'),
+        )
+      }
+      return null
     },
   })
 

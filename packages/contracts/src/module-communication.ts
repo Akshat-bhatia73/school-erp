@@ -42,31 +42,53 @@ export const MESSAGE_KIND_LABELS: Readonly<Record<MessageKind, string>> = {
 }
 
 /**
- * Who a message is for. `school` is the family of every pupil enrolled this
- * year, `staff` every working staff member, `grade` and `section` the
- * families of the pupils enrolled there this year, `pupil` one pupil's
- * family, and `staff_member` one staff member (the school's birthday wishes
- * only). A teacher may send to `section` and `pupil` within their own
- * sections; the other audiences are the office's.
+ * Who a message is for. `school` is every pupil enrolled this year, `staff`
+ * every working staff member, `grade` and `section` the pupils enrolled there
+ * this year, `grade_range` the pupils of every class from one class to
+ * another in the school's class order (both included), `pupil` one pupil, and
+ * `staff_member` one staff member (the school's birthday wishes only). For
+ * every audience made of pupils, `recipients` says whether the message goes
+ * to their families (the default), to the pupils themselves through their own
+ * login, or to both. A teacher may send to `section` and `pupil` within their
+ * own sections; the other audiences are the office's.
  */
-export const MessageAudienceKind = z.enum(['school', 'staff', 'grade', 'section', 'pupil', 'staff_member'])
+export const MessageAudienceKind = z.enum(['school', 'staff', 'grade', 'grade_range', 'section', 'pupil', 'staff_member'])
 export type MessageAudienceKind = z.infer<typeof MessageAudienceKind>
 
-/** The audience a person chooses. `staff_member` is never chosen: only the school uses it. */
+/**
+ * families: the guardians, by app and email, as far as their consent allows.
+ * students: the pupils themselves, in the app only, when they have a login
+ * (Class 9 to 12). both: each of them.
+ */
+export const MessageRecipients = z.enum(['families', 'students', 'both'])
+export type MessageRecipients = z.infer<typeof MessageRecipients>
+
+/**
+ * The audience a person chooses. `staff_member` is never chosen: only the
+ * school uses it. `recipients` left out means families.
+ */
 export const MessageAudienceInput = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('school') }),
+  z.strictObject({ kind: z.literal('school'), recipients: MessageRecipients.optional() }),
   z.strictObject({ kind: z.literal('staff') }),
-  z.strictObject({ kind: z.literal('grade'), gradeId: Id }),
-  z.strictObject({ kind: z.literal('section'), sectionId: Id }),
-  z.strictObject({ kind: z.literal('pupil'), studentId: Id }),
+  z.strictObject({ kind: z.literal('grade'), gradeId: Id, recipients: MessageRecipients.optional() }),
+  z.strictObject({ kind: z.literal('grade_range'), fromGradeId: Id, toGradeId: Id, recipients: MessageRecipients.optional() }),
+  z.strictObject({ kind: z.literal('section'), sectionId: Id, recipients: MessageRecipients.optional() }),
+  z.strictObject({ kind: z.literal('pupil'), studentId: Id, recipients: MessageRecipients.optional() }),
 ])
 export type MessageAudienceInput = z.infer<typeof MessageAudienceInput>
 
-/** The audience as a screen shows it: the ids plus a label such as "Class 5 A" or "Families of Aarav Sharma". */
+/**
+ * The audience as a screen shows it: the ids plus a label such as "Class 5 A",
+ * "Class 6 to Class 8" or "Families of Aarav Sharma". `recipients` is present
+ * for every audience made of pupils. For `grade_range`, gradeId is the first
+ * class and toGradeId the last.
+ */
 export const MessageAudienceView = z.strictObject({
   kind: MessageAudienceKind,
   label: z.string().min(1).max(200),
+  recipients: MessageRecipients.optional(),
   gradeId: Id.optional(),
+  toGradeId: Id.optional(),
   sectionId: Id.optional(),
   studentId: Id.optional(),
   staffId: Id.optional(),
@@ -89,7 +111,8 @@ export type MessageStatus = z.infer<typeof MessageStatus>
  * consent) for any pupil through whom they are in the audience, so nothing
  * went. not_receiving: the office has marked the guardian as not receiving
  * notifications. no_contact: agreed, but no portal account and no email
- * address that can receive mail.
+ * address that can receive mail. A pupil's own row is delivered when the
+ * pupil has a login that is on, and no_contact otherwise.
  */
 export const RecipientOutcome = z.enum(['delivered', 'no_consent', 'not_receiving', 'no_contact'])
 export type RecipientOutcome = z.infer<typeof RecipientOutcome>
@@ -287,6 +310,8 @@ export type MessageSender = z.infer<typeof MessageSender>
  */
 export const MessageCounts = z.strictObject({
   recipients: z.number().int().nonnegative(),
+  /** How many of the recipients are pupils themselves rather than their families. */
+  pupils: z.number().int().nonnegative(),
   delivered: z.number().int().nonnegative(),
   noConsent: z.number().int().nonnegative(),
   notReceiving: z.number().int().nonnegative(),
@@ -354,8 +379,9 @@ export type MessageDetail = z.infer<typeof MessageDetail>
 /** One row of a message's delivery record. */
 export const MessageRecipientRow = z.strictObject({
   id: Id,
-  kind: z.enum(['guardian', 'staff']),
-  /** The guardian's or staff member's name, or "Guardian" when the caller may not read guardian names. */
+  /** A pupil's own row names the pupil in `name` and in `pupil`, and never has an email. */
+  kind: z.enum(['guardian', 'staff', 'student']),
+  /** The guardian's, staff member's or pupil's name, or "Guardian" when the caller may not read guardian names. */
   name: DisplayName,
   relation: z.string().max(40).optional(),
   pupil: z
@@ -450,6 +476,9 @@ export type AudiencePreviewRequest = z.infer<typeof AudiencePreviewRequest>
 export const AudiencePreview = z.strictObject({
   audience: MessageAudienceView,
   recipients: z.number().int().nonnegative(),
+  /** Pupils among the recipients, and how many of them have a login to read it in the app. */
+  pupils: z.number().int().nonnegative(),
+  pupilsInApp: z.number().int().nonnegative(),
   delivered: z.number().int().nonnegative(),
   noConsent: z.number().int().nonnegative(),
   notReceiving: z.number().int().nonnegative(),

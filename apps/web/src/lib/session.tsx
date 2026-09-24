@@ -3,7 +3,7 @@
  *
  * `/api/me` says who is signed in and which schools they belong to; `/api/schools/:id/context`
  * says what they may do inside the school this tab is looking at. The active school is a per-tab
- * preference in sessionStorage and is only honoured when it matches an active adult membership;
+ * preference in sessionStorage and is only honoured when it matches an active membership;
  * the server takes the school from the URL on every request, so this preference can never widen
  * access. Identity is never read from localStorage.
  */
@@ -21,12 +21,12 @@ import { isApiError } from '@/lib/api-errors'
 import { createQueryClient } from '@/lib/query'
 
 /**
- * `blocked` is a signed-in identity the web app will not open for anyone: today only a student,
- * whose sign-in is specified but disabled. The server deletes the session and answers
- * FEATURE_DISABLED on every session-backed route, so there is nothing to retry.
+ * `blocked` is a signed-in identity the web app will not open for anyone: today only a pupil whose
+ * login the office switched off, or which ended when they left. The server deletes the session and
+ * answers FEATURE_DISABLED on every session-backed route, so there is nothing to retry.
  */
 export type SessionStatus = 'loading' | 'anonymous' | 'unavailable' | 'blocked' | 'authenticated'
-export type ContextStatus = 'idle' | 'loading' | 'ready' | 'mfa_required' | 'unavailable'
+export type ContextStatus = 'idle' | 'loading' | 'ready' | 'mfa_required' | 'password_change_required' | 'unavailable'
 
 const ACTIVE_SCHOOL_KEY = 'erp.activeSchoolId'
 const LEGACY_KEYS = ['erp.schoolId', 'erp.userId']
@@ -38,7 +38,7 @@ export interface Session {
   user: ViewerIdentity | null
   session: SessionSummary | null
   memberships: MembershipSummary[]
-  /** Memberships this person can actually open: active and adult. Student access is disabled. */
+  /** Memberships this person can actually open: active ones, an adult's or a pupil's own. */
   activeMemberships: MembershipSummary[]
   school: SchoolSummary | null
   membership: MembershipSummary | null
@@ -49,6 +49,13 @@ export interface Session {
   accessVersion: number | null
   context: ContextStatus
   twoFactorEnabled: boolean
+  /** The password was texted by the school: nothing else opens until the person chooses their own. */
+  // Optional so a hand-built test session (src/test/session.tsx) reads as an adult's by default.
+  passwordChangeRequired?: boolean
+  /** A pupil's own login (a student membership). No second factor, no view switcher. */
+  isPupil?: boolean
+  /** The pupil this membership is, from the context response. Set for a pupil only. */
+  ownStudentId?: string | null
   hasPermission: (key: PermissionKey) => boolean
   selectSchool: (schoolId: string) => void
   clearSchool: () => void
@@ -60,8 +67,9 @@ export interface Session {
 /** Exported for tests only: src/test/session.tsx renders a fully-formed session through it. */
 export const SessionContext = createContext<Session | null>(null)
 
-function isActiveAdult(membership: MembershipSummary) {
-  return membership.status === 'active' && membership.kind === 'adult'
+/** An adult's membership and a pupil's own are opened the same way; the server decides the rest. */
+function isUsable(membership: MembershipSummary) {
+  return membership.status === 'active'
 }
 
 function readStoredSchoolId() {
@@ -94,9 +102,10 @@ interface ContextState {
   roleKeys: string[]
   capabilities: PermissionKey[]
   accessVersion: number | null
+  ownStudentId: string | null
 }
 
-const IDLE_CONTEXT: ContextState = { status: 'idle', school: null, membershipId: null, roleKeys: [], capabilities: [], accessVersion: null }
+const IDLE_CONTEXT: ContextState = { status: 'idle', school: null, membershipId: null, roleKeys: [], capabilities: [], accessVersion: null, ownStudentId: null }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>('loading')
@@ -104,6 +113,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
   const [activeSchoolId, setActiveSchoolId] = useState<string | null>(null)
   const [ctx, setCtx] = useState<ContextState>(IDLE_CONTEXT)
+  // Bumped to load the school context again once a refused context can open (a new password).
+  const [contextAttempt, setContextAttempt] = useState(0)
   const [generation, setGeneration] = useState(() => currentGeneration())
   const [client, setClient] = useState<QueryClient>(() => createQueryClient())
   const channelRef = useRef<BroadcastChannel | null>(null)
@@ -128,7 +139,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const applyMemberships = useCallback((memberships: MembershipSummary[]) => {
-    const usable = memberships.filter(isActiveAdult)
+    const usable = memberships.filter(isUsable)
     setActiveSchoolId((current) => {
       const preferred = current ?? readStoredSchoolId()
       const matched = preferred && usable.some((m) => m.school.id === preferred) ? preferred : null
@@ -183,11 +194,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         roleKeys: result.roleKeys,
         capabilities: result.capabilities,
         accessVersion: result.accessVersion,
+        ownStudentId: result.ownStudentId ?? null,
       })
     } catch (error) {
       if (isApiError(error, 'STALE_RESPONSE') || isAbortLike(error)) return
       if (isApiError(error, 'MFA_REQUIRED')) {
         setCtx({ ...IDLE_CONTEXT, status: 'mfa_required' })
+        return
+      }
+      // The school texted this password; the gate sends the person to choose their own.
+      if (isApiError(error, 'PASSWORD_CHANGE_REQUIRED')) {
+        setCtx({ ...IDLE_CONTEXT, status: 'password_change_required' })
         return
       }
       if (isApiError(error, 'SCHOOL_ACCESS_UNAVAILABLE')) {
@@ -204,6 +221,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const accessVersionRef = useRef<number | null>(null)
   accessVersionRef.current = ctx.accessVersion
+  const contextStatusRef = useRef<ContextStatus>(ctx.status)
+  contextStatusRef.current = ctx.status
 
   useEffect(() => {
     if (status !== 'authenticated' || !activeSchoolId) {
@@ -222,7 +241,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       window.clearInterval(poll)
       window.removeEventListener('focus', onFocus)
     }
-  }, [status, activeSchoolId, loadContext])
+  }, [status, activeSchoolId, loadContext, contextAttempt])
+
+  // Any school read refused with PASSWORD_CHANGE_REQUIRED (the office reset the password while
+  // this tab was open) sends the person to choose a new one, without waiting for the next poll.
+  useEffect(() => client.getQueryCache().subscribe((event) => {
+    if (event.type !== 'updated' || !isApiError(event.query.state.error, 'PASSWORD_CHANGE_REQUIRED')) return
+    setCtx((current) => (current.status === 'password_change_required' ? current : { ...IDLE_CONTEXT, status: 'password_change_required' }))
+  }), [client])
 
   // ---------- across tabs ----------
 
@@ -276,12 +302,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     await loadIdentity()
+    // The context was refused while the texted password stood. Once it is replaced, ask again
+    // rather than leaving the gate on a refusal that no longer holds.
+    if (contextStatusRef.current === 'password_change_required') {
+      setCtx({ ...IDLE_CONTEXT, status: 'loading' })
+      setContextAttempt((n) => n + 1)
+    }
   }, [loadIdentity])
 
   // ---------- derived ----------
 
   const memberships = identity?.memberships ?? []
-  const activeMemberships = useMemo(() => memberships.filter(isActiveAdult), [memberships])
+  const activeMemberships = useMemo(() => memberships.filter(isUsable), [memberships])
   const membership = useMemo(
     () => activeMemberships.find((m) => m.school.id === activeSchoolId) ?? null,
     [activeMemberships, activeSchoolId],
@@ -302,6 +334,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     accessVersion: ctx.accessVersion,
     context: ctx.status,
     twoFactorEnabled,
+    passwordChangeRequired: identity?.session.passwordChangeRequired === true || ctx.status === 'password_change_required',
+    isPupil: memberships.some((m) => m.kind === 'student'),
+    ownStudentId: ctx.ownStudentId,
     hasPermission: (key) => ctx.capabilities.includes(key),
     selectSchool,
     clearSchool,
@@ -346,6 +381,7 @@ export function useSchoolContext() {
     capabilities: session.capabilities,
     accessVersion: session.accessVersion,
     hasPermission: session.hasPermission,
+    ownStudentId: session.ownStudentId ?? undefined,
   }
 }
 

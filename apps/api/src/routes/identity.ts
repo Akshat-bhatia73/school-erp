@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { Email, MeResponse, Phone, SchoolContextResponse } from '@erp/contracts'
+import { withTenantTransaction } from '@erp/db'
 import type { SchoolAuthorizationService } from '@erp/authz'
 import { ApiFailure } from '../http/errors.ts'
 import { requireMembership, requireSession } from '../auth/guards.ts'
@@ -36,6 +37,7 @@ export function registerIdentityRoutes(
         expiresAt: verified.effectiveExpiresAt.toISOString(),
         assurance: verified.assurance,
         mfaVerifiedAt: verified.mfaVerifiedAt,
+        ...(verified.passwordChangeRequired ? { passwordChangeRequired: true } : {}),
       },
       memberships: verified.memberships,
     })
@@ -52,13 +54,27 @@ export function registerIdentityRoutes(
         (entry) => entry.id === context.membershipId,
       )
       if (!membership) throw new ApiFailure('SCHOOL_ACCESS_UNAVAILABLE')
+      // A pupil's own login names the pupil it is, so the screens can open
+      // "my attendance" without a list to pick from.
+      const ownStudentId =
+        membership.kind === 'student'
+          ? await withTenantTransaction(deps.pools.runtime, context, async ({ client }) => {
+              const link = await client.query<{ student_id: string }>(
+                `SELECT student_id FROM membership_student_links
+                  WHERE school_id = $1 AND membership_id = $2`,
+                [context.schoolId, context.membershipId],
+              )
+              return link.rows[0]?.student_id
+            })
+          : undefined
       return SchoolContextResponse.parse({
         school: membership.school,
         membershipId: membership.id,
         accessVersion: membership.accessVersion,
         roleKeys: membership.roleKeys,
         capabilities: await deps.authz.capabilities(context),
-        studentLoginEnabled: false,
+        studentLoginEnabled: true,
+        ...(ownStudentId === undefined ? {} : { ownStudentId }),
       })
     },
   )

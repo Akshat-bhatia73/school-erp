@@ -20,6 +20,7 @@ import { Route as SelectSchoolRouteImport } from './routes/select-school'
 import { Route as TestCodesRouteImport } from './routes/test-codes'
 import { Route as VerifyOtpRouteImport } from './routes/verify-otp'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AccountChangePasswordRouteImport } from './routes/account/change-password'
 import { Route as AccountSecurityRouteImport } from './routes/account/security'
 import { Route as MfaSetupRouteImport } from './routes/mfa/setup'
 import { Route as MfaVerifyRouteImport } from './routes/mfa/verify'
@@ -123,6 +124,11 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
   getParentRoute: () => AppRoute,
+} as any)
+const AccountChangePasswordRoute = AccountChangePasswordRouteImport.update({
+  id: '/account/change-password',
+  path: '/account/change-password',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AccountSecurityRoute = AccountSecurityRouteImport.update({
   id: '/account/security',
@@ -396,6 +402,7 @@ export interface FileRoutesByFullPath {
   '/test-codes': typeof TestCodesRoute
   '/verify-otp': typeof VerifyOtpRoute
   '/dashboard': typeof AppDashboardRoute
+  '/account/change-password': typeof AccountChangePasswordRoute
   '/account/security': typeof AccountSecurityRoute
   '/mfa/setup': typeof MfaSetupRoute
   '/mfa/verify': typeof MfaVerifyRoute
@@ -457,6 +464,7 @@ export interface FileRoutesByTo {
   '/test-codes': typeof TestCodesRoute
   '/verify-otp': typeof VerifyOtpRoute
   '/dashboard': typeof AppDashboardRoute
+  '/account/change-password': typeof AccountChangePasswordRoute
   '/account/security': typeof AccountSecurityRoute
   '/mfa/setup': typeof MfaSetupRoute
   '/mfa/verify': typeof MfaVerifyRoute
@@ -520,6 +528,7 @@ export interface FileRoutesById {
   '/test-codes': typeof TestCodesRoute
   '/verify-otp': typeof VerifyOtpRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/account/change-password': typeof AccountChangePasswordRoute
   '/account/security': typeof AccountSecurityRoute
   '/mfa/setup': typeof MfaSetupRoute
   '/mfa/verify': typeof MfaVerifyRoute
@@ -583,6 +592,7 @@ export interface FileRouteTypes {
     | '/test-codes'
     | '/verify-otp'
     | '/dashboard'
+    | '/account/change-password'
     | '/account/security'
     | '/mfa/setup'
     | '/mfa/verify'
@@ -644,6 +654,7 @@ export interface FileRouteTypes {
     | '/test-codes'
     | '/verify-otp'
     | '/dashboard'
+    | '/account/change-password'
     | '/account/security'
     | '/mfa/setup'
     | '/mfa/verify'
@@ -706,6 +717,7 @@ export interface FileRouteTypes {
     | '/test-codes'
     | '/verify-otp'
     | '/_app/dashboard'
+    | '/account/change-password'
     | '/account/security'
     | '/mfa/setup'
     | '/mfa/verify'
@@ -768,6 +780,7 @@ export interface RootRouteChildren {
   SelectSchoolRoute: typeof SelectSchoolRoute
   TestCodesRoute: typeof TestCodesRoute
   VerifyOtpRoute: typeof VerifyOtpRoute
+  AccountChangePasswordRoute: typeof AccountChangePasswordRoute
   AccountSecurityRoute: typeof AccountSecurityRoute
   MfaSetupRoute: typeof MfaSetupRoute
   MfaVerifyRoute: typeof MfaVerifyRoute
@@ -851,6 +864,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/account/change-password': {
+      id: '/account/change-password'
+      path: '/account/change-password'
+      fullPath: '/account/change-password'
+      preLoaderRoute: typeof AccountChangePasswordRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/account/security': {
       id: '/account/security'
@@ -1314,6 +1334,7 @@ const rootRouteChildren: RootRouteChildren = {
   SelectSchoolRoute: SelectSchoolRoute,
   TestCodesRoute: TestCodesRoute,
   VerifyOtpRoute: VerifyOtpRoute,
+  AccountChangePasswordRoute: AccountChangePasswordRoute,
   AccountSecurityRoute: AccountSecurityRoute,
   MfaSetupRoute: MfaSetupRoute,
   MfaVerifyRoute: MfaVerifyRoute,

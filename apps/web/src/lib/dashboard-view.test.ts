@@ -48,6 +48,7 @@ describe('resolveDashboardView', () => {
 
   it('falls back to the default order when nothing is stored', () => {
     expect(resolveDashboardView(['accountant', 'parent'], null)).toEqual({ view: 'accountant', preferred: null, options: ['accountant', 'parent'] })
-    expect(resolveDashboardView(['student'], null)).toEqual({ view: 'none', preferred: null, options: [] })
+    expect(resolveDashboardView(['student'], null)).toEqual({ view: 'student', preferred: null, options: ['student'] })
+    expect(resolveDashboardView([], null)).toEqual({ view: 'none', preferred: null, options: [] })
   })
 })

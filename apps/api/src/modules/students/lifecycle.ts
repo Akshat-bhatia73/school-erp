@@ -19,6 +19,8 @@ import {
   type ModuleDependencies,
 } from '../shared/index.ts'
 import { bumpVersion } from '../shared/version.ts'
+import { endStudentLogin } from '../../memberships/student-logins.ts'
+import { endAllSessions } from '../../identity/provision.ts'
 
 /** Anonymisation is only offered once the student has actually left. */
 const LEFT_STATUSES = new Set(['left', 'alumni'])
@@ -50,7 +52,7 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
     response: StudentDetailByAudience,
     handler: async ({ context, body, param, request }) => {
       const studentId = assertUuidParam(param('studentId'))
-      const { response, documentKeys } = await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+      const { response, documentKeys, login } = await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
         await lockSchool(conn, context.schoolId)
         await authorizeResource(conn, context, 'students.anonymise', 'student', studentId)
 
@@ -138,6 +140,9 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
           [context.schoolId],
         )
 
+        // A login still on or switched off ends with the record (Task 23).
+        const login = await endStudentLogin(conn, context, studentId)
+
         await writeAudit(conn, context, {
           action: 'students.anonymise',
           targetType: 'student',
@@ -152,12 +157,19 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
             reportCardVersionRemarksCleared: versionsCleared.rowCount ?? 0,
             messagesRedacted: messagesRedacted.rowCount ?? 0,
             messageEmailsCleared: messageEmailsCleared.rowCount ?? 0,
+            ...(login === null ? {} : { studentLoginEnded: true }),
           },
           note: body.reason,
         })
 
-        return { response: await detailResponse(conn, context, studentId), documentKeys }
+        return { response: await detailResponse(conn, context, studentId), documentKeys, login }
       })
+      // The login is already refused by then, so a failure here is only logged.
+      if (login) {
+        await endAllSessions(deps.auth, login.userId).catch((error: unknown) =>
+          request.log.warn({ err: error }, 'pupil sessions could not be ended after anonymisation'),
+        )
+      }
 
       // Only after the commit: the rows are already blank, so a blob left
       // behind is unreachable through the API, whereas removing the bytes

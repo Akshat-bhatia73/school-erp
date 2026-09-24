@@ -201,6 +201,27 @@ uses, never to the internet; checklist item 16 checks both halves.
 Migrations run as `erp_migrator` and only at deploy time. The running service
 never holds that login.
 
+Migration `0019_student_login.sql` is the student login release (Task 23).
+It is additive for the previous code apart from one rule it lifts (an active
+student membership is now allowed; the previous code never creates one and
+still refuses a pupil a session): `grades.level`, filled in from class names,
+`auth_user.must_change_password`, three identity functions owned by
+`erp_identity_reader` (created under the temporary CREATE grant the rule from
+0011 describes), two `identity_bootstrap` policies with column grants,
+`held_sms` gains the `student_password` purpose, and messages gain
+`recipients`, `grade_to_id` and `message_recipients.is_student` with their
+constraints. Its two backfills lift `FORCE ROW LEVEL SECURITY` for the
+statement only, so they work for a migrator that does not bypass row security;
+check after the migration that every class named "Class 9" to "Class 12" has
+its number (`SELECT name, level FROM grades`) and set any other in setup.
+**It changes the role templates**: `students.manage_login` for owner,
+principal and admin and twelve grants for the student role, so every existing
+school needs `pnpm db:sync-roles` (15 grants per school). No new setting. The
+order is the same: migrate, `migrate:check`, `db:sync-roles`, merge, deploy,
+smoke. Nobody gets a login by the release itself: the office gives the pupils
+already in Class 9 to 12 theirs with "Give student logins", and every password
+text is held for testers until Task 16.
+
 Migration `0018_communication.sql` is the messages release (Task 22). It is
 additive: five new tables (`communication_settings`, `message_templates`,
 `messages`, `message_attachments`, `message_recipients`), a policy and a column

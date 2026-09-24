@@ -2,6 +2,7 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import { CalendarClock, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, Mail, Menu, Search, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
+import { PUPIL_PATHS } from '@/components/layout/sidebar'
 import { useSchoolDashboardView } from '@/lib/dashboard-view'
 import type { PermissionKey } from '@/lib/permissions'
 import { useSchoolContext, useSession } from '@/lib/session'
@@ -16,7 +17,9 @@ export function MobileTopBar({ onOpenNav, onOpenQuickActions }: { onOpenNav: () 
   const { school } = useSchoolContext()
   const { user } = useSession()
   const name = user?.displayName ?? 'Account'
-  const isParent = useSchoolDashboardView().view === 'parent'
+  const view = useSchoolDashboardView().view
+  const isParent = view === 'parent'
+  const isPupil = view === 'student'
   const { current } = useAcademicYear()
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-card px-2 md:hidden">
@@ -25,7 +28,7 @@ export function MobileTopBar({ onOpenNav, onOpenQuickActions }: { onOpenNav: () 
       </button>
       <div className="min-w-0 flex-1">
         <span className="block truncate text-[14px] font-semibold leading-tight">{school.name}</span>
-        {!isParent && (
+        {!isParent && !isPupil && (
           <span className="block truncate text-[11px] leading-tight text-muted-foreground">{current?.name ?? ''}{school.code ? ` · ${school.code}` : ''}</span>
         )}
       </div>
@@ -49,7 +52,7 @@ const TABS: Tab[] = [
   { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
   { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
   { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read'] },
-  // Staff reach Messages from the drawer; a parent's bar is short, so it sits here for them.
+  // Staff reach Messages from the drawer; a parent's or pupil's bar is short, so it sits here for them.
   { label: 'Messages', to: '/messages', icon: <Mail />, permission: 'communication.read', parentOnly: true },
 ]
 
@@ -60,9 +63,11 @@ const TABS: Tab[] = [
  */
 export function MobileTabBar() {
   const { hasPermission } = useSchoolContext()
-  const isParent = useSchoolDashboardView().view === 'parent'
+  const view = useSchoolDashboardView().view
+  const isParent = view === 'parent'
+  const isPupil = view === 'student'
   const path = useRouterState({ select: (s) => s.location.pathname })
-  const tabs = TABS.filter((t) => (!t.parentOnly || isParent) && (!t.permission || hasPermission(t.permission)) && (!t.permissions || t.permissions.some((key) => hasPermission(key))))
+  const tabs = TABS.filter((t) => (!t.parentOnly || isParent || isPupil) && (!isPupil || PUPIL_PATHS.has(t.to)) && (!t.permission || hasPermission(t.permission)) && (!t.permissions || t.permissions.some((key) => hasPermission(key))))
     .map((t) => (t.to === '/dashboard' && isParent ? { ...t, label: 'My children' } : t))
   if (tabs.length === 0) return null
   return (

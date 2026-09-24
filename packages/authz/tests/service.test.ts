@@ -16,6 +16,7 @@ import {
   insertGuardianLink,
   insertMembership,
   insertStudent,
+  insertStudentLogin,
   insertSubject,
   insertTeachingAssignment,
   runtime,
@@ -166,12 +167,25 @@ test('a suspended membership has no access at all', async () => {
   assert.equal(await code(context, 'holidays.read', ref('holiday', crypto.randomUUID())), 'ACCESS_DENIED')
 })
 
-test('a student membership is refused as a disabled feature', async () => {
-  // The database keeps every student membership inactive, so the only way to
-  // reach the policy guard is a context that claims the student kind.
-  await assert.rejects(() =>
-    insertMembership({ schoolId: schoolA, roleKeys: ['student'], kind: 'student', status: 'active' }),
-  )
+test('a pupil\'s own login reads the pupil, and a student context with any other role is refused', async () => {
+  // Task 23: an active student membership exists now. It reads its own pupil
+  // and nobody else.
+  const pupil = await insertStudentLogin(schoolA, sectionStudentId)
+  const own = contextFor({
+    schoolId: schoolA,
+    membershipId: pupil.membershipId,
+    roleKeys: ['student'],
+    membershipKind: 'student',
+    assurance: 'single_factor',
+  })
+  assert.equal(await code(own, 'students.read_basic', ref('student', sectionStudentId)), 'ALLOWED')
+  assert.equal(await code(own, 'sections.read', ref('section', fx('sectionA'))), 'ALLOWED')
+  assert.equal(await code(own, 'students.read_basic', ref('student', fx('studentA'))), 'ACCESS_DENIED')
+  assert.equal(await code(own, 'students.read_basic', ref('student', unrelatedStudentId)), 'ACCESS_DENIED')
+  assert.equal(await code(own, 'students.read_guardian_contact', ref('student', sectionStudentId)), 'ACCESS_DENIED')
+  assert.equal(await code(own, 'students.read_basic', ref('student', fx('studentB'), schoolB)), 'RESOURCE_NOT_FOUND')
+
+  // A student context holding an adult role is refused, whatever the role grants.
   const member = await insertMembership({ schoolId: schoolA, roleKeys: ['parent'] })
   const context = contextFor({
     schoolId: schoolA,
@@ -182,7 +196,12 @@ test('a student membership is refused as a disabled feature', async () => {
   })
   assert.equal(
     await code(context, 'students.read_basic', ref('student', fx('studentA2'))),
-    'FEATURE_DISABLED',
+    'ACCESS_DENIED',
+  )
+  // And an adult context holding the student role.
+  assert.equal(
+    await code({ ...own, membershipKind: 'adult' }, 'students.read_basic', ref('student', sectionStudentId)),
+    'ACCESS_DENIED',
   )
   // The suspended student membership from the fixtures has no access at all.
   const suspendedStudent = contextFor({

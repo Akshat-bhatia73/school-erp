@@ -10,6 +10,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   SCHOOL_ACCESS_UNAVAILABLE: 'This school is not available for your account.',
   ACCESS_DENIED: 'You do not have access to this.',
   FEATURE_DISABLED: 'This feature is not available.',
+  PASSWORD_CHANGE_REQUIRED: 'Choose your own password to continue.',
   RESOURCE_NOT_FOUND: 'That record was not found.',
   INVALID_REQUEST: 'Some details are missing or invalid.',
   INVITATION_UNAVAILABLE: 'This invitation cannot be used.',
@@ -92,6 +93,10 @@ const REASON_MESSAGES: Record<ErrorReason, string> = {
   message_too_many_attachments: 'A message can carry at most three files.',
   message_template_archived: 'This template has been archived. Choose another one.',
   message_template_kind_mismatch: 'This template is for a different kind of message.',
+  student_login_not_eligible: 'Only a pupil on the roll in Class 9 to 12 this year can have a login.',
+  student_login_no_guardian_phone: 'Add a phone number for the primary guardian first: the password is sent there.',
+  student_login_exists: 'This pupil already has a login.',
+  student_login_missing: 'This pupil does not have a login yet.',
 }
 
 export class ApiFailure extends Error {

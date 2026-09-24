@@ -1,12 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, LogOut, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus, CalendarClock } from 'lucide-react'
+import { BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, LogOut, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus, CalendarClock, ClipboardCheck, NotebookPen, Mail } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Tag, colorFor } from '@/components/shared/tag'
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from '@/components/ui/command'
 import { api } from '@/lib/api'
 import { describeError } from '@/lib/api-errors'
+import { PUPIL_PATHS } from '@/components/layout/sidebar'
+import { useSchoolDashboardView } from '@/lib/dashboard-view'
 import { type PermissionKey } from '@/lib/permissions'
 import { qk } from '@/lib/query'
 import { useSchoolContext, useSession } from '@/lib/session'
@@ -20,6 +22,9 @@ const goTo: Entry[] = [
   { label: 'Students', icon: <GraduationCap />, to: '/students', permission: 'students.read_basic' },
   { label: 'Staff', icon: <Users />, to: '/staff', permission: 'staff.read_directory' },
   { label: 'Timetable', icon: <CalendarClock />, to: '/timetable', permission: 'timetable.read' },
+  { label: 'Attendance', icon: <ClipboardCheck />, to: '/attendance', permission: 'attendance.read' },
+  { label: 'Exams', icon: <NotebookPen />, to: '/exams', permission: 'exams.read' },
+  { label: 'Messages', icon: <Mail />, to: '/messages', permission: 'communication.read' },
   { label: 'School profile', icon: <School />, to: '/setup/school', permission: 'school.read' },
   { label: 'Academic years', icon: <CalendarDays />, to: '/setup/academic-years', permission: 'academic_years.read' },
   { label: 'Classes & sections', icon: <Building2 />, to: '/setup/classes', permission: 'sections.read' },
@@ -43,6 +48,8 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
   const { activeMemberships, signOut } = useSession()
   const { schoolId, hasPermission } = useSchoolContext()
   const { theme, toggle } = useTheme()
+  // A pupil gets their own few screens and no people search, whatever the role reads for them.
+  const isPupil = useSchoolDashboardView().view === 'student'
   const [query, setQuery] = useState('')
   // Debounced so a name typed quickly is one request, not one per keystroke.
   const [term, setTerm] = useState('')
@@ -56,7 +63,7 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
 
   const searching = search.length >= 2
   // The search route itself requires students.read_basic, so gate on exactly that.
-  const maySearch = hasPermission('students.read_basic')
+  const maySearch = hasPermission('students.read_basic') && !isPupil
   const { data: results, isFetching, error } = useQuery({
     queryKey: qk.search(schoolId, term),
     queryFn: () => api.search.run(schoolId, term),
@@ -68,7 +75,7 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
   const run = (fn: () => void) => { onOpenChange(false); fn() }
   const go = (to: string) => run(() => { void navigate({ to }) })
 
-  const visibleGoTo = goTo.filter((e) => !e.permission || hasPermission(e.permission))
+  const visibleGoTo = goTo.filter((e) => (!e.permission || hasPermission(e.permission)) && (!isPupil || PUPIL_PATHS.has(e.to)))
   const visibleActions = actions.filter((e) => !e.permission || hasPermission(e.permission))
 
   return (

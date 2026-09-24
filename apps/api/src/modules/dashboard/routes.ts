@@ -10,6 +10,7 @@ import { officeDashboard } from './office.ts'
 import { teacherDashboard } from './teacher.ts'
 import { parentDashboard } from './parent.ts'
 import { accountantDashboard } from './accountant.ts'
+import { studentDashboard } from './student.ts'
 
 /**
  * The date only moves the calendar and the audience only picks which of the
@@ -52,6 +53,8 @@ export function registerDashboardRoutes(app: FastifyInstance, deps: ModuleDepend
             return parentDashboard(conn, context, date)
           case 'accountant':
             return accountantDashboard(conn, context, date)
+          case 'student':
+            return studentDashboard(conn, context, date)
         }
       })
     },

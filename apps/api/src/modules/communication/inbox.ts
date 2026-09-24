@@ -49,7 +49,16 @@ async function unreadCount(conn: MessageConnection, context: RequestContext): Pr
 
 type InboxRow = Pick<
   MessageRow,
-  'audience' | 'grade_id' | 'section_id' | 'staff_id' | 'created_by_membership_id' | 'kind' | 'title' | 'body'
+  | 'audience'
+  | 'recipients'
+  | 'grade_id'
+  | 'grade_to_id'
+  | 'section_id'
+  | 'staff_id'
+  | 'created_by_membership_id'
+  | 'kind'
+  | 'title'
+  | 'body'
 > & {
   id: string
   recipient_id: string
@@ -79,7 +88,8 @@ export function registerInboxRoutes(app: FastifyInstance, deps: ModuleDependenci
         const page = await conn.db.execute<InboxRow>(
           sql`SELECT messages.id, message_recipients.id AS recipient_id,
                      message_recipients.student_id AS recipient_student_id, messages.student_id,
-                     messages.audience, messages.grade_id, messages.section_id, messages.staff_id,
+                     messages.audience, messages.recipients, messages.grade_id, messages.grade_to_id,
+                     messages.section_id, messages.staff_id,
                      messages.created_by_membership_id, messages.kind, messages.title, messages.body,
                      ${sql.raw(isoOf('messages.sent_at'))} AS sent_at,
                      ${sql.raw(isoOf('message_recipients.read_at'))} AS read_at
@@ -92,7 +102,9 @@ export function registerInboxRoutes(app: FastifyInstance, deps: ModuleDependenci
         const labels = await labelMessages(conn, context, rows)
         // The pupil a message is about, named only when the caller may read
         // that pupil's name (a parent reads their own child's).
-        const about = (row: InboxRow) => row.student_id ?? row.recipient_student_id
+        // A pupil's own inbox is all about the pupil, so it names nobody.
+        const about = (row: InboxRow) =>
+          context.membershipKind === 'student' ? undefined : (row.student_id ?? row.recipient_student_id)
         const pupils = await readablePupils(
           conn,
           context,

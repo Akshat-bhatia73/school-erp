@@ -24,6 +24,11 @@ export interface RelationshipFacts {
   /** Approved, unrevoked guardian_student_access reached through a verified membership_guardian_link. */
   readonly ownChildStudentIds: readonly string[]
   /**
+   * The pupil a student membership is, through membership_student_links. It
+   * is what the own_record scope matches. Null or absent for an adult.
+   */
+  readonly ownStudentId?: string | null
+  /**
    * The caller's own membership. The self scope of a message is the member
    * it was addressed to or written by, for any kind of member, so it is
    * decided by membership rather than by a staff record.
@@ -172,13 +177,28 @@ export function matchesScope(scope: AccessScope, facts: RelationshipFacts, resou
       if (resourceFacts.resourceType === 'communication') return false
       if (resourceFacts.aggregate === true) return facts.ownChildStudentIds.length > 0
       return ownPupilMatches(resourceFacts, facts.ownChildStudentIds)
-    case 'own_record':
+    case 'own_record': {
+      // A pupil reads the messages addressed to them (self), never one written
+      // to their family.
       if (resourceFacts.resourceType === 'communication') return false
-      // Student login is disabled, so nothing is ever the caller's own record.
-      // The term is still written like own_children, published rows only, so
-      // turning student login on cannot open an unpublished mark.
-      return ownPupilMatches(resourceFacts, [])
+      // Written exactly like own_children with the pupil themself as the only
+      // child: published rows only for results and report cards.
+      const own = facts.ownStudentId ? [facts.ownStudentId] : []
+      if (resourceFacts.aggregate === true) return own.length > 0
+      return ownPupilMatches(resourceFacts, own)
+    }
   }
+}
+
+/**
+ * A student membership carries exactly the student role, and an adult one
+ * never carries it. The database refuses anything else; this is the same rule
+ * again at the door of every decision and every list.
+ */
+export function studentKindConsistent(context: RequestContext): boolean {
+  const holdsStudent = context.roleKeys.includes('student')
+  if (context.membershipKind === 'student') return holdsStudent && context.roleKeys.length === 1
+  return !holdsStudent
 }
 
 /** Resource types whose assigned_sections scope is the class-teacher post alone. */
@@ -261,6 +281,8 @@ function relationshipsUsed(scope: AccessScope): string | null {
       return 'Current teaching assignment for this section and subject'
     case 'own_children':
       return 'Approved guardian link to this student'
+    case 'own_record':
+      return 'The pupil\'s own login'
     default:
       return null
   }
@@ -279,9 +301,10 @@ function run(input: EvaluateInput): Step {
     return { kind: 'denied', code: 'ACCESS_DENIED', reason: 'The action is not available yet.' }
   }
 
-  // 2. Student logins are disabled.
-  if (context.membershipKind === 'student' || context.roleKeys.includes('student')) {
-    return { kind: 'denied', code: 'FEATURE_DISABLED', reason: 'Student accounts cannot use this feature.' }
+  // 2. A pupil's own login holds the student role and nothing else, and the
+  // student role belongs to a pupil's own login alone.
+  if (!studentKindConsistent(context)) {
+    return { kind: 'denied', code: 'ACCESS_DENIED', reason: 'A student login holds the student role alone.' }
   }
 
   // 3. The resource must belong to this school and match the permission.

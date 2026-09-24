@@ -175,19 +175,21 @@ test('[client-identity-tampering] an identity carried in a write body changes no
 })
 
 test('[student-policy-fixtures] the student template carries no finance or administrative key', async () => {
-  // The student template is empty in this build, so the type of its grants
-  // is `never`; the shape is restated here so the assertions still compile if
-  // a grant is ever added.
+  // Task 23: the student template grants the pupil's own learning record.
+  // Every grant is at own_record or self, except the school's holidays, and
+  // none of them is financial, administrative or about a family.
   const grants = ROLE_TEMPLATES.student.grants as readonly {
     permission: string
     scope: string
   }[]
+  assert.ok(grants.length > 0)
   const privileged = [
     'staff.read_pay',
     'staff.update_pay',
     'students.export',
     'students.import',
     'students.promote',
+    'students.manage_login',
     'members.manage',
     'roles.assign',
     'audit.read',
@@ -200,7 +202,13 @@ test('[student-policy-fixtures] the student template carries no finance or admin
       `the student template must not grant ${grant.permission}`,
     )
     assert.ok(
-      ['self', 'own_record', 'own_children'].includes(grant.scope),
+      !/^(fees|staff|audit|consents|members|roles|exports)\./.test(grant.permission) &&
+        !/(guardian|document|medical|sensitive|export|update|create|manage|record|publish)/.test(grant.permission),
+      `the student template must not grant ${grant.permission}`,
+    )
+    const schoolWide = grant.permission === 'holidays.read' && grant.scope === 'school'
+    assert.ok(
+      schoolWide || ['self', 'own_record'].includes(grant.scope),
       `the student template grants ${grant.permission} at ${grant.scope}`,
     )
     const metadata = PERMISSION_CATALOGUE[grant.permission as keyof typeof PERMISSION_CATALOGUE]
@@ -208,32 +216,45 @@ test('[student-policy-fixtures] the student template carries no finance or admin
   }
 })
 
-test('[student-policy-fixtures] a student membership cannot even be created', async () => {
-  // The fixture student membership exists from before the feature was closed;
-  // a new one is refused by the database itself, so there is no HTTP path to
-  // test. The fixture student's sign-in is covered by
-  // apps/api/tests/session.test.ts 'a student identity can neither sign in nor
-  // carry a session'.
+test('[student-policy-fixtures] a student membership holds the student role alone', async () => {
+  // Task 23: an active student membership may exist now (a pupil's own
+  // login), but the database refuses it any adult role, exactly as it refuses
+  // an adult membership the student role.
   const pool = adminPool()
   const userId = randomUUID()
+  const membershipId = randomUUID()
   const email = `security-student-${randomUUID()}@example.test`
   await pool.query('INSERT INTO auth_user (id, name, email) VALUES ($1, $2, $3)', [
     userId,
     'Policy Student',
     email,
   ])
+  await pool.query(
+    `INSERT INTO school_memberships (id, school_id, user_id, kind, status)
+     VALUES ($1, $2, $3, 'student', 'active')`,
+    [membershipId, schoolA, userId],
+  )
   await assert.rejects(
     pool.query(
-      `INSERT INTO school_memberships (id, school_id, user_id, kind, status)
-       VALUES ($1, $2, $3, 'student', 'active')`,
-      [randomUUID(), schoolA, userId],
+      `INSERT INTO membership_roles (school_id, membership_id, role_id)
+       SELECT $1, $2, id FROM roles WHERE school_id = $1 AND key = 'owner'`,
+      [schoolA, membershipId],
     ),
-    /student memberships remain disabled/,
+    /membership role kind mismatch|student membership has adult role/,
   )
+  await assert.rejects(
+    pool.query(
+      `INSERT INTO membership_roles (school_id, membership_id, role_id)
+       SELECT $1, $2, id FROM roles WHERE school_id = $1 AND key = 'student'`,
+      [schoolA, owner.membershipId],
+    ),
+    /membership role kind mismatch|adult membership has student role/,
+  )
+  await pool.query('DELETE FROM school_memberships WHERE id = $1', [membershipId])
   await pool.query('DELETE FROM auth_user WHERE id = $1', [userId])
 
-  // The fixture student membership, which predates the block, still cannot
-  // reach a school route with a forged cookie.
+  // The fixture student membership still cannot reach a school route with a
+  // forged cookie.
   const anonymous = await fetch(`${server.origin}/api/schools/${schoolA}/students`, {
     headers: { origin: server.origin, cookie: `student=${fixtureIds.studentMember}` },
   })

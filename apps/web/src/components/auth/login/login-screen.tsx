@@ -1,17 +1,16 @@
 import { ManWomanIcon, OfficeIcon, StudentsIcon, TeachingIcon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { Lock } from 'lucide-react'
 import { useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { z } from 'zod'
 import { AuthLayout, SandboxNotice } from '@/components/auth/auth-layout'
-import { describeSignInError, throttleSeconds } from '@/components/auth/login/errors'
+import { describeSignInError, describeStudentSignInError, throttleSeconds } from '@/components/auth/login/errors'
 import { AuthField, AuthInput, FormError, HelpLine, PasswordInput, SharedDeviceField, submitLabel, TALL_BUTTON } from '@/components/auth/login/parts'
 import { useCountdown } from '@/components/auth/login/use-countdown'
 import { validate, type FieldErrors } from '@/components/setup/field'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { needsSecondFactor, normaliseIndianPhone, sendPhoneOtp, signInWithEmail } from '@/lib/auth-client'
+import { needsSecondFactor, normaliseIndianPhone, sendPhoneOtp, signInWithEmail, studentSignIn } from '@/lib/auth-client'
 import { rememberLoginSeed, type LoginSeed } from '@/lib/dashboard-view'
 import { sanitiseReturnTo } from '@/lib/return-to'
 import { announceSignIn, useSession } from '@/lib/session'
@@ -72,7 +71,7 @@ export function LoginScreen({ returnTo, audience }: { returnTo: string; audience
           <PhonePanel returnTo={returnTo} seed="parent" hint="We send a 6 digit code to the mobile number your school has on record." />
         </TabsContent>
         <TabsContent value="student" className="mt-4">
-          <StudentPanel />
+          <StudentPanel returnTo={returnTo} />
         </TabsContent>
       </Tabs>
     </AuthLayout>
@@ -260,15 +259,97 @@ function Hint({ text }: { text: string }) {
   )
 }
 
-/** Specified, and deliberately off. Nothing here ever sends a request. */
-function StudentPanel() {
+const StudentSchema = z.object({
+  schoolCode: z.string().trim().min(1, 'Enter your school code.'),
+  admissionNumber: z.string().trim().min(1, 'Enter your admission number.'),
+  password: z.string().min(1, 'Enter your password.'),
+})
+
+/**
+ * A pupil in Class 9 to 12 signs in with the school code, their admission number and the password
+ * the school texted to their parent. A first sign-in goes straight to choosing their own password.
+ */
+function StudentPanel({ returnTo }: { returnTo: string }) {
+  const navigate = useNavigate()
+  const session = useSession()
+  const [schoolCode, setSchoolCode] = useState('')
+  const [admissionNumber, setAdmissionNumber] = useState('')
+  const [password, setPassword] = useState('')
+  const [sharedDevice, setSharedDevice] = useState(false)
+  const [errors, setErrors] = useState<FieldErrors>({})
+  const [failure, setFailure] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  const throttle = useCountdown()
+  const codeRef = useRef<HTMLInputElement>(null)
+
+  async function onSubmit(event: FormEvent) {
+    event.preventDefault()
+    if (pending || throttle.secondsLeft > 0) return
+    const checked = validate(StudentSchema, { schoolCode, admissionNumber, password })
+    setErrors(checked.ok ? {} : checked.errors)
+    if (!checked.ok) {
+      codeRef.current?.focus()
+      return
+    }
+    setFailure(null)
+    setPending(true)
+    try {
+      const result = await studentSignIn({ ...checked.data, sharedDevice })
+      announceSignIn()
+      await session.refresh()
+      const next = sanitiseReturnTo(returnTo)
+      if (result.passwordChangeRequired) {
+        void navigate({ to: '/account/change-password', search: { returnTo: next }, replace: true } as never)
+        return
+      }
+      void navigate({ href: next, replace: true } as never)
+    } catch (error) {
+      const wait = throttleSeconds(error)
+      if (wait > 0) throttle.start(wait)
+      setFailure(describeStudentSignInError(error))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  const blocked = pending || throttle.secondsLeft > 0
   return (
-    <div className="grid justify-items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center">
-      <div className="flex size-9 items-center justify-center rounded-lg border bg-muted/50 text-muted-foreground"><Lock className="size-4" /></div>
-      <p className="text-[13.5px] font-medium">Student sign-in is not open yet</p>
-      <p className="max-w-xs text-[12.5px] text-muted-foreground">
-        Students cannot sign in to this release. Ask your school office, or sign in as a parent with the family mobile number.
+    <form className="grid gap-4" onSubmit={onSubmit} noValidate>
+      <Hint text="For students in Class 9 to 12. Use your school code and admission number." />
+      <FormError message={failure} />
+      <AuthField id="student-school" label="School code" error={errors.schoolCode}>
+        <AuthInput
+          id="student-school"
+          ref={codeRef}
+          autoComplete="organization"
+          autoCapitalize="none"
+          spellCheck={false}
+          value={schoolCode}
+          disabled={pending}
+          aria-invalid={errors.schoolCode ? true : undefined}
+          onChange={(event) => setSchoolCode(event.target.value)}
+        />
+      </AuthField>
+      <AuthField id="student-admission" label="Admission number" error={errors.admissionNumber}>
+        <AuthInput
+          id="student-admission"
+          autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
+          value={admissionNumber}
+          disabled={pending}
+          aria-invalid={errors.admissionNumber ? true : undefined}
+          onChange={(event) => setAdmissionNumber(event.target.value)}
+        />
+      </AuthField>
+      <AuthField id="student-password" label="Password" error={errors.password}>
+        <PasswordInput id="student-password" value={password} onChange={setPassword} disabled={pending} autoComplete="current-password" invalid={Boolean(errors.password)} />
+      </AuthField>
+      <SharedDeviceField id="student-shared" checked={sharedDevice} onChange={setSharedDevice} disabled={pending} />
+      <Button type="submit" className={TALL_BUTTON} disabled={blocked}>{submitLabel('Sign in', 'Signing in…', pending, throttle.secondsLeft)}</Button>
+      <p className="text-center text-[12.5px] text-muted-foreground">
+        Your password was sent to your parent's phone when your login was made. Ask the school office if you do not have it.
       </p>
-    </div>
+    </form>
   )
 }

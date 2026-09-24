@@ -282,11 +282,19 @@ export async function loadRelationshipFactsFor(
     [schoolId, membershipId],
   )
 
+  // A pupil's own login is linked to the pupil it is. The link is only ever
+  // on a student membership, so an adult never has one.
+  const own = await conn.client.query<{ student_id: string }>(
+    `SELECT student_id FROM membership_student_links WHERE school_id = $1 AND membership_id = $2`,
+    [schoolId, membershipId],
+  )
+
   return {
     selfStaffId,
     assignments,
     classTeacherSections,
     ownChildStudentIds: [...new Set(children.rows.map((row) => row.student_id))],
+    ownStudentId: own.rows[0]?.student_id ?? null,
     membershipId,
   }
 }
@@ -361,9 +369,12 @@ type ChildScope =
   | { readonly by: 'subject'; readonly subjectId: string }
 
 /**
- * The id of one of the caller's own children currently enrolled behind this
- * resource. It lets the own_children scope answer for class, section and
- * subject records, which are shared rows rather than a single child's row.
+ * The id of one of the caller's own children, or of the pupil a student
+ * membership is, currently enrolled behind this resource. It lets the
+ * own_children and own_record scopes answer for class, section and subject
+ * records, which are shared rows rather than a single child's row. A
+ * membership is either a guardian's or a pupil's, never both, so the id is
+ * always one the caller's own scope matches.
  */
 async function ownChildBehind(
   conn: AuthzConnection,
@@ -375,11 +386,15 @@ async function ownChildBehind(
     SELECT e.student_id
       FROM enrollments e
       JOIN sections sec ON sec.school_id = e.school_id AND sec.id = e.section_id
-      JOIN membership_guardian_links mgl ON mgl.school_id = e.school_id AND mgl.membership_id = $2
-      JOIN guardian_student_access gsa
-        ON gsa.school_id = e.school_id AND gsa.guardian_id = mgl.guardian_id
-       AND gsa.student_id = e.student_id AND gsa.status = 'approved' AND gsa.revoked_at IS NULL
-     WHERE e.school_id = $1 AND e.left_on IS NULL`
+     WHERE e.school_id = $1 AND e.left_on IS NULL
+       AND (EXISTS (SELECT 1 FROM membership_guardian_links mgl
+                      JOIN guardian_student_access gsa
+                        ON gsa.school_id = mgl.school_id AND gsa.guardian_id = mgl.guardian_id
+                     WHERE mgl.school_id = e.school_id AND mgl.membership_id = $2
+                       AND gsa.student_id = e.student_id AND gsa.status = 'approved' AND gsa.revoked_at IS NULL)
+         OR EXISTS (SELECT 1 FROM membership_student_links msl
+                     WHERE msl.school_id = e.school_id AND msl.membership_id = $2
+                       AND msl.student_id = e.student_id))`
   const filter =
     scope.by === 'section'
       ? ` AND e.section_id = $3`

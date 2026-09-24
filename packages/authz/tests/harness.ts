@@ -319,6 +319,26 @@ export async function insertGuardianLink(
   ])
 }
 
+/**
+ * A pupil's own login: an active student membership holding the student role,
+ * linked to the pupil through membership_student_links.
+ */
+export async function insertStudentLogin(
+  schoolId: string,
+  studentId: string,
+): Promise<{ membershipId: string; userId: string }> {
+  const member = await insertMembership({ schoolId, roleKeys: ['student'], kind: 'student' })
+  await migrator.query(
+    `INSERT INTO membership_student_links(school_id, membership_id, student_id) VALUES ($1,$2,$3)`,
+    [schoolId, member.membershipId, studentId],
+  )
+  rememberDelete(`DELETE FROM membership_student_links WHERE school_id = $1 AND membership_id = $2`, [
+    schoolId,
+    member.membershipId,
+  ])
+  return member
+}
+
 export async function insertMembershipStaffLink(
   schoolId: string,
   membershipId: string,

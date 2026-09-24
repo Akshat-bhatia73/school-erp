@@ -8,6 +8,7 @@ import { DataTable } from '@/components/shared/data-table'
 import { FilterChip, ToolbarButton } from '@/components/shared/filter-chip'
 import { EmptyState, PageHeader, Toolbar } from '@/components/shared/page'
 import { colorFor, Tag } from '@/components/shared/tag'
+import { GiveStudentLoginsDialog } from '@/components/students/student-login-panel'
 import { StudentBulkBar } from '@/components/students/student-bulk-bar'
 import { classLabel, studentColumns } from '@/components/students/student-columns'
 import { useSectionOptions } from '@/components/students/use-section-options'
@@ -44,6 +45,8 @@ function Page() {
   const { schoolId, hasPermission } = useSchoolContext()
   const { currentYearId } = useAcademicYear()
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [giveLogins, setGiveLogins] = useState(false)
+  const canGiveLogins = hasPermission('students.manage_login')
 
   const setSearch = (patch: Partial<StudentSearch>) => {
     setRowSelection({})
@@ -87,6 +90,7 @@ function Page() {
       badge={roster.data ? <Tag className="ml-2">{roster.data.total}</Tag> : undefined}
       actions={
         <>
+          {canGiveLogins && <Button variant="outline" size="sm" onClick={() => setGiveLogins(true)}>Give student logins</Button>}
           {hasPermission('students.import') && <Button variant="outline" size="sm" onClick={() => void navigate({ to: '/students/import' })}>Import</Button>}
           {hasPermission('students.promote') && <Button variant="outline" size="sm" onClick={() => void navigate({ to: '/students/promote' })}>Promote</Button>}
           {hasPermission('students.create') && <Button size="sm" onClick={() => void navigate({ to: '/students/new' })}>Admit student</Button>}
@@ -97,7 +101,7 @@ function Page() {
           {hasPermission('students.create') && (
             <Button size="sm" onClick={() => void navigate({ to: '/students/new' })} className="h-9"><Plus />Admit</Button>
           )}
-          {(hasPermission('students.import') || hasPermission('students.promote')) && (
+          {(hasPermission('students.import') || hasPermission('students.promote') || canGiveLogins) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" aria-label="More student actions" className="size-9 p-0"><MoreHorizontal /></Button>
@@ -105,6 +109,7 @@ function Page() {
               <DropdownMenuContent align="end">
                 {hasPermission('students.import') && <DropdownMenuItem onClick={() => void navigate({ to: '/students/import' })}>Import from Excel</DropdownMenuItem>}
                 {hasPermission('students.promote') && <DropdownMenuItem onClick={() => void navigate({ to: '/students/promote' })}>Promote students</DropdownMenuItem>}
+                {canGiveLogins && <DropdownMenuItem onClick={() => setGiveLogins(true)}>Give student logins</DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -208,6 +213,7 @@ function Page() {
         />
         {canExport && <StudentBulkBar ids={selectedIds} onClear={() => setRowSelection({})} />}
       </div>
+      {canGiveLogins && <GiveStudentLoginsDialog open={giveLogins} onOpenChange={setGiveLogins} />}
     </>
   )
 }

@@ -120,12 +120,15 @@ describe('audienceFor', () => {
     expect(audiencesFor(['accountant', 'parent'])).toEqual(['accountant', 'parent'])
     expect(audiencesFor(['owner', 'teacher'])).toEqual(['office', 'teacher'])
     expect(audiencesFor(['principal'])).toEqual(['office'])
-    expect(audiencesFor(['student'])).toEqual([])
+    expect(audiencesFor(['student'])).toEqual(['student'])
   })
 
   it('has nothing to show a role with no dashboard', () => {
-    expect(audienceFor(['student'])).toBe('none')
     expect(audienceFor([])).toBe('none')
+  })
+
+  it('gives a pupil their own home', () => {
+    expect(audienceFor(['student'])).toBe('student')
   })
 })
 

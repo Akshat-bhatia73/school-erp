@@ -388,8 +388,8 @@ async function writeAndSend(
     const inserted = await conn.client.query<{ id: string }>(
       `INSERT INTO messages
          (school_id, kind, audience, student_id, staff_id, section_id, academic_year_id,
-          title, body, status, template_id, dedupe_key)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $11)
+          title, body, status, template_id, dedupe_key, recipients)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $11, $12)
        ON CONFLICT (school_id, dedupe_key) DO NOTHING
        RETURNING id`,
       [
@@ -404,6 +404,9 @@ async function writeAndSend(
         body,
         wording.templateId ?? null,
         candidate.dedupeKey,
+        // To the family, except a birthday wish, which the pupil also gets in
+        // the app when their login is on; a staff member's has no recipients.
+        kind === 'birthday_staff' ? null : kind === 'birthday_pupil' ? 'both' : 'families',
       ],
     )
     const id = inserted.rows[0]?.id

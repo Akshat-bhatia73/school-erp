@@ -49,6 +49,7 @@ const operationsWrite: readonly RoleGrant[] = [
   grant('students.update_sensitive', 'school'), grant('students.manage_enrollment', 'school'),
   grant('students.manage_guardians', 'school'), grant('students.import', 'school'),
   grant('students.export', 'school'), grant('students.promote', 'school'),
+  grant('students.manage_login', 'school'),
   grant('staff.create', 'school'), grant('staff.update_employment', 'school'),
   grant('staff.manage_assignments', 'school'), grant('staff.export', 'school'),
   grant('timetable.manage_periods', 'school'), grant('timetable.manage_entries', 'school'),
@@ -234,7 +235,25 @@ export const ROLE_TEMPLATES = {
       grant('communication.read', 'self'),
     ],
   },
-  student: { displayName: 'Student', enabled: false, requiredMfa: false, grants: [] },
+  // A pupil in Class 9 to 12 reads their own published learning record and
+  // nothing financial or administrative: no fees, no guardians, no consents,
+  // no documents, no exports. Results and report cards answer published rows
+  // only, exactly as for a parent. The calendar is the school's own.
+  student: {
+    displayName: 'Student', enabled: true, requiredMfa: false,
+    grants: [
+      grant('grades.read', 'own_record'), grant('sections.read', 'own_record'),
+      grant('subjects.read', 'own_record'), grant('holidays.read', 'school'),
+      grant('students.read_basic', 'own_record'),
+      grant('students.read_enrollments', 'own_record'),
+      grant('timetable.read', 'own_record'),
+      grant('dashboard.read', 'own_record'),
+      grant('attendance.read', 'own_record'),
+      grant('exams.read', 'own_record'), grant('report_cards.read', 'own_record'),
+      // Notices addressed to the pupil themself, and nothing written to their family.
+      grant('communication.read', 'self'),
+    ],
+  },
 } as const satisfies Record<RoleKey, RoleTemplate>
 
 export interface RoleDelegationRule {

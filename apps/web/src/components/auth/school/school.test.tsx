@@ -177,7 +177,7 @@ describe('AccessUnavailable', () => {
     no_membership: /not linked to any school right now/,
     suspended: /access to this school is suspended/,
     school: /not available right now/,
-    student: /Student access is not enabled yet/,
+    student: /Your student login is switched off/,
     disabled: /This account is disabled/,
     forbidden: /do not have access to that page/,
     not_found: /could not find that record/,

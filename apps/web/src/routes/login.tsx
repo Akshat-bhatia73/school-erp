@@ -4,9 +4,9 @@ import { LoginScreen } from '@/components/auth/login/login-screen'
 import { RedirectWhenSignedIn } from '@/components/auth/app-gate'
 
 export const Route = createFileRoute('/login')({
-  validateSearch: (search: Record<string, unknown>): { returnTo?: string; audience?: 'administration' | 'teacher' | 'parent' } => ({
+  validateSearch: (search: Record<string, unknown>): { returnTo?: string; audience?: 'administration' | 'teacher' | 'parent' | 'student' } => ({
     returnTo: search.returnTo === undefined ? undefined : sanitiseReturnTo(search.returnTo),
-    audience: search.audience === 'administration' || search.audience === 'teacher' || search.audience === 'parent' ? search.audience : undefined,
+    audience: search.audience === 'administration' || search.audience === 'teacher' || search.audience === 'parent' || search.audience === 'student' ? search.audience : undefined,
   }),
   component: Page,
 })

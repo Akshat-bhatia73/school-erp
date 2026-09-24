@@ -36,6 +36,70 @@ const searchSchema = z.object({ gradeId: uuid, sectionId: uuid })
 export const Route = createFileRoute('/_app/timetable/')({ component: Page, validateSearch: searchSchema })
 
 export function Page() {
+  const { ownStudentId } = useSchoolContext()
+  // A pupil sees their own class's week and nothing to pick or change.
+  if (ownStudentId) return <PupilTimetable studentId={ownStudentId} />
+  return <ClassTimetable />
+}
+
+/**
+ * A pupil's own week: the section comes from their current enrolment, the grid is read-only and
+ * there is no class picker, generator or export. The other timetable tabs are the office's.
+ */
+function PupilTimetable({ studentId }: { studentId: string }) {
+  const { schoolId } = useSchoolContext()
+  const [day, setDay] = useState<number | undefined>()
+  const isMobile = useIsMobile()
+  const detail = useQuery({
+    queryKey: qk.student(schoolId, studentId),
+    queryFn: () => api.students.get(schoolId, studentId),
+  })
+  const enrollment = detail.data?.student.enrollment
+  const yearId = enrollment?.academicYear.id ?? ''
+  const sectionId = enrollment?.section.id ?? ''
+  const gradeId = enrollment?.grade.id ?? ''
+
+  const bellQuery = useQuery({
+    queryKey: qk.bellScheduleForGrade(schoolId, gradeId, { academicYearId: yearId }),
+    queryFn: () => api.timetable.bellScheduleForGrade(schoolId, gradeId, { academicYearId: yearId }),
+    enabled: !!gradeId && !!yearId,
+  })
+  const gridQuery = useQuery({
+    queryKey: qk.timetableSection(schoolId, sectionId, { academicYearId: yearId }),
+    queryFn: () => api.timetable.forSection(schoolId, sectionId, { academicYearId: yearId }),
+    enabled: !!sectionId && !!yearId,
+  })
+  const bell = bellQuery.data
+  const cells = useMemo(() => gridQuery.data?.cells ?? [], [gridQuery.data])
+  const workingDays = useMemo(() => [...(bell?.workingDays ?? [])].sort((a, b) => a - b), [bell])
+  const shownDay = day !== undefined && workingDays.includes(day) ? day : defaultDay(workingDays)
+  const loading = detail.isLoading || (!!sectionId && (bellQuery.isLoading || gridQuery.isLoading))
+  const refused = detail.error ?? (isApiError(bellQuery.error, 'RESOURCE_NOT_FOUND') ? null : bellQuery.error) ?? gridQuery.error
+
+  return (
+    <>
+      <PageHeader crumbs={[{ label: 'Timetable' }, { label: enrollment ? `${enrollment.grade.name} ${enrollment.section.name}` : 'My timetable' }]} hideOnMobile />
+      <div className="flex min-h-0 flex-1 flex-col overflow-auto scrollbar-thin">
+        {loading ? (
+          <div className="grid gap-2 p-4">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
+        ) : refused ? (
+          <EmptyState icon={<CalendarDays />} title="We could not open your timetable" description={describeError(refused)} />
+        ) : !enrollment ? (
+          <EmptyState icon={<CalendarDays />} title="You are not in a class this year" description="Ask the school office if this looks wrong." />
+        ) : !bell ? (
+          <EmptyState icon={<CalendarDays />} title="Your timetable is not ready yet" description="The school has not set up the periods for your class." />
+        ) : (
+          <>
+            <DaySelector days={workingDays} value={shownDay} onChange={setDay} />
+            <TimetableGrid bell={bell} cells={cells} mode="section" editable={false} dayFilter={isMobile ? shownDay : undefined} />
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+function ClassTimetable() {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const queryClient = useQueryClient()

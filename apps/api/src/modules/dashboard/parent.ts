@@ -22,7 +22,14 @@ import {
 } from '../attendance/figures.ts'
 import { currentEnrollmentsFor, label, listOwnChildren, predicateFor, rows } from './queries.ts'
 import { latestReportCard } from './exams.ts'
-import { buildCalendar, currentAcademicYear, dayOfWeek, optionalBlock } from './calendar.ts'
+import {
+  buildCalendar,
+  currentAcademicYear,
+  dayOfWeek,
+  optionalBlock,
+  type CalendarView,
+  type CurrentYear,
+} from './calendar.ts'
 import { loadSchedules, scheduleForGrade } from './bell.ts'
 
 /** The class teacher of one section, as a name only. */
@@ -193,23 +200,26 @@ async function attendanceFor(
   }
 }
 
+/** The blocks a parent's card and a pupil's own card share. */
+export type LearningCard = Pick<
+  ParentDashboard['children'][number],
+  'student' | 'enrollment' | 'classTeacher' | 'todayLessons' | 'attendance' | 'latestReportCard'
+>
+
 /**
- * The parent dashboard: their own children and nothing beside them. The
- * relationship list decides which students belong here and the student plan
- * decides what may be read about them; both are applied.
+ * One card per pupil, built the same way for a parent's children and for a
+ * pupil's own login: the student plan decides which of the given pupils may
+ * be read at all, and each block is decided on its own and left out when the
+ * caller may not read it.
  */
-export async function parentDashboard(
+export async function learningCards(
   conn: AuthzConnection,
   context: RequestContext,
-  date: string,
-): Promise<ParentDashboard> {
-  const holidayPlan = await optionalBlock(() => readPlan(conn, context, 'holidays.read', 'holiday'))
-  const calendar = await buildCalendar(conn, holidayPlan, date)
-  const facts = await loadRelationshipFactsFor(conn, context.schoolId, context.membershipId, context.now)
-  const year = await currentAcademicYear(conn, context.schoolId)
-
+  input: { studentIds: readonly string[]; calendar: CalendarView; year: CurrentYear | null; date: string },
+): Promise<LearningCard[]> {
+  const { calendar, year, date } = input
   const studentPlan = await readPlan(conn, context, 'students.read_basic', 'student')
-  const students = await listOwnChildren(conn, studentPlan, facts.ownChildStudentIds)
+  const students = await listOwnChildren(conn, studentPlan, input.studentIds)
   const enrollments =
     (await optionalBlock(async () =>
       currentEnrollmentsFor(
@@ -219,8 +229,7 @@ export async function parentDashboard(
       ),
     )) ?? new Map<string, z.infer<typeof EnrollmentSummary>>()
 
-  const nextHoliday = calendar.holidays[0]
-  const children: ParentDashboard['children'] = []
+  const cards: LearningCard[] = []
   for (const student of students) {
     const enrollment = enrollments.get(student.id)
     const classTeacher =
@@ -233,28 +242,55 @@ export async function parentDashboard(
         : calendar.day.kind !== 'school_day'
           ? []
           : await optionalBlock(() =>
-            lessonsFor(conn, context, {
-              sectionId: enrollment.section.id,
-              gradeId: enrollment.grade.id,
-              yearId: year.id,
+              lessonsFor(conn, context, {
+                sectionId: enrollment.section.id,
+                gradeId: enrollment.grade.id,
+                yearId: year.id,
                 date,
               }),
             )
-    const waiting = await optionalBlock(() => consentsWaiting(conn, context, student.id))
-    const feesDuePaise =
-      year === null
-        ? undefined
-        : await optionalBlock(() => feesDueFor(conn, context, student.id, year.id))
     const attendance = await optionalBlock(() => attendanceFor(conn, context, student.id, date))
     const reportCard = await optionalBlock(() => latestReportCard(conn, context, student.id))
-    children.push({
+    cards.push({
       student,
       ...(attendance === undefined ? {} : { attendance }),
-      ...(feesDuePaise === undefined ? {} : { feesDuePaise }),
       ...(reportCard === undefined ? {} : { latestReportCard: reportCard }),
       ...(enrollment === undefined ? {} : { enrollment }),
       ...(classTeacher === undefined ? {} : { classTeacher }),
       ...(todayLessons === undefined ? {} : { todayLessons }),
+    })
+  }
+  return cards
+}
+
+/**
+ * The parent dashboard: their own children and nothing beside them. The
+ * relationship list decides which students belong here and the student plan
+ * decides what may be read about them; both are applied. Fees and consents
+ * sit on a parent's card only.
+ */
+export async function parentDashboard(
+  conn: AuthzConnection,
+  context: RequestContext,
+  date: string,
+): Promise<ParentDashboard> {
+  const holidayPlan = await optionalBlock(() => readPlan(conn, context, 'holidays.read', 'holiday'))
+  const calendar = await buildCalendar(conn, holidayPlan, date)
+  const facts = await loadRelationshipFactsFor(conn, context.schoolId, context.membershipId, context.now)
+  const year = await currentAcademicYear(conn, context.schoolId)
+  const cards = await learningCards(conn, context, { studentIds: facts.ownChildStudentIds, calendar, year, date })
+
+  const nextHoliday = calendar.holidays[0]
+  const children: ParentDashboard['children'] = []
+  for (const card of cards) {
+    const waiting = await optionalBlock(() => consentsWaiting(conn, context, card.student.id))
+    const feesDuePaise =
+      year === null
+        ? undefined
+        : await optionalBlock(() => feesDueFor(conn, context, card.student.id, year.id))
+    children.push({
+      ...card,
+      ...(feesDuePaise === undefined ? {} : { feesDuePaise }),
       ...(nextHoliday === undefined ? {} : { nextHoliday }),
       waitingOn: (waiting ?? []).map((purpose) => ({ kind: 'consent' as const, purpose })),
     })
