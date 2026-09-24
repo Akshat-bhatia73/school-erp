@@ -201,6 +201,28 @@ uses, never to the internet; checklist item 16 checks both halves.
 Migrations run as `erp_migrator` and only at deploy time. The running service
 never holds that login.
 
+Migration `0018_communication.sql` is the messages release (Task 22). It is
+additive: five new tables (`communication_settings`, `message_templates`,
+`messages`, `message_attachments`, `message_recipients`), a policy and a column
+grant that let `erp_maintenance` list school ids, four `SECURITY DEFINER`
+functions owned by `erp_maintenance` (`list_message_schools`,
+`list_expired_message_attachments`, `forget_message_attachment`,
+`sweep_messages`, created while the migration holds the temporary CREATE grant
+the rule from 0011 describes), and one CHECK constraint widened
+(`export_jobs.kind` gains `message_delivery`), so the previous version of the
+code runs against it. **It changes the role templates**: the four
+`communication.*` keys become active. Every existing school therefore needs
+`pnpm db:sync-roles` with the migrator credential, after the migration and
+before the smoke test; a school on the previous templates gains 17 grants (four
+each for owner, principal and admin, three for teacher, one each for the
+accountant and parent). Without it nobody holds a message key and the Messages
+screen is missing. It needs no new setting: email goes through the same Resend
+key, files through the same private store, and the second cron entry in
+`vercel.json` uses the same `CRON_SECRET`. The order is the same as for exams:
+migrate, `migrate:check`, `db:sync-roles`, merge, deploy, smoke. A school's
+automatic messages start the first time the pump runs for it, never earlier, so
+the release sends nothing about old absences or results.
+
 Migration `0017_exams.sql` is the exams and report cards release (Task 21).
 It is additive: seven new tables (`exams`, `exam_papers`, the append-only
 `exam_marks` and `exam_publications`, `report_card_entries`, the frozen
@@ -320,6 +342,24 @@ The same route also produces the export jobs that were too large to make inside
 the request that asked for them. Each one is produced under the requester's own
 access, in its own transaction, so a job whose requester has lost the permission
 is recorded as failed rather than made.
+
+It also removes messages two years after they went out (and drafts untouched for
+a year): the attachment bytes first, then the rows (`sweep_messages`), reported
+as `messages.files_removed`, `messages.files_left` and `messages.messages`.
+
+## 6.1.1 The message pump
+
+`GET /api/maintenance/messages`, scheduled in `vercel.json` at 02:30 UTC (08:00 in
+India), runs the message pump for every school: scheduled messages whose time
+has come, the automatic messages that are due (absences, results, report cards,
+fee reminders, birthdays) and the email queue. Like the sweep it exists only when
+`CRON_SECRET` is set, refuses any other bearer token, stops after 45 seconds
+(reporting `schools_left`) and logs one line of counts. The same pump also runs
+in the background whenever a member of the school has the app open (the unread
+count asks every minute) and after a message is sent now. On the Hobby plan a
+cron job runs once a day, so with nobody signed in a scheduled message or an
+absence notice waits for that morning run; before the first paying school the
+project moves to Pro and this cron to every five minutes (`*/5 * * * *`).
 
 ## 6.2 The retention schedule
 

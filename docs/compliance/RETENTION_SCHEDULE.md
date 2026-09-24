@@ -42,6 +42,7 @@ record that disappears by itself is a record nobody chose to lose.
 | **Published report cards**: each version exactly as it was published, with the grade bands and layout of that moment | Permanently, with the exam results | Nothing, except the class teacher's remarks (next line). A card is never edited; publishing again makes a new version and the earlier one stays |
 | **The class teacher's remarks** about your child, in the working record and on every published card | With your child's personal details: while enrolled, plus 3 years after leaving | The anonymisation step clears them, in the working record and on every published card. The marks and grades stay |
 | **The school's grade bands, results display choice, report card layout and logo** | Permanently, as school setup. They describe the school, not a person | Nothing |
+| **Messages**: every announcement the school sent (notices and the automatic messages about absence, results, report cards, fees and birthdays), its files, and for each person it was for whether it reached them in the app or by email, whether the email went, a masked email address and when they opened it | 2 years after the message was sent, withdrawn or cancelled; a draft nobody touched for a year | Deleted every night once the period is over, files first. The anonymisation step clears the words of every message about the pupil or staff member, and the masked address, earlier |
 | **Staff attendance**: the same register for staff | With the staff record: while employed, plus 8 years after leaving | Nothing prunes it today |
 | **Logins and credentials**: password, second factor, backup codes | While the person holds an active membership at the school | Sessions end the moment the last membership is removed. The credentials themselves are deleted 30 days later. The identity's id and name are kept so old audit entries still say who did something |
 | **Sign-in sessions, one-time codes, password reset links, rate-limit counters, held text messages** | Until they expire, usually minutes to days | Deleted every night |
@@ -85,3 +86,4 @@ software changes what it enforces.
 | 21 Sep 2026 | Added the fee ledger, the payer's name, concessions and optional fees, and fee setup. |
 | 22 Sep 2026 | Added pupil attendance and staff attendance. |
 | 23 Sep 2026 | Added exam results, published report cards, the class teacher's remarks and the school's exam settings and logo. |
+| 23 Sep 2026 | Added messages and their delivery record. |

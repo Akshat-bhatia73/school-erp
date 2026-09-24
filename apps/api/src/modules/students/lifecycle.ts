@@ -121,6 +121,23 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
           [context.schoolId, studentId],
         )
 
+        // Messages about the child lose their words, whatever their status,
+        // and the masked email addresses of the guardians anonymised just now
+        // go from the delivery record. A guardian anonymised in this
+        // transaction carries this transaction's now() as anonymised_at.
+        const messagesRedacted = await conn.client.query(
+          `UPDATE messages SET title = '', body = '', redacted_at = now(), updated_at = now()
+            WHERE school_id = $1 AND student_id = $2 AND redacted_at IS NULL`,
+          [context.schoolId, studentId],
+        )
+        const messageEmailsCleared = await conn.client.query(
+          `UPDATE message_recipients SET email_masked = NULL
+            WHERE school_id = $1 AND email_masked IS NOT NULL
+              AND guardian_id IN (
+                SELECT id FROM guardians WHERE school_id = $1 AND anonymised_at = now())`,
+          [context.schoolId],
+        )
+
         await writeAudit(conn, context, {
           action: 'students.anonymise',
           targetType: 'student',
@@ -133,6 +150,8 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
             feeReceiptsCleared: cleared.rowCount ?? 0,
             reportCardRemarksCleared: entriesCleared.rowCount ?? 0,
             reportCardVersionRemarksCleared: versionsCleared.rowCount ?? 0,
+            messagesRedacted: messagesRedacted.rowCount ?? 0,
+            messageEmailsCleared: messageEmailsCleared.rowCount ?? 0,
           },
           note: body.reason,
         })

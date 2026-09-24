@@ -70,6 +70,8 @@ const EXPORT_PERMISSIONS: readonly PermissionKeyType[] = [
   // report_cards.export at their own children, so they print their own copy.
   'exams.export',
   'report_cards.export',
+  // A message's delivery record, for the office.
+  'communication.export',
 ]
 
 /**
@@ -161,6 +163,7 @@ const SINGLE_RECORD_KINDS: Readonly<
   exam_marks_register: { resourceType: 'exam', field: 'paperId' },
   report_card: { resourceType: 'report_card', field: 'versionId' },
   report_cards_section: { resourceType: 'report_card', field: 'sectionId' },
+  message_delivery: { resourceType: 'communication', field: 'messageId' },
 }
 
 /**

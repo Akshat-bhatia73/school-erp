@@ -1,5 +1,5 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { CalendarClock, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, Menu, Search, Users } from 'lucide-react'
+import { CalendarClock, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, Mail, Menu, Search, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
 import { useSchoolDashboardView } from '@/lib/dashboard-view'
@@ -40,7 +40,7 @@ export function MobileTopBar({ onOpenNav, onOpenQuickActions }: { onOpenNav: () 
 }
 
 /** `permissions` means any one of them is enough; `permission` stays the single-key form. */
-interface Tab { label: string; to: string; icon: ReactNode; permission?: PermissionKey; permissions?: PermissionKey[]; exact?: boolean }
+interface Tab { label: string; to: string; icon: ReactNode; permission?: PermissionKey; permissions?: PermissionKey[]; exact?: boolean; parentOnly?: boolean }
 
 const TABS: Tab[] = [
   { label: 'Home', to: '/dashboard', icon: <LayoutDashboard />, exact: true },
@@ -49,6 +49,8 @@ const TABS: Tab[] = [
   { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
   { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
   { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read'] },
+  // Staff reach Messages from the drawer; a parent's bar is short, so it sits here for them.
+  { label: 'Messages', to: '/messages', icon: <Mail />, permission: 'communication.read', parentOnly: true },
 ]
 
 /**
@@ -60,7 +62,7 @@ export function MobileTabBar() {
   const { hasPermission } = useSchoolContext()
   const isParent = useSchoolDashboardView().view === 'parent'
   const path = useRouterState({ select: (s) => s.location.pathname })
-  const tabs = TABS.filter((t) => (!t.permission || hasPermission(t.permission)) && (!t.permissions || t.permissions.some((key) => hasPermission(key))))
+  const tabs = TABS.filter((t) => (!t.parentOnly || isParent) && (!t.permission || hasPermission(t.permission)) && (!t.permissions || t.permissions.some((key) => hasPermission(key))))
     .map((t) => (t.to === '/dashboard' && isParent ? { ...t, label: 'My children' } : t))
   if (tabs.length === 0) return null
   return (

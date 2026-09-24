@@ -42,6 +42,12 @@ Last updated: `[date]`.
   teacher's remarks for each term; and every report card the school has published. A mark is never
   edited or deleted: a change is a new entry and the old one stays. Nothing here is visible to you
   until the school publishes it.
+- **Messages.** Every announcement the school sends: notices to the whole school, a class or a
+  section, messages to you about your child, and the messages the school sends by itself (when
+  your child is marked absent, when results or a report card are published, when fees fall due or
+  are overdue, and on your child's birthday). For each one we keep who it went to, whether it
+  reached them in the app or by email, and when they opened it in the app. Files attached to a
+  message are kept with it. You cannot reply to a message through the app.
 - **Fees.** What your child is charged (tuition and any optional fee you have chosen, such as the
   bus, a sport or a club), any concession your child gets and the kind of concession it is, and
   every payment, refund and adjustment: the receipt number, the date, the amount, how it was paid,
@@ -87,7 +93,10 @@ where it was taken, are stripped out before it is stored. Staff photographs work
 - To run the school: admissions, classes, timetable, attendance, exams and report cards, and the
   admission register the state requires us to keep. We do not ask for your consent for exam
   results, because a school cannot assess a child without recording the result.
-- To reach you: about your child, about fees, and in an emergency.
+- To reach you: about your child, about fees, and in an emergency. Messages from the school go only
+  to a family who has agreed to receive them (the "communication" consent below). If you have not
+  agreed, or you withdraw your agreement, you receive no messages at all, and the school's record
+  shows that a message was not sent to you and why.
 - To keep the school's accounts: to work out what is due, to give you a receipt for what you pay,
   and to keep the books the law requires a school to keep. We do not ask for your consent for this,
   because a school cannot take a fee without recording it.
@@ -134,6 +143,9 @@ Only the people at the school who need to, and only the parts they need.
   nothing of another subject. A **class teacher** sees every subject of their own class, enters the
   co-scholastic grades and remarks, and reads their class's report cards. Only the office changes a
   mark after the re-check deadline, and every change keeps the original and a reason on record.
+- **Messages** you read are the ones addressed to you. The office sees every message the school
+  sent and who it reached; a teacher sees the messages sent to their own sections. Another guardian
+  of your child does not see a message addressed to you, and you do not see one addressed to them.
 - **Accounts staff** see what is needed for fees: each pupil's name, class, fees, payments and
   balance, and a contact number. They do not see health notes, documents or identity numbers.
 - **Teachers** see nothing about fees at all. A class teacher marks and reads attendance for their own
@@ -175,6 +187,7 @@ The short version:
 | Your child's marks, co-scholastic grades and published report cards | Permanently, as part of your child's academic record, like the admission register |
 | The class teacher's remarks about your child | With your child's personal details: cleared 3 years after leaving. The marks and grades stay |
 | The name of whoever paid, where it was written on a receipt | With your child's personal details: cleared 3 years after leaving. The receipt itself stays |
+| Messages the school sent, who they reached and when they were opened | 2 years after the message was sent. The words of a message about your child are cleared earlier if your child's details are cleared |
 | Staff records | While employed, and 8 years after leaving, for payroll law. Then contact details and identifiers are cleared |
 | Logins and passwords | While you have an account. 30 days after your last link to the school ends, the credentials are deleted |
 | The record of who opened what | 7 years |

@@ -60,20 +60,41 @@ interface ExpiredFileRow {
 async function removeExpiredExportFiles(
   deps: MaintenanceDependencies,
 ): Promise<{ removed: number; left: number }> {
+  return removeExpiredFiles(
+    deps,
+    'SELECT * FROM list_expired_export_files()',
+    'SELECT forget_export_file($1::uuid, $2::uuid)',
+  )
+}
+
+/**
+ * The same for the files attached to messages the message sweep is about to
+ * remove (two years after they went out). Its listing pages at the same size.
+ */
+async function removeExpiredMessageFiles(
+  deps: MaintenanceDependencies,
+): Promise<{ removed: number; left: number }> {
+  return removeExpiredFiles(
+    deps,
+    'SELECT * FROM list_expired_message_attachments()',
+    'SELECT forget_message_attachment($1::uuid, $2::uuid)',
+  )
+}
+
+async function removeExpiredFiles(
+  deps: MaintenanceDependencies,
+  listSql: string,
+  forgetSql: string,
+): Promise<{ removed: number; left: number }> {
   let removed = 0
   for (let round = 0; round < EXPORT_FILE_ROUNDS; round += 1) {
-    const found = await deps.pools.runtime.query<ExpiredFileRow>(
-      'SELECT * FROM list_expired_export_files()',
-    )
+    const found = await deps.pools.runtime.query<ExpiredFileRow>(listSql)
     for (const row of found.rows) {
       try {
         await deps.documents.remove(row.storage_key)
         // The row stops naming bytes that are gone, so the next page is new
         // work rather than the same one over again.
-        await deps.pools.runtime.query('SELECT forget_export_file($1::uuid, $2::uuid)', [
-          row.school_id,
-          row.id,
-        ])
+        await deps.pools.runtime.query(forgetSql, [row.school_id, row.id])
         removed += 1
       } catch {
         // The key stays in its row, so the next sweep tries again.
@@ -83,9 +104,7 @@ async function removeExpiredExportFiles(
   }
   // The bound was reached. What is still listed waits for the next run, and
   // the count says so instead of the sweep looking complete.
-  const rest = await deps.pools.runtime.query<ExpiredFileRow>(
-    'SELECT * FROM list_expired_export_files()',
-  )
+  const rest = await deps.pools.runtime.query<ExpiredFileRow>(listSql)
   return { removed, left: rest.rows.length }
 }
 
@@ -227,6 +246,9 @@ export function registerMaintenanceRoutes(
     // Files before rows: the tenant sweep deletes the export rows that name
     // these keys, so anything not removed here could never be found again.
     const exportFiles = await removeExpiredExportFiles(deps)
+    // The same for message attachments: sweep_messages only removes a
+    // message once no attachment of it still names stored bytes.
+    const messageFiles = await removeExpiredMessageFiles(deps)
 
     const entries = [
       ...(await sweep(
@@ -251,6 +273,7 @@ export function registerMaintenanceRoutes(
         'SELECT * FROM sweep_orphaned_credentials($1::interval)',
         [`${RETENTION.credentialGraceDays} days`],
       )),
+      ...(await sweep(deps.pools.runtime, 'messages', 'SELECT * FROM sweep_messages()')),
     ]
 
     // The exports that were too big to build in the request that asked for
@@ -275,6 +298,8 @@ export function registerMaintenanceRoutes(
       // Anything still waiting when the page bound was reached, so a run that
       // could not finish the work says so.
       ['exports.files_left', exportFiles.left],
+      ['messages.files_removed', messageFiles.removed],
+      ['messages.files_left', messageFiles.left],
       ['exports.produced', produced.produced],
       ['exports.failed', produced.failed],
       ['exports.expired', produced.expired],

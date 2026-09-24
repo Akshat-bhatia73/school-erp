@@ -572,7 +572,7 @@ Task 22. A message is one announcement from the school: a notice somebody wrote,
 | `result` | the first publication of an exam for a section, published in the last three days; one message per pupil with a mark in that exam and section | `result:<exam>:<pupil>` |
 | `report_card` | a report card version published in the last three days; a republished card sends again | `report_card:<version>` |
 | `fee_reminder` | from `daily_send_hour`: the pupil's instalments falling due `fee_reminder_days_before` days from today (default 3), their amount after concessions, capped at what the pupil still owes for the year; nothing when that is zero | `fee_reminder:<pupil>:<due date>` |
-| `fee_overdue` | from `daily_send_hour`, when `fee_overdue_every_days` is not 0: the pupil owes something already due, and no overdue reminder went to the pupil in the last that many days | `fee_overdue:<pupil>:<today>` |
+| `fee_overdue` | from `daily_send_hour`, while fee reminders are on and `fee_overdue_every_days` is not 0: the pupil owes something already due, and no overdue reminder went to the pupil in the last that many days | `fee_overdue:<pupil>:<today>` |
 | `birthday_pupil` | from `daily_send_hour`: an active pupil born on this day and month (29 February on 28 February in other years) | `birthday_pupil:<pupil>:<year>` |
 | `birthday_staff` | the same for a working staff member, to the staff member | `birthday_staff:<staff>:<year>` |
 
@@ -648,12 +648,12 @@ Coverage and behaviour:
 - Attendance: a pupil moved between sections on the same day would appear on both rosters that day; the write refuses neither, and the pupil's month takes the newest mark.
 - Attendance: nothing prunes the marks after the pupil's period, as for the fee ledger; removal at the end of the period is a school decision and a later task.
 - Attendance: the school calendar has no working Saturday rule; Saturday is a school day unless it is a holiday, and a school that closes on Saturdays enters them as holidays.
-- Attendance: no absence notice goes to a parent; that is Task 22.
+- Attendance: an absence notice goes to the family through the message pump (see [communication](#communication)), which runs only when somebody in the school has the app open or from the daily cron on the Hobby plan, so on a day nobody signs in the notice waits for the next morning's run and is then too late to send.
 - Exams: there is no record of which pupil takes an optional subject, so every pupil of the class is on the paper and one who does not take it is marked exempt.
 - Exams: the re-check deadline is one date per exam for the whole school. A section cannot be given more time than another.
 - Exams: a pupil who moves section during the year keeps their marks in the section they sat the paper in, and the card of each section shows the marks made in it.
 - Exams: a published card records whether the logo was shown, not the picture, so a card printed after the logo changes carries the new one.
-- Exams: no result notice goes to a parent when results or cards are published; that is Task 22.
+- Exams: a result notice goes to the family on the first publication of an exam for a section, not on a republication after a correction; a republished report card does send again.
 - Exams: nothing prunes marks, publications or cards; they are kept as the academic record.
 - Attendance: a parent may open the class day and the class month of the section their own child currently sits in (the register is a shared row, as a section is), and sees one row, their own child. They learn the class exists and its name, which the timetable already tells them.
 - Attendance: a school with two academic years covering the same day gets the calendar of the one with the later start date; the day list, the months and the figures all follow it.

@@ -34,11 +34,11 @@ Nothing in the services makes the Provider a fiduciary of the School's data.
 
 | Item | Detail |
 |---|---|
-| Subject matter | Running the School's pupil, staff, timetable, fee, attendance, exam and report card records in the Provider's software |
+| Subject matter | Running the School's pupil, staff, timetable, fee, attendance, exam and report card records, and the School's messages to families and staff, in the Provider's software |
 | Duration | The term of the services agreement, plus the deletion window in clause 10 |
 | Nature and purpose | Storing, organising, displaying and deleting school records so School staff can do their jobs. For fees that means keeping the School's own record of what each pupil is charged and what the office has received by hand. The Provider does not collect, hold, move or settle money, is not a payment service, and processes no card, UPI or bank credential |
 | Categories of data subject | Pupils (children), their parents and guardians, School staff, and any other person the School gives a login |
-| Categories of personal data | As set out in section 3 of the Provider's data protection assessment: pupil identifiers and register fields; sensitive pupil fields including date of birth, category, religion, an encrypted Aadhaar number, the APAAR identifier, a photograph and free-text medical notes; guardian contact, office address, income and encrypted PAN and Aadhaar numbers; staff salary, identifier fragments, bank account fragment and a photograph; fee records: what each pupil is charged, the optional fees they take, the category of any concession, and every receipt, refund and adjustment with its amount, date, mode, the cheque, UPI or bank reference and the payer's name where the office wrote one; attendance: one mark per school day for each pupil and each staff member, who recorded it and any correction; exams: each pupil's marks or status per exam component, every change with who made it and the kind of reason, co-scholastic grades, the class teacher's free-text remarks, and every published report card, together with the School's logo; and login credentials |
+| Categories of personal data | As set out in section 3 of the Provider's data protection assessment: pupil identifiers and register fields; sensitive pupil fields including date of birth, category, religion, an encrypted Aadhaar number, the APAAR identifier, a photograph and free-text medical notes; guardian contact, office address, income and encrypted PAN and Aadhaar numbers; staff salary, identifier fragments, bank account fragment and a photograph; fee records: what each pupil is charged, the optional fees they take, the category of any concession, and every receipt, refund and adjustment with its amount, date, mode, the cheque, UPI or bank reference and the payer's name where the office wrote one; attendance: one mark per school day for each pupil and each staff member, who recorded it and any correction; exams: each pupil's marks or status per exam component, every change with who made it and the kind of reason, co-scholastic grades, the class teacher's free-text remarks, and every published report card, together with the School's logo; messages: the words and files of every announcement the School sends, and for each recipient whether it reached them in the app or by email, a masked email address and when they opened it; and login credentials |
 
 The Provider does not sell personal data, does not use it to train any model, and does not use it
 for its own purposes.
@@ -68,6 +68,12 @@ Fee records are not processed on consent and have no consent purpose. A school c
 without recording it and must keep its account books, so the School relies on that duty and on the
 admission it has agreed with the family, and says so in its privacy notice. Messages to a parent
 about fees still fall under `communication`.
+
+The software enforces `communication`: every message to a guardian, written by a person or sent by
+the software itself, goes only when the newest answer for that guardian and at least one pupil
+through whom they are in the audience is `given`. With no answer, or a withdrawal, nothing is sent,
+in the app or by email, and the delivery record says so. Staff are not asked: messages to staff are
+part of their employment.
 
 ## 4. Confidentiality
 
