@@ -3,7 +3,7 @@
  * is a cookie the browser carries for us. Responses that have a published contract are validated
  * with it, so a shape change is a clear failure instead of a half-rendered screen.
  */
-import { MeResponse, MemberSummary, SchoolContextResponse } from '@erp/contracts'
+import { MeResponse, MemberSummary, SchoolContextResponse, StudentSignInResponse } from '@erp/contracts'
 import { z } from 'zod'
 import { request } from '@/lib/http'
 
@@ -97,6 +97,14 @@ export function getSession() {
 
 export function signInWithEmail(input: { email: string; password: string; sharedDevice?: boolean }) {
   return request('/api/auth/sign-in/email', { method: 'POST', body: input, schema: SignInResponse, expectAnonymous: true })
+}
+
+/**
+ * A pupil signs in with the school's login code and their admission number. Every failure is the
+ * same AUTHENTICATION_REQUIRED, whichever of the three was wrong.
+ */
+export function studentSignIn(input: { schoolCode: string; admissionNumber: string; password: string; sharedDevice?: boolean }) {
+  return request('/api/student-sign-in', { method: 'POST', body: input, schema: StudentSignInResponse, expectAnonymous: true })
 }
 
 export function signOut() {

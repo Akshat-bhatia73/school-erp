@@ -36,6 +36,7 @@ import {
   insertSection,
   insertStaff,
   insertStudent,
+  insertStudentLogin,
   insertSubject,
   insertSubstitution,
   insertTeachingAssignment,
@@ -491,21 +492,32 @@ test('a plan is refused for the same reasons a single read is', async () => {
     roleKeys: ['student'],
     membershipKind: 'student',
   })
-  // The fixture student membership is suspended, so it never reaches the
-  // student kind guard. That guard is checked directly below.
+  // The fixture student membership is suspended, so it has no plan.
   await assert.rejects(
     () => authz.scopeQuery(studentMember, 'students.read_basic', 'student'),
     (error: Error & { code?: string }) => error.code === 'ACCESS_DENIED',
   )
-  assert.throws(
-    () =>
-      createReadPlan(studentMember, 'students.read_basic', 'student', { accessVersion: 1, grants: [], exceptions: [] }, {
-        selfStaffId: null,
-        assignments: [],
-        ownChildStudentIds: [],
-      }),
-    (error: Error & { code?: string }) => error.code === 'FEATURE_DISABLED',
-  )
+  // A student context with an adult role, or an adult context with the
+  // student role, never gets a plan, even from a snapshot granting the read.
+  const grants = { accessVersion: 1, grants: [{ permission: 'students.read_basic' as const, scope: 'school' as const }], exceptions: [] }
+  const noFacts = { selfStaffId: null, assignments: [], ownChildStudentIds: [], ownStudentId: fx('studentA2') }
+  for (const [roleKeys, membershipKind] of [
+    [['parent'], 'student'],
+    [['student', 'parent'], 'student'],
+    [['student'], 'adult'],
+  ] as const)
+    assert.throws(
+      () =>
+        createReadPlan(
+          contextFor({ schoolId: schoolA, membershipId: fx('studentMember'), roleKeys, membershipKind }),
+          'students.read_basic',
+          'student',
+          grants,
+          noFacts,
+        ),
+      (error: Error & { code?: string }) => error.code === 'ACCESS_DENIED',
+      `${roleKeys.join('+')} as ${membershipKind}`,
+    )
 
   await assert.rejects(
     () => authz.scopeQuery(ownerContext(), 'students.read_basic', 'staff'),
@@ -1706,4 +1718,41 @@ test('the accountant has no exam or report card plan at all', async () => {
       return true
     })
   }
+})
+
+test('a pupil\'s plans list exactly the pupil and what the pupil\'s current class reaches', async () => {
+  // A pupil of the parent's section, with a login of their own (the fixture
+  // pupil there already has the fixture's suspended login).
+  const pupilId = await insertStudent(schoolA, 'Pupil')
+  const pupilEnrollmentId = await insertEnrollment({
+    schoolId: schoolA,
+    studentId: pupilId,
+    academicYearId: fx('yearA'),
+    sectionId: parentSectionId,
+  })
+  const pupil = await insertStudentLogin(schoolA, pupilId)
+  const context = contextFor({
+    schoolId: schoolA,
+    membershipId: pupil.membershipId,
+    roleKeys: ['student'],
+    membershipKind: 'student',
+    assurance: 'single_factor',
+  })
+  const agree = (permission: PermissionKey, resourceType: ResourceType) =>
+    agreeOn({ name: 'pupil', context, permission, resourceType })
+  // Never a classmate: the parent's child sits in the same section.
+  assert.deepEqual(await agree('students.read_basic', 'student'), [pupilId])
+  assert.deepEqual(await agree('students.read_enrollments', 'enrollment'), [pupilEnrollmentId])
+  assert.deepEqual(await agree('sections.read', 'section'), [parentSectionId])
+  assert.deepEqual(await agree('subjects.read', 'subject'), [assignedSubjectId])
+  assert.deepEqual(await agree('timetable.read', 'timetable'), [parentTimetableId])
+  // Nothing the pupil holds no key for.
+  await assert.rejects(
+    () => authz.scopeQuery(context, 'students.read_documents', 'student_document'),
+    (error: Error & { code?: string }) => error.code === 'ACCESS_DENIED',
+  )
+  await assert.rejects(
+    () => authz.scopeQuery(context, 'staff.read_directory', 'staff'),
+    (error: Error & { code?: string }) => error.code === 'ACCESS_DENIED',
+  )
 })

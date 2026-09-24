@@ -22,7 +22,7 @@ const SEED_KEY = 'erp.dashboardView.seed'
 /** What the login tab says about the person: they came in as a parent, or as a member of staff. */
 export type LoginSeed = 'parent' | 'staff'
 
-const VIEWS: readonly DashboardView[] = ['office', 'accountant', 'teacher', 'parent']
+const VIEWS: readonly DashboardView[] = ['office', 'accountant', 'teacher', 'parent', 'student']
 
 function isView(value: string | null): value is DashboardView {
   return value !== null && (VIEWS as readonly string[]).includes(value)
@@ -135,6 +135,8 @@ export function viewLabel(view: DashboardView): string {
       return 'Teacher'
     case 'parent':
       return 'Parent'
+    case 'student':
+      return 'Student'
   }
 }
 

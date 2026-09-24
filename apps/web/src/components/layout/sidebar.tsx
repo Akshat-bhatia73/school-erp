@@ -12,6 +12,9 @@ import { useSchoolContext } from '@/lib/session'
 import { useAcademicYear } from '@/lib/use-academic-year'
 import { cn } from '@/lib/utils'
 
+/** Everything a pupil's navigation offers; anything else stays out of it whatever it is gated on. */
+export const PUPIL_PATHS: ReadonlySet<string> = new Set(['/dashboard', '/timetable', '/attendance', '/exams', '/messages'])
+
 /** `permissions` means any one of them is enough; `permission` stays the single-key form. */
 interface NavItem { label: string; to: string; icon: ReactNode; count?: number | string; permission?: PermissionKey; permissions?: PermissionKey[]; exact?: boolean }
 
@@ -46,6 +49,10 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
   // The view the person chose (or the first their roles earn) shapes the nav; rights do not change.
   const { view: audience } = useSchoolDashboardView()
   const isParent = audience === 'parent'
+  // A pupil's own login: their home, their timetable, attendance and exams, and their messages.
+  // The role also reads classes, subjects and holidays for their own record, which is no reason
+  // to show them the office's setup screens.
+  const isPupil = audience === 'student'
   // Counts live under the module prefixes so the writes that change them refresh these badges too.
   const office = audience === 'office'
   const { data: studentCount } = useQuery({
@@ -70,7 +77,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
   const { current } = useAcademicYear()
 
   const primary: NavItem[] = [
-    { label: isParent ? 'My children' : 'Dashboard', to: '/dashboard', icon: <LayoutDashboard />, exact: true },
+    { label: isParent ? 'My children' : isPupil ? 'Home' : 'Dashboard', to: '/dashboard', icon: <LayoutDashboard />, exact: true },
     { label: 'Students', to: '/students', icon: <GraduationCap />, count: studentCount?.count, permission: 'students.read_basic' },
     { label: 'Staff', to: '/staff', icon: <Users />, count: staffCount?.count, permission: 'staff.read_directory' },
     { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
@@ -95,7 +102,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
   const allowed = (item: NavItem) =>
     (!item.permission || hasPermission(item.permission)) &&
     (!item.permissions || item.permissions.some((key) => hasPermission(key)))
-  const visible = (items: NavItem[]) => items.filter(allowed)
+  const visible = (items: NavItem[]) => items.filter((item) => allowed(item) && (!isPupil || PUPIL_PATHS.has(item.to)))
 
   return (
     <aside className={cn('flex h-full min-h-0 flex-col bg-sidebar', drawer ? 'w-full' : 'shrink-0 border-r transition-[width] duration-200', !drawer && (collapsed ? 'w-14' : 'w-64'))}>
@@ -106,7 +113,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
           {!collapsed && (
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[14px] font-semibold leading-tight">{school.name}</span>
-              {!isParent && (
+              {!isParent && !isPupil && (
                 <span className="block truncate text-[11px] leading-tight text-muted-foreground">{current?.name ?? ''}{school.code ? ` · ${school.code}` : ''}</span>
               )}
             </span>
@@ -122,7 +129,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2 scrollbar-thin">
         {/* Quick actions */}
-        {!isParent && (
+        {!isParent && !isPupil && (
         <button type="button" onClick={() => { onNavigate?.(); onOpenQuickActions() }} className={cn('mt-3 flex h-9 shrink-0 items-center gap-2.5 rounded-lg border bg-card px-2 text-[14px] text-muted-foreground shadow-xs hover:bg-accent', collapsed && 'justify-center px-0')} title="Quick actions">
           <Search className="size-4" />
           {!collapsed && (<><span className="flex-1 text-left">Quick actions</span>{!drawer && <span className="kbd">⌘K</span>}</>)}

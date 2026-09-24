@@ -511,14 +511,16 @@ test('the audience comes from the roles a member holds, and an unknown role gets
   assert.equal(audienceFor(['parent', 'accountant']), 'accountant')
   assert.equal(audienceFor(['parent', 'accountant', 'teacher']), 'accountant')
   assert.equal(audienceFor(['accountant']), 'accountant')
-  assert.equal(audienceFor(['student']), null)
+  // Task 23: a pupil's own login lands on the student home.
+  assert.equal(audienceFor(['student']), 'student')
   assert.equal(audienceFor([]), null)
 })
 
 test('a member may ask for any home their roles earn, and no other', () => {
   assert.deepEqual(audiencesFor(['parent', 'teacher']), ['teacher', 'parent'])
   assert.deepEqual(audiencesFor(['owner', 'accountant', 'parent']), ['office', 'accountant', 'parent'])
-  assert.deepEqual(audiencesFor(['student']), [])
+  assert.deepEqual(audiencesFor(['student']), ['student'])
+  assert.equal(resolveAudience(['student'], 'parent'), null)
   assert.equal(resolveAudience(['teacher', 'parent'], undefined), 'teacher')
   assert.equal(resolveAudience(['teacher', 'parent'], 'parent'), 'parent')
   assert.equal(resolveAudience(['teacher', 'parent'], 'office'), null)

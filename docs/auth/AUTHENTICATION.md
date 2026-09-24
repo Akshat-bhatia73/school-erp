@@ -57,7 +57,7 @@ The service opens three pools and never shares one across boundaries.
 | Pool | Login | Use |
 |---|---|---|
 | auth | `erp_auth` | The Better Auth drizzle adapter (provider `pg`) with an explicit mapping of `auth_user`, `auth_session`, `auth_account`, `auth_verification`, `auth_two_factor` and `auth_rate_limit`. IDs are UUIDs (`advanced.database.generateId`). It cannot read schools, memberships or roles. |
-| identity | `erp_identity` | Executes `active_adult_memberships_for_user` and `user_has_student_membership` and nothing else. |
+| identity | `erp_identity` | Executes `active_memberships_for_user`, `student_login_state`, `student_sign_in_user`, `user_has_student_membership` and (for the release before 0019) `active_adult_memberships_for_user`, and nothing else. |
 | runtime | `erp_runtime` | Tenant tables through `withTenantTransaction` under forced row-level security. `assertRuntimeRole` checks the connected role at startup. |
 
 `src/auth/request-context.ts` is the only place that builds a server `RequestContext`. It casts through `unknown` for the contract's brand, so a context can only exist after a session and a membership have been verified in this process.
@@ -67,7 +67,7 @@ The service opens three pools and never shares one across boundaries.
 | Endpoint | Notes |
 |---|---|
 | `GET /api/health` | Liveness only. |
-| `GET /api/auth-config` | Delivery mode and `studentLoginEnabled: false`. Schoolless, no user directory. |
+| `GET /api/auth-config` | Delivery mode and `studentLoginEnabled: true`. Schoolless, no user directory. |
 | `GET /api/me` | `MeResponse`, parsed against the contract before sending. A generated `@phone-only.invalid` identifier is never returned as an email. |
 | `GET /api/schools/:schoolId/context` | `SchoolContextResponse`. Its `capabilities` list is a navigation hint. Task 3 replaced the role template union with `capabilities(context)` from [the policy service](./AUTHORIZATION.md): the set of permissions the member could exercise somewhere in the school. |
 | `/api/auth/*` | Only the routes allowlisted in [src/auth/provider-routes.ts](../../apps/api/src/auth/provider-routes.ts). |
@@ -118,7 +118,7 @@ Password reset tokens live 15 minutes, are consumed on use, and reset revokes ev
 
 There is no public signup. `emailAndPassword.disableSignUp` is true and the phone plugin has no `signUpOnVerification`, so no request creates an identity; identities are provisioned server-side in `src/identity/provision.ts` for the future invitation flow.
 
-Student identities can never hold a session. A `databaseHooks.session.create.before` hook refuses to create a session for any identity with a student membership, so every login method fails. If a session row exists anyway, `resolveSession` deletes every session for that identity and answers `FEATURE_DISABLED`.
+A pupil in Class 9 to 12 has their own login (Task 23; behaviour in [student login](./PROTECTED_APIS.md#student-login)). They sign in at `POST /api/student-sign-in` with the school's login code, their admission number and a password. Their identity carries a generated address ending in `@student.invalid`; the route finds it through `student_sign_in_user` on the identity pool and signs in through the provider's own email door inside `studentSignInScope`, so the password check, the lockout and the cookie are the provider's. The email door refuses such an address from anywhere else, phone codes are never sent to a pupil, and a reset email is never sent to a `.invalid` address. An unknown school code or admission number is answered exactly like a wrong password. A `databaseHooks.session.create.before` hook refuses a session to a pupil whose login is switched off or ended (`student_login_state = 'inactive'`), and `resolveSession` deletes every live session of such a pupil and answers `FEATURE_DISABLED`. A password the school generated sets `auth_user.must_change_password`: `/api/me` carries `session.passwordChangeRequired`, every school route answers `PASSWORD_CHANGE_REQUIRED` until `change-password` succeeds, and that route clears the flag. A pupil's session lasts twelve hours with an hour idle, and needs no second factor.
 
 Phone-only adults get a generated `<uuid>@phone-only.invalid` address to satisfy the provider's unique email column. It is never marked verified, there is no credential account, and `sendResetPassword` refuses `.invalid` addresses, so email sign-in and password reset give that identifier no way in. They also cannot enrol in two-factor today, because enable requires a password, so a phone-only person with a privileged membership stays denied school context. A passwordless enrolment path is a later decision.
 

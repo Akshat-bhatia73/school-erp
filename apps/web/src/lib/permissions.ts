@@ -19,7 +19,7 @@ export type { PermissionKey }
 export type { RoleKey }
 
 /** The dashboard a set of roles earns. Mirrors apps/api/src/modules/dashboard/audience.ts. */
-export type DashboardAudience = 'office' | 'teacher' | 'parent' | 'accountant' | 'none'
+export type DashboardAudience = 'office' | 'teacher' | 'parent' | 'accountant' | 'student' | 'none'
 
 /** True when the server listed this action on the record it just sent. */
 export function allows(allowedActions: readonly PermissionKey[] | undefined, key: PermissionKey): boolean {
@@ -37,7 +37,8 @@ export function roleLabel(key: RoleKey): string {
 
 /**
  * The roles this actor may hand out, from the delegation rules the server enforces. Ownership has
- * its own transfer flow and student sign-in is disabled, so neither is ever assignable.
+ * its own transfer flow and a pupil's login is made by the school, never by invitation, so neither
+ * is ever assignable.
  */
 export function assignableRolesFor(actorRoleKeys: readonly string[]): RoleKey[] {
   const union = new Set<RoleKey>()
@@ -95,10 +96,13 @@ const AUDIENCE_ROLES: readonly [Exclude<DashboardAudience, 'none'>, readonly Rol
   ['accountant', ['accountant']],
   ['teacher', ['teacher']],
   ['parent', ['parent']],
+  // Only a pupil's own login holds the student role.
+  ['student', ['student']],
 ]
 
 /**
- * Every dashboard these roles earn, in the default order: office, accountant, teacher, parent.
+ * Every dashboard these roles earn, in the default order: office, accountant, teacher, parent,
+ * student.
  * Mirrors `audiencesFor` in apps/api/src/modules/dashboard/audience.ts.
  */
 export function audiencesFor(roleKeys: readonly string[]): Exclude<DashboardAudience, 'none'>[] {

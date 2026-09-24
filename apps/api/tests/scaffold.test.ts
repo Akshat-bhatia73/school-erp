@@ -31,7 +31,8 @@ test('the server starts in sandbox delivery mode and reports it', async () => {
   assert.equal(response.status, 200)
   assert.deepEqual(await response.json(), {
     deliveryMode: 'sandbox',
-    studentLoginEnabled: false,
+    // Task 23: pupils in Class 9 to 12 sign in with their own login.
+    studentLoginEnabled: true,
     textMessagesHeld: false,
   })
 })

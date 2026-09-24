@@ -49,6 +49,7 @@ Owner or permission changed:
 | `/select-school` | authenticated session; lists own memberships only | `MeResponse` | Task 6 |
 | `/accept-invite` | authenticated session; invitation token in the link only | `MemberSummary` | Task 6 |
 | `/account/security` | authenticated session; no school context needed | `MeResponse`, `SessionSummary` | Task 6 |
+| `/account/change-password` | authenticated session whose password the school generated (`passwordChangeRequired`); no school context needed | `MeResponse`, `SessionSummary`, provider `change-password` | Task 23 |
 | `/access-unavailable` | authenticated or public failure state | none | Task 6 |
 | `/_app` shell | authenticated active membership | `AuthenticatedContext` | Task 6 |
 | `/dashboard` | `dashboard.read` / matched template scope, then every block through its own plan | `DashboardByAudience` | Tasks 5, 7, dashboard redesign |

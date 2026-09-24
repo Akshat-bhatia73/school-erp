@@ -93,6 +93,11 @@ export const qk = {
   examMarkHistory: (schoolId: string, paperId: string, studentId: string, component: string) => [schoolId, 'exams', 'sheet', paperId, 'history', studentId, component] as const,
   examResults: (schoolId: string, studentId: string, params?: Params) => [schoolId, 'exams', 'results', studentId, params ?? {}] as const,
 
+  /** A pupil's own login. Every write invalidates `[schoolId, 'studentLogins']` and the students prefix. */
+  studentLogins: {
+    detail: (schoolId: string, studentId: string) => [schoolId, 'studentLogins', 'detail', studentId] as const,
+  },
+
   /** Messages. Every write invalidates `[schoolId, 'messages']`, which also refreshes the unread badge. */
   messages: {
     unread: (schoolId: string) => [schoolId, 'messages', 'unread'] as const,

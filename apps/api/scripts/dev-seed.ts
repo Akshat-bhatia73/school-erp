@@ -35,6 +35,11 @@ import { loadConfig } from '../src/config.ts'
 import { createPools } from '../src/db.ts'
 import { createSandboxDelivery } from '../src/delivery/index.ts'
 import { createAuth, type AuthInstance } from '../src/auth/better-auth.ts'
+import {
+  generateStudentPassword,
+  STUDENT_EMAIL_SUFFIX,
+  studentPlaceholderEmail,
+} from '../src/auth/student-sign-in.ts'
 import { buildApp } from '../src/app.ts'
 import { createLocalDocumentStorage, createMemoryDocumentStorage } from '../src/files/storage.ts'
 import { crc32, deflateSync } from 'node:zlib'
@@ -52,6 +57,8 @@ const PASSWORD = process.env.SEED_PASSWORD ?? 'sunrise-password-1'
 const LOGIN_CODE = 'sunrise'
 const EMAIL_DOMAIN = '@sunrise.test'
 const SHORT_NAME = 'SPS'
+/** The known password of the three named pupils. Development only. */
+const PUPIL_PASSWORD = process.env.SEED_PUPIL_PASSWORD ?? 'sunrise-pupil-1'
 
 const MIGRATOR_URL =
   process.env.MIGRATION_DATABASE_URL ??
@@ -228,6 +235,8 @@ interface LoginSeed {
   mfa: boolean
   linkedTo: string
   expect: string
+  /** A pupil's own login: they sign in with the admission number instead of an email. */
+  pupil?: { admissionNumber: string; password: string }
 }
 
 async function freePort(): Promise<number> {
@@ -331,10 +340,10 @@ async function removePreviousSchool(client: pg.PoolClient): Promise<void> {
     await client.query(
       `DELETE FROM auth_user
         WHERE id = ANY($1::uuid[])
-          AND (email LIKE $2 OR phone_number LIKE '+9198%')
+          AND (email LIKE $2 OR email LIKE $3 OR phone_number LIKE '+9198%')
           AND NOT EXISTS (
             SELECT 1 FROM school_memberships WHERE user_id = auth_user.id)`,
-      [ids, `%${EMAIL_DOMAIN}`],
+      [ids, `%${EMAIL_DOMAIN}`, `%${STUDENT_EMAIL_SUFFIX}`],
     )
   }
 }
@@ -372,6 +381,9 @@ async function main(): Promise<void> {
   const client = await migrator.connect()
   const schoolId = randomUUID()
   const logins: LoginSeed[] = []
+  // Pupil passwords are hashed once the transaction has committed; the
+  // generated ones are never printed or written anywhere.
+  const pupilPasswords: { userId: string; password: string }[] = []
   let teacherLoad = 0
 
   try {
@@ -437,8 +449,12 @@ async function main(): Promise<void> {
     }))
     for (const grade of grades) {
       await client.query(
-        'INSERT INTO grades (id, school_id, name, short_name, sort_order) VALUES ($1, $2, $3, $4, $5)',
-        [grade.id, schoolId, grade.name, grade.shortName, grade.sortOrder],
+        `INSERT INTO grades (id, school_id, name, short_name, sort_order, level)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        // Class 1 to Class 10 carry their number, so Class 9 and 10 are the
+        // senior classes whose pupils get their own logins.
+        [grade.id, schoolId, grade.name, grade.shortName, grade.sortOrder,
+          grade.sortOrder > 3 ? grade.sortOrder - 3 : null],
       )
     }
 
@@ -1283,32 +1299,99 @@ async function main(): Promise<void> {
       })
     }
 
-    // Student sign-in is switched off everywhere; this account proves it.
-    const studentRecord = parentCandidates[3] as StudentSeed
-    const studentLogin = await createUser(
-      `${studentRecord.firstName} ${studentRecord.lastName}`,
-      'student1' + EMAIL_DOMAIN,
-      null,
-      'student',
-      'suspended',
-      ['student'],
+    // ----------------------------------------------------------- pupil logins
+    // Every pupil enrolled this year in Class 9 and Class 10 has their own
+    // login, written the way the product writes one: a generated
+    // @student.invalid identity, a credential hashed after the commit below,
+    // must_change_password set, and a 'student' membership linked to the
+    // pupil. Three named pupils have a known password they have already
+    // changed, a fourth has their login switched off, and one Class 9 pupil
+    // has none because their primary guardian has no phone.
+    const leavingThisMonth = students.filter((student) => student.status === 'active')[50]
+    const seniorPupils = students.filter(
+      (student) =>
+        student.status === 'active' &&
+        student.section !== null &&
+        student.section.grade.sortOrder >= 12 &&
+        student !== leavingThisMonth,
     )
-    await client.query(
-      'INSERT INTO membership_student_links (school_id, membership_id, student_id) VALUES ($1, $2, $3)',
-      [schoolId, studentLogin.membershipId, studentRecord.id],
+    const pupilIn = (sort: number, name: string, skip: readonly StudentSeed[] = []): StudentSeed =>
+      seniorPupils.find(
+        (student) =>
+          student.section?.grade.sortOrder === sort && student.section.name === name && !skip.includes(student),
+      ) ?? (seniorPupils.find((student) => !skip.includes(student)) as StudentSeed)
+    const namedPupils = [pupilIn(12, 'A'), pupilIn(13, 'A')]
+    namedPupils.push(pupilIn(12, 'B', namedPupils))
+    const switchedOffPupil = pupilIn(13, 'A', namedPupils)
+    // Not a pupil whose guardian signs in by phone: that login would break.
+    const loginPhones = new Set(logins.map((login) => login.phone))
+    const noLoginPupil =
+      seniorPupils.find(
+        (student) =>
+          student.section?.grade.sortOrder === 12 &&
+          !namedPupils.includes(student) &&
+          student !== switchedOffPupil &&
+          !loginPhones.has(guardiansOf.get(student.id)?.[0]?.phone ?? null),
+      ) ?? pupilIn(12, 'A', [...namedPupils, switchedOffPupil])
+    let pupilLogins = 0
+    for (const pupil of seniorPupils) {
+      if (pupil === noLoginPupil) continue
+      const named = namedPupils.includes(pupil)
+      const known = named || pupil === switchedOffPupil
+      const name = `${pupil.firstName} ${pupil.lastName}`
+      const userId = randomUUID()
+      const membershipId = randomUUID()
+      await client.query(
+        `INSERT INTO auth_user (id, name, email, email_verified, must_change_password)
+         VALUES ($1, $2, $3, false, $4)`,
+        [userId, name, studentPlaceholderEmail(), !known],
+      )
+      await client.query(
+        `INSERT INTO school_memberships (id, school_id, user_id, kind, status)
+         VALUES ($1, $2, $3, 'student', $4)`,
+        [membershipId, schoolId, userId, pupil === switchedOffPupil ? 'suspended' : 'active'],
+      )
+      await client.query(
+        'INSERT INTO membership_roles (school_id, membership_id, role_id) VALUES ($1, $2, $3)',
+        [schoolId, membershipId, roleIds.get('student')],
+      )
+      await client.query(
+        'INSERT INTO membership_student_links (school_id, membership_id, student_id) VALUES ($1, $2, $3)',
+        [schoolId, membershipId, pupil.id],
+      )
+      const password = known ? PUPIL_PASSWORD : generateStudentPassword()
+      pupilPasswords.push({ userId, password })
+      pupilLogins += 1
+      if (!known) continue
+      const section = pupil.section as SectionSeed
+      logins.push({
+        userId,
+        membershipId,
+        name,
+        roles: ['student'],
+        email: pupil.admissionNumber,
+        phone: null,
+        emailPassword: false,
+        mfa: false,
+        linkedTo: `pupil ${pupil.admissionNumber}, ${section.grade.name} ${section.name}`,
+        expect: named
+          ? 'own dashboard, timetable, attendance, results and messages; no second factor'
+          : 'login switched off by the office: every attempt is refused',
+        pupil: { admissionNumber: pupil.admissionNumber, password },
+      })
+    }
+    // The pupil without a login: no phone for the primary guardian, so the
+    // office sees the "no guardian phone" blocker instead of a Create button.
+    const noLoginGuardian = guardiansOf.get(noLoginPupil.id)?.[0]
+    if (noLoginGuardian) {
+      await client.query('UPDATE guardians SET phone = NULL WHERE school_id = $1 AND id = $2', [
+        schoolId, noLoginGuardian.id,
+      ])
+    }
+    console.info(
+      `Pupil logins: ${pupilLogins} in Class 9 and Class 10 (one switched off); ` +
+        `${noLoginPupil.firstName} ${noLoginPupil.lastName} (${noLoginPupil.admissionNumber}) has none.`,
     )
-    logins.push({
-      ...studentLogin,
-      name: `${studentRecord.firstName} ${studentRecord.lastName}`,
-      roles: ['student'],
-      email: 'student1' + EMAIL_DOMAIN,
-      phone: null,
-      emailPassword: false,
-      mfa: false,
-      linkedTo: `student ${studentRecord.admissionNumber}`,
-      expect: 'student sign-in is disabled: every attempt is refused',
-    })
-
 
     // ------------------------------------------------- dashboard sample data
     // Every dashboard card needs something to show on the day the seed is run,
@@ -2200,9 +2283,12 @@ async function main(): Promise<void> {
     }
     interface NoticeSeed {
       by: string
-      audience: 'school' | 'staff' | 'grade' | 'section'
+      audience: 'school' | 'staff' | 'grade' | 'grade_range' | 'section'
       gradeId?: string
+      gradeToId?: string
       sectionId?: string
+      /** Families unless said otherwise; the staff audiences have none. */
+      recipients?: 'families' | 'students' | 'both'
       title: string
       body: string
     }
@@ -2210,10 +2296,11 @@ async function main(): Promise<void> {
       const id = randomUUID()
       await client.query(
         `INSERT INTO messages (id, school_id, kind, audience, grade_id, section_id, academic_year_id, title, body,
-                               status, send_at, created_by_membership_id)
-         VALUES ($1, $2, 'notice', $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                               status, send_at, created_by_membership_id, grade_to_id, recipients)
+         VALUES ($1, $2, 'notice', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
         [id, schoolId, notice.audience, notice.gradeId ?? null, notice.sectionId ?? null,
-          notice.sectionId ? yearNow.id : null, notice.title, notice.body, status, sendAt, notice.by],
+          notice.sectionId ? yearNow.id : null, notice.title, notice.body, status, sendAt, notice.by,
+          notice.gradeToId ?? null, notice.audience === 'staff' ? null : (notice.recipients ?? 'families')],
       )
       return id
     }
@@ -2318,6 +2405,47 @@ async function main(): Promise<void> {
         await insertNotice({ by, audience: 'section', sectionId: first, title: 'Library books to return', body: 'Library books borrowed last month are due back this week.' }, 'draft')
       }
     }
+    // Notices to the pupils themselves (Task 23): the office to Class 9, to
+    // Class 9 to Class 10 with their families, and to every family; and one
+    // teacher to their own Class 9 or 10 section (its class teacher first). Pupils with an active
+    // login get an in-app row each; the rest are recorded as not reachable.
+    const gradeNine = grades.find((grade) => grade.name === 'Class 9') as GradeSeed
+    const pupilNotices: (NoticeSeed & { daysAgo: number })[] = [
+      { daysAgo: 8, by: officeMembership, audience: 'grade', gradeId: gradeNine.id, recipients: 'students', title: 'Science lab coats from Monday', body: 'From Monday every Class 9 pupil should bring a lab coat for science practicals.' },
+      { daysAgo: 5, by: principalMembership, audience: 'grade_range', gradeId: gradeNine.id, gradeToId: gradeTen.id, recipients: 'both', title: 'Career guidance talk', body: 'A career guidance talk for Class 9 and Class 10 is on Friday in the hall. Parents are welcome to attend.' },
+      { daysAgo: 2, by: officeMembership, audience: 'school', recipients: 'families', title: 'Annual day rehearsals', body: 'Annual day rehearsals begin next week. Pupils taking part may stay back until 4 pm.' },
+    ]
+    for (const [index, notice] of pupilNotices.entries()) {
+      const id = await insertNotice(notice, 'draft')
+      await send(id, at(shiftDays(runDate, -notice.daysAgo), 10, 5 + index))
+    }
+    const seniorClassTeacher = await client.query<{ membership_id: string; section_id: string }>(
+      `SELECT l.membership_id, sec.id AS section_id
+         FROM sections sec
+         JOIN grades gr ON gr.school_id = sec.school_id AND gr.id = sec.grade_id
+         JOIN membership_staff_links l ON l.school_id = sec.school_id
+          AND (l.staff_id = sec.class_teacher_staff_id OR EXISTS (
+                SELECT 1 FROM teaching_assignments ta
+                 WHERE ta.school_id = sec.school_id AND ta.section_id = sec.id
+                   AND ta.staff_id = l.staff_id AND ta.effective_to IS NULL))
+         JOIN school_memberships m ON m.school_id = l.school_id AND m.id = l.membership_id AND m.status = 'active'
+         JOIN membership_roles mr ON mr.school_id = m.school_id AND mr.membership_id = m.id
+         JOIN roles r ON r.school_id = mr.school_id AND r.id = mr.role_id AND r.key = 'teacher'
+        WHERE sec.school_id = $1 AND sec.academic_year_id = $2 AND gr.level IN (9, 10)
+        ORDER BY (l.staff_id = sec.class_teacher_staff_id) DESC, gr.level, sec.name LIMIT 1`,
+      [schoolId, yearNow.id],
+    )
+    let pupilNoticeCount = pupilNotices.length
+    const classTeacher = seniorClassTeacher.rows[0]
+    if (classTeacher) {
+      const id = await insertNotice(
+        { by: classTeacher.membership_id, audience: 'section', sectionId: classTeacher.section_id, recipients: 'students', title: 'Project groups', body: 'Project groups for the term are on the class board. Please meet your group before Thursday.' },
+        'draft',
+      )
+      await send(id, at(shiftDays(runDate, -1), 13, 40))
+      pupilNoticeCount += 1
+    }
+
     // One scheduled for next week, and one office draft.
     await insertNotice(
       { by: officeMembership, audience: 'school', title: 'Sports day on Saturday', body: 'Sports day is this Saturday from 8 am. Pupils should come in their house T-shirts.' },
@@ -2368,14 +2496,16 @@ async function main(): Promise<void> {
       const id = randomUUID()
       await client.query(
         `INSERT INTO messages (id, school_id, kind, audience, student_id, staff_id, section_id, academic_year_id,
-                               title, body, status, template_id, dedupe_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, $12)`,
+                               title, body, status, template_id, dedupe_key, recipients)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, $12, $13)`,
         [id, schoolId, kind, kind === 'birthday_staff' ? 'staff_member' : 'pupil',
           pupil?.student_id ?? null, 'staffId' in target ? target.staffId : null,
           pupil?.section_id ?? null, pupil?.academic_year_id ?? null,
           renderMessageText(wording[kind].title, filled).slice(0, MESSAGE_TITLE_MAX),
           renderMessageText(wording[kind].body, filled).slice(0, MESSAGE_BODY_MAX),
-          wording[kind].templateId ?? null, key],
+          wording[kind].templateId ?? null, key,
+          // A pupil's birthday wish goes to the pupil too; the rest to families.
+          kind === 'birthday_staff' ? null : kind === 'birthday_pupil' ? 'both' : 'families'],
       )
       await send(id, sentAt)
       automaticCounts[kind] = (automaticCounts[kind] ?? 0) + 1
@@ -2462,6 +2592,7 @@ async function main(): Promise<void> {
     console.info(
       `Messages: ${officeNotices.length} office and ${teacherNotices} teacher notices (one withdrawn, one with a file` +
         `${attachmentMessageId && process.env.DOCUMENT_STORAGE !== 'blob' ? '' : ' not stored'}), one scheduled, two drafts; ` +
+        `${pupilNoticeCount} notices to pupils${classTeacher ? ' (one from a teacher of the class)' : ' (no teacher of Class 9 or 10 signs in)'}; ` +
         `automatic ${Object.entries(automaticCounts).map(([kind, count]) => `${kind} ${count}`).join(', ')}; ` +
         `${messagesSent} sent to ${recipientRows} recipient rows, ${readRows.rowCount ?? 0} read, ${emailed.rowCount ?? 0} emails sent; ` +
         `communication consent added for ${consentsGiven} pairs and withdrawn for ${consentsWithdrawn}.`,
@@ -2496,6 +2627,7 @@ async function main(): Promise<void> {
   const secrets = new Map<string, { secret: string; uri: string }>()
 
   try {
+    for (const pupil of pupilPasswords) await setPassword(auth, pupil.userId, pupil.password)
     for (const login of logins) {
       if (login.emailPassword) await setPassword(auth, login.userId, PASSWORD)
       if (!login.mfa) continue
@@ -2565,7 +2697,9 @@ async function main(): Promise<void> {
   // ------------------------------------------------------------------ output
   const rows: CsvRow[] = logins.map((login) => {
     const totp = secrets.get(login.userId)
-    const method = login.emailPassword
+    const method = login.pupil
+      ? 'school code + admission number + password'
+      : login.emailPassword
       ? login.mfa
         ? 'email + password + TOTP'
         : login.phone
@@ -2581,7 +2715,7 @@ async function main(): Promise<void> {
       method,
       email: login.email,
       phone: login.phone ?? '',
-      password: login.emailPassword ? PASSWORD : '',
+      password: login.pupil?.password ?? (login.emailPassword ? PASSWORD : ''),
       totpSecret: totp?.secret ?? '',
       otpauthUri: totp?.uri ?? '',
       linkedTo: login.linkedTo,
@@ -2645,6 +2779,7 @@ async function main(): Promise<void> {
     `\n${counts.rows.map((row) => `${row.total} ${row.label}`).join(', ')}` +
       `\nBusiest teacher: ${teacherLoad} sections.` +
       `\nPassword for every email login: ${PASSWORD}` +
+      `\nPassword for the named pupils (admission number as the username): ${PUPIL_PASSWORD}` +
       `\nCurrent second-factor code: pnpm --filter @erp/api dev:totp <totp_secret>` +
       '\nOne-time codes for the parent phone logins: GET /api/dev/outbox' +
       `\nAccounts also written to ${csvPath}` +

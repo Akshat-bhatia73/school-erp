@@ -30,6 +30,11 @@ import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/_app/setup/classes')({ component: Page })
 
+/** "No. 9". A class with no number (Nursery, LKG, UKG) shows nothing. Pupils in 9 to 12 get their own login. */
+function classNumberLabel(level: number): string {
+  return `No. ${level}`
+}
+
 type Pending = { kind: 'grade'; record: GradeRecord } | { kind: 'section'; record: SectionRecord }
 
 function Page() {
@@ -176,6 +181,7 @@ function Page() {
           className={cn('flex h-11 w-full shrink-0 items-center justify-between gap-2 border-l-2 border-transparent px-4 text-left text-[13.5px] hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:-outline-offset-2 md:h-10', g.id === gradeId && 'border-l-foreground bg-accent font-medium')}
         >
           <span className="truncate">{g.name}{g.stream ? <span className="ml-1 text-muted-foreground capitalize">· {g.stream}</span> : null}</span>
+          {g.level !== undefined ? <span className="ml-auto text-[12px] text-muted-foreground" title="Class number">{classNumberLabel(g.level)}</span> : null}
           {canReadStrengths ? <span className="tabular-nums text-[12px] text-muted-foreground">{studentsByGrade[g.id] ?? 0}</span> : null}
         </button>
       ))
@@ -222,6 +228,7 @@ function Page() {
               <h2 className="truncate text-[14px] font-semibold">
                 {grade?.name ?? 'Select a class'}
                 {activeYear ? <span className="ml-2 text-[12.5px] font-normal text-muted-foreground">{activeYear.name}</span> : null}
+                {grade ? <span className="ml-2 text-[12.5px] font-normal text-muted-foreground">Class number: {grade.level !== undefined ? grade.level : 'none'}</span> : null}
               </h2>
               <div className="flex items-center gap-2">
                 {grade && allows(grade.allowedActions, 'grades.manage') && (
@@ -240,6 +247,9 @@ function Page() {
                 )}
               </div>
             </div>
+            {grade && canManageGrades ? (
+              <p className="border-b bg-card px-4 py-2 text-[12.5px] text-muted-foreground">Pupils in Class 9 to 12 get their own login. Set each class's number when you edit the class.</p>
+            ) : null}
             {sectionsError ? (
               <p className="p-5 text-[13.5px] text-muted-foreground">{describeError(sectionsError)}</p>
             ) : (

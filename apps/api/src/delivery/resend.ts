@@ -28,6 +28,18 @@ function link(appOrigin: string, path: string, token: string): string {
   return url.toString()
 }
 
+/**
+ * The text a pupil's primary guardian receives (Task 23). It carries the
+ * password, so it is composed only at the moment of sending and never logged.
+ */
+export function studentPasswordText(
+  message: Pick<DeliveryMessage, 'secret' | 'studentLogin'>,
+): string {
+  const login = message.studentLogin
+  if (!login) throw new Error('A student password text needs the school code and admission number.')
+  return `${login.schoolCode}: sign-in for admission no. ${login.admissionNumber}. Password: ${message.secret}. Choose a new one at first sign-in.`
+}
+
 function compose(
   message: Omit<DeliveryMessage, 'sentAt'>,
   appOrigin: string,
@@ -55,6 +67,11 @@ function compose(
       return {
         subject: 'Your sign-in code',
         text: `Your sign-in code is ${message.secret}. It stops working after a few minutes. Never share it.`,
+      }
+    case 'student_password':
+      return {
+        subject: 'Your sign-in details',
+        text: studentPasswordText(message),
       }
     case 'message':
       // A school message has its own words and goes through sendMessage.

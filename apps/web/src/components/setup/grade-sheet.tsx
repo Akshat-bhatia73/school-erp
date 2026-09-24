@@ -16,13 +16,16 @@ import { useSchoolContext } from '@/lib/session'
 const NONE = '__none__'
 const STREAMS = ['science', 'commerce', 'arts'] as const
 
-interface Form { name: string; shortName: string; order: number; stream?: (typeof STREAMS)[number] }
+const LEVELS = Array.from({ length: 12 }, (_, index) => index + 1)
+
+interface Form { name: string; shortName: string; order: number; stream?: (typeof STREAMS)[number]; level?: number }
 
 const LABELS: FieldLabels = {
   name: 'class name',
   shortName: 'short name',
   order: { label: 'order', kind: 'number' },
   stream: { label: 'stream', kind: 'select' },
+  level: { label: 'class number', kind: 'select' },
 }
 
 export function GradeSheet({ open, onOpenChange, grade, nextOrder }: {
@@ -40,7 +43,7 @@ export function GradeSheet({ open, onOpenChange, grade, nextOrder }: {
     if (!open) return
     setErrors({})
     setForm(grade
-      ? { name: grade.name, shortName: grade.shortName, order: grade.order, stream: grade.stream }
+      ? { name: grade.name, shortName: grade.shortName, order: grade.order, stream: grade.stream, level: grade.level }
       : { name: '', shortName: '', order: nextOrder })
   }, [open, grade, nextOrder])
 
@@ -88,6 +91,15 @@ export function GradeSheet({ open, onOpenChange, grade, nextOrder }: {
         <Field label="Short name" error={errors.shortName} hint="Like 6"><Input value={form.shortName} onChange={(e) => set('shortName', e.target.value)} /></Field>
         <Field label="Order" error={errors.order}><Input inputMode="numeric" value={form.order} onChange={(e) => set('order', Number(e.target.value) || 0)} /></Field>
       </div>
+      <Field label="Class number" error={errors.level} hint="Pupils in Class 9 to 12 get their own login. None for Nursery, LKG and UKG.">
+        <Select value={form.level === undefined ? NONE : String(form.level)} onValueChange={(v) => set('level', v === NONE ? undefined : Number(v))}>
+          <SelectTrigger className="w-full"><SelectValue placeholder="None" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>None</SelectItem>
+            {LEVELS.map((level) => <SelectItem key={level} value={String(level)}>Class {level}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </Field>
       <Field label="Stream" error={errors.stream} hint="Only for Class 11 and 12">
         <Select value={form.stream ?? NONE} onValueChange={(v) => set('stream', v === NONE ? undefined : (v as Form['stream']))}>
           <SelectTrigger className="w-full"><SelectValue placeholder="None" /></SelectTrigger>

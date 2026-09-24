@@ -34,7 +34,7 @@ The web app must be opened at `http://localhost:5173` and nowhere else: that ori
 | Owner B | Fixture B | owner | email + password | `fixture-owner-b@example.test` | Same; use it to prove Fixture A answers `SCHOOL_ACCESS_UNAVAILABLE` |
 | Fixture Adult | Fixture A | teacher, parent | email + password | `fixture-adult@example.test` | Reaches the school straight away; one factor is enough |
 | Suspended | Fixture A | teacher (suspended) | email + password | `fixture-suspended@example.test` | Signs in; `/api/me` lists no membership |
-| Student | Fixture A | student | email + password | `fixture-student@example.test` | Always refused: student sign-in is specified and disabled |
+| Student | Fixture A | student | email + password | `fixture-student@example.test` | Always refused: a pupil signs in only with the school code and admission number (Task 23); the email door refuses them. The Sunrise seed has real pupil logins |
 | Parent A2 | Fixture A | parent | phone code | `9876543210` | `send-otp` always answers `{"status":"sent"}`; read the code from the outbox |
 | Parent B | Fixture B | parent | phone code | `9876543211` | A second school, for switching |
 
@@ -79,7 +79,7 @@ The web app owns the reset link shape: `/reset-password?token=<secret of the pas
 - `GET /api/me` says who is signed in and which schools they belong to. It produces `status`, `user`, `session` and `memberships`.
 - `GET /api/schools/:schoolId/context` says what they may do in the school this tab is looking at. It produces `context`, `school`, `roleKeys`, `capabilities` and `accessVersion`. The school is always a path parameter; there is no server-side "active school".
 
-`status` is `loading`, `anonymous`, `unavailable`, `blocked` or `authenticated`. `blocked` is a signed-in identity the app will not open for anyone — today only a student, whose session the server deletes while answering `FEATURE_DISABLED`. It is deliberately not `unavailable`: there is nothing to retry, so the person is told their way of signing in is off rather than that the server is down.
+`status` is `loading`, `anonymous`, `unavailable`, `blocked` or `authenticated`. `blocked` is a signed-in identity the app will not open for anyone — today only a pupil whose own login the office switched off or which ended when they left; the server deletes the session while answering `FEATURE_DISABLED`. It is deliberately not `unavailable`: there is nothing to retry, so the person is told their way of signing in is off rather than that the server is down.
 
 `context` is `idle`, `loading`, `ready`, `mfa_required` or `unavailable`.
 
@@ -156,3 +156,7 @@ The API side is covered by `pnpm test:api` (250 tests), including the dev outbox
 - `dev:seed` cannot create a guardian whose access is still waiting for approval: `guardian_student_access` only has `approved` and `revoked`, so the parent who is meant to be waiting simply has no access row.
 - The device list uses a local query key `['account','sessions']` rather than one in `lib/query.ts`.
 - Phone sign-in is offered on the Teacher and Parent tabs because the server gives no per-identity signal about which method an identity may use; `LOGIN_METHODS` is not enforced in the browser.
+
+## Pupils' own logins (Task 23)
+
+The Student tab of `/login` takes the school code, the admission number and the password and posts them to `POST /api/student-sign-in` (`studentSignIn` in `lib/auth-client.ts`); every failure shows one sentence, whatever was wrong. A pupil's membership is kind `student` and is opened like an adult's. When `/api/me` carries `session.passwordChangeRequired`, or any school read answers `PASSWORD_CHANGE_REQUIRED`, `AppGate` sends the person to `/account/change-password` (outside the shell) before anything else; saving there refreshes the session and the context. `useSchoolContext()` carries `ownStudentId` for a pupil, and `useSession().isPupil` hides what a pupil never uses: the view switcher, the two-factor panel, the people search. The Sunrise seed gives every Class 9 and 10 pupil a login; the CSV lists three that sign in with `sunrise-pupil-1` and one that is switched off.

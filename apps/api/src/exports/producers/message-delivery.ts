@@ -40,6 +40,7 @@ const EMAIL_WORDS: Readonly<Record<EmailStatus, string>> = {
 type RecipientDbRow = {
   guardian_id: string | null
   staff_id: string | null
+  is_student: boolean
   student_id: string | null
   section_id: string | null
   outcome: RecipientOutcome
@@ -88,8 +89,8 @@ async function produce(
 
   const predicate = await recipientPlan(conn, context)
   const result = await conn.db.execute<RecipientDbRow>(
-    sql`SELECT message_recipients.guardian_id, message_recipients.staff_id, message_recipients.student_id,
-               message_recipients.section_id, message_recipients.outcome, message_recipients.in_app,
+    sql`SELECT message_recipients.guardian_id, message_recipients.staff_id, message_recipients.is_student,
+               message_recipients.student_id, message_recipients.section_id, message_recipients.outcome, message_recipients.in_app,
                message_recipients.email_status, message_recipients.email_masked,
                ${sql.raw(isoOf('message_recipients.read_at'))} AS read_at
           FROM message_recipients
@@ -147,11 +148,17 @@ async function produce(
     const section = pupil && row.section_id ? sections.get(row.section_id) : undefined
     const guardian =
       row.guardian_id && row.student_id ? guardians.get(`${row.guardian_id}:${row.student_id}`) : undefined
+    // A pupil's own row is named like its pupil column and never has an email.
     const name =
-      row.staff_id !== null ? (staffNames.get(row.staff_id) ?? 'Staff member') : (guardian?.name ?? 'Guardian')
+      row.staff_id !== null
+        ? (staffNames.get(row.staff_id) ?? 'Staff member')
+        : row.is_student
+          ? (pupil?.name ?? 'Pupil')
+          : (guardian?.name ?? 'Guardian')
     return {
       name,
-      relation: row.staff_id !== null ? 'Staff' : (guardian?.relation.slice(0, 40) ?? ''),
+      relation:
+        row.staff_id !== null ? 'Staff' : row.is_student ? 'Pupil' : (guardian?.relation.slice(0, 40) ?? ''),
       pupil: pupil?.name ?? '',
       section: section?.label ?? '',
       outcome: OUTCOME_WORDS[row.outcome],

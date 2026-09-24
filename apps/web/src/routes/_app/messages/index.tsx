@@ -6,7 +6,7 @@ import { MessageAudienceKind, MessageKind, MessageStatus, MESSAGE_KINDS } from '
 import { Inbox, Mail, Paperclip, Plus, Settings2, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { z } from 'zod'
-import { AUDIENCE_KIND_LABEL, formatDateTime, KIND_COLOR, kindLabel, STATUS_COLOR, STATUS_LABEL } from '@/components/messages/labels'
+import { AUDIENCE_KIND_LABEL, audienceLine, formatDateTime, KIND_COLOR, kindLabel, STATUS_COLOR, STATUS_LABEL } from '@/components/messages/labels'
 import { DataTable } from '@/components/shared/data-table'
 import { FilterChip } from '@/components/shared/filter-chip'
 import { EmptyState, PageHeader, Toolbar } from '@/components/shared/page'
@@ -17,7 +17,7 @@ import { api } from '@/lib/api'
 import type { InboxRow, MessageRow } from '@/lib/api/messages'
 import { describeError } from '@/lib/api-errors'
 import { qk } from '@/lib/query'
-import { useSchoolContext } from '@/lib/session'
+import { useSchoolContext, useSession } from '@/lib/session'
 import { cn } from '@/lib/utils'
 
 const searchSchema = z.object({
@@ -82,6 +82,8 @@ function Page() {
 
 function InboxView() {
   const { schoolId } = useSchoolContext()
+  // A pupil's own inbox is all about the pupil, so it has no "About" column.
+  const { isPupil } = useSession()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/messages/' })
   const params = { kind: search.kind, show: search.unread ? ('unread' as const) : ('all' as const), page: search.page ?? 1, pageSize: PAGE_SIZE }
@@ -109,9 +111,9 @@ function InboxView() {
     },
     { id: 'kind', header: 'Kind', size: 130, cell: ({ row }) => <Tag color={KIND_COLOR[row.original.kind]}>{kindLabel(row.original.kind)}</Tag> },
     { id: 'from', header: 'From', size: 180, cell: ({ row }) => <span className="truncate">{row.original.sender.name}</span> },
-    { id: 'pupil', header: 'About', size: 160, cell: ({ row }) => <span className="truncate text-muted-foreground">{row.original.pupil?.name ?? ''}</span> },
+    ...(isPupil ? [] : [{ id: 'pupil', header: 'About', size: 160, cell: ({ row }) => <span className="truncate text-muted-foreground">{row.original.pupil?.name ?? ''}</span> } satisfies ColumnDef<InboxRow>]),
     { id: 'sentAt', header: 'Sent', size: 170, cell: ({ row }) => <span className="text-muted-foreground tabular-nums">{formatDateTime(row.original.sentAt)}</span> },
-  ], [])
+  ], [isPupil])
 
   return (
     <>
@@ -199,7 +201,7 @@ function SentView() {
       ),
     },
     { id: 'kind', header: 'Kind', size: 130, cell: ({ row }) => <Tag color={KIND_COLOR[row.original.kind]}>{kindLabel(row.original.kind)}</Tag> },
-    { id: 'audience', header: 'To', size: 200, cell: ({ row }) => <span className="truncate">{row.original.audience.label}</span> },
+    { id: 'audience', header: 'To', size: 200, cell: ({ row }) => <span className="truncate">{audienceLine(row.original.audience)}</span> },
     { id: 'status', header: 'Status', size: 110, cell: ({ row }) => <Tag color={STATUS_COLOR[row.original.status]} dot>{STATUS_LABEL[row.original.status]}</Tag> },
     {
       id: 'when',
@@ -251,7 +253,7 @@ function SentView() {
             rowLink={(row) => (row.status === 'draft' ? `/messages/${row.id}/edit` : `/messages/${row.id}`)}
             mobileRow={(row) => ({
               title: row.title || 'Words removed',
-              subtitle: row.audience.label,
+              subtitle: audienceLine(row.audience),
               meta: formatDateTime(row.status === 'scheduled' ? row.sendAt : row.sentAt ?? row.createdAt),
               trailing: <Tag color={STATUS_COLOR[row.status]} dot>{STATUS_LABEL[row.status]}</Tag>,
             })}

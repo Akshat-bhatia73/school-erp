@@ -341,13 +341,26 @@ test('a birthday sends once a year, to the pupil family and to the staff member'
   assert.equal((await messagesOf('birthday_staff')).length, 1)
 
   const recipient = await adminPool().query<{ outcome: string; email_status: string; email_masked: string | null }>(
-    `SELECT outcome, email_status, email_masked FROM message_recipients WHERE school_id = $1 AND message_id = $2`,
+    `SELECT outcome, email_status, email_masked FROM message_recipients
+      WHERE school_id = $1 AND message_id = $2 AND NOT is_student`,
     [school, pupils[0]?.id],
   )
   assert.equal(recipient.rows[0]?.outcome, 'delivered')
   // The sandbox adapter took it, so the queue recorded it as sent.
   assert.equal(recipient.rows[0]?.email_status, 'sent')
   assert.equal(recipient.rows[0]?.email_masked, 'p•••@gmail.com')
+  // Task 23: a birthday wish goes to the pupil too. This pupil has no login,
+  // so their own row reaches nobody, and a pupil never gets an email.
+  const message = await adminPool().query<{ recipients: string }>(`SELECT recipients FROM messages WHERE id = $1`, [
+    pupils[0]?.id,
+  ])
+  assert.equal(message.rows[0]?.recipients, 'both')
+  const own = await adminPool().query<{ student_id: string; outcome: string; email_status: string; membership_id: string | null }>(
+    `SELECT student_id, outcome, email_status, membership_id FROM message_recipients
+      WHERE school_id = $1 AND message_id = $2 AND is_student`,
+    [school, pupils[0]?.id],
+  )
+  assert.deepEqual(own.rows, [{ student_id: birthday, outcome: 'no_contact', email_status: 'none', membership_id: null }])
 })
 
 test('a fee reminder names the instalment after the concession', async () => {
@@ -376,7 +389,7 @@ test('a failing email is tried again and recorded as failed after the fifth atte
   await pool.query(
     `UPDATE message_recipients SET email_status = 'pending', email_sent_at = NULL, email_attempts = 0,
             email_next_attempt_at = now()
-      WHERE school_id = $1 AND message_id = $2`,
+      WHERE school_id = $1 AND message_id = $2 AND NOT is_student`,
     [school, message?.id],
   )
   let tries = 0
@@ -399,7 +412,7 @@ test('a failing email is tried again and recorded as failed after the fifth atte
     }>(
       `SELECT email_status, email_attempts, email_sent_at,
               round(extract(epoch FROM email_next_attempt_at - now()) / 60)::int AS wait
-         FROM message_recipients WHERE school_id = $1 AND message_id = $2`,
+         FROM message_recipients WHERE school_id = $1 AND message_id = $2 AND NOT is_student`,
       [school, message?.id],
     )
     const state = row.rows[0]
@@ -413,7 +426,7 @@ test('a failing email is tried again and recorded as failed after the fifth atte
       const early = await runEmailQueue(failingDeps, school, `email-test-early-${attempt}`)
       assert.equal(early.retry + early.failed + early.sent, 0)
       await pool.query(
-        `UPDATE message_recipients SET email_next_attempt_at = now() WHERE school_id = $1 AND message_id = $2`,
+        `UPDATE message_recipients SET email_next_attempt_at = now() WHERE school_id = $1 AND message_id = $2 AND NOT is_student`,
         [school, message?.id],
       )
     } else {

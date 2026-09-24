@@ -3,9 +3,23 @@ export type DeliveryChannel = 'email' | 'sms'
 export interface DeliveryMessage {
   readonly channel: DeliveryChannel
   readonly to: string
-  readonly purpose: 'otp' | 'password_reset' | 'verification' | 'invitation' | 'message'
-  /** The OTP, token or link. Never log or return this to a browser. Empty for a school message. */
+  readonly purpose:
+    | 'otp'
+    | 'password_reset'
+    | 'verification'
+    | 'invitation'
+    | 'message'
+    | 'student_password'
+  /**
+   * The OTP, token, link or a pupil's generated password. Never log or return
+   * this to a browser. Empty for a school message.
+   */
   readonly secret: string
+  /**
+   * A pupil's password text (Task 23) names the school code and the admission
+   * number the pupil types with the password. Neither is secret; the text is.
+   */
+  readonly studentLogin?: { readonly schoolCode: string; readonly admissionNumber: string }
   /** A school message's subject, kept only by the sandbox so a developer can see what went. */
   readonly subject?: string
   readonly sentAt: string

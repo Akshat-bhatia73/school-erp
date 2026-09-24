@@ -5,6 +5,7 @@ import { BentoGrid, Cell } from '@/components/dashboard/blocks/card'
 import { AccountantDashboard } from '@/components/dashboard/accountant-dashboard'
 import { OfficeDashboard } from '@/components/dashboard/office-dashboard'
 import { ParentDashboard } from '@/components/dashboard/parent-dashboard'
+import { StudentDashboard } from '@/components/dashboard/student-dashboard'
 import { TeacherDashboard } from '@/components/dashboard/teacher-dashboard'
 import { EmptyState, PageHeader } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
@@ -34,7 +35,7 @@ function Page() {
   return (
     <>
       <PageHeader
-        crumbs={[{ label: audience === 'parent' ? 'My children' : 'Dashboard', icon: <LayoutDashboard /> }]}
+        crumbs={[{ label: audience === 'parent' ? 'My children' : audience === 'student' ? 'Home' : 'Dashboard', icon: <LayoutDashboard /> }]}
         actions={
           <>
             {current && <Tag color="blue">{current.name}</Tag>}
@@ -48,6 +49,7 @@ function Page() {
           {data?.audience === 'office' && <OfficeDashboard data={data} isLoading={isLoading} error={error} />}
           {data?.audience === 'teacher' && <TeacherDashboard data={data} isLoading={isLoading} error={error} />}
           {data?.audience === 'parent' && <ParentDashboard data={data} isLoading={isLoading} error={error} />}
+          {data?.audience === 'student' && <StudentDashboard data={data} isLoading={isLoading} error={error} />}
           {data?.audience === 'accountant' && <AccountantDashboard data={data} isLoading={isLoading} error={error} />}
           {!data && error && (
             <EmptyState icon={<LayoutDashboard />} title="We could not open your dashboard" description={describeError(error)} />

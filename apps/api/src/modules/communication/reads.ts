@@ -43,6 +43,7 @@ type RecipientDbRow = {
   id: string
   guardian_id: string | null
   staff_id: string | null
+  is_student: boolean
   student_id: string | null
   section_id: string | null
   outcome: RecipientOutcome
@@ -139,7 +140,7 @@ export function registerMessageReadRoutes(app: FastifyInstance, deps: ModuleDepe
         )
         const page = await conn.db.execute<RecipientDbRow>(
           sql`SELECT message_recipients.id, message_recipients.guardian_id, message_recipients.staff_id,
-                     message_recipients.student_id, message_recipients.section_id, message_recipients.outcome,
+                     message_recipients.is_student, message_recipients.student_id, message_recipients.section_id, message_recipients.outcome,
                      message_recipients.in_app, message_recipients.email_status, message_recipients.email_masked,
                      ${sql.raw(isoOf('message_recipients.read_at'))} AS read_at
                 FROM message_recipients WHERE ${where}
@@ -212,6 +213,10 @@ async function projectRecipients(
     }
     if (row.staff_id !== null) {
       return { ...base, kind: 'staff' as const, name: staffNames.get(row.staff_id) ?? 'Staff member' }
+    }
+    if (row.is_student) {
+      // The pupil's own row: named like the pupil block, never an email.
+      return { ...base, kind: 'student' as const, name: pupil?.name ?? 'Pupil', relation: 'Pupil' }
     }
     return {
       ...base,

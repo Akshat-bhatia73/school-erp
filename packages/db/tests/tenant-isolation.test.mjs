@@ -146,7 +146,7 @@ test('composite tenant foreign keys and immutable audit history reject invalid c
   assert.deepEqual(stored.rows, [{ summary: 'original' }])
 })
 
-test('runtime catalogue is readable but immutable, and existing student identities stay disabled', async () => {
+test('runtime catalogue is readable but immutable, and a student membership may be active with the student role only', async () => {
   const school = crypto.randomUUID(),
     user = crypto.randomUUID(),
     studentUser = crypto.randomUUID(),
@@ -189,10 +189,15 @@ test('runtime catalogue is readable but immutable, and existing student identiti
     ),
     { code: '42501' },
   )
+  // Task 23: an active student membership is allowed, but never with an adult role.
+  const student = await admin.query(
+    `INSERT INTO school_memberships(school_id,user_id,kind,status) VALUES ($1,$2,'student','active') RETURNING id`,
+    [school, studentUser],
+  )
   await assert.rejects(
     admin.query(
-      `INSERT INTO school_memberships(school_id,user_id,kind,status) VALUES ($1,$2,'student','active')`,
-      [school, studentUser],
+      `INSERT INTO membership_roles(school_id,membership_id,role_id) VALUES ($1,$2,$3)`,
+      [school, student.rows[0].id, parentRole],
     ),
     { code: 'P0001' },
   )

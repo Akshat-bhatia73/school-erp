@@ -161,7 +161,9 @@ test('the idle limit ends a teacher session that was left alone', async () => {
   )
 })
 
-test('a student identity can neither sign in nor carry a session', async () => {
+test('a student identity whose login is switched off can neither sign in nor carry a session', async () => {
+  // The fixture pupil's login is switched off (a suspended student
+  // membership), so student_login_state is 'inactive'.
   const client = clientFor(server)
   const signIn = await client.signIn(EMAILS.student, PASSWORD)
   assert.ok(signIn.status >= 400, `expected refusal, got ${signIn.status}`)
@@ -249,7 +251,8 @@ test('school context requires an active membership and the right assurance', asy
   }
   assert.deepEqual(body.roleKeys, ['parent'])
   assert.equal(body.school.code, 'fixture-b')
-  assert.equal(body.studentLoginEnabled, false)
+  // Task 23: student login is on for every school.
+  assert.equal(body.studentLoginEnabled, true)
   // Capabilities are now the policy service's answer: every permission this
   // member could exercise somewhere in the school. This parent has an approved
   // child, so the child-scoped reads appear and nothing else does.

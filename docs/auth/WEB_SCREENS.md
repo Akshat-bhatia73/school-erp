@@ -476,3 +476,11 @@ changed rows with the reason; it renders neither and shows the server's sentence
 pupil month screen shows the percentage and a "Download PDF" button; and the staff register never
 sends the caller's own row.
 
+
+## Student login, September 2026
+
+Task 23. **A pupil** (roles `['student']`) sees Home, Timetable, Attendance, Exams and Messages and nothing else; the sidebar keeps an allowlist of those paths because the student role also reads classes, subjects and the calendar. Home is the `student` dashboard: their card (class, class teacher, this month's attendance, the newest report card, today's lessons) and the holidays ahead. Timetable is their own section's week, read-only, from the section of their current enrolment. Attendance and Exams open the pupil's own page straight away. Messages is the inbox alone, with no "About" column. Account security shows the password panel and sign out, no second factor.
+
+**The office** (`students.manage_login`) gets a "Student login" panel on a pupil's Overview: state, username (the admission number), school code, whether the sent password is still unchanged, where it was sent (masked), issued and last signed in, the blocker as a sentence, and Give login, Send new password, Switch off login and Switch on login by state. The Students list has "Give student logins", which gives every missing login in Class 9 to 12 at once and reports counts. The class form has "Class number" (none for Nursery, LKG and UKG, then 1 to 12).
+
+**Messages**: every audience made of pupils has "Send to": Families (default), Pupils, Pupils and families. "A range of classes" (From, To) is the office's. The preview counts pupils and those with a login; the delivery record shows pupil rows with the relation "Pupil" and a Pupils count.

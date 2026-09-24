@@ -21,6 +21,7 @@ import {
   unknownPlaceholders,
   type MessageAudienceInput,
   type MessagePlaceholder,
+  type MessageRecipients,
 } from '@erp/contracts'
 import type { RequestContext } from '@erp/contracts/server'
 import type { ScopedTable } from '@erp/authz'
@@ -112,33 +113,61 @@ async function decideTarget(
   context: RequestContext,
   audience: MessageAudienceInput,
 ): Promise<ResolvedTarget> {
-  const targetId =
+  // A range of classes is decided on both of its ends, each like a grade.
+  const targetIds =
     audience.kind === 'grade'
-      ? audience.gradeId
-      : audience.kind === 'section'
-        ? audience.sectionId
-        : audience.kind === 'pupil'
-          ? audience.studentId
-          : context.schoolId
-  const decision = await decideResource(conn, context, 'communication.send', 'communication', targetId)
-  if (!decision.allowed) {
-    if (audience.kind === 'school' || audience.kind === 'staff') {
-      throw new ApiFailure(decision.code === 'MFA_REQUIRED' ? 'MFA_REQUIRED' : 'ACCESS_DENIED')
+      ? [audience.gradeId]
+      : audience.kind === 'grade_range'
+        ? [audience.fromGradeId, audience.toGradeId]
+        : audience.kind === 'section'
+          ? [audience.sectionId]
+          : audience.kind === 'pupil'
+            ? [audience.studentId]
+            : [context.schoolId]
+  for (const targetId of new Set(targetIds)) {
+    const decision = await decideResource(conn, context, 'communication.send', 'communication', targetId)
+    if (!decision.allowed) {
+      if (audience.kind === 'school' || audience.kind === 'staff') {
+        throw new ApiFailure(decision.code === 'MFA_REQUIRED' ? 'MFA_REQUIRED' : 'ACCESS_DENIED')
+      }
+      throw refusedAsMissing(decision.code)
     }
-    throw refusedAsMissing(decision.code)
   }
+  // Every pupil audience says who of it the message is for; families unless
+  // told. The staff audience has none and never reads this.
+  const recipients: MessageRecipients = audience.kind === 'staff' ? 'families' : (audience.recipients ?? 'families')
 
   switch (audience.kind) {
     case 'school':
+      return { target: { kind: 'school', recipients } }
     case 'staff':
-      return { target: { kind: audience.kind } }
+      return { target: { kind: 'staff' } }
     case 'grade': {
       const found = await conn.client.query('SELECT 1 FROM grades WHERE school_id = $1 AND id = $2', [
         context.schoolId,
         audience.gradeId,
       ])
       if (found.rows.length === 0) throw new ApiFailure('RESOURCE_NOT_FOUND')
-      return { target: { kind: 'grade', gradeId: audience.gradeId } }
+      return { target: { kind: 'grade', gradeId: audience.gradeId, recipients } }
+    }
+    case 'grade_range': {
+      const found = await conn.client.query<{ id: string; sort_order: number }>(
+        'SELECT id, sort_order FROM grades WHERE school_id = $1 AND id = ANY($2::uuid[])',
+        [context.schoolId, [audience.fromGradeId, audience.toGradeId]],
+      )
+      const from = found.rows.find((row) => row.id === audience.fromGradeId)
+      const to = found.rows.find((row) => row.id === audience.toGradeId)
+      if (!from || !to) throw new ApiFailure('RESOURCE_NOT_FOUND')
+      // The first class must not come after the last in the school's order.
+      if (Number(from.sort_order) > Number(to.sort_order)) throw invalid()
+      return {
+        target: {
+          kind: 'grade_range',
+          gradeId: audience.fromGradeId,
+          toGradeId: audience.toGradeId,
+          recipients,
+        },
+      }
     }
     case 'section': {
       const found = await conn.client.query<{ academic_year_id: string; status: string }>(
@@ -152,7 +181,12 @@ async function decideTarget(
       // A closed year's section has nobody left to tell.
       if (section.status === 'closed') throw invalid()
       return {
-        target: { kind: 'section', sectionId: audience.sectionId, academicYearId: section.academic_year_id },
+        target: {
+          kind: 'section',
+          sectionId: audience.sectionId,
+          academicYearId: section.academic_year_id,
+          recipients,
+        },
       }
     }
     case 'pupil': {
@@ -193,6 +227,7 @@ async function decideTarget(
         target: {
           kind: 'pupil',
           studentId: audience.studentId,
+          recipients,
           ...(enrolment ? { sectionId: enrolment.section_id, academicYearId: enrolment.academic_year_id } : {}),
         },
         pupil: {
@@ -259,7 +294,9 @@ async function assertNoticeTemplate(conn: MessageConnection, schoolId: string, t
 function audienceColumns(target: AudienceTarget): Record<string, string | null> {
   return {
     audience: target.kind,
+    recipients: target.kind === 'staff' || target.kind === 'staff_member' ? null : (target.recipients ?? 'families'),
     grade_id: target.gradeId ?? null,
+    grade_to_id: target.toGradeId ?? null,
     section_id: target.sectionId ?? null,
     academic_year_id: target.academicYearId ?? null,
     student_id: target.studentId ?? null,
@@ -339,6 +376,7 @@ export function registerMessageWriteRoutes(app: FastifyInstance, deps: ModuleDep
       withTenantTransaction(deps.pools.runtime, context, async (conn) => {
         const resolved = await decideTarget(conn, context, body.audience)
         const counts = await previewAudience(conn, deps, context.schoolId, resolved.target)
+        const columns = audienceColumns(resolved.target)
         // The label is built as a message's would be; the id only keys the
         // lookup and names no row.
         const id = randomUUID()
@@ -346,7 +384,9 @@ export function registerMessageWriteRoutes(app: FastifyInstance, deps: ModuleDep
           {
             id,
             audience: resolved.target.kind,
+            recipients: columns.recipients as MessageRecipients | null,
             grade_id: resolved.target.gradeId ?? null,
+            grade_to_id: resolved.target.toGradeId ?? null,
             section_id: resolved.target.sectionId ?? null,
             student_id: resolved.target.studentId ?? null,
             staff_id: null,
@@ -375,14 +415,17 @@ export function registerMessageWriteRoutes(app: FastifyInstance, deps: ModuleDep
         const columns = audienceColumns(resolved.target)
 
         const inserted = await conn.client.query<{ id: string }>(
-          `INSERT INTO messages (school_id, kind, audience, grade_id, section_id, academic_year_id, student_id,
-                                 title, body, status, created_by_membership_id, template_id)
-           VALUES ($1, 'notice', $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10)
+          `INSERT INTO messages (school_id, kind, audience, recipients, grade_id, grade_to_id, section_id,
+                                 academic_year_id, student_id, title, body, status, created_by_membership_id,
+                                 template_id)
+           VALUES ($1, 'notice', $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, $12)
            RETURNING id`,
           [
             context.schoolId,
             columns.audience,
+            columns.recipients,
             columns.grade_id,
+            columns.grade_to_id,
             columns.section_id,
             columns.academic_year_id,
             columns.student_id,

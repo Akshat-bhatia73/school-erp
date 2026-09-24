@@ -5,7 +5,7 @@ export const DEFAULT_RETURN_TO = '/dashboard'
 // sign-in step, so an invitee who has to sign in first still lands back on their invitation.
 const AUTH_PREFIXES = [
   '/login', '/verify-otp', '/forgot-password', '/reset-password',
-  '/mfa', '/select-school', '/access-unavailable',
+  '/mfa', '/select-school', '/access-unavailable', '/account/change-password',
 ]
 
 /**

@@ -1,6 +1,6 @@
 /** Exams: the office's exams for the year, a teacher's marks sheets, a parent's way to results. */
 import { useQuery } from '@tanstack/react-query'
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, Navigate, useNavigate } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
 import { EXAM_KINDS, type ExamKind } from '@erp/contracts'
 import { FileText, NotebookPen, Settings2 } from 'lucide-react'
@@ -228,8 +228,10 @@ function ParentChildren() {
 }
 
 function Page() {
-  const { hasPermission } = useSchoolContext()
+  const { hasPermission, ownStudentId } = useSchoolContext()
   const { view } = useSchoolDashboardView()
+  // A pupil reads their own results and report cards, nothing else.
+  if (ownStudentId) return <Navigate to="/exams/students/$studentId" params={{ studentId: ownStudentId }} replace />
   if (view === 'parent') return <ParentChildren />
   if (view === 'office' && hasPermission('exams.manage')) return <OfficeExams />
   if (hasPermission('exams.read')) return <TeacherPapers />

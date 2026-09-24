@@ -48,7 +48,8 @@ export function SecurityScreen() {
       <div className="grid gap-4">
         <AccountPanel />
         <PasswordPanel />
-        <TwoFactorPanel />
+        {/* A pupil's login has no second factor; the password is all there is to manage. */}
+        {!session.isPupil && <TwoFactorPanel />}
         <SessionsPanel />
         <Panel title="Sign out">
           <p className="mb-3 text-[13px] text-muted-foreground">Sign out of this device only.</p>
@@ -82,17 +83,18 @@ function ErrorText({ children }: { children: string | null }) {
 }
 
 function AccountPanel() {
-  const { user } = useSession()
+  const { user, isPupil } = useSession()
+  // A pupil signs in with their admission number and has no email or phone of their own.
+  const items = isPupil
+    ? [{ label: 'Name', value: user?.displayName ?? '—' }]
+    : [
+        { label: 'Name', value: user?.displayName ?? '—' },
+        { label: 'Email', value: user?.email ?? 'Not set' },
+        { label: 'Phone', value: user?.phone ?? 'Not set' },
+      ]
   return (
-    <Panel title="Account" description="Contact changes are made by your school office.">
-      <Facts
-        columns={1}
-        items={[
-          { label: 'Name', value: user?.displayName ?? '—' },
-          { label: 'Email', value: user?.email ?? 'Not set' },
-          { label: 'Phone', value: user?.phone ?? 'Not set' },
-        ]}
-      />
+    <Panel title="Account" description="Changes to your details are made by your school office.">
+      <Facts columns={1} items={items} />
     </Panel>
   )
 }

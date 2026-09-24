@@ -15,6 +15,17 @@ export function describeSignInError(error: unknown): string {
   return describeError(error)
 }
 
+/**
+ * A pupil's sign-in. The server answers the same way whether the school code, the admission
+ * number or the password was wrong, and so does this sentence.
+ */
+export function describeStudentSignInError(error: unknown): string {
+  if (isApiError(error, 'AUTHENTICATION_REQUIRED') || isApiError(error, 'INVALID_REQUEST')) {
+    return 'Those details did not match. Check the school code, admission number and password.'
+  }
+  return describeSignInError(error)
+}
+
 /** Failures while checking a one-time code. The person still has attempts left; say so plainly. */
 export function describeCodeError(error: unknown): string {
   if (isApiError(error, 'AUTHENTICATION_REQUIRED') || isApiError(error, 'INVALID_REQUEST')) {

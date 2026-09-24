@@ -28,6 +28,7 @@ vi.mock('@/lib/api', () => ({
     students: { count: (...args: unknown[]) => studentCount(...args) },
     staff: { count: (...args: unknown[]) => staffCount(...args) },
     search: { run: (...args: unknown[]) => searchRun(...args) },
+    messages: { unread: async () => ({ unread: 0 }) },
     setup: {
       academicYears: (...args: unknown[]) => academicYears(...args),
       sections: (...args: unknown[]) => sections(...args),
@@ -135,6 +136,43 @@ describe('Sidebar', () => {
     expect(screen.queryByText('Quick actions')).not.toBeInTheDocument()
     // Rights are the union whatever the view: the student list is still there.
     expect(screen.getByText('Students')).toBeInTheDocument()
+  })
+})
+
+describe('a pupil', () => {
+  // Everything the student role grants, including the own-record reads that also gate office screens.
+  const PUPIL_CAPABILITIES = [
+    'grades.read', 'sections.read', 'subjects.read', 'holidays.read', 'students.read_basic', 'students.read_enrollments',
+    'timetable.read', 'dashboard.read', 'attendance.read', 'exams.read', 'report_cards.read', 'communication.read',
+  ] as const
+
+  it('sees Home, Timetable, Attendance, Exams and Messages and nothing of the office', async () => {
+    const { Sidebar } = await import('./sidebar')
+    renderWithSession(<Sidebar onOpenQuickActions={() => {}} />, { roleKeys: ['student'], capabilities: [...PUPIL_CAPABILITIES] })
+
+    const links = screen.getAllByRole('link').map((link) => link.textContent)
+    expect(links).toEqual(['Home', 'Timetable', 'Attendance', 'Exams', 'Messages'])
+    expect(screen.queryByText('Students')).not.toBeInTheDocument()
+    expect(screen.queryByText('School setup')).not.toBeInTheDocument()
+    expect(screen.queryByText('Quick actions')).not.toBeInTheDocument()
+    expect(studentCount).not.toHaveBeenCalled()
+  })
+
+  it('has no Viewing as choice', async () => {
+    const { AccountMenu } = await import('@/components/auth/account-menu')
+    renderWithSession(<AccountMenu />, { roleKeys: ['student'], capabilities: [] })
+    await userEvent.click(screen.getByRole('button', { name: /Account menu/ }))
+    expect(await screen.findByText('Account security')).toBeInTheDocument()
+    expect(screen.queryByText('Viewing as')).not.toBeInTheDocument()
+  })
+
+  it('never searches people from the quick menu', async () => {
+    const { CommandMenu } = await import('./command-menu')
+    renderWithSession(<CommandMenu open onOpenChange={() => {}} />, { roleKeys: ['student'], capabilities: [...PUPIL_CAPABILITIES] })
+    expect(screen.queryByText('Classes & sections')).not.toBeInTheDocument()
+    await userEvent.type(screen.getByPlaceholderText(/Search screens/), 'stu')
+    await waitFor(() => expect(screen.queryByText('Students')).not.toBeInTheDocument())
+    expect(searchRun).not.toHaveBeenCalled()
   })
 })
 

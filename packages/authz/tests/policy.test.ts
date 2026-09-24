@@ -94,10 +94,16 @@ test('every role template and active permission matches the scope predicates', (
     for (const permission of ACTIVE_PERMISSION_KEYS) {
       const metadata = PERMISSION_CATALOGUE[permission]
       const resourceFacts = resourceFactsFor(metadata.resourceType)
-      const context = contextFor({ roleKeys: [role] })
+      // The student role belongs to a pupil's own login, whose relationship
+      // is the pupil themself (ownStudentId), never a guardian link.
+      const student = role === 'student'
+      const context = contextFor({ roleKeys: [role], membershipKind: student ? 'student' : 'adult' })
       const grants = ROLE_TEMPLATES[role].grants.filter((g) => g.permission === permission)
 
-      for (const [label, facts] of [['related', relatedFacts], ['unrelated', unrelatedFacts]] as const) {
+      for (const [label, adultFacts] of [['related', relatedFacts], ['unrelated', unrelatedFacts]] as const) {
+        const facts: RelationshipFacts = student
+          ? { selfStaffId: null, assignments: [], ownChildStudentIds: [], ownStudentId: adultFacts.ownChildStudentIds[0] ?? null }
+          : adultFacts
         const decision = evaluate({
           context,
           permission,
@@ -106,9 +112,17 @@ test('every role template and active permission matches the scope predicates', (
           facts,
           resourceFacts,
         })
-        if (role === 'student') {
-          assert.deepEqual(decision, { allowed: false, code: 'FEATURE_DISABLED' }, `${role}/${permission}`)
-          continue
+        if (student) {
+          // The student role on an adult login is refused whatever it grants.
+          const adult = evaluate({
+            context: contextFor({ roleKeys: [role] }),
+            permission,
+            resource: reference(metadata.resourceType),
+            snapshot: snapshotFor([role]),
+            facts,
+            resourceFacts,
+          })
+          assert.deepEqual(adult, { allowed: false, code: 'ACCESS_DENIED' }, `adult ${role}/${permission}`)
         }
         const expected = grants.some((g) => matchesScope(g.scope, facts, resourceFacts))
         assert.equal(decision.allowed, expected, `${role}/${permission}/${label}`)
@@ -179,11 +193,29 @@ test('invariants deny before any grant is considered', () => {
     evaluate({ ...base, context: owner, permission: 'ai_assistant.use', resource: reference('ai_assistant'), resourceFacts: resourceFactsFor('ai_assistant') }),
     { allowed: false, code: 'ACCESS_DENIED' },
   )
+  // A student login holds the student role alone, and only a student login holds it.
   assert.deepEqual(
     evaluate({ ...base, context: contextFor({ roleKeys: ['owner'], membershipKind: 'student' }) }),
-    { allowed: false, code: 'FEATURE_DISABLED' },
+    { allowed: false, code: 'ACCESS_DENIED' },
   )
-  assert.deepEqual(evaluate({ ...base, context: contextFor({ roleKeys: ['student'] }) }), { allowed: false, code: 'FEATURE_DISABLED' })
+  assert.deepEqual(
+    evaluate({ ...base, context: contextFor({ roleKeys: ['student', 'parent'], membershipKind: 'student' }) }),
+    { allowed: false, code: 'ACCESS_DENIED' },
+  )
+  assert.deepEqual(
+    evaluate({ ...base, context: contextFor({ roleKeys: [], membershipKind: 'student' }) }),
+    { allowed: false, code: 'ACCESS_DENIED' },
+  )
+  assert.deepEqual(evaluate({ ...base, context: contextFor({ roleKeys: ['student'] }) }), { allowed: false, code: 'ACCESS_DENIED' })
+  assert.deepEqual(
+    evaluate({ ...base, context: contextFor({ roleKeys: ['teacher', 'student'] }) }),
+    { allowed: false, code: 'ACCESS_DENIED' },
+  )
+  // Even a snapshot that grants everything cannot pass that door.
+  assert.deepEqual(
+    evaluate({ ...base, snapshot: snapshotFor(['owner', 'student']), context: contextFor({ roleKeys: ['owner'], membershipKind: 'student' }) }),
+    { allowed: false, code: 'ACCESS_DENIED' },
+  )
   assert.deepEqual(
     evaluate({ ...base, context: owner, resource: reference('student', OTHER_SCHOOL) }),
     { allowed: false, code: 'RESOURCE_NOT_FOUND' },
@@ -450,4 +482,80 @@ test('exams: the accountant holds no exam or report card permission', () => {
     resourceFacts: { ...resourceFactsFor('exam'), published: true },
   })
   assert.equal(decision.allowed, false)
+})
+
+test('own_record matches the pupil themself only, and published results only', () => {
+  const me: RelationshipFacts = { selfStaffId: null, assignments: [], ownChildStudentIds: [], ownStudentId: 'pupil-1' }
+  const own = (resourceType: ResourceType, extra: Partial<ResourceFacts> = {}): ResourceFacts => ({
+    resourceType,
+    id: `${resourceType}-1`,
+    studentId: 'pupil-1',
+    sectionIds: ['section-1'],
+    academicYearId: 'year-1',
+    ...extra,
+  })
+  for (const type of ['student', 'enrollment', 'attendance', 'timetable', 'section', 'grade', 'subject'] as const) {
+    assert.equal(matchesScope('own_record', me, own(type)), true, type)
+    // Another pupil, even in the same section, is never the pupil's own record.
+    assert.equal(matchesScope('own_record', me, own(type, { studentId: 'pupil-2' })), false, `${type} other`)
+    // A shared row with no pupil behind it (not through the current enrolment) answers nothing.
+    const { studentId: _drop, ...shared } = own(type)
+    assert.equal(matchesScope('own_record', me, shared), false, `${type} unrelated`)
+  }
+  for (const type of ['exam', 'report_card'] as const) {
+    assert.equal(matchesScope('own_record', me, own(type, { published: true })), true, type)
+    assert.equal(matchesScope('own_record', me, own(type, { published: false })), false, `${type} unpublished`)
+    assert.equal(matchesScope('own_record', me, own(type)), false, `${type} unknown`)
+    assert.equal(matchesScope('own_record', me, own(type, { published: true, studentId: 'pupil-2' })), false)
+  }
+  // A message is never reached through the pupil it is about.
+  assert.equal(matchesScope('own_record', me, own('communication', { membershipIds: [] })), false)
+  // An adult has no own record, whatever children they have.
+  const parent: RelationshipFacts = { selfStaffId: null, assignments: [], ownChildStudentIds: ['pupil-1'] }
+  assert.equal(matchesScope('own_record', parent, own('student')), false)
+  assert.equal(matchesScope('own_record', { ...parent, ownStudentId: null }, own('student')), false)
+  // The pupil's own home screen summarises the pupil.
+  const dashboard: ResourceFacts = { resourceType: 'dashboard', id: 'dashboard', aggregate: true }
+  assert.equal(matchesScope('own_record', me, dashboard), true)
+  assert.equal(matchesScope('own_record', parent, dashboard), false)
+})
+
+test('the student role reads its own learning record and nothing financial or administrative', () => {
+  const context = contextFor({ roleKeys: ['student'], membershipKind: 'student', assurance: 'single_factor' })
+  const me: RelationshipFacts = { selfStaffId: null, assignments: [], ownChildStudentIds: [], ownStudentId: 'student-1' }
+  const decide = (permission: PermissionKey, facts: RelationshipFacts = me) =>
+    evaluate({
+      context,
+      permission,
+      resource: reference(PERMISSION_CATALOGUE[permission].resourceType),
+      snapshot: snapshotFor(['student']),
+      facts,
+      resourceFacts: {
+        ...resourceFactsFor(PERMISSION_CATALOGUE[permission].resourceType),
+        published: true,
+      },
+    })
+  for (const permission of [
+    'students.read_basic',
+    'students.read_enrollments',
+    'timetable.read',
+    'attendance.read',
+    'exams.read',
+    'report_cards.read',
+    'sections.read',
+    'grades.read',
+    'subjects.read',
+    'dashboard.read',
+  ] as const) {
+    assert.equal(decide(permission).allowed, true, permission)
+    // The home screen is an aggregate of whatever the pupil reaches; every
+    // other read is about one pupil and never another.
+    if (permission !== 'dashboard.read')
+      assert.equal(decide(permission, { ...me, ownStudentId: 'student-9' }).allowed, false, `${permission} other pupil`)
+  }
+  for (const permission of ACTIVE_PERMISSION_KEYS) {
+    if (!/^(fees|staff|audit|consents|exports)\./.test(permission) && !permission.endsWith('_guardians') && !permission.includes('document') && !permission.includes('medical') && !permission.includes('sensitive'))
+      continue
+    assert.equal(decide(permission).allowed, false, permission)
+  }
 })

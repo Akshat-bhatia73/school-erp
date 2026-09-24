@@ -16,7 +16,7 @@ Response schemas are allowlists, not database row serializers. Separate student 
 
 ## Login and trusted identity
 
-Staff use email/password. Privileged roles require authenticator MFA before school data access. Teachers without email may use verified phone OTP. This fallback does not bypass MFA when a teacher is later assigned privileged access. Parents use verified phone OTP and approved guardian-child links. Student identity is modelled, but student login remains disabled and its template has no grants.
+Staff use email/password. Privileged roles require authenticator MFA before school data access. Teachers without email may use verified phone OTP. This fallback does not bypass MFA when a teacher is later assigned privileged access. Parents use verified phone OTP and approved guardian-child links. Pupils in Class 9 to 12 sign in with the school's login code, their admission number and a password the school texts to the primary guardian (Task 23); the student role reads the pupil's own published learning record and nothing financial or administrative.
 
 The server derives identity from a verified session and reloads the selected school's active membership, roles and access version. A school ID in a URL selects a context; it never proves membership. Never construct `RequestContext` from request JSON or trust browser capabilities as policy. Its TypeScript brand helps prevent accidental construction; it is not a security boundary against malicious code.
 
@@ -24,7 +24,7 @@ School contact changes must not change a person's global verified login email or
 
 ## Decision order and scopes
 
-Deny by default. Reject unknown or reserved actions, disabled student access, invalid sessions, inactive memberships and mismatched schools before considering a grant. Apply MFA, field restrictions and business-state checks. Then evaluate applicable role grants and approved resource allows; a matching resource deny wins over either. No exception may bypass school isolation, MFA, inactive membership, reserved actions or ownership rules.
+Deny by default. Reject unknown or reserved actions, a student membership carrying anything but the student role, invalid sessions, inactive memberships and mismatched schools before considering a grant. Apply MFA, field restrictions and business-state checks. Then evaluate applicable role grants and approved resource allows; a matching resource deny wins over either. No exception may bypass school isolation, MFA, inactive membership, reserved actions or ownership rules.
 
 Scopes are independent predicates, never a hierarchy:
 
@@ -35,7 +35,7 @@ Scopes are independent predicates, never a hierarchy:
 | `assigned_sections` | A current, effective teaching assignment links this member to the resource's section and academic year. |
 | `assigned_subjects` | An effective assignment matches both the section and subject, within the same academic year. Teaching a subject elsewhere does not qualify. |
 | `own_children` | An approved, active guardian link connects this member to the child in this school. It does not reveal other guardians' private details or unlinked siblings. |
-| `own_record` | Resource belongs to this student's linked record. Reserved for later student activation. |
+| `own_record` | Resource belongs to the pupil a student membership is linked to (published rows only for results and report cards). |
 | `finance` | Resource is in this school and the requested projection is approved for the finance workflow. This is not school-wide access to all fields. On the audit trail it is also a row filter: `audit.read` and `audit.export` select only the actions in `FINANCE_AUDIT_ACTIONS`. |
 
 `FINANCE_AUDIT_ACTIONS` is exported from `@erp/contracts` (with the `FinanceAuditAction` type and the `isFinanceAuditAction` guard). It lists the audit actions a finance audience may read: `staff.update_pay`, `staff.export` and `audit.export` today, with the fee actions joining it when the fees module lands. Membership, role, invitation, student and setup actions are deliberately absent. Change the list here and the scope term, the API and the tests follow.
@@ -141,3 +141,5 @@ The workspace was checked with Node 24.15.0, pnpm 10.34.4, TypeScript 6.0.3 and 
 Run `pnpm test:contracts`, `pnpm typecheck`, `pnpm lint` and `pnpm build:web`. After changing the catalogue or templates, run `pnpm --filter @erp/contracts docs:generate`. Tests check schema boundaries, role defaults, delegation envelopes, generated-matrix drift and coverage of current mock operations and routes. These are contract tests; they do not prove live tenant isolation.
 
 Task 1 implements PostgreSQL schema, tenant constraints and RLS. Task 2 implements verified sessions and login methods. Task 3 implements the authorization evaluator and scoped repositories. Task 4 implements membership workflows. Task 5 replaces mock APIs with protected endpoints and safe projections. Tasks 6 and 7 integrate session state and permission-driven UI. Task 8 makes admission numbers and employee codes server-assigned. Task 9 proves cross-school, cross-person, field, export, concurrency and revocation boundaries against the running stack.
+
+`module-student-logins.ts` (Task 23) holds the pupil login contracts: `StudentSignInRequest` (`schoolCode`, `admissionNumber`, `password`, `sharedDevice?`, strict) and `StudentSignInResponse`; `StudentLoginView`, the office's view of one pupil's login (state `none`, `active`, `switched_off`, `ended`; the admission number as username; a `blocker` of `not_on_roll`, `not_senior` or `no_guardian_phone`; the guardian phone masked; never a password or the generated address); the switch requests; `IssueStudentLoginsResult` (counts only); `STUDENT_LOGIN_LEVELS` (9 to 12) and `STUDENT_PLACEHOLDER_EMAIL_DOMAIN`. One new permission, `students.manage_login` (student, school, privileged), for owner, principal and admin. `SessionSummary.passwordChangeRequired`, `SchoolContextResponse.ownStudentId` and the `PASSWORD_CHANGE_REQUIRED` error code carry the first-sign-in rule. `GradeInput.level`, the `student` dashboard audience (`StudentDashboard`), and on messages `MessageRecipients`, the `grade_range` audience, `pupils` counts and the `student` recipient kind complete it.

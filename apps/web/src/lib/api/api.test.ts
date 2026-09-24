@@ -458,3 +458,42 @@ describe('school logo', () => {
     vi.unstubAllGlobals()
   })
 })
+
+describe('student logins', () => {
+  beforeEach(() => {
+    http.request.mockReset()
+    http.request.mockResolvedValue(undefined)
+  })
+
+  it('reads and acts on one pupil login', async () => {
+    await api.studentLogins.get(SCHOOL, 's1')
+    expect(lastCall().path).toBe(`${PREFIX}/students/s1/login`)
+    expect(methodOf()).toBe('GET')
+    await api.studentLogins.issue(SCHOOL, 's1')
+    expect(lastCall().path).toBe(`${PREFIX}/students/s1/login`)
+    expect(methodOf()).toBe('POST')
+    await api.studentLogins.resetPassword(SCHOOL, 's1')
+    expect(lastCall().path).toBe(`${PREFIX}/students/s1/login/reset-password`)
+    expect(methodOf()).toBe('POST')
+    await api.studentLogins.switchOff(SCHOOL, 's1', { expectedVersion: 3, reason: 'Asked by parent' })
+    expect(lastCall().path).toBe(`${PREFIX}/students/s1/login/switch-off`)
+    expect(lastCall().options.body).toEqual({ expectedVersion: 3, reason: 'Asked by parent' })
+    await api.studentLogins.switchOn(SCHOOL, 's1', { expectedVersion: 4 })
+    expect(lastCall().path).toBe(`${PREFIX}/students/s1/login/switch-on`)
+    expect(lastCall().options.body).toEqual({ expectedVersion: 4 })
+  })
+
+  it('issues every missing login at school level', async () => {
+    await api.studentLogins.issueMissing(SCHOOL)
+    expect(lastCall().path).toBe(`${PREFIX}/students/logins/issue`)
+    expect(methodOf()).toBe('POST')
+  })
+
+  it('parses answers through the contract schemas', async () => {
+    const { StudentLoginView, IssueStudentLoginsResult } = await import('@erp/contracts')
+    await api.studentLogins.get(SCHOOL, 's1')
+    expect(lastCall().options.schema).toBe(StudentLoginView)
+    await api.studentLogins.issueMissing(SCHOOL)
+    expect(lastCall().options.schema).toBe(IssueStudentLoginsResult)
+  })
+})

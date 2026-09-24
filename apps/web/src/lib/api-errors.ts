@@ -14,6 +14,7 @@ const MESSAGES: Record<ApiErrorCode, string> = {
   SCHOOL_ACCESS_UNAVAILABLE: 'You do not have access to this school right now.',
   ACCESS_DENIED: 'You do not have permission to do this.',
   FEATURE_DISABLED: 'This way of signing in is turned off.',
+  PASSWORD_CHANGE_REQUIRED: 'Choose your own password before you carry on.',
   RESOURCE_NOT_FOUND: 'We could not find that.',
   INVALID_REQUEST: 'Some details were not right. Check them and try again.',
   INVITATION_UNAVAILABLE: 'This invitation link cannot be used. Ask your school for a new one.',

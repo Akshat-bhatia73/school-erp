@@ -13,9 +13,10 @@ vi.mock('@tanstack/react-router', () => ({
 const auth = vi.hoisted(() => ({
   signInWithEmail: vi.fn(),
   sendPhoneOtp: vi.fn(),
+  studentSignIn: vi.fn(),
   needsSecondFactor: (result: unknown) => Boolean(result && typeof result === 'object' && 'twoFactorRedirect' in result),
   normaliseIndianPhone: (value: string) => (/^[6-9]\d{9}$/.test(value) ? `+91${value}` : null),
-  authConfig: vi.fn(async () => ({ deliveryMode: 'provider', studentLoginEnabled: false })),
+  authConfig: vi.fn(async () => ({ deliveryMode: 'provider', studentLoginEnabled: true })),
 }))
 vi.mock('@/lib/auth-client', () => auth)
 
@@ -42,6 +43,7 @@ describe('LoginScreen', () => {
     navigate.mockReset()
     auth.signInWithEmail.mockReset()
     auth.sendPhoneOtp.mockReset()
+    auth.studentSignIn.mockReset()
   })
 
   it('shows the email form for the school office and the phone form for parents', async () => {
@@ -52,14 +54,44 @@ describe('LoginScreen', () => {
     expect(await screen.findByLabelText('Mobile number')).toBeInTheDocument()
   })
 
-  it('never sends anything for the student tab', async () => {
+  it('signs a pupil in with the three fields and sends them to choose a password first', async () => {
     const user = userEvent.setup()
+    auth.studentSignIn.mockResolvedValue({ signedIn: true, passwordChangeRequired: true })
     renderLogin()
     await user.click(screen.getByRole('tab', { name: 'Student' }))
-    expect(await screen.findByText('Student sign-in is not open yet')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument()
+    await user.type(await screen.findByLabelText('School code'), 'sunrise')
+    await user.type(screen.getByLabelText('Admission number'), 'ADM-0901')
+    await user.type(screen.getByLabelText('Password'), 'texted-password')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    await waitFor(() => expect(auth.studentSignIn).toHaveBeenCalledWith({
+      schoolCode: 'sunrise', admissionNumber: 'ADM-0901', password: 'texted-password', sharedDevice: false,
+    }))
+    expect(refresh).toHaveBeenCalled()
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/account/change-password', search: { returnTo: '/students' } })))
     expect(auth.signInWithEmail).not.toHaveBeenCalled()
-    expect(auth.sendPhoneOtp).not.toHaveBeenCalled()
+  })
+
+  it('sends a pupil with their own password straight to where they were going', async () => {
+    const user = userEvent.setup()
+    auth.studentSignIn.mockResolvedValue({ signedIn: true, passwordChangeRequired: false })
+    render(<LoginScreen returnTo="/students" audience="student" />)
+    await user.type(screen.getByLabelText('School code'), 'sunrise')
+    await user.type(screen.getByLabelText('Admission number'), 'ADM-0901')
+    await user.type(screen.getByLabelText('Password'), 'my-own-password')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ href: '/students' })))
+  })
+
+  it('gives a pupil one message whatever was wrong', async () => {
+    const user = userEvent.setup()
+    auth.studentSignIn.mockRejectedValue(new ApiRequestError({ code: 'AUTHENTICATION_REQUIRED', status: 401, message: 'x' }))
+    render(<LoginScreen returnTo="/students" audience="student" />)
+    await user.type(screen.getByLabelText('School code'), 'sunrise')
+    await user.type(screen.getByLabelText('Admission number'), 'ADM-0000')
+    await user.type(screen.getByLabelText('Password'), 'wrong')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(await screen.findByText('Those details did not match. Check the school code, admission number and password.')).toBeInTheDocument()
+    expect(navigate).not.toHaveBeenCalled()
   })
 
   it('sends the person to where they were going after a successful sign-in', async () => {

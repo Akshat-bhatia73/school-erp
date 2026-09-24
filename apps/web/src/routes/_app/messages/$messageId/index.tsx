@@ -6,7 +6,7 @@ import { EmailStatus, RecipientOutcome, type MessageCounts } from '@erp/contract
 import { Ban, Download, FileText, Mail, Pencil, Trash2, Undo2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import { EMAIL_LABEL, formatBytes, formatDateTime, KIND_COLOR, kindLabel, OUTCOME_LABEL, STATUS_COLOR, STATUS_LABEL } from '@/components/messages/labels'
+import { audienceLine, EMAIL_LABEL, formatBytes, formatDateTime, KIND_COLOR, kindLabel, OUTCOME_LABEL, recipientRelation, STATUS_COLOR, STATUS_LABEL } from '@/components/messages/labels'
 import { DataTable } from '@/components/shared/data-table'
 import { useExportDownload } from '@/components/shared/export-download'
 import { FilterChip } from '@/components/shared/filter-chip'
@@ -149,7 +149,7 @@ function Detail({ message }: { message: MessageRecord }) {
               <Tag color={STATUS_COLOR[message.status]} dot>{STATUS_LABEL[message.status]}</Tag>
               <span>From {message.sender.name}</span>
               <span>·</span>
-              <span>To {message.audience.label}</span>
+              <span>To {audienceLine(message.audience)}</span>
               <span>·</span>
               <span>{when}</span>
             </div>
@@ -244,6 +244,7 @@ function Detail({ message }: { message: MessageRecord }) {
 function CountStrip({ counts }: { counts: MessageCounts }) {
   const items: Array<[string, number]> = [
     ['Delivered', counts.delivered],
+    ['Pupils', counts.pupils],
     ['In the app', counts.inApp],
     ['Read', counts.read],
     ['Emails sent', counts.emailSent],
@@ -253,7 +254,7 @@ function CountStrip({ counts }: { counts: MessageCounts }) {
     ['No contact', counts.noContact],
   ]
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-4 lg:grid-cols-8">
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-4 lg:grid-cols-9">
       {items.map(([label, value]) => (
         <div key={label} className="bg-card px-3 py-2.5">
           <p className="text-[12px] text-muted-foreground">{label}</p>
@@ -290,11 +291,11 @@ function Recipients({ message, exportButton, exportStatus }: { message: MessageR
       cell: ({ row }) => (
         <span className="min-w-0">
           <span className="block truncate">{row.original.name}</span>
-          {row.original.relation && <span className="block truncate text-[12px] text-muted-foreground">{row.original.relation}</span>}
+          {recipientRelation(row.original) && <span className="block truncate text-[12px] text-muted-foreground">{recipientRelation(row.original)}</span>}
         </span>
       ),
     },
-    { id: 'pupil', header: 'Pupil', size: 200, cell: ({ row }) => <span className="truncate">{row.original.pupil ? `${row.original.pupil.name}${row.original.pupil.section ? `, ${row.original.pupil.section}` : ''}` : ''}</span> },
+    { id: 'pupil', header: 'Pupil', size: 200, cell: ({ row }) => <span className="truncate">{row.original.pupil && row.original.kind !== 'student' ? `${row.original.pupil.name}${row.original.pupil.section ? `, ${row.original.pupil.section}` : ''}` : ''}</span> },
     { id: 'outcome', header: 'Outcome', size: 130, cell: ({ row }) => <Tag color={row.original.outcome === 'delivered' ? 'green' : 'yellow'}>{OUTCOME_LABEL[row.original.outcome]}</Tag> },
     { id: 'app', header: 'In the app', size: 150, cell: ({ row }) => <span className="text-muted-foreground">{row.original.inApp ? (row.original.readAt ? `Read ${formatDateTime(row.original.readAt)}` : 'Not read yet') : 'No'}</span> },
     { id: 'email', header: 'Email', size: 200, cell: ({ row }) => <span className="truncate text-muted-foreground">{EMAIL_LABEL[row.original.emailStatus]}{row.original.emailMasked ? ` · ${row.original.emailMasked}` : ''}</span> },

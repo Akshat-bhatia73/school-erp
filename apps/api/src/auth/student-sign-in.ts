@@ -79,7 +79,17 @@ export function registerStudentSignInRoute(
   deps: StudentSignInDependencies,
 ): void {
   app.post('/api/student-sign-in', async (request, reply) => {
-    const parsed = StudentSignInRequest.safeParse(request.body)
+    // The app keeps every JSON body as its raw text (the provider needs it
+    // unparsed), so this route parses its own.
+    let raw: unknown = request.body
+    if (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw)
+      } catch {
+        throw new ApiFailure('INVALID_REQUEST')
+      }
+    }
+    const parsed = StudentSignInRequest.safeParse(raw)
     if (!parsed.success) throw new ApiFailure('INVALID_REQUEST')
     const input = parsed.data
 

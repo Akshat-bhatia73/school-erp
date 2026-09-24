@@ -40,8 +40,8 @@ const COPY: Record<AccessReason, Copy> = {
     otherSchool: true,
   },
   student: {
-    title: 'Student sign-in is off',
-    body: 'Student access is not enabled yet. Your school will tell you when students can sign in.',
+    title: 'Student login is off',
+    body: 'Your student login is switched off. Ask the school office.',
     icon: Lock,
   },
   disabled: {

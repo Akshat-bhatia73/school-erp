@@ -9,6 +9,8 @@ import {
   MESSAGE_KIND_LABELS,
   PLACEHOLDERS_BY_KIND,
   type MessageAudienceInput,
+  type MessageAudienceView,
+  type MessageRecipients,
   type MessagePlaceholder,
   type AudiencePreview,
   type EmailStatus,
@@ -61,13 +63,41 @@ export const EMAIL_LABEL: Readonly<Record<EmailStatus, string>> = {
 }
 
 export const AUDIENCE_KIND_LABEL = {
-  school: 'Whole school families',
+  school: 'Whole school',
   staff: 'All staff',
   grade: 'A class',
+  grade_range: 'A range of classes',
   section: 'A section',
-  pupil: "One pupil's family",
+  pupil: 'One pupil',
   staff_member: 'One staff member',
 } as const
+
+/** The "Send to" choice for an audience made of pupils. */
+export const RECIPIENTS_LABEL: Readonly<Record<MessageRecipients, string>> = {
+  families: 'Families',
+  students: 'Pupils',
+  both: 'Pupils and families',
+}
+
+/** Every audience made of pupils has a "Send to" choice; the staff audiences have none. */
+export function hasRecipients(kind: AudienceChoice['kind'] | MessageAudienceView['kind']): boolean {
+  return kind === 'school' || kind === 'grade' || kind === 'grade_range' || kind === 'section' || kind === 'pupil'
+}
+
+/**
+ * The audience as a sent message shows it: "Class 9 A, pupils and families". The server already
+ * writes the recipients into one pupil's label ("Aarav Sharma and family"), so that one is left as
+ * it is.
+ */
+export function audienceLine(audience: Pick<MessageAudienceView, 'kind' | 'label' | 'recipients'>): string {
+  if (!audience.recipients || audience.kind === 'pupil') return audience.label
+  return `${audience.label}, ${RECIPIENTS_LABEL[audience.recipients].toLowerCase()}`
+}
+
+/** A delivery row's relation. A pupil's own row is "Pupil" even if the server left it out. */
+export function recipientRelation(row: { kind: 'guardian' | 'staff' | 'student'; relation?: string }): string | undefined {
+  return row.relation ?? (row.kind === 'student' ? 'Pupil' : undefined)
+}
 
 export function kindLabel(kind: MessageKind): string {
   return MESSAGE_KIND_LABELS[kind]
@@ -79,21 +109,42 @@ export function plural(count: number, one: string, many: string): string {
 }
 
 /**
- * The line under the audience picker. Staff are people, everyone else is a family, and the
- * people who get nothing are named last so the sender sees them.
+ * The line under the audience picker. Staff are people, everyone else is a family or a pupil, and
+ * the people who get nothing are named last so the sender sees them. A pupil reads a message only
+ * in the app, so the pupils are counted apart from the families' app and email numbers.
  */
-export function previewSentence(preview: Pick<AudiencePreview, 'audience' | 'recipients' | 'inApp' | 'email' | 'noConsent' | 'notReceiving' | 'noContact'>): string {
+export function previewSentence(preview: Pick<AudiencePreview, 'audience' | 'recipients' | 'pupils' | 'pupilsInApp' | 'inApp' | 'email' | 'noConsent' | 'notReceiving' | 'noContact'>): string {
   const staff = preview.audience.kind === 'staff' || preview.audience.kind === 'staff_member'
-  const who = staff ? plural(preview.recipients, 'person', 'people') : plural(preview.recipients, 'family', 'families')
-  const parts = [`Goes to ${who}: ${preview.inApp} in the app, ${preview.email} by email.`]
-  if (preview.noConsent > 0) {
-    parts.push(`${preview.noConsent} ${preview.noConsent === 1 ? 'has' : 'have'} not agreed to messages and will get nothing.`)
+  if (staff) return familySentence(`Goes to ${plural(preview.recipients, 'person', 'people')}:`, preview.inApp, preview.email, preview)
+  const families = preview.recipients - preview.pupils
+  if (preview.pupils === 0) return familySentence(`Goes to ${plural(families, 'family', 'families')}:`, preview.inApp, preview.email, preview)
+
+  const pupilsWithout = preview.pupils - preview.pupilsInApp
+  const reach = `${plural(preview.pupilsInApp, 'pupil has', 'pupils have')} a login and will see it in the app.`
+  if (families === 0) {
+    const parts = [`Goes to ${plural(preview.pupils, 'pupil', 'pupils')}: ${reach}`]
+    if (pupilsWithout > 0) parts.push(`${plural(pupilsWithout, 'pupil has', 'pupils have')} no login yet.`)
+    return parts.join(' ')
   }
-  if (preview.notReceiving > 0) {
-    parts.push(`${preview.notReceiving} ${preview.notReceiving === 1 ? 'is' : 'are'} marked as not receiving messages.`)
+  const parts = [`Goes to ${plural(families, 'family', 'families')} and ${plural(preview.pupils, 'pupil', 'pupils')}: ${reach}`]
+  if (pupilsWithout > 0) parts.push(`${plural(pupilsWithout, 'pupil has', 'pupils have')} no login yet.`)
+  parts.push(familySentence('The families:', preview.inApp - preview.pupilsInApp, preview.email, {
+    ...preview,
+    noContact: preview.noContact - pupilsWithout,
+  }))
+  return parts.join(' ')
+}
+
+function familySentence(lead: string, inApp: number, email: number, counts: Pick<AudiencePreview, 'noConsent' | 'notReceiving' | 'noContact'>): string {
+  const parts = [`${lead} ${inApp} in the app, ${email} by email.`]
+  if (counts.noConsent > 0) {
+    parts.push(`${counts.noConsent} ${counts.noConsent === 1 ? 'has' : 'have'} not agreed to messages and will get nothing.`)
   }
-  if (preview.noContact > 0) {
-    parts.push(`${preview.noContact} ${preview.noContact === 1 ? 'has' : 'have'} no app login and no email address.`)
+  if (counts.notReceiving > 0) {
+    parts.push(`${counts.notReceiving} ${counts.notReceiving === 1 ? 'is' : 'are'} marked as not receiving messages.`)
+  }
+  if (counts.noContact > 0) {
+    parts.push(`${counts.noContact} ${counts.noContact === 1 ? 'has' : 'have'} no app login and no email address.`)
   }
   return parts.join(' ')
 }
@@ -152,27 +203,50 @@ export function attachmentProblem(file: { type: string; size: number }, alreadyA
 
 /** What the audience picker holds while a person is choosing. */
 export interface AudienceChoice {
-  kind: 'school' | 'staff' | 'grade' | 'section' | 'pupil' | null
+  kind: 'school' | 'staff' | 'grade' | 'grade_range' | 'section' | 'pupil' | null
   gradeId: string
+  /** The first and last class of a range. */
+  fromGradeId: string
+  toGradeId: string
   sectionId: string
   studentId: string
+  recipients: MessageRecipients
 }
 
-/** The audience to send, or null while the choice is not finished (a class picked with no class). */
+/**
+ * The audience to send, or null while the choice is not finished (a class picked with no class,
+ * a range with one end missing). The recipients go with every audience made of pupils.
+ */
 export function audienceInputOf(choice: AudienceChoice): MessageAudienceInput | null {
+  const recipients = { recipients: choice.recipients }
   switch (choice.kind) {
-    case 'school':
     case 'staff':
-      return { kind: choice.kind }
+      return { kind: 'staff' }
+    case 'school':
+      return { kind: 'school', ...recipients }
     case 'grade':
-      return choice.gradeId ? { kind: 'grade', gradeId: choice.gradeId } : null
+      return choice.gradeId ? { kind: 'grade', gradeId: choice.gradeId, ...recipients } : null
+    case 'grade_range':
+      return choice.fromGradeId && choice.toGradeId
+        ? { kind: 'grade_range', fromGradeId: choice.fromGradeId, toGradeId: choice.toGradeId, ...recipients }
+        : null
     case 'section':
-      return choice.sectionId ? { kind: 'section', sectionId: choice.sectionId } : null
+      return choice.sectionId ? { kind: 'section', sectionId: choice.sectionId, ...recipients } : null
     case 'pupil':
-      return choice.studentId ? { kind: 'pupil', studentId: choice.studentId } : null
+      return choice.studentId ? { kind: 'pupil', studentId: choice.studentId, ...recipients } : null
     default:
       return null
   }
+}
+
+/**
+ * Whether the range runs forwards in the school's class order (the order the audiences response
+ * lists the classes in). The server refuses a range whose first class comes after its last.
+ */
+export function rangeInOrder(grades: ReadonlyArray<{ id: string }>, fromGradeId: string, toGradeId: string): boolean {
+  const from = grades.findIndex((grade) => grade.id === fromGradeId)
+  const to = grades.findIndex((grade) => grade.id === toGradeId)
+  return from !== -1 && to !== -1 && from <= to
 }
 
 /** The placeholders a notice to this audience may use: the pupil's only for one pupil's family. */

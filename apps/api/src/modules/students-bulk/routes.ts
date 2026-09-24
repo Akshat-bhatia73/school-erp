@@ -16,6 +16,7 @@ import {
   StudentsPromotePreviewQuery,
 } from '@erp/contracts'
 import { photoMoment } from '../students/project.ts'
+import { issueStudentLogins } from '../../memberships/student-logins.ts'
 import { createAndMaybeProduce } from '../../exports/run.ts'
 import type { ModuleDependencies } from '../shared/route.ts'
 import { protectedRoute } from '../shared/route.ts'
@@ -129,8 +130,8 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
     body: CommitStudentImportRequest,
     response: BulkCommitResult,
     successStatus: 201,
-    handler: async ({ context, body }) =>
-      withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+    handler: async ({ context, body, request }) => {
+      const committed = await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
         await authorizeSchoolAction(conn, context, 'students.import')
         await lockSchool(conn, context.schoolId)
 
@@ -150,12 +151,14 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
         )
         // Row order decides the counter, so a sheet reads in the same order it
         // was written. A row that carried its own number keeps it.
+        const admissionNumbers: string[] = []
         for (const row of rows) {
           const admissionNumber =
             row.admissionNumber ??
             (await allocateAdmissionNumber(conn, context.schoolId, preview.academic_year_id, {
               synced: true,
             }))
+          admissionNumbers.push(admissionNumber)
           await insertStudent(
             conn.client,
             context.schoolId,
@@ -178,8 +181,20 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
           summary: 'Admitted a checked sheet of students with their class and one contact each.',
           safeChanges: { created: rows.length },
         })
-        return { created: rows.length }
-      }),
+        // The pupils this sheet admitted, for their own logins after the commit.
+        const inserted = await conn.client.query<{ id: string }>(
+          `SELECT id FROM students WHERE school_id = $1 AND admission_number = ANY($2::text[])`,
+          [context.schoolId, admissionNumbers],
+        )
+        return { created: rows.length, studentIds: inserted.rows.map((row) => row.id) }
+      })
+      // Only after the commit; a login that cannot be issued never fails the
+      // import (Task 23).
+      await issueStudentLogins(deps, context, committed.studentIds, 'import', (fields, line) =>
+        request.log.warn({ requestId: request.id, ...fields }, line),
+      )
+      return { created: committed.created }
+    },
   })
 
   protectedRoute(app, deps, {
@@ -280,8 +295,8 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
     permission: 'students.promote',
     body: PromoteStudentsRequest,
     response: PromotionResult,
-    handler: async ({ context, body }) =>
-      withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+    handler: async ({ context, body, request }) => {
+      const promoted = await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
         await authorizeSchoolAction(conn, context, 'students.promote')
         await lockSchool(conn, context.schoolId)
 
@@ -361,7 +376,14 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
           },
         })
         return { promoted: body.studentIds.length, detained: body.detainedStudentIds.length }
-      }),
+      })
+      // Only after the commit: a pupil promoted into Class 9 to 12 gets a login.
+      // It never fails the promotion (Task 23).
+      await issueStudentLogins(deps, context, body.studentIds, 'promotion', (fields, line) =>
+        request.log.warn({ requestId: request.id, ...fields }, line),
+      )
+      return promoted
+    },
   })
 
   protectedRoute(app, deps, {

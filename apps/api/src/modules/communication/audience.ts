@@ -1,4 +1,4 @@
-import type { AudiencePreview, MessageAudienceKind, RecipientOutcome } from '@erp/contracts'
+import type { AudiencePreview, MessageAudienceKind, MessageRecipients, RecipientOutcome } from '@erp/contracts'
 import type { TenantConnection } from '../shared/index.ts'
 import { isDeliverableAddress, maskAddress, type DispatchDependencies } from './common.ts'
 
@@ -6,15 +6,21 @@ import { isDeliverableAddress, maskAddress, type DispatchDependencies } from './
 export interface AudienceTarget {
   readonly kind: MessageAudienceKind
   readonly gradeId?: string
+  /** The last class of a `grade_range`; gradeId is the first. */
+  readonly toGradeId?: string
   readonly sectionId?: string
   readonly academicYearId?: string
   readonly studentId?: string
   readonly staffId?: string
+  /** Who of a pupil audience it goes to; absent for the staff audiences and read as families. */
+  readonly recipients?: MessageRecipients
 }
 
 /** One person the message is for, as materialiseMessage records them. */
 export interface ResolvedRecipient {
   readonly guardianId?: string
+  /** A pupil's own row: studentId is the pupil, no guardian and no staff member. */
+  readonly isStudent?: boolean
   readonly staffId?: string
   readonly membershipId: string | null
   readonly studentId: string | null
@@ -33,6 +39,11 @@ interface GuardianRow {
   student_id: string
   membership_id: string | null
   user_id: string | null
+}
+
+interface PupilRow {
+  student_id: string
+  membership_id: string | null
 }
 
 interface StaffRow {
@@ -56,6 +67,13 @@ function pupilFilter(target: AudienceTarget, params: unknown[]): string {
     case 'grade':
       params.push(target.gradeId)
       return `sec.grade_id = $${params.length}::uuid AND en.academic_year_id = (SELECT id FROM audience_year)`
+    case 'grade_range':
+      params.push(target.gradeId, target.toGradeId)
+      return `en.academic_year_id = (SELECT id FROM audience_year) AND sec.grade_id IN (
+          SELECT gr.id FROM grades gr
+           WHERE gr.school_id = st.school_id
+             AND gr.sort_order BETWEEN (SELECT sort_order FROM grades WHERE school_id = st.school_id AND id = $${params.length - 1}::uuid)
+                                   AND (SELECT sort_order FROM grades WHERE school_id = st.school_id AND id = $${params.length}::uuid))`
     case 'school':
       return `en.academic_year_id = (SELECT id FROM audience_year)`
     case 'pupil':
@@ -132,6 +150,36 @@ async function familyRows(
            LIMIT 1
         ) m ON true
        ORDER BY ag.guardian_id`,
+    params,
+  )
+  return result.rows
+}
+
+/**
+ * One row per pupil in the audience, with the pupil's own membership when
+ * their login is on (a `student` membership that is `active`).
+ */
+async function pupilRows(conn: TenantConnection, schoolId: string, target: AudienceTarget): Promise<PupilRow[]> {
+  const params: unknown[] = [schoolId]
+  const filter = pupilFilter(target, params)
+  const result = await conn.client.query<PupilRow>(
+    `WITH audience_year AS (
+        SELECT id FROM academic_years WHERE school_id = $1 AND status = 'current'
+         ORDER BY start_date DESC LIMIT 1
+      ),
+      audience_pupils AS (
+        SELECT DISTINCT st.id AS student_id
+          FROM students st
+          JOIN enrollments en ON en.school_id = st.school_id AND en.student_id = st.id AND en.left_on IS NULL
+          JOIN sections sec ON sec.school_id = en.school_id AND sec.id = en.section_id
+         WHERE st.school_id = $1 AND st.status = 'active' AND st.anonymised_at IS NULL AND ${filter}
+      )
+      SELECT p.student_id, sm.id AS membership_id
+        FROM audience_pupils p
+        LEFT JOIN membership_student_links msl ON msl.school_id = $1 AND msl.student_id = p.student_id
+        LEFT JOIN school_memberships sm ON sm.school_id = msl.school_id AND sm.id = msl.membership_id
+         AND sm.kind = 'student' AND sm.status = 'active'
+       ORDER BY p.student_id`,
     params,
   )
   return result.rows
@@ -239,6 +287,22 @@ export async function resolveRecipients(
     )
   }
 
+  const recipients = target.recipients ?? 'families'
+  // The pupils' own rows: in the app only, no consent needed, never an email.
+  const pupils: ResolvedRecipient[] =
+    recipients === 'families'
+      ? []
+      : (await pupilRows(conn, schoolId, target)).map((row) => ({
+          isStudent: true,
+          studentId: row.student_id,
+          membershipId: row.membership_id,
+          outcome: row.membership_id === null ? 'no_contact' : 'delivered',
+          inApp: row.membership_id !== null,
+          emailStatus: 'none',
+          emailMasked: null,
+        }))
+  if (recipients === 'students') return pupils
+
   const rows = await familyRows(conn, schoolId, target)
   const emails = await signInEmails(
     deps,
@@ -246,7 +310,7 @@ export async function resolveRecipients(
       .filter((row) => row.any_ok && !isDeliverableAddress(row.guardian_email) && row.user_id)
       .map((row) => row.user_id as string),
   )
-  return rows.map((row): ResolvedRecipient => {
+  const families = rows.map((row): ResolvedRecipient => {
     const base = { guardianId: row.guardian_id, studentId: row.student_id }
     if (!row.any_ok) {
       // Held back: nothing goes, by app or by email.
@@ -262,6 +326,7 @@ export async function resolveRecipients(
     const inApp = row.membership_id !== null && row.portal
     return reached(base, row.membership_id, inApp, pickAddress(row.guardian_email, row.user_id, emails))
   })
+  return [...families, ...pupils]
 }
 
 /** The counts a send now would record, without recording anything. */
@@ -275,6 +340,8 @@ export async function previewAudience(
   const count = (test: (person: ResolvedRecipient) => boolean) => people.filter(test).length
   return {
     recipients: people.length,
+    pupils: count((person) => person.isStudent === true),
+    pupilsInApp: count((person) => person.isStudent === true && person.inApp),
     delivered: count((person) => person.outcome === 'delivered'),
     noConsent: count((person) => person.outcome === 'no_consent'),
     notReceiving: count((person) => person.outcome === 'not_receiving'),

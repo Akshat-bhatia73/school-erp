@@ -17,6 +17,7 @@ import {
   seal,
   writeAudit,
 } from '../shared/index.ts'
+import { endStudentLogin } from '../../memberships/student-logins.ts'
 import { recordConsents, type ConsentEntry } from './consents.ts'
 import { guardianColumns, type ModuleConnection } from './reads.ts'
 import type { GuardianRow } from './project.ts'
@@ -390,7 +391,7 @@ export async function endEnrollment(
   studentId: string,
   enrollment: CurrentEnrollment,
   body: { expectedVersion: number; leftOn: string; reason: string },
-): Promise<void> {
+): Promise<{ userId: string } | null> {
   await lockSchool(conn, context.schoolId)
   // The database refuses a leave date before the enrolment started; checking
   // it here makes that the caller's bad request rather than a broken service.
@@ -405,6 +406,8 @@ export async function endEnrollment(
     sql`UPDATE enrollments SET left_on = ${body.leftOn}::date, outcome = 'left', updated_at = now()
          WHERE school_id = ${context.schoolId}::uuid AND id = ${enrollment.id}::uuid`,
   )
+  // A pupil who leaves loses their own login in the same transaction (Task 23).
+  const login = await endStudentLogin(conn, context, studentId)
   // The reason is free text a person typed, so it is a note beside the event
   // rather than a value inside safe_changes.
   await recordAuditEvent(conn, {
@@ -416,10 +419,14 @@ export async function endEnrollment(
     targetId: enrollment.id,
     result: 'allowed',
     summary: 'Ended a student enrolment and marked the student as left.',
-    safeChanges: { sectionId: enrollment.sectionId },
+    safeChanges: {
+      sectionId: enrollment.sectionId,
+      ...(login === null ? {} : { studentLoginEnded: true }),
+    },
     requestId: context.requestId,
     note: body.reason,
   })
+  return login
 }
 
 export async function loadGuardian(

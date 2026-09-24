@@ -13,6 +13,7 @@ import {
   MESSAGE_BODY_MAX,
   MESSAGE_SCHEDULE_MIN_MINUTES,
   MESSAGE_TITLE_MAX,
+  MessageRecipients,
   unknownPlaceholders,
 } from '@erp/contracts'
 import { FileText, Paperclip, Search, Trash2, X } from 'lucide-react'
@@ -23,10 +24,13 @@ import {
   audienceInputOf,
   AUDIENCE_KIND_LABEL,
   formatBytes,
+  hasRecipients,
   isoToLocalInput,
   localInputToIso,
   noticePlaceholders,
   previewSentence,
+  rangeInOrder,
+  RECIPIENTS_LABEL,
   type AudienceChoice,
 } from '@/components/messages/labels'
 import { PlaceholderList } from '@/components/messages/placeholder-list'
@@ -50,7 +54,16 @@ const NO_TEMPLATE = '__none__'
 function choiceOf(message: MessageRecord | undefined): AudienceChoice {
   const audience = message?.audience
   const kind = audience && audience.kind !== 'staff_member' ? audience.kind : null
-  return { kind, gradeId: audience?.gradeId ?? '', sectionId: audience?.sectionId ?? '', studentId: audience?.studentId ?? '' }
+  const range = audience?.kind === 'grade_range'
+  return {
+    kind,
+    gradeId: range ? '' : audience?.gradeId ?? '',
+    fromGradeId: range ? audience.gradeId ?? '' : '',
+    toGradeId: range ? audience.toGradeId ?? '' : '',
+    sectionId: audience?.sectionId ?? '',
+    studentId: audience?.studentId ?? '',
+    recipients: audience?.recipients ?? 'families',
+  }
 }
 
 interface Errors {
@@ -85,7 +98,10 @@ export function MessageForm({ message }: { message?: MessageRecord }) {
     queryFn: () => api.messages.templates(schoolId, { kind: 'notice' }),
   })
 
-  const audience = audienceInputOf(choice)
+  // A range whose first class comes after its last is refused by the server, so it is not previewed.
+  const rangeBackwards = choice.kind === 'grade_range' && Boolean(choice.fromGradeId && choice.toGradeId)
+    && !rangeInOrder(options?.grades ?? [], choice.fromGradeId, choice.toGradeId)
+  const audience = rangeBackwards ? null : audienceInputOf(choice)
   const previewQuery = useQuery({
     queryKey: qk.messages.audiencePreview(schoolId, audience ?? undefined),
     queryFn: () => api.messages.audiencePreview(schoolId, audience!),
@@ -98,7 +114,8 @@ export function MessageForm({ message }: { message?: MessageRecord }) {
   /** Every problem this screen can see before asking the server. */
   function validate(forSend: boolean): Errors {
     const next: Errors = {}
-    if (!audience) next.audience = 'Choose who the message is for.'
+    if (rangeBackwards) next.audience = 'The first class must come before the last.'
+    else if (!audience) next.audience = choice.kind === 'grade_range' ? 'Choose the first and the last class.' : 'Choose who the message is for.'
     const cleanTitle = title.trim()
     if (!cleanTitle) next.title = 'Give the message a title.'
     else if (cleanTitle.length > MESSAGE_TITLE_MAX) next.title = `A title can be at most ${MESSAGE_TITLE_MAX} characters.`
@@ -238,10 +255,10 @@ export function MessageForm({ message }: { message?: MessageRecord }) {
     return <p className="p-4 text-[13px] text-muted-foreground">{describeError(optionsQuery.error)}</p>
   }
 
-  const kinds = (['school', 'staff', 'grade', 'section', 'pupil'] as const).filter((kind) =>
+  const kinds = (['school', 'staff', 'grade', 'grade_range', 'section', 'pupil'] as const).filter((kind) =>
     kind === 'school' ? options.school
       : kind === 'staff' ? options.staff
-        : kind === 'grade' ? options.grades.length > 0
+        : kind === 'grade' || kind === 'grade_range' ? options.grades.length > 0
           : kind === 'section' ? options.sections.length > 0
             : options.pupils,
   )
@@ -271,6 +288,19 @@ export function MessageForm({ message }: { message?: MessageRecord }) {
                   <SelectContent>{options.grades.map((grade) => <SelectItem key={grade.id} value={grade.id}>{grade.name}</SelectItem>)}</SelectContent>
                 </Select>
               )}
+              {choice.kind === 'grade_range' && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={choice.fromGradeId || undefined} onValueChange={(fromGradeId) => setChoice({ ...choice, fromGradeId })}>
+                    <SelectTrigger aria-label="From" className="w-full sm:w-48"><SelectValue placeholder="From" /></SelectTrigger>
+                    <SelectContent>{options.grades.map((grade) => <SelectItem key={grade.id} value={grade.id}>{grade.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <span className="text-[13px] text-muted-foreground">to</span>
+                  <Select value={choice.toGradeId || undefined} onValueChange={(toGradeId) => setChoice({ ...choice, toGradeId })}>
+                    <SelectTrigger aria-label="To" className="w-full sm:w-48"><SelectValue placeholder="To" /></SelectTrigger>
+                    <SelectContent>{options.grades.map((grade) => <SelectItem key={grade.id} value={grade.id}>{grade.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              )}
               {choice.kind === 'section' && (
                 <Select value={choice.sectionId || undefined} onValueChange={(sectionId) => setChoice({ ...choice, sectionId })}>
                   <SelectTrigger aria-label="Section" className="w-full sm:w-72"><SelectValue placeholder="Choose a section" /></SelectTrigger>
@@ -285,6 +315,24 @@ export function MessageForm({ message }: { message?: MessageRecord }) {
                   onPick={(id, name) => { setChoice({ ...choice, studentId: id }); setPupilName(name) }}
                   onClear={() => { setChoice({ ...choice, studentId: '' }); setPupilName('') }}
                 />
+              )}
+              {hasRecipients(choice.kind) && (
+                <div className="space-y-1.5">
+                  <p className="text-[12.5px] text-muted-foreground">Send to</p>
+                  <RadioGroup
+                    value={choice.recipients}
+                    onValueChange={(value) => setChoice({ ...choice, recipients: MessageRecipients.parse(value) })}
+                    className="flex flex-wrap gap-x-4 gap-y-2"
+                    aria-label="Send to"
+                  >
+                    {MessageRecipients.options.map((value) => (
+                      <Label key={value} className="flex items-center gap-2 text-[13.5px] font-normal"><RadioGroupItem value={value} />{RECIPIENTS_LABEL[value]}</Label>
+                    ))}
+                  </RadioGroup>
+                  {choice.recipients !== 'families' && (
+                    <p className="text-[12px] text-muted-foreground">Pupils in Class 9 to 12 with a login read it in the app. Other pupils get nothing.</p>
+                  )}
+                </div>
               )}
               {errors.audience && <p role="alert" className="text-[12.5px] text-tag-red">{errors.audience}</p>}
               {audience && (

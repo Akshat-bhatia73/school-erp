@@ -17,11 +17,13 @@ const ROLES_FOR: Readonly<Record<DashboardAudience, readonly RoleKey[]>> = {
   accountant: ['accountant'],
   teacher: ['teacher'],
   parent: ['parent'],
+  // Only a pupil's own login holds the student role.
+  student: ['student'],
 }
 
 /**
  * Every audience these roles earn, in the default order: office, accountant,
- * teacher, parent. Empty for a role set that earns no dashboard at all.
+ * teacher, parent, student. Empty for a role set that earns no dashboard at all.
  */
 export function audiencesFor(roleKeys: readonly RoleKey[]): DashboardAudience[] {
   return DASHBOARD_AUDIENCES.filter((audience) => ROLES_FOR[audience].some((role) => roleKeys.includes(role)))

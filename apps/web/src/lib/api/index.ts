@@ -24,6 +24,7 @@ import * as exams from './exams'
 import * as reportCards from './report-cards'
 import * as logo from './logo'
 import * as messages from './messages'
+import * as studentLogins from './student-logins'
 
 export const api = {
   setup,
@@ -57,6 +58,7 @@ export const api = {
   exams,
   reportCards,
   logo,
+  studentLogins,
   messages: {
     ...messages,
     /** `delete` is a keyword, so the function is declared as `remove`. */

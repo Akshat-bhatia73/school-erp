@@ -655,6 +655,8 @@ Owner and principal hold the permission at school scope; a parent holds it for t
 
 ## Known gaps
 
+- Pupil sign-in shares the provider's sign-in limiter, which counts by client address (three tries in ten seconds). A class signing in together from one school network address will see "too many attempts" for some pupils until the limiter is given a wider allowance for `/api/student-sign-in` or counted per school and admission number. Not changed in Task 23.
+
 Storage and contract mismatches:
 
 - `PUT /grades/:gradeId/subjects` carries no version at all; the whole-set replace plus the pre-write validation is its concurrency story.
