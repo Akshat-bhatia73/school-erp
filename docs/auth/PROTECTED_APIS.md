@@ -8,7 +8,7 @@ Source files: [modules/index.ts](../../apps/api/src/modules/index.ts), [modules/
 
 In scope: school profile and academic setup, the student roster and one student's record, bulk admission and promotion, the staff directory and one person's record, the timetable and its substitutions, the dashboard, the command-menu search, the audit log, export jobs with their files, the private document download, fees: what the school charges, what each pupil owes, the ledger of what was paid, and the files made from them; attendance: the daily register of every section, the office's corrections, a pupil's month and its percentage, the staff register, and the files made from them; and exams and report cards: the exam dates of each year, the marks sheets, corrections, publishing, a pupil's results, the class teacher's co-scholastic grades and remarks, published report cards, the school's grade bands and layout, the school logo, and the files made from them. One hundred and thirty-five routes in twelve modules: one hundred and twenty-nine through the shared route helper and six registered by hand, three in the files module and the three routes of the school logo's bytes.
 
-Out of scope, deliberately. There is no communication module, no absence or result notice to a parent (Task 22), no student login (Task 23), and no online payment: fees are recorded by hand. There is no custom role and no new permission: the catalogue is the fixed one in `@erp/contracts`, and a route that names a reserved permission fails at startup. Nothing here changes a membership, a role or an exception; that is access management, and a module that needs a parent to reach a new child has to ask for it there.
+Out of scope, deliberately. There are no text messages to parents (Task 16) and no replies to a message, no student login (Task 23), and no online payment: fees are recorded by hand. There is no custom role and no new permission: the catalogue is the fixed one in `@erp/contracts`, and a route that names a reserved permission fails at startup. Nothing here changes a membership, a role or an exception; that is access management, and a module that needs a parent to reach a new child has to ask for it there.
 
 ## The route helper and the gate
 
@@ -277,6 +277,39 @@ year still shows who was in each class. A pupil who left is not counted.
 | `DELETE /school/logo?expectedVersion=` | `school.update` | the same | 204 | `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `GET /school/logo` | `holidays.read` | the every-role floor that `/academic-years/current` uses, so a teacher and a parent see the logo on a card; no audit row | 200, a byte stream | `RESOURCE_NOT_FOUND` |
 
+### Messages
+
+Every path is under `/api/schools/:schoolId`. "The target" is what a message is for: the school, the staff, a grade, a section or a pupil. It is decided under `communication.send` through `decideResource` on the `communication` resource with the target's own id (the school id, a grade, a section, a pupil); a section reaches a teacher through their assigned sections and a pupil through the pupil's current section, and the school, a grade and the staff name no section, so only the school scope reaches them. "The message" is decided on its own id; a draft is its author's alone, so anybody else gets `RESOURCE_NOT_FOUND` for it.
+
+| Method and path | Permission | Extra checks | Success | Error codes |
+|---|---|---|---|---|
+| `GET /messages/inbox` | `communication.read` | the caller's own recipient rows that show in the app (`membership_id` is the caller, `in_app`, message `sent`), through the recipient plan; `?show=unread`, `?kind=`; newest first; carries the unread count | 200 | `INVALID_REQUEST` |
+| `GET /messages/inbox/unread` | `communication.read` | the same count alone; the web asks every minute, and the answer starts the school's message pump in the background (see [communication](#communication)) | 200 | — |
+| `POST /messages/inbox/:recipientId/read` | `communication.read` | the row must be the caller's own and in the app, otherwise `RESOURCE_NOT_FOUND`; sets `read_at` once; the first read writes one audit row, a repeat writes nothing and answers the first time | 200 | `RESOURCE_NOT_FOUND` |
+| `GET /messages` | `communication.read` | the messages the caller reaches other than as a recipient (`planPredicateWithout(['self'])`) or wrote; nobody else's drafts; `?kind`, `?status`, `?audience`, `?author=mine`, `?q` over the title; delivery counts over the recipient rows the caller's plan reaches | 200 | `INVALID_REQUEST` |
+| `GET /messages/:messageId` | `communication.read` | the message decided again; counts only for its author and a caller who reaches it other than as a recipient; `myReceipt` when the caller is one of its in-app recipients | 200 | `RESOURCE_NOT_FOUND` |
+| `GET /messages/:messageId/recipients` | `communication.read` | the message reached other than as a recipient, or written by the caller, otherwise `RESOURCE_NOT_FOUND`; its recipient rows through the recipient plan; pupil names through `students.read_basic`, guardian names through the `students.read_guardian_contact` plan on the pupil, otherwise "Guardian"; staff names through `staff.read_directory`, otherwise "Staff member" | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `GET /messages/audiences` | `communication.send` | what the caller may send to now: the school, the staff and grades only at school scope; the sections of the open years the caller reaches under `communication.send` | 200 | — |
+| `POST /messages/audience-preview` | `communication.send` | the target decided again; counts exactly as a send now would record them | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /messages` | `communication.send` | school locked; the target decided again and validated (the grade, section or pupil in this school; a section in an open year; an active pupil); a template must be a live `notice` template (`message_template_archived`, `message_template_kind_mismatch`); placeholders checked (`message_placeholder_unknown`) and rendered; a draft | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `PATCH /messages/:messageId` | `communication.send` | a draft or a scheduled message (`message_not_editable`); its author, or `communication.manage` on it; a new audience decided and validated as above; `expectedVersion` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `DELETE /messages/:messageId?expectedVersion=` | `communication.send` | a draft only (`message_not_editable`); its author; its files leave the store after the commit | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `POST /messages/:messageId/send` | `communication.send` | a draft or a scheduled message; its author, or `communication.manage`; the target decided again; with no `sendAt` it goes now: recipients recorded in the same transaction (`message_audience_empty` when nobody at all is in it) and the email queue started after the commit; with `sendAt` at least 5 minutes and at most 60 days ahead (`message_schedule_in_past`, `message_schedule_too_far`) it is scheduled | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `POST /messages/:messageId/unschedule` | `communication.send` | a scheduled message back to a draft; its author, or `communication.manage` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `POST /messages/:messageId/withdraw` | `communication.send` | a sent message (`message_not_sent`); its author, or `communication.manage` on it (the only way to withdraw an automatic message); every email still waiting is cancelled; the reason is the audit note | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `POST /messages/:messageId/attachments?expectedVersion=&fileName=` | `communication.send` | raw bytes; a draft or a scheduled message, its author; at most three (`message_too_many_attachments`), 2 MB each (`message_attachment_too_large`, and a plain `413` before the body is read when `content-length` says so), PDF, JPEG or PNG by the first bytes (`message_attachment_type`); a picture loses its metadata as a photograph does; bytes stored after the decision and removed again if the transaction fails | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `DELETE /messages/:messageId/attachments/:attachmentId?expectedVersion=` | `communication.send` | as above; bytes removed after the commit | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `GET /messages/:messageId/attachments/:attachmentId` | `communication.read` | registered by hand like a photograph; the message decided again exactly as its detail read; `private, no-store`, `nosniff`, `attachment` with the file's own name cleaned | 200 bytes | `RESOURCE_NOT_FOUND` |
+| `POST /messages/:messageId/export` | `communication.export` | the message decided again; a `message_delivery` job; the producer re-reads the recipient rows under the requester's plans; a single-record kind | 202 | `RESOURCE_NOT_FOUND` |
+| `GET /messages/templates` | `communication.send` | the school's templates; `?kind`, `?show=live|archived|all` | 200 | `INVALID_REQUEST` |
+| `POST /messages/templates` | `communication.manage` | placeholders checked for the kind (`message_placeholder_unknown`); an automatic kind replaces the live one, which is archived in the same write | 201 | `INVALID_REQUEST` |
+| `PATCH /messages/templates/:templateId` | `communication.manage` | a live template; placeholders checked; `expectedVersion` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `POST /messages/templates/:templateId/archive` | `communication.manage` | archiving an automatic kind's template puts the built-in wording back | 200 | `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `GET /messages/settings` | `communication.manage` | the defaults while the school has no row, as version 1; the wording in use for each automatic kind | 200 | — |
+| `PUT /messages/settings` | `communication.manage` | school locked; `expectedVersion`; the first save inserts the row | 200 | `INVALID_REQUEST`, `VERSION_CONFLICT` |
+
+`GET /api/maintenance/messages` is not a school route: it exists only when `CRON_SECRET` is set, answers `AUTHENTICATION_REQUIRED` without it, and runs the message pump for every school (see [communication](#communication)).
+
 ### Dashboard, search, audit and files
 
 | Method and path | Permission | Extra checks | Success | Error codes |
@@ -514,6 +547,53 @@ Task 21. Every class of every school follows the CBSE two-term scheme, which is 
 
 **Subject access** gains `exams`, one results answer per year the pupil has a mark in, and `reportCards`, every published version, each decided under its read key on that pupil and omitted, not emptied, when refused. A parent's export holds published marks only.
 
+## Communication
+
+Task 22. A message is one announcement from the school: a notice somebody wrote, or one of the messages the school sends by itself. Families cannot reply. Messages show in the app and go by email; text messages wait for Task 16. Source: [modules/communication](../../apps/api/src/modules/communication) and [maintenance/messages.ts](../../apps/api/src/maintenance/messages.ts).
+
+**Words live once.** A message's title and body are rendered when it is written (placeholders such as `{school}` or `{pupil_first_name}` filled in; an unknown one is refused) and stored on the message, and nowhere else: not in a log, not in `safe_changes`, not in an audit note, not in the delivery outbox. After a message goes out the database refuses any change to its words and its audience; the only changes left are withdrawing it and anonymisation blanking the words.
+
+**Who it goes to** is worked out when it goes out, never when it is written, and recorded as one row per person in `message_recipients`.
+
+- Families. The pupils are the active, not anonymised pupils enrolled in the current academic year (`status = 'current'`): in the section, in the grade's sections, anywhere in the school, or the one pupil. Each pupil's guardians (not anonymised) are the people, one row per guardian however many of their children are in the audience. A guardian receives the message when, for at least one of those pupils, the newest `communication` consent row for that pupil and guardian is `given` and `student_guardians.receives_notifications` is true. Otherwise the row says `no_consent` (or `not_receiving` when the consent is there and the office has switched notifications off) and nothing goes: no app, no email. No consent row means no consent.
+- Staff. Every staff member whose status is `active` or `on_leave` and who is not anonymised, or the one staff member of a birthday. Staff need no consent.
+- In the app: a guardian's active membership through `membership_guardian_links`, when the guardian's portal access (`guardian_student_access`, approved and not revoked) covers at least one of the pupils that let the message through; a staff member's active membership through `membership_staff_links`. By email: the guardian's or staff member's own address, else the sign-in email of that membership (read through the auth pool), when it can receive mail. Reserved names (`.invalid`, `.test`, `.example`, `example.com` and the like) never can, and the seeded schools use them. A person reached by neither is `no_contact`.
+- `student_id` on a family row is the first pupil by name through whom the message was let through, so a delivery list can say "Parent of Aarav Sharma". A section message and a message about one pupil copy their section and year onto every row.
+
+**Sending.** Sending now records the recipients in the same transaction as the status change and starts the email queue after the commit. A scheduled message waits with `status = 'scheduled'`; when its time comes the pump rebuilds its author's context (as the export queue does), decides `communication.send` on the target again, and either sends it or cancels it with `cancel_reason = 'author_lost_access'`. A teacher whose assignment ended between writing and sending therefore sends nothing. Withdrawing a sent message hides it from every inbox at once and cancels every email still waiting; an email already sent cannot be recalled, and the screen says so.
+
+**Who reads what.** Everything is the `communication` resource, over two faces (`communicationScopedTable('message' | 'recipient')`). The office holds `communication.read` at school and reaches every message and delivery row. A teacher holds it at `assigned_sections` (class-teacher post and teaching assignments alike, the ordinary meaning) and reaches the section messages and pupil messages of their own sections, whoever sent them, and at `self`. `self` is by membership, for every kind of member: a message belongs to its author and, while it is sent, to every member it shows for in the app; a recipient row to the message's author and, while sent, to the member it shows for. A parent and the accountant hold `self` alone, so they read exactly what was addressed to them and what they wrote. No family scope reaches a message through the child it is about: consent is decided per guardian, and one guardian's agreement must never open a message to another. `own_children` and `own_record` are in the catalogue for this key and granted to nobody. A draft is its author's alone. Delivery counts and the recipient list are shown only to a message's author and to a caller who reaches it other than as a recipient.
+
+**Automatic messages.** The school writes these itself, one message per pupil (to that pupil's family) or per staff member, with `created_by_membership_id` null and a `dedupe_key` that makes each one happen at most once. Their words are the school's live template for the kind, or the built-in wording in `@erp/contracts`. Each kind can be switched off in the settings. Nothing is sent about anything that happened before `automatic_since`, the moment the school's settings row was first written (by the first save or the first pump run), so switching the module on never floods families with old news.
+
+| Kind | When | Dedupe key |
+|---|---|---|
+| `absence` | the pupil's current mark for today (school timezone) is `absent`, and that mark was saved at least `absence_delay_minutes` ago (default 30), so a correction made in the meantime stops it; only today, never a past day | `absence:<pupil>:<date>` |
+| `result` | the first publication of an exam for a section, published in the last three days; one message per pupil with a mark in that exam and section | `result:<exam>:<pupil>` |
+| `report_card` | a report card version published in the last three days; a republished card sends again | `report_card:<version>` |
+| `fee_reminder` | from `daily_send_hour`: the pupil's instalments falling due `fee_reminder_days_before` days from today (default 3), their amount after concessions, capped at what the pupil still owes for the year; nothing when that is zero | `fee_reminder:<pupil>:<due date>` |
+| `fee_overdue` | from `daily_send_hour`, while fee reminders are on and `fee_overdue_every_days` is not 0: the pupil owes something already due, and no overdue reminder went to the pupil in the last that many days | `fee_overdue:<pupil>:<today>` |
+| `birthday_pupil` | from `daily_send_hour`: an active pupil born on this day and month (29 February on 28 February in other years) | `birthday_pupil:<pupil>:<year>` |
+| `birthday_staff` | the same for a working staff member, to the staff member | `birthday_staff:<staff>:<year>` |
+
+Money in a fee message comes from `feeFiguresCte`, the same figures every fee screen shows.
+
+**The pump.** `runMessagePump(deps, schoolId)` is the one place automatic messages are made and emails go. It takes a per-school advisory lock (a second runner for the same school returns at once), writes the settings row if there is none, sends the scheduled messages whose time has come, makes the automatic messages that are due (at most 300 a run), and then works through the email queue: rows `pending` and due, claimed with `FOR UPDATE SKIP LOCKED` and a five-minute lease so two runners never send the same email, at most 40 a run, one at a time and at least 550 ms apart. An address is looked up again when the email is sent. A failed email is tried again after 10, 20, 40 and 80 minutes and recorded as `failed` after the fifth attempt, so a screen never says "sent" about an email the provider refused. The email's sender name is the school's; its subject is the title; its text is the body, a line saying replies are not read, and a link to the message in the app for a person who has an account; the files go with it.
+
+The pump has three triggers. The web asks `GET /messages/inbox/unread` every minute while anybody in the school has the app open, and that route starts the pump in the background (`waitUntil`, at most once a minute per school per instance). A send-now starts it after the commit. `GET /api/maintenance/messages`, called by the Vercel cron every morning at 08:00 India time, runs it for every school, so birthdays and fee reminders go out even on a day nobody signs in. On the Hobby plan a cron runs once a day; a paying school needs Pro with the cron every five minutes, so a scheduled message and an absence notice go out on time with nobody signed in. The pump works as the school with no member: it writes no audit row, because the message and its recipient rows are the record of what the school sent.
+
+**Read receipts** are the recipient opening the message in the app, and nothing else: no tracking pixel, no link rewriting in an email. The sender sees how many of the in-app recipients have read it, and when each did.
+
+**Files.** Up to three per message, PDF, JPEG or PNG, 2 MB each, in the private document store under `messages/<schoolId>/<messageId>/<random>`, exactly as a photograph is kept. They travel with the email and are served in the app only through the permission-checked route.
+
+**Audit.** A write by a member leaves one row: `communication.send` for writing, changing, deleting, attaching, sending, scheduling, unscheduling and withdrawing (`communication.manage` when acting on somebody else's message), naming the message and carrying its kind, audience kind, status and counts; the withdrawal reason is the note. Opening a message leaves one `communication.read` row the first time. Templates and settings leave `communication.manage` rows naming which settings changed. No title, body, file name or address is ever in `safe_changes`.
+
+**Retention.** A message and its delivery record are kept for two years after it went out (or was withdrawn or cancelled), then the daily sweep removes the files and the rows (`sweep_messages ()`); a draft nobody touched for a year goes too. Anonymising a pupil blanks the title and body of every message about that pupil (`redacted_at`) and the masked email addresses of the guardians anonymised with them; anonymising a staff member does the same for the messages to them. See [the data protection assessment](../compliance/DATA_PROTECTION.md) section 14.
+
+**Files for the office.** One job kind, `message_delivery`: a message's delivery record as Excel (name, relation, pupil, class, outcome, in app, email status, read at), under `communication.export`, one record, so the download decides the message again.
+
+**Subject access** gains `messages`: the messages about the pupil (automatic messages and notices to the pupil's family) that the caller may read under `communication.read`, newest first. A parent's export holds what was addressed to them.
+
 ## Subject access
 
 `GET /students/:studentId/subject-access` (`students.export_subject`) answers a parent or the office asking for everything the system holds about one child, as one document, in one audited read. It is an ordinary protected route in `modules/students/subject-access.ts`: one tenant transaction, the student read through the same plan predicate as every other detail read, so an unreachable student is `RESOURCE_NOT_FOUND`.
@@ -524,7 +604,7 @@ Owner and principal hold the permission at school scope; a parent holds it for t
 
 ## What is deliberately not built
 
-- No communication module, and no absence or result notice to a parent (Task 22).
+- No text messages (Task 16) and no replies: a message is an announcement.
 - No online payment. Fees are recorded by hand; a gateway is a decision still to take, and it would bring a sub-processor, webhooks and reconciliation with it.
 - No new permission, no custom role and no membership change. A module that needs a parent linked to a new child has to ask access management for it.
 - No expiry sweeper inside these modules: a stale preview or export job is refused when used, and the daily maintenance sweep is what collects the rows.
@@ -568,12 +648,12 @@ Coverage and behaviour:
 - Attendance: a pupil moved between sections on the same day would appear on both rosters that day; the write refuses neither, and the pupil's month takes the newest mark.
 - Attendance: nothing prunes the marks after the pupil's period, as for the fee ledger; removal at the end of the period is a school decision and a later task.
 - Attendance: the school calendar has no working Saturday rule; Saturday is a school day unless it is a holiday, and a school that closes on Saturdays enters them as holidays.
-- Attendance: no absence notice goes to a parent; that is Task 22.
+- Attendance: an absence notice goes to the family through the message pump (see [communication](#communication)), which runs only when somebody in the school has the app open or from the daily cron on the Hobby plan, so on a day nobody signs in the notice waits for the next morning's run and is then too late to send.
 - Exams: there is no record of which pupil takes an optional subject, so every pupil of the class is on the paper and one who does not take it is marked exempt.
 - Exams: the re-check deadline is one date per exam for the whole school. A section cannot be given more time than another.
 - Exams: a pupil who moves section during the year keeps their marks in the section they sat the paper in, and the card of each section shows the marks made in it.
 - Exams: a published card records whether the logo was shown, not the picture, so a card printed after the logo changes carries the new one.
-- Exams: no result notice goes to a parent when results or cards are published; that is Task 22.
+- Exams: a result notice goes to the family on the first publication of an exam for a section, not on a republication after a correction; a republished report card does send again.
 - Exams: nothing prunes marks, publications or cards; they are kept as the academic record.
 - Attendance: a parent may open the class day and the class month of the section their own child currently sits in (the register is a shared row, as a section is), and sees one row, their own child. They learn the class exists and its name, which the timetable already tells them.
 - Attendance: a school with two academic years covering the same day gets the calendar of the one with the later start date; the day list, the months and the figures all follow it.

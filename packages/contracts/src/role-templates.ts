@@ -85,6 +85,12 @@ const examsOffice: readonly RoleGrant[] = [
   grant('report_cards.publish', 'school'), grant('report_cards.export', 'school'),
 ]
 
+/** Messages for the office: send to anyone in the school, set the automatic messages, export the record. */
+const communicationOffice: readonly RoleGrant[] = [
+  grant('communication.read', 'school'), grant('communication.send', 'school'),
+  grant('communication.manage', 'school'), grant('communication.export', 'school'),
+]
+
 const attendanceOffice: readonly RoleGrant[] = [
   grant('attendance.read', 'school'), grant('attendance.record', 'school'),
   grant('attendance.manage', 'school'), grant('attendance.export', 'school'),
@@ -113,6 +119,7 @@ export const ROLE_TEMPLATES = {
       ...feesFull('school'),
       ...attendanceOffice,
       ...examsOffice,
+      ...communicationOffice,
     ],
   },
   principal: {
@@ -131,6 +138,7 @@ export const ROLE_TEMPLATES = {
       ...feesFull('school'),
       ...attendanceOffice,
       ...examsOffice,
+      ...communicationOffice,
     ],
   },
   admin: {
@@ -147,6 +155,7 @@ export const ROLE_TEMPLATES = {
       grant('fees.read', 'school'), grant('fees.collect', 'school'),
       ...attendanceOffice,
       ...examsOffice,
+      ...communicationOffice,
     ],
   },
   accountant: {
@@ -164,6 +173,8 @@ export const ROLE_TEMPLATES = {
       // The staff register is payroll input; the accountant reads it and
       // holds nothing about pupil attendance.
       grant('staff_attendance.read', 'school'),
+      // Their own inbox: staff notices and the school's birthday wishes.
+      grant('communication.read', 'self'),
     ],
   },
   teacher: {
@@ -192,6 +203,11 @@ export const ROLE_TEMPLATES = {
       grant('exams.export', 'assigned_subjects'), grant('exams.export', 'assigned_sections'),
       grant('report_cards.read', 'assigned_sections'), grant('report_cards.manage', 'assigned_sections'),
       grant('report_cards.export', 'assigned_sections'),
+      // Class teachers and subject teachers both write to the families of
+      // their own sections, and read what the school sent there; everybody
+      // reads their own inbox and what they wrote.
+      grant('communication.read', 'self'), grant('communication.read', 'assigned_sections'),
+      grant('communication.send', 'assigned_sections'),
     ],
   },
   parent: {
@@ -213,6 +229,9 @@ export const ROLE_TEMPLATES = {
       // published row and nothing else.
       grant('exams.read', 'own_children'), grant('report_cards.read', 'own_children'),
       grant('report_cards.export', 'own_children'),
+      // What the school addressed to this parent, and nothing addressed to
+      // another guardian of the same child.
+      grant('communication.read', 'self'),
     ],
   },
   student: { displayName: 'Student', enabled: false, requiredMfa: false, grants: [] },

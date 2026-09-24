@@ -214,6 +214,17 @@ where the row says so.
 | `/setup/school` | `school/logo` upload, remove | The school profile gains a logo block: the logo, "Upload logo" (PNG or JPEG, up to 512 KB) and "Remove logo" for `school.update` | — |
 | Dashboard | `dashboard` | A teacher's "Marks to enter" (their open sheets with empty cells, soonest deadline first); the office's exams block (sheets outstanding, sections ready to publish, published of total); a parent's child card links to the newest published report card | — |
 
+### Messages
+
+| Screen | Endpoints | What each role sees | Not yet |
+|---|---|---|---|
+| Sidebar and mobile tabs | `messages/inbox/unread` every minute and on focus | Everybody holding `communication.read` has a "Messages" item with an unread badge; the parent view has it as a bottom tab. Asking for the count also starts the school's message pump in the background | — |
+| `/messages` | `messages/inbox`, `messages` | Two tabs from `?tab=`. Inbox, for everyone: the messages addressed to the person, bold until opened, with kind, sender, the pupil it is about, a paperclip for files, "Unread only" and a kind chip. Sent, for those who hold `communication.send` or `communication.manage`: the office sees every message the school sent, automatic ones included, a teacher their own and those sent to their sections; kind, status, audience and "Written by me" chips, a title search, and "read x of y" from the server's counts | — |
+| `/messages/new`, `/messages/:messageId/edit` | `messages/audiences`, `messages/audience-preview`, `messages/templates`, `messages` create and update, attachments, `send` | One form: the audiences the server says the person may choose (a teacher sees only their own sections and their pupils), a live sentence of who it would reach ("Goes to 58 families: 51 in the app, 44 by email. 4 have not agreed to messages and will get nothing."), a notice template, title and body with the placeholders allowed for that audience, up to three files, and Send now or Schedule | Times are read and written as India time |
+| `/messages/:messageId` | `messages/:id`, `messages/:id/recipients`, `inbox/:id/read`, `send`, `unschedule`, `withdraw`, delete, `messages/:id/export` + `exports/:id` + `exports/:id/file`, attachments | The words and files. A recipient's first open marks it read. The author and a reader who reaches it other than as a recipient see the delivery figures and the delivery list with outcome, read and email chips, and export it with `communication.export`. Actions follow the status and the record's actions: Edit and Delete a draft, Edit and "Cancel schedule" a scheduled message, "Withdraw message" with a reason for a sent one ("Emails already sent cannot be taken back.") | — |
+| `/messages/templates` | `messages/templates` list, create, update, archive | Notice templates, readable with `communication.send`, changed in a Sheet with `communication.manage` | — |
+| `/messages/settings` | `messages/settings`, `messages/templates` | `communication.manage`: one panel per automatic message with its switch, its options (absence delay, days before a fee falls due, overdue every so many days where 0 is off, the morning hour) and its words with the placeholders it may use and "Restore the built-in words". Fee dues follow the fee reminder switch | — |
+
 ### Access management and settings
 
 | Screen | Endpoints | What each role sees | Not yet |
@@ -455,7 +466,7 @@ Six small changes the school office asked for, all of them on screens that alrea
 6. The substitutions screen has a "Free teachers today" panel.
 
 Automatic birthday greetings were asked for at the same time and are deferred to Task 22
-(communication), which is where messages get built.
+(communication), which is where messages get built. Task 22 built them, for pupils and staff.
 
 Task 20 adds `components/attendance/attendance-screens.test.tsx` (5): the day screen renders
 "Save attendance" only when the server's `window.record` is true and the record allows

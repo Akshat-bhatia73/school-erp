@@ -66,6 +66,20 @@ export function registerStaffLifecycleRoutes(app: FastifyInstance, deps: ModuleD
           },
         })
 
+        // Messages to this staff member (a birthday greeting) lose their
+        // words, whatever their status, and their masked email address goes
+        // from every delivery record.
+        await conn.client.query(
+          `UPDATE messages SET title = '', body = '', redacted_at = now(), updated_at = now()
+            WHERE school_id = $1 AND staff_id = $2 AND redacted_at IS NULL`,
+          [context.schoolId, staffId],
+        )
+        await conn.client.query(
+          `UPDATE message_recipients SET email_masked = NULL
+            WHERE school_id = $1 AND staff_id = $2 AND email_masked IS NOT NULL`,
+          [context.schoolId, staffId],
+        )
+
         await writeAudit(conn, context, {
           action: 'staff.anonymise',
           targetType: 'staff',

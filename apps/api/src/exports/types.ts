@@ -17,7 +17,8 @@ export interface ProducerIo {
  * and one pupil's month of attendance), and the timetable, the fee dues list,
  * the collection register and the two attendance registers are either, chosen
  * by the request. A paper's marks register is a spreadsheet; one report card
- * and a section's report cards are documents.
+ * and a section's report cards are documents. A message's delivery record is
+ * a spreadsheet.
  */
 export type ExportJobKind =
   | 'students'
@@ -35,6 +36,7 @@ export type ExportJobKind =
   | 'exam_marks_register'
   | 'report_card'
   | 'report_cards_section'
+  | 'message_delivery'
 
 /** What a producer hands back. The bytes are never stored anywhere else. */
 export interface ExportFile {

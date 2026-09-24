@@ -158,6 +158,20 @@ Both timestamps that decide what a parent sees use `clock_timestamp()`, not `now
 
 Nothing about a total or a grade is stored outside a published card: the current mark is the highest revision, a total follows from the scoring rule in `@erp/contracts`, a grade from the school's bands. Everything is additive, so the release before this one runs against it unchanged. The release also changes the role templates, so every existing school needs `pnpm db:sync-roles` after the migration; see [the release runbook](./RELEASE.md#4-deploying-a-change).
 
+## Messages
+
+Migration `0018_communication.sql` (Task 22) adds five tenant tables with `school_id`, forced RLS under `tenant_isolation` and composite foreign keys that include `school_id`.
+
+| Table | What it holds | Runtime grants |
+|---|---|---|
+| `communication_settings` | One row per school: the switches and options of the automatic messages and `automatic_since`; keyed by `school_id`, versioned. A school with no row has the defaults | SELECT, INSERT, UPDATE |
+| `message_templates` | The school's notice templates and its own wording for automatic kinds (at most one live per automatic kind); archived, never deleted | SELECT, INSERT, UPDATE |
+| `messages` | One announcement: kind, audience and the id it needs, rendered title and body, status and its times, author (null for the school's automatic messages, which carry a unique `dedupe_key` instead), template; versioned | SELECT, INSERT, UPDATE, DELETE (a draft only, by trigger) |
+| `message_attachments` | Up to three files per message in the private store; the key is server state | SELECT, INSERT, DELETE |
+| `message_recipients` | One row per guardian or staff member a message was for: outcome, in the app or not, the email's progress with a masked address, and when it was read; section, year and author copied from the message for the scope terms | SELECT, INSERT, and UPDATE of the email columns and `read_at` only |
+
+The `messages_guard` trigger refuses any change to a message's words, audience, kind, author or send time once it has gone out, allows only `sent` to `withdrawn` as a status change, and allows blanking the words with `redacted_at` for anonymisation. It refuses a delete except of a draft, or by `erp_maintenance` in the retention sweep. `list_message_schools()` lets the daily cron route enumerate schools (a SELECT policy and a column grant on `schools.id` for `erp_maintenance` alone); `list_expired_message_attachments()`, `forget_message_attachment()` and `sweep_messages()` do the two-year retention in the files-before-rows order the export files use. `export_jobs.kind` gains `message_delivery`.
+
 ## Observability
 
 Migration `0010_observability.sql` (Task 13) adds the access log and durable account lockout.

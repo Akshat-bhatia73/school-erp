@@ -23,6 +23,7 @@ import * as files from './files'
 import * as exams from './exams'
 import * as reportCards from './report-cards'
 import * as logo from './logo'
+import * as messages from './messages'
 
 export const api = {
   setup,
@@ -56,6 +57,12 @@ export const api = {
   exams,
   reportCards,
   logo,
+  messages: {
+    ...messages,
+    /** `delete` is a keyword, so the function is declared as `remove`. */
+    delete: messages.remove,
+    export: messages.exportDelivery,
+  },
 } as const
 
 export * from './shared'

@@ -176,7 +176,7 @@ test('invariants deny before any grant is considered', () => {
 
   assert.deepEqual(evaluate({ ...base, context: owner, permission: 'not.a.permission' }), { allowed: false, code: 'ACCESS_DENIED' })
   assert.deepEqual(
-    evaluate({ ...base, context: owner, permission: 'communication.read', resource: reference('communication'), resourceFacts: resourceFactsFor('communication') }),
+    evaluate({ ...base, context: owner, permission: 'ai_assistant.use', resource: reference('ai_assistant'), resourceFacts: resourceFactsFor('ai_assistant') }),
     { allowed: false, code: 'ACCESS_DENIED' },
   )
   assert.deepEqual(

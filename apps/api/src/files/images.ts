@@ -148,7 +148,7 @@ function cleanPng(bytes: Uint8Array): ImageCheck {
     const end = at + 12 + length
     // The length is written by the file, so it is checked against the file's
     // real size before it is used to move anywhere.
-    if (length > PHOTO_MAX_BYTES || end > bytes.length) return refuse('png chunk runs past the end of the file')
+    if (length > bytes.length || end > bytes.length) return refuse('png chunk runs past the end of the file')
     if (type === 'IDAT') sawImageData = true
     if (!PNG_METADATA_CHUNKS.has(type)) parts.push(bytes.subarray(at, end))
     at = end
@@ -190,7 +190,7 @@ function cleanWebp(bytes: Uint8Array): ImageCheck {
     const size = readUint32LE(bytes, at + 4)
     // Every chunk is padded to an even length.
     const padded = size + (size % 2)
-    if (size > PHOTO_MAX_BYTES || at + 8 + padded > end) {
+    if (size > bytes.length || at + 8 + padded > end) {
       return refuse('webp chunk runs past the end of the file')
     }
     const next = at + 8 + padded
@@ -241,9 +241,11 @@ function done(parts: readonly Uint8Array[], contentType: PhotoContentType): Imag
  * accepted formats, or that is damaged enough that its own structure cannot be
  * walked, is refused here and never reaches the store.
  */
-export function cleanPhoto(bytes: Uint8Array): ImageCheck {
+export function cleanPhoto(bytes: Uint8Array, maxBytes: number = PHOTO_MAX_BYTES): ImageCheck {
   if (bytes.length === 0) return refuse('the upload is empty')
-  if (bytes.length > PHOTO_MAX_BYTES) return refuse('the upload is larger than one megabyte')
+  // A photograph is at most one megabyte; a picture sent with a message may
+  // be larger (its own limit is passed in).
+  if (bytes.length > maxBytes) return refuse('the upload is larger than the limit')
   const contentType = sniffImageType(bytes)
   if (contentType === null) return refuse('the upload is not a JPEG, PNG or WebP picture')
   if (contentType === 'image/jpeg') return cleanJpeg(bytes)

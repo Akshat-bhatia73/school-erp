@@ -23,7 +23,7 @@ Owner or permission changed:
 - `students.enrollments` scope is now also applied to the class summary carried on a student hit in the roster, the search and the detail read, so a caller with no enrolment grant sees the pupil without the class.
 - Attaching an existing guardian during admission needs `students.manage_guardians` as well as `students.create`.
 - `subjects.setGradeSubjects` answers `GradeSubjectList`, not `Subject` or `EmptySuccess`.
-- Export job status polling (`GET /api/schools/:schoolId/exports/:jobId`) and the export file download (`GET /api/schools/:schoolId/exports/:jobId/file`) are endpoints this inventory does not list. Each requires one of `students.export`, `staff.export`, `audit.export`, `timetable.read`, `fees.export`, `fees.read`, `attendance.export`, `attendance.read`, `staff_attendance.export`, `exams.export` or `report_cards.export` and then re-decides the permission the job itself recorded. The download also needs the job to be ready and to belong to the caller, and it writes one audit row.
+- Export job status polling (`GET /api/schools/:schoolId/exports/:jobId`) and the export file download (`GET /api/schools/:schoolId/exports/:jobId/file`) are endpoints this inventory does not list. Each requires one of `students.export`, `staff.export`, `audit.export`, `timetable.read`, `fees.export`, `fees.read`, `attendance.export`, `attendance.read`, `staff_attendance.export`, `exams.export`, `report_cards.export` or `communication.export` and then re-decides the permission the job itself recorded. The download also needs the job to be ready and to belong to the caller, and it writes one audit row.
 - Three export endpoints this inventory does not list were added by decision on 19 September 2026: `POST /students/:studentId/export-profile` (`students.export`) and `POST /staff/:staffId/export-profile` (`staff.export`) turn one record into a document, and `POST /timetable/export` (`timetable.read`) turns one week into a spreadsheet or a document. Exporting a timetable is reading it in another format, so it carries the read permission rather than an export permission of its own.
 - `auditLogs.list` redaction by audience is the scope term: `audit.read` and `audit.export` at the `finance` scope select only rows whose action is in `FINANCE_AUDIT_ACTIONS`, so an accountant's list, count and export never exceed the money trail.
 - `timetable.bellSchedules` and `timetable.bellFor` are school-wide rather than matched scope: `timetable.read` is a permission over timetable entries, so no read plan can be built for a bell schedule.
@@ -92,6 +92,12 @@ Owner or permission changed:
 | `/exams/report-cards/sections/:sectionId` | `report_cards.read` / matched record scope (the section); entries use `report_cards.manage`, publishing `report_cards.publish` | `ReportCardEntriesResponse`, `ReportCardSectionResponse` | Task 21 |
 | `/exams/report-cards/:versionId` | `report_cards.read` / matched record scope (the card); the PDF uses `report_cards.export` | `ReportCardView` | Task 21 |
 | `/exams/settings` | `exams.read` / any scope to read; saving uses `exams.manage` at school scope | `ExamSettings` | Task 21 |
+| `/messages` | `communication.read` / self for the inbox (every role); the sent tab needs `communication.send` or a school or section reach | `InboxList`, `MessageList`, `UnreadCount` | Task 22 |
+| `/messages/new` | `communication.send` / school, or the caller's own sections for a section or one pupil's family | `AudienceOptions`, `AudiencePreview`, `MessageDetail` | Task 22 |
+| `/messages/:messageId` | `communication.read` / matched record scope (the message); the delivery record for its author and a school or section reach; withdrawing uses `communication.send` or `communication.manage`, the export `communication.export` | `MessageDetail`, `MessageRecipientList` | Task 22 |
+| `/messages/:messageId/edit` | `communication.send` / the author of a draft or a scheduled message, or `communication.manage` | `MessageDetail` | Task 22 |
+| `/messages/templates` | `communication.send` to read; `communication.manage` / school to change | `MessageTemplateList`, `MessageTemplate` | Task 22 |
+| `/messages/settings` | `communication.manage` / school | `CommunicationSettings` | Task 22 |
 
 ## API client operations
 
@@ -241,6 +247,24 @@ photograph; the route tables with their extra checks are in
 | `reportCards.forStudent`, `reportCards.version` | `report_cards.read` / matched record scope; published cards only for own children; one card audited | `StudentReportCardsResponse`, `ReportCardView` | Task 21 |
 | `reportCards.exportVersion`, `reportCards.exportSection` | `report_cards.export` / matched record scope; privileged at school scope; a parent prints their own child's card | `ReportCardExportJob` | Task 21 |
 | `school.uploadLogo`, `school.removeLogo`, `school.logo` | `school.update` / school; privileged; the read under `holidays.read` / school | `204`, or a byte stream | Task 21 |
+
+The communication module (Task 22) added these. Every one is a `protectedRoute` under `/messages`
+except the attachment byte route, registered by hand like a photograph; the route table with its
+extra checks is in [protected school APIs](./PROTECTED_APIS.md#messages).
+
+| Operation | Permission / scope | Safe response family | Owner |
+|---|---|---|---|
+| `messages.inbox`, `messages.unread` | `communication.read` / self: the caller's own in-app rows of sent messages | `InboxList`, `UnreadCount` | Task 22 |
+| `messages.markRead` | `communication.read` / the caller's own row; the first read audited | `MarkReadResponse` | Task 22 |
+| `messages.list` | `communication.read` / school, assigned sections, or self as author (never as a recipient); nobody else's drafts | `MessageList` | Task 22 |
+| `messages.get` | `communication.read` / matched record scope (the message); counts for its author and a school or section reach only | `MessageDetail` | Task 22 |
+| `messages.recipients` | `communication.read` / school, assigned sections, or self as author | `MessageRecipientList` | Task 22 |
+| `messages.audiences`, `messages.preview` | `communication.send` / school, or assigned sections for a section or a pupil | `AudienceOptions`, `AudiencePreview` | Task 22 |
+| `messages.create`, `messages.update`, `messages.remove`, `messages.send`, `messages.unschedule`, `messages.withdraw` | `communication.send` / the target's scope; privileged at school scope; the author, or `communication.manage`; a withdrawal reason is an audit note | `MessageDetail` | Task 22 |
+| `messages.addAttachment`, `messages.removeAttachment`, `messages.attachment` | `communication.send` to change, `communication.read` to read; a byte stream for the read | `MessageDetail`, or a byte stream | Task 22 |
+| `messages.export` | `communication.export` / school; privileged | `MessageExportJob` | Task 22 |
+| `messages.templates`, `messages.createTemplate`, `messages.updateTemplate`, `messages.archiveTemplate` | `communication.send` to read; `communication.manage` / school to change; privileged | `MessageTemplateList`, `MessageTemplate` | Task 22 |
+| `messages.settings`, `messages.saveSettings` | `communication.manage` / school; privileged | `CommunicationSettings` | Task 22 |
 
 ## Read auditing
 

@@ -114,7 +114,7 @@ test('documents and audit summaries cannot return storage credentials or raw pri
 
 test('advertised actions exclude reserved or duplicate permissions', () => {
   assert.equal(c.AllowedActions.safeParse(['students.read_basic']).success, true)
-  assert.equal(c.AllowedActions.safeParse(['communication.read']).success, false)
+  assert.equal(c.AllowedActions.safeParse(['ai_assistant.use']).success, false)
   assert.equal(c.AllowedActions.safeParse(['students.read_basic', 'students.read_basic']).success, false)
 })
 

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { sql } from 'drizzle-orm'
-import { planPredicate, scopedTableFor } from '@erp/authz'
+import { AuthorizationError, communicationScopedTable, planPredicate, scopedTableFor } from '@erp/authz'
 import { withTenantTransaction } from '@erp/db'
 import { SubjectAccessExport } from '@erp/contracts'
 import type {
@@ -14,6 +14,7 @@ import type {
   PermissionKey,
   ReportCardView,
   SubjectAccessEvent,
+  SubjectMessage,
   SubjectSensitive,
 } from '@erp/contracts'
 import type { RequestContext } from '@erp/contracts/server'
@@ -457,6 +458,54 @@ async function loadReportCards(
   return cards
 }
 
+/**
+ * The messages about this pupil that went out, under the caller's own
+ * communication.read plan, newest first. Undefined when the caller holds that
+ * key nowhere, so the block is left out rather than emptied. A parent's plan
+ * reaches what was addressed to them.
+ */
+async function loadMessages(
+  conn: ModuleConnection,
+  context: RequestContext,
+  studentId: string,
+): Promise<SubjectMessage[] | undefined> {
+  let predicate
+  try {
+    predicate = planPredicate(
+      await readPlan(conn, context, 'communication.read', 'communication'),
+      communicationScopedTable('message'),
+    )
+  } catch (error) {
+    if (error instanceof AuthorizationError && error.code === 'ACCESS_DENIED') return undefined
+    throw error
+  }
+  const result = await conn.db.execute<{
+    id: string
+    kind: SubjectMessage['kind']
+    title: string
+    body: string
+    sent_at: string
+  }>(
+    sql`SELECT messages.id, messages.kind, messages.title, messages.body,
+               to_char(messages.sent_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS sent_at
+          FROM messages
+         WHERE messages.school_id = ${context.schoolId}::uuid
+           AND messages.student_id = ${studentId}::uuid
+           AND messages.status = 'sent'
+           AND messages.sent_at IS NOT NULL
+           AND (${predicate})
+         ORDER BY messages.sent_at DESC, messages.id DESC
+         LIMIT 500`,
+  )
+  return result.rows.map((row) => ({
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    body: row.body,
+    sentAt: row.sent_at,
+  }))
+}
+
 export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDependencies): void {
   protectedRoute(app, deps, {
     method: 'GET',
@@ -480,6 +529,7 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ...(result.attendance === undefined ? [] : ['attendance']),
           ...(result.exams === undefined ? [] : ['exams']),
           ...(result.reportCards === undefined ? [] : ['reportCards']),
+          ...(result.messages === undefined ? [] : ['messages']),
           ...(result.accessHistory === undefined ? [] : ['accessHistory']),
         ],
       }),
@@ -597,6 +647,10 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ? await loadReportCards(conn, context, studentId)
           : undefined
 
+        // Messages about the pupil, under the caller's own messages plan; left
+        // out when the caller holds communication.read nowhere.
+        const messages = await loadMessages(conn, context, studentId)
+
         // The trail is decided against the school as a whole: there is no one
         // audit row to decide, and the rows named here are this student's.
         const history = (await decideAction(conn, context, 'audit.read', context.schoolId, true))
@@ -618,6 +672,7 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ...(attendance === undefined ? {} : { attendance }),
           ...(exams === undefined ? {} : { exams }),
           ...(reportCards === undefined ? {} : { reportCards }),
+          ...(messages === undefined ? {} : { messages }),
           ...(history === undefined ? {} : { accessHistory: history }),
         }
       })

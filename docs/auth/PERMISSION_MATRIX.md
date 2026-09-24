@@ -51,7 +51,7 @@ This document freezes the Task 0 access-control vocabulary. The executable sourc
 
 ## Reserved permissions
 
-The following names reserve future design space but cannot be granted by active templates: `members.update`, `roles.manage`, `access.manage`, `communication.*`, and `ai_assistant.*`. Implementers must not return fabricated data or expose endpoints merely because a key exists.
+The following names reserve future design space but cannot be granted by active templates: `members.update`, `roles.manage`, `access.manage` and `ai_assistant.*`. The `communication.*` keys became active with Task 22. Implementers must not return fabricated data or expose endpoints merely because a key exists.
 
 ## Field and response boundaries
 

@@ -20,7 +20,17 @@ import path from 'node:path'
 import net from 'node:net'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import pg from 'pg'
-import { CONSENT_PURPOSES, ROLE_TEMPLATES } from '@erp/contracts'
+import {
+  CONSENT_PURPOSES,
+  EXAM_PATTERN,
+  MESSAGE_BODY_MAX,
+  MESSAGE_TITLE_MAX,
+  renderMessageText,
+  ROLE_TEMPLATES,
+  type AutomaticMessageKind,
+  type ExamKind,
+  type MessagePlaceholder,
+} from '@erp/contracts'
 import { loadConfig } from '../src/config.ts'
 import { createPools } from '../src/db.ts'
 import { createSandboxDelivery } from '../src/delivery/index.ts'
@@ -31,6 +41,9 @@ import { crc32, deflateSync } from 'node:zlib'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { syncPapers } from '../src/modules/exams/setup.ts'
 import { buildReportCard } from '../src/modules/report-cards/build.ts'
+import { formatMessageDate, formatRupees } from '../src/modules/communication/automatic.ts'
+import { loadAutomaticWording, type DispatchDependencies } from '../src/modules/communication/common.ts'
+import { materialiseMessage } from '../src/modules/communication/materialise.ts'
 import { decodeBase32 } from './totp-secret.ts'
 
 /** Documented in docs/auth/WEB_SESSION.md. Development accounts only. */
@@ -275,7 +288,10 @@ async function removePreviousSchool(client: pg.PoolClient): Promise<void> {
   // Consent history is append-only in the same way, and it points at the
   // memberships and pupils removed below.
   await client.query('ALTER TABLE guardian_consents DISABLE TRIGGER guardian_consents_no_update')
+  // A message that went out is kept; only a draft may be deleted.
+  await client.query('ALTER TABLE messages DISABLE TRIGGER messages_guard_delete')
   const tables = [
+    'message_recipients', 'message_attachments', 'messages', 'message_templates', 'communication_settings',
     'guardian_consents', 'audit_event_notes',
     'attendance_entries', 'staff_attendance_entries',
     'report_card_versions', 'report_card_entries', 'exam_publications', 'exam_marks', 'exam_papers', 'exams',
@@ -304,6 +320,7 @@ async function removePreviousSchool(client: pg.PoolClient): Promise<void> {
   await client.query('ALTER TABLE exam_publications ENABLE TRIGGER exam_publications_no_change')
   await client.query('ALTER TABLE report_card_versions ENABLE TRIGGER report_card_versions_no_change')
   await client.query('ALTER TABLE guardian_consents ENABLE TRIGGER guardian_consents_no_update')
+  await client.query('ALTER TABLE messages ENABLE TRIGGER messages_guard_delete')
   await client.query('DELETE FROM schools WHERE id = $1', [schoolId])
 
   // Identities are shared across schools, so only the ones with no membership
@@ -2096,6 +2113,358 @@ async function main(): Promise<void> {
         `${reChecked.length} re-checks and ${officeFix ? 1 : 0} office correction; ` +
         `${incompleteSection.grade.name} ${incompleteSection.name} left unfinished; ${cardsPublished} report cards published; ` +
         `${allSections.length} sections.`,
+    )
+
+    // --------------------------------------------------------- communication
+    // Messages for every screen: office and teacher notices over the last
+    // month, one scheduled, two drafts, one withdrawn and one with a file;
+    // the school's own automatic messages for the last seven school days.
+    // Every sent message goes through materialiseMessage, the code a real
+    // send uses, so its recipient rows are real. The seed then moves the
+    // timestamps back to the day each one went out, which the database
+    // refuses anybody else, so the guard is off while it does.
+    //
+    // Automatic messages start now, as they would on the day a school turns
+    // the module on: every result, card and mark above was written moments
+    // ago, so an earlier start would have the first pump run send a notice
+    // for each of them. The seed writes its own sample of automatic messages
+    // below instead.
+    await client.query(`INSERT INTO communication_settings (school_id, automatic_since) VALUES ($1, clock_timestamp())`, [
+      schoolId,
+    ])
+
+    // Consent to messages for about nine in ten families: the existing rows
+    // cover the first guardian of three children in five, so every other pair
+    // is filled in here, with a few withdrawn and a few never asked.
+    const pairs = await client.query<{ student_id: string; guardian_id: string }>(
+      `SELECT sg.student_id, sg.guardian_id FROM student_guardians sg
+        WHERE sg.school_id = $1 AND NOT EXISTS (
+          SELECT 1 FROM guardian_consents gc
+           WHERE gc.school_id = sg.school_id AND gc.student_id = sg.student_id
+             AND gc.guardian_id = sg.guardian_id AND gc.purpose = 'communication')
+        ORDER BY sg.student_id, sg.guardian_id`,
+      [schoolId],
+    )
+    let consentsGiven = 0
+    let consentsWithdrawn = 0
+    for (const pair of pairs.rows) {
+      const roll = random()
+      if (roll >= 0.95) continue
+      await client.query(
+        `INSERT INTO guardian_consents (id, school_id, student_id, guardian_id, purpose, status, method,
+                                        recorded_by_membership_id, recorded_at)
+         VALUES ($1, $2, $3, $4, 'communication', 'given', 'signed_form', $5, now() - interval '60 days')`,
+        [randomUUID(), schoolId, pair.student_id, pair.guardian_id, ownerMembershipId],
+      )
+      if (roll < 0.9) {
+        consentsGiven += 1
+        continue
+      }
+      await client.query(
+        `INSERT INTO guardian_consents (id, school_id, student_id, guardian_id, purpose, status, method,
+                                        recorded_by_membership_id, recorded_at)
+         VALUES ($1, $2, $3, $4, 'communication', 'withdrawn', 'in_person', $5, now() - interval '10 days')`,
+        [randomUUID(), schoolId, pair.student_id, pair.guardian_id, ownerMembershipId],
+      )
+      consentsWithdrawn += 1
+    }
+
+    await client.query('ALTER TABLE messages DISABLE TRIGGER messages_guard_update')
+    // Only the tenant client and the auth lookup are used by the send, and the
+    // sign-in accounts made above are visible on this transaction alone.
+    const dispatch = { pools: { auth: client } } as unknown as DispatchDependencies
+    // A moment in the school's day, as the UTC timestamp the database keeps.
+    const at = (date: string, hour: number, minute = 0): string =>
+      new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10)), hour, minute) - 330 * 60_000).toISOString()
+    let messagesSent = 0
+    let recipientRows = 0
+    const send = async (id: string, planned: string): Promise<void> => {
+      // A sample time later today would read as sent in the future, so it is
+      // brought back to a minute ago.
+      const sentAt = new Date(Math.min(Date.parse(planned), Date.now() - 60_000)).toISOString()
+      const made = await materialiseMessage(conn, dispatch, schoolId, id, { allowEmpty: true })
+      recipientRows += made.recipients
+      messagesSent += 1
+      await client.query(
+        `UPDATE messages SET sent_at = $3::timestamptz, created_at = $3::timestamptz - interval '20 minutes',
+                             updated_at = $3::timestamptz
+          WHERE school_id = $1 AND id = $2`,
+        [schoolId, id, sentAt],
+      )
+      await client.query(
+        `UPDATE message_recipients SET created_at = $3::timestamptz,
+                email_next_attempt_at = CASE WHEN email_status = 'pending' THEN $3::timestamptz END
+          WHERE school_id = $1 AND message_id = $2`,
+        [schoolId, id, sentAt],
+      )
+    }
+    interface NoticeSeed {
+      by: string
+      audience: 'school' | 'staff' | 'grade' | 'section'
+      gradeId?: string
+      sectionId?: string
+      title: string
+      body: string
+    }
+    const insertNotice = async (notice: NoticeSeed, status: 'draft' | 'scheduled', sendAt: string | null = null): Promise<string> => {
+      const id = randomUUID()
+      await client.query(
+        `INSERT INTO messages (id, school_id, kind, audience, grade_id, section_id, academic_year_id, title, body,
+                               status, send_at, created_by_membership_id)
+         VALUES ($1, $2, 'notice', $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [id, schoolId, notice.audience, notice.gradeId ?? null, notice.sectionId ?? null,
+          notice.sectionId ? yearNow.id : null, notice.title, notice.body, status, sendAt, notice.by],
+      )
+      return id
+    }
+
+    // The office's notices over the last month.
+    const gradeFive = grades.find((grade) => grade.name === 'Class 5') as GradeSeed
+    const gradeTen = grades.find((grade) => grade.name === 'Class 10') as GradeSeed
+    const sectionOf = (sort: number, name: string): SectionSeed =>
+      sectionsNow.find((section) => section.grade.sortOrder === sort && section.name === name) ?? (sectionsNow[0] as SectionSeed)
+    const officeNotices: (NoticeSeed & { daysAgo: number })[] = [
+      { daysAgo: 29, by: principalMembership, audience: 'school', title: 'Welcome back after the monsoon break', body: 'School reopens on Monday at the usual time. Please make sure your child carries a raincoat or umbrella every day.' },
+      { daysAgo: 26, by: officeMembership, audience: 'staff', title: 'Staff meeting on Friday', body: 'All teaching staff please gather in the library at 2:30 pm on Friday to plan the half-yearly exams.' },
+      { daysAgo: 24, by: officeMembership, audience: 'grade', gradeId: gradeTen.id, title: 'Board registration forms', body: 'Class 10 parents, please check the board registration details sent home and return the signed form by Thursday.' },
+      { daysAgo: 21, by: principalMembership, audience: 'school', title: 'Half-yearly exam timetable', body: 'The half-yearly exams begin next month. The timetable has been shared with every class and is on the notice board.' },
+      { daysAgo: 19, by: officeMembership, audience: 'section', sectionId: sectionOf(8, 'A').id, title: 'Science exhibition models', body: 'Class 5 A will present their science models on Saturday. Parents are welcome between 10 am and noon.' },
+      { daysAgo: 16, by: officeMembership, audience: 'school', title: 'Fee counter timings', body: 'The fee counter is open from 8:30 am to 1 pm on school days. Payments by UPI are also accepted at the counter.' },
+      { daysAgo: 14, by: principalMembership, audience: 'grade', gradeId: gradeFive.id, title: 'Educational trip to Raman Science Centre', body: 'Class 5 will visit the Raman Science Centre next Wednesday. Please send the signed permission slip by Monday.' },
+      { daysAgo: 11, by: officeMembership, audience: 'staff', title: 'Attendance registers by 9:30 am', body: 'A reminder that the class register should be marked by 9:30 am so that absence notices reach families in good time.' },
+      { daysAgo: 9, by: principalMembership, audience: 'school', title: 'Ganesh Chaturthi holiday', body: 'School will remain closed for Ganesh Chaturthi. Classes resume the following day as usual.' },
+      { daysAgo: 6, by: officeMembership, audience: 'school', title: 'Parent-teacher meeting', body: 'The parent-teacher meeting for all classes is on Saturday from 9 am to 12 noon. Report cards can be collected then.' },
+      { daysAgo: 3, by: officeMembership, audience: 'section', sectionId: sectionOf(13, 'A').id, title: 'Extra classes for Class 10 A', body: 'Extra mathematics classes will run after school on Tuesday and Thursday until the exams. Pupils may bring a snack.' },
+      { daysAgo: 1, by: principalMembership, audience: 'staff', title: 'Sports day volunteers', body: 'We need six volunteers to help on sports day. Please tell the office by Friday if you can help.' },
+    ]
+    let withdrawnId = ''
+    let attachmentMessageId = ''
+    for (const [index, notice] of officeNotices.entries()) {
+      const id = await insertNotice(notice, 'draft')
+      if (index === 5) {
+        // The one with a file: a small PDF made here, stored the way an upload is.
+        attachmentMessageId = id
+        const lines = ['Sunrise Public School', 'Fee counter timings', 'Monday to Saturday, 8:30 am to 1 pm']
+        const stream = `BT /F1 16 Tf 72 760 Td ${lines.map((line) => `(${line}) Tj 0 -24 Td`).join(' ')} ET`
+        const objects = [
+          '<< /Type /Catalog /Pages 2 0 R >>',
+          '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+          '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+          `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+          '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+        ]
+        let pdf = '%PDF-1.4\n'
+        const offsets: number[] = []
+        for (const [at, body] of objects.entries()) {
+          offsets.push(pdf.length)
+          pdf += `${at + 1} 0 obj\n${body}\nendobj\n`
+        }
+        const xref = pdf.length
+        pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}`
+        pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+        const bytes = new Uint8Array(Buffer.from(pdf, 'latin1'))
+        const key = `messages/${schoolId}/${id}/${randomBytes(16).toString('hex')}`
+        if (process.env.DOCUMENT_STORAGE !== 'blob') {
+          await createLocalDocumentStorage(process.env.DOCUMENT_STORAGE_DIR ?? '.documents').write(key, bytes, 'application/pdf')
+          await client.query(
+            `INSERT INTO message_attachments (school_id, message_id, file_name, content_type, size_bytes, storage_key)
+             VALUES ($1, $2, 'fee-counter-timings.pdf', 'application/pdf', $3, $4)`,
+            [schoolId, id, bytes.length, key],
+          )
+        }
+      }
+      await send(id, at(shiftDays(runDate, -notice.daysAgo), 9, 15 + index))
+      if (index === 8) withdrawnId = id
+    }
+    // One withdrawn: the holiday notice named the wrong day. A status change
+    // alone, as the seed writes no audit rows for messages.
+    await client.query(
+      `UPDATE messages SET status = 'withdrawn', withdrawn_at = sent_at + interval '2 hours',
+                           withdrawn_by_membership_id = $3, version = version + 1, updated_at = sent_at + interval '2 hours'
+        WHERE school_id = $1 AND id = $2`,
+      [schoolId, withdrawnId, principalMembership],
+    )
+    await client.query(
+      `UPDATE message_recipients SET email_status = 'cancelled', email_next_attempt_at = NULL
+        WHERE school_id = $1 AND message_id = $2 AND email_status = 'pending'`,
+      [schoolId, withdrawnId],
+    )
+
+    // Teacher notices from teacher1 and teacher3 to a section they teach.
+    let teacherNotices = 0
+    for (const [teacherIndex, member] of [[0, teacherLogins[0]], [2, teacherLogins[2]]] as const) {
+      if (!member) continue
+      const by = teacherMembershipOf.get(member.id)
+      if (!by) continue
+      const taught = await client.query<{ section_id: string }>(
+        `SELECT DISTINCT section_id FROM teaching_assignments
+          WHERE school_id = $1 AND staff_id = $2 AND academic_year_id = $3 AND effective_to IS NULL
+          ORDER BY section_id LIMIT 2`,
+        [schoolId, member.id, yearNow.id],
+      )
+      const [first, second] = taught.rows.map((row) => row.section_id)
+      if (!first) continue
+      const notes = [
+        { sectionId: first, daysAgo: 12 + teacherIndex, title: 'Homework notebooks', body: 'Please check that your child brings the homework notebook every day. It will be signed on Fridays.' },
+        { sectionId: second ?? first, daysAgo: 4 + teacherIndex, title: 'Class test next week', body: 'There will be a short class test next Tuesday on the chapters covered this month. Revision sheets were handed out today.' },
+      ]
+      for (const note of notes) {
+        const id = await insertNotice({ by, audience: 'section', sectionId: note.sectionId, title: note.title, body: note.body }, 'draft')
+        await send(id, at(shiftDays(runDate, -note.daysAgo), 14, 5 + teacherIndex))
+        teacherNotices += 1
+      }
+      if (teacherIndex === 0) {
+        // teacher1 also has a draft waiting.
+        await insertNotice({ by, audience: 'section', sectionId: first, title: 'Library books to return', body: 'Library books borrowed last month are due back this week.' }, 'draft')
+      }
+    }
+    // One scheduled for next week, and one office draft.
+    await insertNotice(
+      { by: officeMembership, audience: 'school', title: 'Sports day on Saturday', body: 'Sports day is this Saturday from 8 am. Pupils should come in their house T-shirts.' },
+      'scheduled',
+      at(shiftDays(runDate, 7), 8, 30),
+    )
+    await insertNotice(
+      { by: officeMembership, audience: 'grade', gradeId: gradeTen.id, title: 'Pre-board exam dates', body: 'The pre-board exam dates will be shared soon.' },
+      'draft',
+    )
+
+    // The school's own messages, written with the words the pump uses and the
+    // same keys, so the pump never sends any of them a second time.
+    const wording = await loadAutomaticWording(conn, schoolId)
+    const pupilsNow = await client.query<{
+      student_id: string; first_name: string; last_name: string | null
+      section_id: string; academic_year_id: string; class_label: string
+    }>(
+      `SELECT st.id AS student_id, st.first_name, st.last_name, en.section_id, en.academic_year_id,
+              gr.name || ' ' || sec.name AS class_label
+         FROM students st
+         JOIN enrollments en ON en.school_id = st.school_id AND en.student_id = st.id
+          AND en.academic_year_id = $2 AND en.left_on IS NULL
+         JOIN sections sec ON sec.school_id = st.school_id AND sec.id = en.section_id
+         JOIN grades gr ON gr.school_id = sec.school_id AND gr.id = sec.grade_id
+        WHERE st.school_id = $1 AND st.status = 'active' AND st.anonymised_at IS NULL
+        ORDER BY st.id`,
+      [schoolId, yearNow.id],
+    )
+    const pupilById = new Map(pupilsNow.rows.map((row) => [row.student_id, row]))
+    const automaticCounts: Record<string, number> = {}
+    const automatic = async (
+      kind: AutomaticMessageKind,
+      key: string,
+      target: { studentId: string } | { staffId: string },
+      values: Partial<Record<MessagePlaceholder, string>>,
+      sentAt: string,
+    ): Promise<void> => {
+      const pupil = 'studentId' in target ? pupilById.get(target.studentId) : undefined
+      if ('studentId' in target && !pupil) return
+      const filled = {
+        school: 'Sunrise Public School',
+        ...(pupil
+          ? { pupil_name: [pupil.first_name, pupil.last_name].filter(Boolean).join(' '), pupil_first_name: pupil.first_name, class: pupil.class_label }
+          : {}),
+        ...values,
+      }
+      const id = randomUUID()
+      await client.query(
+        `INSERT INTO messages (id, school_id, kind, audience, student_id, staff_id, section_id, academic_year_id,
+                               title, body, status, template_id, dedupe_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, $12)`,
+        [id, schoolId, kind, kind === 'birthday_staff' ? 'staff_member' : 'pupil',
+          pupil?.student_id ?? null, 'staffId' in target ? target.staffId : null,
+          pupil?.section_id ?? null, pupil?.academic_year_id ?? null,
+          renderMessageText(wording[kind].title, filled).slice(0, MESSAGE_TITLE_MAX),
+          renderMessageText(wording[kind].body, filled).slice(0, MESSAGE_BODY_MAX),
+          wording[kind].templateId ?? null, key],
+      )
+      await send(id, sentAt)
+      automaticCounts[kind] = (automaticCounts[kind] ?? 0) + 1
+    }
+
+    // Absences on the last seven school days, from the register as it stands.
+    const lastSchoolDays: string[] = []
+    for (let back = 0; back < 20 && lastSchoolDays.length < 7; back += 1) {
+      const candidate = shiftDays(runDate, -back)
+      if (weekdayOf(candidate) === 0 || onHoliday(candidate)) continue
+      lastSchoolDays.push(candidate)
+    }
+    const absences = await client.query<{ student_id: string; date: string }>(
+      `SELECT student_id, to_char(date, 'YYYY-MM-DD') AS date FROM (
+         SELECT DISTINCT ON (student_id, date) student_id, date, mark
+           FROM attendance_entries
+          WHERE school_id = $1 AND academic_year_id = $2 AND date = ANY($3::date[])
+          ORDER BY student_id, date, revision DESC) latest
+        WHERE mark = 'absent'
+        ORDER BY date DESC, student_id
+        LIMIT 40`,
+      [schoolId, yearNow.id, lastSchoolDays],
+    )
+    for (const row of absences.rows) {
+      await automatic('absence', `absence:${row.student_id}:${row.date}`, { studentId: row.student_id },
+        { date: formatMessageDate(row.date) }, at(row.date, 10, 5))
+    }
+
+    // Results of the latest published exam, for two sections.
+    const latestPublished = await client.query<{ exam_id: string; kind: string; section_id: string; published: string }>(
+      `SELECT ep.exam_id, e.kind, ep.section_id, to_char(e.recheck_deadline, 'YYYY-MM-DD') AS published
+         FROM exam_publications ep JOIN exams e ON e.school_id = ep.school_id AND e.id = ep.exam_id
+        WHERE ep.school_id = $1 AND ep.academic_year_id = $2
+        ORDER BY e.starts_on DESC, ep.section_id
+        LIMIT 2`,
+      [schoolId, yearNow.id],
+    )
+    for (const publication of latestPublished.rows) {
+      const sentOn = publication.published > runDate ? runDate : publication.published
+      for (const pupil of pupilsNow.rows.filter((row) => row.section_id === publication.section_id)) {
+        await automatic('result', `result:${publication.exam_id}:${pupil.student_id}`, { studentId: pupil.student_id },
+          { exam: EXAM_PATTERN[publication.kind as ExamKind].label }, at(sentOn, 16, 0))
+      }
+    }
+
+    // Three pupil birthdays and one staff birthday over the last week, and a
+    // few fee reminders.
+    const year = runDate.slice(0, 4)
+    for (const [index, pupil] of pupilsNow.rows.filter((_, index) => index % 97 === 5).slice(0, 3).entries()) {
+      await automatic('birthday_pupil', `birthday_pupil:${pupil.student_id}:${year}`, { studentId: pupil.student_id }, {},
+        at(lastSchoolDays[index * 2] ?? runDate, 8, 0))
+    }
+    // The staff member whose birthday the dashboard seed put on today.
+    await automatic('birthday_staff', `birthday_staff:${birthdayStaff.id}:${year}`, { staffId: birthdayStaff.id },
+      { staff_name: `${birthdayStaff.firstName} ${birthdayStaff.lastName}`, staff_first_name: birthdayStaff.firstName },
+      at(runDate, 8, 0))
+    const dueOn = shiftDays(runDate, 3)
+    for (const [index, pupil] of pupilsNow.rows.filter((_, index) => index % 61 === 7).slice(0, 4).entries()) {
+      await automatic('fee_reminder', `fee_reminder:${pupil.student_id}:${dueOn}`, { studentId: pupil.student_id },
+        { amount: formatRupees([450000, 1250000, 325000, 780000][index] ?? 450000), due_date: formatMessageDate(dueOn) },
+        at(runDate, 8, 5))
+    }
+
+    // About seven in ten app deliveries read, some time after they went out,
+    // and about eight in ten waiting emails handed over.
+    const readRows = await client.query(
+      `UPDATE message_recipients r
+          SET read_at = LEAST(now(), m.sent_at + ((abs(hashtext(r.id::text)) % 2880) || ' minutes')::interval)
+         FROM messages m
+        WHERE r.school_id = $1 AND m.school_id = r.school_id AND m.id = r.message_id
+          AND m.status = 'sent' AND r.in_app AND abs(hashtext(r.id::text || 'read')) % 10 < 7`,
+      [schoolId],
+    )
+    const emailed = await client.query(
+      `UPDATE message_recipients r
+          SET email_status = 'sent', email_attempts = 1, email_next_attempt_at = NULL,
+              email_sent_at = LEAST(now(), m.sent_at + interval '2 minutes')
+         FROM messages m
+        WHERE r.school_id = $1 AND m.school_id = r.school_id AND m.id = r.message_id
+          AND r.email_status = 'pending' AND abs(hashtext(r.id::text || 'mail')) % 10 < 8`,
+      [schoolId],
+    )
+    await client.query('ALTER TABLE messages ENABLE TRIGGER messages_guard_update')
+    console.info(
+      `Messages: ${officeNotices.length} office and ${teacherNotices} teacher notices (one withdrawn, one with a file` +
+        `${attachmentMessageId && process.env.DOCUMENT_STORAGE !== 'blob' ? '' : ' not stored'}), one scheduled, two drafts; ` +
+        `automatic ${Object.entries(automaticCounts).map(([kind, count]) => `${kind} ${count}`).join(', ')}; ` +
+        `${messagesSent} sent to ${recipientRows} recipient rows, ${readRows.rowCount ?? 0} read, ${emailed.rowCount ?? 0} emails sent; ` +
+        `communication consent added for ${consentsGiven} pairs and withdrawn for ${consentsWithdrawn}.`,
     )
 
     await client.query('COMMIT')

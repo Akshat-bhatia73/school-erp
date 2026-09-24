@@ -28,6 +28,7 @@ import { registerMembershipRoutes } from './memberships/routes.ts'
 import { registerInvitationRoutes } from './invitations/routes.ts'
 import { registerModuleRoutes } from './modules/index.ts'
 import { registerMaintenanceRoutes } from './maintenance/routes.ts'
+import { registerMessageMaintenanceRoutes } from './maintenance/messages.ts'
 import {
   MFA_ATTEMPT_LIMIT,
   MFA_ATTEMPT_WINDOW_SECONDS,
@@ -214,6 +215,7 @@ export function buildApp({
   registerInvitationRoutes(app, { auth, pools, authz, delivery })
   registerModuleRoutes(app, { config, auth, pools, authz, delivery, documents })
   registerMaintenanceRoutes(app, { config, pools, documents })
+  registerMessageMaintenanceRoutes(app, { config, pools, documents, delivery })
 
   app.route({
     method: ['GET', 'POST'],

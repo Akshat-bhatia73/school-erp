@@ -9,6 +9,7 @@ import { FeeStatement } from './module-fees.ts'
 import { AttendanceYearRecord } from './module-attendance.ts'
 import { ExamResultsResponse } from './module-exams.ts'
 import { ReportCardView } from './module-report-cards.ts'
+import { SubjectMessage } from './module-communication.ts'
 
 /** The purposes a school may ask a guardian to consent to. */
 export const CONSENT_PURPOSES = [
@@ -157,6 +158,12 @@ export const SubjectAccessExport = z.strictObject({
   exams: z.array(ExamResultsResponse).max(30).optional(),
   /** Every published report card version, newest first; needs `report_cards.read` on this pupil. */
   reportCards: z.array(ReportCardView).max(120).optional(),
+  /**
+   * Messages about this pupil (absence, results, fees, birthdays and notices
+   * to the pupil's family), newest first, as far as the caller may read them;
+   * needs `communication.read`.
+   */
+  messages: z.array(SubjectMessage).max(500).optional(),
   accessHistory: z.array(SubjectAccessEvent).max(200).optional(),
 })
 
@@ -171,6 +178,10 @@ export const RETENTION = {
   credentialGraceDays: 30,
   invitationDays: 90,
   outboxDays: 90,
+  /** A message and its delivery record, after it went out; see sweep_messages () in migration 0018. */
+  messageYears: 2,
+  /** A draft nobody has touched. */
+  messageDraftDays: 365,
   importPreviewHours: 24,
 } as const
 

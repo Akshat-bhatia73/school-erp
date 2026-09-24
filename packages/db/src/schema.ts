@@ -1345,6 +1345,139 @@ export const examSettings = pgTable(
   (t) => [unique('exam_settings_school_id_id_key').on(t.schoolId, t.id)],
 )
 
+/**
+ * Task 22. One row per school with the automatic message switches; a school
+ * without a row has the column defaults.
+ */
+export const communicationSettings = pgTable('communication_settings', {
+  schoolId: tenant().primaryKey(),
+  absenceEnabled: boolean('absence_enabled').notNull().default(true),
+  absenceDelayMinutes: integer('absence_delay_minutes').notNull().default(30),
+  resultsEnabled: boolean('results_enabled').notNull().default(true),
+  reportCardsEnabled: boolean('report_cards_enabled').notNull().default(true),
+  feeRemindersEnabled: boolean('fee_reminders_enabled').notNull().default(true),
+  feeReminderDaysBefore: integer('fee_reminder_days_before').notNull().default(3),
+  feeOverdueEveryDays: integer('fee_overdue_every_days').notNull().default(7),
+  birthdaysPupilsEnabled: boolean('birthdays_pupils_enabled').notNull().default(true),
+  birthdaysStaffEnabled: boolean('birthdays_staff_enabled').notNull().default(true),
+  dailySendHour: integer('daily_send_hour').notNull().default(8),
+  automaticSince: timestamp('automatic_since', { withTimezone: true }).notNull().defaultNow(),
+  version: integer('version').notNull().default(1),
+  ...timestamps(),
+})
+
+/** The school's own wording for notices and for each automatic message. */
+export const messageTemplates = pgTable(
+  'message_templates',
+  {
+    id: id(),
+    schoolId: tenant(),
+    kind: text('kind').notNull(),
+    name: text('name').notNull(),
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdByMembershipId: uuid('created_by_membership_id').notNull(),
+    version: integer('version').notNull().default(1),
+    ...timestamps(),
+  },
+  (t) => [unique('message_templates_school_id_id_key').on(t.schoolId, t.id)],
+)
+
+/**
+ * One announcement. The words live here once; message_recipients records who
+ * it went to. created_by_membership_id is null for the school's automatic
+ * messages, which carry a dedupe_key instead.
+ */
+export const messages = pgTable(
+  'messages',
+  {
+    id: id(),
+    schoolId: tenant(),
+    kind: text('kind').notNull(),
+    audience: text('audience').notNull(),
+    gradeId: uuid('grade_id'),
+    sectionId: uuid('section_id'),
+    academicYearId: uuid('academic_year_id'),
+    studentId: uuid('student_id'),
+    staffId: uuid('staff_id'),
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    status: text('status').notNull(),
+    sendAt: timestamp('send_at', { withTimezone: true }),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    withdrawnAt: timestamp('withdrawn_at', { withTimezone: true }),
+    withdrawnByMembershipId: uuid('withdrawn_by_membership_id'),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelReason: text('cancel_reason'),
+    createdByMembershipId: uuid('created_by_membership_id'),
+    templateId: uuid('template_id'),
+    dedupeKey: text('dedupe_key'),
+    redactedAt: timestamp('redacted_at', { withTimezone: true }),
+    version: integer('version').notNull().default(1),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('messages_school_id_id_key').on(t.schoolId, t.id),
+    unique('messages_school_id_dedupe_key_key').on(t.schoolId, t.dedupeKey),
+  ],
+)
+
+/** A file sent with a message, as bytes in the private document store. */
+export const messageAttachments = pgTable(
+  'message_attachments',
+  {
+    id: id(),
+    schoolId: tenant(),
+    messageId: uuid('message_id').notNull(),
+    fileName: text('file_name').notNull(),
+    contentType: text('content_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    storageKey: text('storage_key').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('message_attachments_school_id_id_key').on(t.schoolId, t.id),
+    index('message_attachments_message_idx').on(t.schoolId, t.messageId),
+  ],
+)
+
+/**
+ * One person a message was for: a guardian (reached through student_id) or a
+ * staff member. section_id, academic_year_id and sender_membership_id are
+ * copied from the message so the scope terms reach a row without a join.
+ */
+export const messageRecipients = pgTable(
+  'message_recipients',
+  {
+    id: id(),
+    schoolId: tenant(),
+    messageId: uuid('message_id').notNull(),
+    guardianId: uuid('guardian_id'),
+    staffId: uuid('staff_id'),
+    membershipId: uuid('membership_id'),
+    studentId: uuid('student_id'),
+    sectionId: uuid('section_id'),
+    academicYearId: uuid('academic_year_id'),
+    senderMembershipId: uuid('sender_membership_id'),
+    /** delivered, no_consent, not_receiving or no_contact. */
+    outcome: text('outcome').notNull(),
+    inApp: boolean('in_app').notNull(),
+    /** none, pending, sent, failed or cancelled. */
+    emailStatus: text('email_status').notNull(),
+    emailMasked: text('email_masked'),
+    emailAttempts: integer('email_attempts').notNull().default(0),
+    emailNextAttemptAt: timestamp('email_next_attempt_at', { withTimezone: true }),
+    emailSentAt: timestamp('email_sent_at', { withTimezone: true }),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('message_recipients_school_id_id_key').on(t.schoolId, t.id),
+    index('message_recipients_message_idx').on(t.schoolId, t.messageId),
+  ],
+)
+
 export const schoolTables = [
   schoolMemberships,
   roles,
@@ -1395,4 +1528,9 @@ export const schoolTables = [
   reportCardEntries,
   reportCardVersions,
   examSettings,
+  communicationSettings,
+  messageTemplates,
+  messages,
+  messageAttachments,
+  messageRecipients,
 ] as const

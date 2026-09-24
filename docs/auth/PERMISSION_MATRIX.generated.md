@@ -89,10 +89,10 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `exams.manage` | active | school | school | school | school | — | — | — | — |
 | `exams.publish` | active | school | school | school | school | — | — | — | — |
 | `exams.export` | active | school | school | school | school | — | assigned_subjects, assigned_sections | — | — |
-| `communication.read` | reserved | — | — | — | — | — | — | — | — |
-| `communication.send` | reserved | school, assigned_sections | — | — | — | — | — | — | — |
-| `communication.manage` | reserved | school | — | — | — | — | — | — | — |
-| `communication.export` | reserved | school | — | — | — | — | — | — | — |
+| `communication.read` | active | — | school | school | school | self | self, assigned_sections | self | — |
+| `communication.send` | active | school | school | school | school | — | assigned_sections | — | — |
+| `communication.manage` | active | school | school | school | school | — | — | — | — |
+| `communication.export` | active | school | school | school | school | — | — | — | — |
 | `report_cards.read` | active | — | school | school | school | — | assigned_sections | own_children | — |
 | `report_cards.manage` | active | school | school | school | school | — | assigned_sections | — | — |
 | `report_cards.publish` | active | school | school | school | school | — | — | — | — |

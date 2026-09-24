@@ -22,6 +22,7 @@ import { registerAttendanceRoutes } from './attendance/index.ts'
 import { registerExamRoutes } from './exams/index.ts'
 import { registerReportCardRoutes } from './report-cards/index.ts'
 import { registerSchoolLogoRoutes } from './setup/logo.ts'
+import { registerCommunicationRoutes } from './communication/index.ts'
 
 export type { ModuleDependencies }
 
@@ -52,4 +53,5 @@ export function registerModuleRoutes(app: FastifyInstance, deps: ModuleDependenc
   registerExamRoutes(app, deps)
   registerReportCardRoutes(app, deps)
   registerSchoolLogoRoutes(app, deps)
+  registerCommunicationRoutes(app, deps)
 }

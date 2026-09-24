@@ -1,6 +1,6 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, CalendarClock, CalendarDays, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, ListChecks, NotebookPen, PanelLeft, School, ScrollText, Search, ShieldCheck, Users, UserRound, BookOpen, Sparkles, X } from 'lucide-react'
+import { Building2, CalendarClock, CalendarDays, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, ListChecks, Mail, NotebookPen, PanelLeft, School, ScrollText, Search, ShieldCheck, Users, UserRound, BookOpen, Sparkles, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { AccountMenu } from '@/components/auth/account-menu'
 import { SectionLabel } from '@/components/shared/page'
@@ -58,6 +58,15 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
     queryFn: () => api.staff.count(schoolId),
     enabled: office && hasPermission('staff.read_directory'),
   })
+  // The unread badge. Asked every minute and when the window comes back; the same read starts
+  // the school's message pump on the server.
+  const { data: unread } = useQuery({
+    queryKey: qk.messages.unread(schoolId),
+    queryFn: () => api.messages.unread(schoolId),
+    enabled: hasPermission('communication.read'),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  })
   const { current } = useAcademicYear()
 
   const primary: NavItem[] = [
@@ -68,6 +77,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
     { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
     { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read'] },
     { label: 'Exams', to: '/exams', icon: <NotebookPen />, permissions: ['exams.read', 'report_cards.read'] },
+    { label: 'Messages', to: '/messages', icon: <Mail />, count: unread?.unread ? unread.unread : undefined, permission: 'communication.read' },
   ]
   const setup: NavItem[] = [
     { label: 'School profile', to: '/setup/school', icon: <School />, permission: 'school.read' },
@@ -140,7 +150,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
           <>
             <SectionLabel>Coming next</SectionLabel>
             <div className="flex flex-col gap-0.5 opacity-60">
-              {[['Messages', 'Phase 2'], ['AI assistant', 'Phase 4']].map(([l, p]) => (
+              {[['AI assistant', 'Phase 4']].map(([l, p]) => (
                 <div key={l} className="flex h-8 items-center justify-between px-2 text-[13px] text-muted-foreground"><span>{l}</span><span className="text-[11px]">{p}</span></div>
               ))}
             </div>

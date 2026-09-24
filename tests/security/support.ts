@@ -179,6 +179,18 @@ export function createScriptedDelivery(): ScriptedDelivery {
       if (this.failing) throw new Error('delivery provider unavailable')
       outbox.push({ ...message, sentAt: new Date().toISOString() })
     },
+    async sendMessage(message) {
+      attempts.push({ to: message.to, purpose: 'message' })
+      if (this.failing) throw new Error('delivery provider unavailable')
+      outbox.push({
+        channel: 'email',
+        to: message.to,
+        purpose: 'message',
+        secret: '',
+        subject: message.subject,
+        sentAt: new Date().toISOString(),
+      })
+    },
   }
 }
 

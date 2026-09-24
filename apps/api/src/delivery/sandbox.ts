@@ -17,5 +17,16 @@ export function createSandboxDelivery(
         `[SANDBOX DELIVERY] nothing was sent: channel=${message.channel} purpose=${message.purpose} recipientLength=${message.to.length}`,
       )
     },
+    async sendMessage(message) {
+      outbox.push({
+        channel: 'email',
+        to: message.to,
+        purpose: 'message',
+        secret: '',
+        subject: message.subject,
+        sentAt: new Date().toISOString(),
+      })
+      log(`[SANDBOX DELIVERY] nothing was sent: channel=email purpose=message attachments=${message.attachments.length}`)
+    },
   }
 }

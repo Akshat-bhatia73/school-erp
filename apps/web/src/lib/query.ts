@@ -93,6 +93,19 @@ export const qk = {
   examMarkHistory: (schoolId: string, paperId: string, studentId: string, component: string) => [schoolId, 'exams', 'sheet', paperId, 'history', studentId, component] as const,
   examResults: (schoolId: string, studentId: string, params?: Params) => [schoolId, 'exams', 'results', studentId, params ?? {}] as const,
 
+  /** Messages. Every write invalidates `[schoolId, 'messages']`, which also refreshes the unread badge. */
+  messages: {
+    unread: (schoolId: string) => [schoolId, 'messages', 'unread'] as const,
+    inbox: (schoolId: string, params?: Params) => [schoolId, 'messages', 'inbox', params ?? {}] as const,
+    list: (schoolId: string, params?: Params) => [schoolId, 'messages', 'list', params ?? {}] as const,
+    detail: (schoolId: string, messageId: string) => [schoolId, 'messages', 'detail', messageId] as const,
+    recipients: (schoolId: string, messageId: string, params?: Params) => [schoolId, 'messages', 'detail', messageId, 'recipients', params ?? {}] as const,
+    audiences: (schoolId: string) => [schoolId, 'messages', 'audiences'] as const,
+    audiencePreview: (schoolId: string, audience: Params) => [schoolId, 'messages', 'audiencePreview', audience ?? {}] as const,
+    templates: (schoolId: string, params?: Params) => [schoolId, 'messages', 'templates', params ?? {}] as const,
+    settings: (schoolId: string) => [schoolId, 'messages', 'settings'] as const,
+  },
+
   examSettings: (schoolId: string) => [schoolId, 'reportCards', 'settings'] as const,
   reportCardEntries: (schoolId: string, sectionId: string, term: string) => [schoolId, 'reportCards', 'entries', sectionId, term] as const,
   reportCardSections: (schoolId: string, params?: Params) => [schoolId, 'reportCards', 'sections', params ?? {}] as const,

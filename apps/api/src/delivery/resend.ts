@@ -4,6 +4,8 @@ import type { DeliveryAdapter, DeliveryMessage } from './types.ts'
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails'
 const SEND_TIMEOUT_MS = 10_000
+/** A school message may carry files, so it gets longer. */
+const MESSAGE_TIMEOUT_MS = 20_000
 
 export interface ProviderDeliveryOptions {
   readonly apiKey: string
@@ -54,6 +56,9 @@ function compose(
         subject: 'Your sign-in code',
         text: `Your sign-in code is ${message.secret}. It stops working after a few minutes. Never share it.`,
       }
+    case 'message':
+      // A school message has its own words and goes through sendMessage.
+      throw new Error('A school message is sent with sendMessage.')
   }
 }
 
@@ -71,6 +76,37 @@ export function createProviderDelivery(
   return {
     mode: 'provider',
     outbox: [],
+    async sendMessage(message) {
+      // The display name is the school's; quotes and angle brackets would
+      // break the header, so they are taken out.
+      const fromName = message.fromName.replace(/["<>\\\r\n]/g, '').trim() || 'School ERP'
+      const response = await send(RESEND_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${options.apiKey}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: `${fromName} <${options.from}>`,
+          to: [message.to],
+          subject: message.subject,
+          text: message.text,
+          ...(message.attachments.length === 0
+            ? {}
+            : {
+                attachments: message.attachments.map((file) => ({
+                  filename: file.fileName,
+                  content: Buffer.from(file.bytes).toString('base64'),
+                  content_type: file.contentType,
+                })),
+              }),
+        }),
+        signal: AbortSignal.timeout(MESSAGE_TIMEOUT_MS),
+      })
+      // The provider's words stay out of the error: they can echo the address.
+      if (!response.ok)
+        throw new Error(`Email provider refused the message (${response.status}).`)
+    },
     async send(message) {
       if (message.channel === 'sms') {
         if (!options.heldSms) throw new Error('No SMS provider is configured.')

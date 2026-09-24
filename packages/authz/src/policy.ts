@@ -23,6 +23,12 @@ export interface RelationshipFacts {
   readonly classTeacherSections?: readonly { sectionId: string; academicYearId: string }[]
   /** Approved, unrevoked guardian_student_access reached through a verified membership_guardian_link. */
   readonly ownChildStudentIds: readonly string[]
+  /**
+   * The caller's own membership. The self scope of a message is the member
+   * it was addressed to or written by, for any kind of member, so it is
+   * decided by membership rather than by a staff record.
+   */
+  readonly membershipId?: string
 }
 
 /**
@@ -51,6 +57,14 @@ export interface ResourceFacts {
    * of its own.
    */
   readonly published?: boolean
+  /**
+   * Messages: the members a message or a recipient row belongs to, which is
+   * how the self scope reaches it. A message belongs to its author and,
+   * while it is sent, to every recipient who sees it in the app; a
+   * recipient row to the message's author and, while the message is sent, to
+   * the member it shows for.
+   */
+  readonly membershipIds?: readonly string[]
   /** Set for resources that summarise the whole authorized dataset, such as the dashboard. */
   readonly aggregate?: true
 }
@@ -106,6 +120,12 @@ export function matchesScope(scope: AccessScope, facts: RelationshipFacts, resou
         return resourceFacts.action !== undefined && isFinanceAuditAction(resourceFacts.action)
       return true
     case 'self':
+      if (resourceFacts.resourceType === 'communication') {
+        // Every member has an inbox, so the whole dataset always holds
+        // something of the caller's own.
+        if (resourceFacts.aggregate === true) return true
+        return facts.membershipId !== undefined && (resourceFacts.membershipIds ?? []).includes(facts.membershipId)
+      }
       if (facts.selfStaffId === null) return false
       // An aggregate resource stands for the whole dataset, so a caller who has
       // a staff record of their own can exercise the scope somewhere in it.
@@ -147,9 +167,13 @@ export function matchesScope(scope: AccessScope, facts: RelationshipFacts, resou
           (resourceFacts.subjectIds ?? []).includes(assignment.subjectId),
       )
     case 'own_children':
+      // A family reads the messages addressed to them (self), never a message
+      // through the child it is about, so consent decided per guardian holds.
+      if (resourceFacts.resourceType === 'communication') return false
       if (resourceFacts.aggregate === true) return facts.ownChildStudentIds.length > 0
       return ownPupilMatches(resourceFacts, facts.ownChildStudentIds)
     case 'own_record':
+      if (resourceFacts.resourceType === 'communication') return false
       // Student login is disabled, so nothing is ever the caller's own record.
       // The term is still written like own_children, published rows only, so
       // turning student login on cannot open an unpublished mark.

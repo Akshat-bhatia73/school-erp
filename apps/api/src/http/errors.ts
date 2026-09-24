@@ -81,6 +81,17 @@ const REASON_MESSAGES: Record<ErrorReason, string> = {
   report_card_exams_changed: 'Marks have changed since this term\'s results were published. Publish the results again first.',
   report_card_nothing_to_publish: 'Every report card here is already published and nothing has changed since.',
   report_card_pupil_not_on_roster: 'Somebody in this list is not in this section for that term. Reload and try again.',
+  message_not_editable: 'This message has already gone out, so it can no longer be changed.',
+  message_not_sent: 'Only a message that has gone out can be withdrawn.',
+  message_schedule_in_past: 'Choose a time at least five minutes from now.',
+  message_schedule_too_far: 'A message can be scheduled at most 60 days ahead.',
+  message_audience_empty: 'Nobody is in this audience yet. Choose another audience.',
+  message_placeholder_unknown: 'The words use a placeholder that this message cannot fill in. Remove it or choose another audience.',
+  message_attachment_too_large: 'A file can be at most 2 MB.',
+  message_attachment_type: 'Attach a PDF, JPEG or PNG file.',
+  message_too_many_attachments: 'A message can carry at most three files.',
+  message_template_archived: 'This template has been archived. Choose another one.',
+  message_template_kind_mismatch: 'This template is for a different kind of message.',
 }
 
 export class ApiFailure extends Error {

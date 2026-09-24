@@ -340,5 +340,31 @@ A short assessment of the exam records, written when the module was built (Task 
 
 **Anonymising a pupil, decided.** Marks, grades and published figures stay: they are the academic record a school must be able to certify, and a mark on its own identifies nobody. The class teacher's remarks are free text about a child and are cleared by the anonymisation step, in the working record and on every published version; the database allows exactly that change and no other.
 
-**Where it sits.** In the same United States database as everything else. No real school's data goes in until the database has moved to an Indian region (Task 17). Result notices to parents wait for Task 22: this module sends no email and no text message.
+**Where it sits.** In the same United States database as everything else. No real school's data goes in until the database has moved to an Indian region (Task 17). Result notices to parents are sent by the messages module (section 14), which checks the family's consent.
 
+
+## 14. Messages, September 2026
+
+A short assessment of the messages module, written when it was built (Task 22).
+
+**What changed.** The system now sends and keeps the school's announcements: notices a member of staff writes to the whole school, a class, a section, the staff or one pupil's family, and seven kinds of message the software sends by itself (a pupil marked absent today, results published, a report card published, fees falling due, fees overdue, a pupil's birthday, a staff member's birthday). Each message is kept once, with up to three attached files, and each person it was for has a row saying whether it reached them in the app or by email, whether the email went, a masked address and when they opened it in the app. Parents cannot reply. Email goes through Resend; text messages wait for Task 16.
+
+**Purpose and basis.** Contacting a family about their child and the school. For families this is the `communication` consent purpose, and the software enforces it rather than leaving it to a screen: a guardian receives a message only when their newest answer for at least one of the pupils through whom they are in the audience is `given` and the office has not switched their notifications off. With no answer, or a withdrawal, nothing goes in the app or by email, and the delivery record says so, which is the evidence a school needs when a parent asks why they were not told. Staff messages are part of employment and need no consent.
+
+**Who reads it.** The office reads every message and its delivery record. A teacher (class teacher or subject teacher alike) writes to and reads the messages of their own sections and families of pupils in them, and nothing else. Everybody reads the messages addressed to them and the ones they wrote, and nothing addressed to another person: a message to one guardian is not readable by the child's other guardian through the child, so consent given by one parent never opens a message to the other. A draft is its author's alone. Delivery figures and the recipient list are shown only to the author and to the office or a teacher of that section.
+
+**What keeps it honest.**
+
+- The words of a message live in one row and nowhere else: not in a log line, not in an audit row's `safe_changes`, not in an audit note, not in the delivery outbox. Audit rows carry ids, kinds, statuses and counts.
+- Once a message has gone out the database refuses any change to its words or its audience. Withdrawing it hides it from every inbox; the screen says an email already sent cannot be recalled.
+- A scheduled message is decided again for its author when its time comes, so a teacher who has left a section sends nothing there.
+- Read receipts are opens in the app only. There is no tracking pixel and no rewritten link in an email.
+- An email is recorded as sent only when the provider accepted it. A failure is retried four times over about two and a half hours and then recorded as failed.
+- The seeded test schools use reserved addresses (`.test`, `.invalid`, `example.com`), which the software never hands to the provider.
+- Files are kept in the private document store and served only through a permission-checked route; pictures lose their metadata as photographs do.
+
+**Retention and anonymisation.** Two years after a message went out (or was withdrawn or cancelled), the nightly sweep deletes its files and then the message with its delivery record; a draft nobody touched for a year goes too. Anonymising a pupil clears the words of every message about that pupil and the masked addresses of the guardians anonymised with them; anonymising a staff member does the same for messages to them.
+
+**Sub-processor.** Resend now carries message bodies and files about children, not only credentials. The sub-processor list says so. Its account data and logs are in the United States.
+
+**Where it sits.** In the same United States database as everything else. On 23 September 2026 the product owner decided to stay on Neon in us-east-1 for the test environment and to move the database to an Indian region only when the first real customer signs, before any of their data goes in (Task 17). No real school's messages are sent before then.
