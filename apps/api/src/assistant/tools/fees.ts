@@ -79,7 +79,7 @@ function receiptRow(receipt: FeeReceiptSummary) {
 export const feeDues = readTool({
   name: 'fee_dues',
   description:
-    'Fee dues by pupil, 50 at a time: what has fallen due, what is paid and what is still owed, with the totals. Filter by class, section or name.',
+    'Who owes fees and how much: by pupil, 50 at a time, what has fallen due, what is paid and what is still owed, with the totals. Use it for "fees due", "dues", "pending fees", "who has not paid" and "how much is outstanding". Filter by class, section or name.',
   permission: 'fees.read',
   input: z.object({
     onlyWithDues: z.boolean().optional().describe('Only pupils who owe something today. True by default.'),
@@ -340,7 +340,8 @@ export const feeReceipt = readTool({
 
 export const feeHeads = readTool({
   name: 'fee_heads',
-  description: "The school's own fees (tuition, transport and so on): who pays each, how often, and whether it is in use.",
+  description:
+    "The school's fee setup: the names of its fees (tuition, transport and so on), who is charged each and how often. It says nothing about what anyone owes or paid; for that use fee_dues or fee_receipts.",
   permission: 'fees.read',
   input: z.object({}),
   async run(_input, context) {
@@ -379,7 +380,7 @@ export const feeHeads = readTool({
 
 export const feeStructures = readTool({
   name: 'fee_structures',
-  description: 'What each fee costs per instalment for each class in a year.',
+  description: 'The fee setup: what each fee costs per instalment for each class in a year. Not what anyone owes; for that use fee_dues.',
   permission: 'fees.read',
   input: z.object({ gradeId: IdInput('Only this class.').optional(), academicYearId: YearInput() }),
   async run(input, context) {
