@@ -110,21 +110,42 @@ async function lessonsFor(
   })
 }
 
-/** The consent purposes this child has no answer of "given" on record for. */
+/** The viewer's own guardian record, from the family link on this membership. */
+async function viewerGuardianId(conn: AuthzConnection, context: RequestContext): Promise<string | undefined> {
+  const [row] = await rows<{ guardian_id: string }>(
+    conn,
+    sql`SELECT guardian_id FROM membership_guardian_links
+         WHERE school_id = ${context.schoolId}::uuid AND membership_id = ${context.membershipId}::uuid
+         LIMIT 1`,
+  )
+  return row?.guardian_id
+}
+
+/**
+ * The consent purposes this child has no answer of "given" on record for.
+ * Only the newest row of each purpose counts, as it does when a message is
+ * sent. With a guardian, only that guardian's own rows are read: another
+ * guardian's answer is theirs, not the viewer's.
+ */
 async function consentsWaiting(
   conn: AuthzConnection,
   context: RequestContext,
   studentId: string,
+  guardianId: string | undefined,
 ): Promise<ConsentPurpose[]> {
   const plan = await readPlan(conn, context, 'students.read_consents', 'student')
+  const ownRows = guardianId === undefined ? sql`TRUE` : sql`gc.guardian_id = ${guardianId}::uuid`
   const found = await rows<{ purpose: string }>(
     conn,
-    sql`SELECT DISTINCT gc.purpose AS purpose
-          FROM guardian_consents gc
-         WHERE gc.school_id = ${context.schoolId}::uuid AND gc.student_id = ${studentId}::uuid
-           AND gc.status = 'given'
-           AND EXISTS (SELECT 1 FROM students
-                        WHERE ${predicateFor(plan)} AND students.id = gc.student_id)`,
+    sql`SELECT DISTINCT newest.purpose AS purpose
+          FROM (SELECT DISTINCT ON (gc.guardian_id, gc.purpose) gc.purpose, gc.status
+                  FROM guardian_consents gc
+                 WHERE gc.school_id = ${context.schoolId}::uuid AND gc.student_id = ${studentId}::uuid
+                   AND ${ownRows}
+                   AND EXISTS (SELECT 1 FROM students
+                                WHERE ${predicateFor(plan)} AND students.id = gc.student_id)
+                 ORDER BY gc.guardian_id, gc.purpose, gc.recorded_at DESC, gc.id DESC) newest
+         WHERE newest.status = 'given'`,
   )
   const given = new Set(found.map((row) => row.purpose))
   return CONSENT_PURPOSES.filter((purpose) => !given.has(purpose))
@@ -279,11 +300,12 @@ export async function parentDashboard(
   const facts = await loadRelationshipFactsFor(conn, context.schoolId, context.membershipId, context.now)
   const year = await currentAcademicYear(conn, context.schoolId)
   const cards = await learningCards(conn, context, { studentIds: facts.ownChildStudentIds, calendar, year, date })
+  const guardianId = await viewerGuardianId(conn, context)
 
   const nextHoliday = calendar.holidays[0]
   const children: ParentDashboard['children'] = []
   for (const card of cards) {
-    const waiting = await optionalBlock(() => consentsWaiting(conn, context, card.student.id))
+    const waiting = await optionalBlock(() => consentsWaiting(conn, context, card.student.id, guardianId))
     const feesDuePaise =
       year === null
         ? undefined
@@ -296,5 +318,10 @@ export async function parentDashboard(
     })
   }
 
-  return { audience: 'parent', day: calendar.day, children }
+  return {
+    audience: 'parent',
+    day: calendar.day,
+    ...(guardianId === undefined ? {} : { guardianId }),
+    children,
+  }
 }

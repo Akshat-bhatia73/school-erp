@@ -6,12 +6,16 @@ import {
   AccessExplanation,
   AccessExplanationQuery,
   ChangeRolesRequest,
+  CreateMemberRestrictionRequest,
   InvitationActionRequest,
   InvitationListRequest,
   InvitationPage,
   InvitationSummary,
   InviteMemberRequest,
+  LiftMemberRestrictionRequest,
   MemberListRequest,
+  MemberRestriction,
+  MemberRestrictionList,
   MemberSummary,
   MembershipActionRequest,
   MembershipDirectory,
@@ -36,10 +40,17 @@ export type RestoreInput = z.input<typeof RestoreMembershipRequest>
 export type TransferOwnershipInput = z.input<typeof TransferOwnershipRequest>
 export type AccessExplanationParams = z.input<typeof AccessExplanationQuery>
 export type AccessExplanationResult = z.infer<typeof AccessExplanation>
+export type Restriction = z.infer<typeof MemberRestriction>
+export type RestrictionList = z.infer<typeof MemberRestrictionList>
+export type AddRestrictionInput = z.input<typeof CreateMemberRestrictionRequest>
+export type LiftRestrictionInput = z.input<typeof LiftMemberRestrictionRequest>
 
 /** Mirrors the inline reply of POST /members/:membershipId/recovery in memberships/routes.ts. */
 const RecoveryQueued = z.strictObject({ status: z.literal('queued') })
 export type RecoveryQueued = z.infer<typeof RecoveryQueued>
+
+/** Mirrors the `liftRestriction` reply in @erp/contracts endpoints. */
+const RestrictionLifted = z.strictObject({ status: z.literal('lifted') })
 
 const members = (schoolId: string, suffix = '') => schoolPath(schoolId, `/members${suffix}`)
 const invitations = (schoolId: string, suffix = '') => schoolPath(schoolId, `/invitations${suffix}`)
@@ -94,6 +105,22 @@ export function restore(schoolId: string, membershipId: string, body: RestoreInp
 /** Starts a password or phone recovery. Nothing about the delivery comes back. */
 export function startRecovery(schoolId: string, membershipId: string, body: MemberActionInput) {
   return request(members(schoolId, `/${seg(membershipId)}/recovery`), { method: 'POST', body, schema: RecoveryQueued })
+}
+
+// ---------- restrictions ----------
+
+/** The restrictions in force for one member, with whether the viewer may add or lift them. */
+export function restrictions(schoolId: string, membershipId: string) {
+  return request(members(schoolId, `/${seg(membershipId)}/restrictions`), { schema: MemberRestrictionList })
+}
+
+/** Takes one sensitive student field away from this member across the whole school. */
+export function addRestriction(schoolId: string, membershipId: string, body: AddRestrictionInput) {
+  return request(members(schoolId, `/${seg(membershipId)}/restrictions`), { method: 'POST', body, schema: MemberRestriction })
+}
+
+export function liftRestriction(schoolId: string, membershipId: string, restrictionId: string, body: LiftRestrictionInput) {
+  return request(members(schoolId, `/${seg(membershipId)}/restrictions/${seg(restrictionId)}/lift`), { method: 'POST', body, schema: RestrictionLifted })
 }
 
 export function transferOwnership(schoolId: string, body: TransferOwnershipInput) {

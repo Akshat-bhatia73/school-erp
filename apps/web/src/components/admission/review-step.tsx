@@ -5,7 +5,7 @@ import { useSectionOptions } from '@/components/students/use-section-options'
 import { Button } from '@/components/ui/button'
 import { METHOD_LABEL, PURPOSE_LABEL } from '@/lib/consent'
 import { formatDate, humanize } from '@/lib/utils'
-import type { AdmitDraft } from './admit-state'
+import { photoConsented, type AdmitDraft, type ChosenPhoto } from './admit-state'
 
 const dash = <span className="text-muted-foreground/60">—</span>
 const val = (value?: string) => (value && value.trim() !== '' ? value : dash)
@@ -20,8 +20,10 @@ function ending(value: string, kind: 'aadhaar' | 'pan') {
   return <span className="font-mono">ending {cleaned.slice(-4)}</span>
 }
 
-export function ReviewStep({ draft, onEdit, academicYearId, yearName }: {
+export function ReviewStep({ draft, onEdit, academicYearId, yearName, photo = null }: {
   draft: AdmitDraft
+  /** The photograph chosen on the first step, if any. */
+  photo?: ChosenPhoto | null
   onEdit: (step: number) => void
   academicYearId: string | null
   yearName: string
@@ -29,13 +31,15 @@ export function ReviewStep({ draft, onEdit, academicYearId, yearName }: {
   const { options } = useSectionOptions(academicYearId)
   const section = options.find((option) => option.value === draft.sectionId)
   const name = [draft.firstName, draft.lastName].filter(Boolean).join(' ') || 'New student'
+  // A photograph without the family's consent is not sent; the office is told before it saves.
+  const photoWithoutConsent = photo !== null && !photoConsented(draft)
   const editButton = (step: number) => <Button variant="ghost" size="sm" onClick={() => onEdit(step)}>Edit</Button>
 
   return (
     <div className="space-y-4">
       <Panel>
         <div className="flex items-center gap-3">
-          <UserAvatar name={name} size="lg" />
+          <UserAvatar name={name} src={photo?.preview} size="lg" />
           <div className="min-w-0">
             <p className="text-[16px] font-semibold">{name}</p>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -54,8 +58,12 @@ export function ReviewStep({ draft, onEdit, academicYearId, yearName }: {
             { label: 'Gender', value: draft.gender ? humanize(draft.gender) : dash },
             { label: 'Category', value: val(draft.category) },
             { label: 'Aadhaar', value: ending(draft.aadhaar, 'aadhaar') },
+            { label: 'Photograph', value: photo ? 'Chosen' : dash },
           ]}
         />
+        {photoWithoutConsent && (
+          <p className="mt-3 text-[12.5px] text-destructive">The photograph will not be saved without consent for photographs.</p>
+        )}
       </Panel>
 
       <Panel title="Parents and guardians" actions={editButton(1)}>

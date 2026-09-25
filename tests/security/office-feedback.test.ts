@@ -736,3 +736,148 @@ test('[photo-record-scope] every photograph write leaves one audit row and no st
   )
   assert.equal(Number(after.rows[0]?.count), before)
 })
+
+/** The fixture class's name, the way a sheet names it. */
+async function gradeName(): Promise<string> {
+  const found = await adminPool().query<{ name: string }>(
+    'SELECT name FROM grades WHERE school_id = $1 AND id = $2',
+    [schoolA, gradeA],
+  )
+  return found.rows[0]?.name as string
+}
+
+test('[identifier-never-whole] a teacher or a parent cannot stage a student sheet', async () => {
+  const sheet = {
+    academicYearId: yearA,
+    rows: [
+      {
+        rowNumber: 1,
+        firstName: 'Refused',
+        dateOfBirth: '2015-06-01',
+        gender: 'male',
+        grade: await gradeName(),
+        section: `OFF-1-${suffix}`,
+        guardianPhone: '9876543210',
+        guardianPan: SECRET.guardianPan,
+      },
+    ],
+  }
+  for (const [label, client] of [['teacher', teacherClient], ['parent', parentClient]] as const) {
+    const response = await client.fetch(
+      `/api/schools/${schoolA}/students/import/preview`,
+      postBody(sheet),
+    )
+    assert.equal(response.status, 403, `${label} is refused`)
+    assert.equal(await codeOf(response), 'ACCESS_DENIED')
+  }
+})
+
+test('[identifier-field-masking] an imported guardian PAN is shown only to a guardian reader', async () => {
+  // Numbers of this test's own, so a hit can only come from the imported row.
+  const imported = {
+    studentAadhaar: makeAadhaar(),
+    guardianAadhaar: makeAadhaar(),
+    guardianPan: `IMPRT${String(1000 + Math.floor(Math.random() * 8999))}Q`,
+    officeAddress: `Import office ${suffix}`,
+  }
+  const whole = [imported.studentAadhaar, imported.guardianAadhaar, imported.guardianPan]
+  const panLast4 = imported.guardianPan.slice(-4)
+  const firstName = `Imported ${suffix}`
+
+  const preview = await ownerClient.fetch(
+    `/api/schools/${schoolA}/students/import/preview`,
+    postBody({
+      academicYearId: yearA,
+      rows: [
+        {
+          rowNumber: 1,
+          firstName,
+          dateOfBirth: '2015-06-01',
+          gender: 'female',
+          grade: await gradeName(),
+          section: `OFF-1-${suffix}`,
+          motherName: 'Imported Mother',
+          guardianPhone: '9876501234',
+          studentAadhaar: imported.studentAadhaar,
+          guardianAadhaar: imported.guardianAadhaar,
+          guardianPan: imported.guardianPan,
+          guardianOfficeAddress: imported.officeAddress,
+        },
+      ],
+    }),
+  )
+  assert.equal(preview.status, 201)
+  const staged = await body<{ id: string; version: number; validRows: number }>(preview)
+  assert.equal(staged.validRows, 1)
+  const committed = await ownerClient.fetch(
+    `/api/schools/${schoolA}/students/import/commit`,
+    postBody({ previewId: staged.id, expectedVersion: staged.version }),
+  )
+  assert.equal(committed.status, 201)
+
+  const found = await adminPool().query<{ student_id: string; guardian_id: string }>(
+    `SELECT s.id AS student_id, sg.guardian_id
+       FROM students s
+       JOIN student_guardians sg ON sg.school_id = s.school_id AND sg.student_id = s.id
+      WHERE s.school_id = $1 AND s.first_name = $2`,
+    [schoolA, firstName],
+  )
+  const importedId = found.rows[0]?.student_id as string
+  const importedGuardian = found.rows[0]?.guardian_id as string
+  assert.ok(importedId && importedGuardian, 'the sheet admitted the pupil and the guardian')
+
+  // The positive control: the office, which holds the guardian key, sees the ending.
+  const officeGuardians = await ownerClient.fetch(
+    `/api/schools/${schoolA}/students/${importedId}/guardians`,
+  )
+  assert.equal(officeGuardians.status, 200)
+  const officeText = await officeGuardians.text()
+  assert.ok(officeText.includes(`"panLast4":"${panLast4}"`), 'the office sees the PAN ending')
+  for (const value of whole) {
+    assert.equal(officeText.includes(value), false, `the office guardian read leaked ${value}`)
+  }
+
+  // The masked office member reads and exports the pupil but holds no guardian key.
+  const detail = await maskedClient.fetch(`/api/schools/${schoolA}/students/${importedId}`)
+  assert.equal(detail.status, 200)
+  const guardians = await maskedClient.fetch(
+    `/api/schools/${schoolA}/students/${importedId}/guardians`,
+  )
+  assert.ok([403, 404].includes(guardians.status), `refused, got ${guardians.status}`)
+  const reveal = await maskedClient.fetch(
+    `/api/schools/${schoolA}/students/${importedId}/guardians/${importedGuardian}/identity`,
+  )
+  assert.ok([403, 404].includes(reveal.status), `reveal refused, got ${reveal.status}`)
+
+  const texts: Record<string, string> = {
+    detail: await detail.text(),
+    guardians: await guardians.text(),
+    reveal: await reveal.text(),
+    studentsExport: xlsxText(await exportedBytes(
+      maskedClient,
+      `/api/schools/${schoolA}/students/export`,
+      { studentIds: [importedId] },
+    )),
+  }
+  for (const [label, text] of Object.entries(texts)) {
+    for (const marker of ['panLast4', 'aadhaarLast4', 'officeAddress', imported.officeAddress]) {
+      assert.equal(text.includes(marker), false, `${label} showed ${marker}`)
+    }
+    assert.equal(text.includes(`ending ${panLast4}`), false, `${label} showed the PAN ending`)
+    for (const value of whole) {
+      assert.equal(text.includes(value), false, `${label} leaked ${value}`)
+    }
+  }
+
+  // Neither import audit row carries a number.
+  const audit = await adminPool().query<{ summary: string; safe_changes: unknown }>(
+    `SELECT summary, safe_changes FROM audit_events
+      WHERE school_id = $1 AND action = 'students.import' AND target_id = $2`,
+    [schoolA, staged.id],
+  )
+  assert.equal(audit.rowCount, 2)
+  const auditText = JSON.stringify(audit.rows)
+  for (const value of [...whole, imported.officeAddress]) {
+    assert.equal(auditText.includes(value), false, `an import audit row holds ${value}`)
+  }
+})

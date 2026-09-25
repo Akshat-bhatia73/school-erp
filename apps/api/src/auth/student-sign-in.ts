@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { randomInt, randomUUID } from 'node:crypto'
+import { createHash, randomInt, randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { studentSignInUser } from '@erp/db'
 import {
@@ -13,6 +13,7 @@ import { CLIENT_IP_HEADER } from '../app.ts'
 import { ApiFailure } from '../http/errors.ts'
 import type { AuthInstance } from './better-auth.ts'
 import { markSharedDevice } from './mfa.ts'
+import { consumeBucket } from './throttle.ts'
 
 /**
  * A pupil's own login (Task 23).
@@ -68,6 +69,40 @@ export function generateStudentPassword(): string {
   return groups.join('-')
 }
 
+/**
+ * Our own limits on this route, taken before the provider is called.
+ *
+ * A class signs in together from a computer lab that shares one public
+ * address, so the provider's per-address rule is switched off for this call
+ * (see customRules in better-auth.ts) and replaced by two budgets: a small one
+ * per pupil account, which stops anybody guessing one pupil's password, and a
+ * large one per address, which lets a whole lab in at once but still stops a
+ * spray across many accounts. The lockout after ten failures still applies on
+ * top of both.
+ */
+export const STUDENT_SIGN_IN_ACCOUNT_LIMIT = 5
+export const STUDENT_SIGN_IN_ACCOUNT_WINDOW_SECONDS = 60
+export const STUDENT_SIGN_IN_ADDRESS_LIMIT = 150
+export const STUDENT_SIGN_IN_ADDRESS_WINDOW_SECONDS = 60
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+/**
+ * The budget key for one pupil account. It is a digest, so the table never
+ * holds a school code or an admission number, and it is taken from what was
+ * typed, so an unknown pupil spends a budget exactly like a known one.
+ */
+export function studentAccountBucketKey(schoolCode: string, admissionNumber: string): string {
+  const typed = `${schoolCode.trim().toLowerCase()}|${admissionNumber.trim().toLowerCase()}`
+  return `student-sign-in:acct:${sha256(typed)}`
+}
+
+export function studentAddressBucketKey(ip: string): string {
+  return `student-sign-in:ip:${sha256(ip)}`
+}
+
 export interface StudentSignInDependencies {
   readonly config: ApiConfig
   readonly auth: AuthInstance
@@ -92,6 +127,27 @@ export function registerStudentSignInRoute(
     const parsed = StudentSignInRequest.safeParse(raw)
     if (!parsed.success) throw new ApiFailure('INVALID_REQUEST')
     const input = parsed.data
+
+    // The account budget is taken first, so one pupil knocking on their own
+    // account does not use up the address budget the rest of the lab shares.
+    const account = await consumeBucket(
+      deps.pools.auth,
+      studentAccountBucketKey(input.schoolCode, input.admissionNumber),
+      STUDENT_SIGN_IN_ACCOUNT_LIMIT,
+      STUDENT_SIGN_IN_ACCOUNT_WINDOW_SECONDS,
+    )
+    const decision = account.allowed
+      ? await consumeBucket(
+          deps.pools.auth,
+          studentAddressBucketKey(request.ip),
+          STUDENT_SIGN_IN_ADDRESS_LIMIT,
+          STUDENT_SIGN_IN_ADDRESS_WINDOW_SECONDS,
+        )
+      : account
+    if (!decision.allowed) {
+      reply.header('retry-after', String(decision.retryAfterSeconds))
+      throw new ApiFailure('RATE_LIMITED', decision.retryAfterSeconds)
+    }
 
     // An unknown school code or admission number still goes through the
     // provider with an address nobody holds, so the answer and its timing

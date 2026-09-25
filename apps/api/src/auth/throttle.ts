@@ -13,6 +13,8 @@ export interface ThrottleBucket {
   key: string
   count: number
   lastRequest: number
+  /** When the current window ends and the bucket counts from zero again. */
+  expiresAt: Date
 }
 
 /** Read and lock one bucket, treating an expired row as empty. */
@@ -42,12 +44,13 @@ export async function lockBucket(
       'UPDATE auth_throttle SET count = 0, last_request = 0, expires_at = $2 WHERE key = $1',
       [key, expiresAt],
     )
-    return { key, count: 0, lastRequest: 0 }
+    return { key, count: 0, lastRequest: 0, expiresAt }
   }
   return {
     key,
     count: found.count,
     lastRequest: Number(found.last_request),
+    expiresAt: found.expires_at,
   }
 }
 
@@ -78,6 +81,46 @@ export async function recordFailure(
     await bumpBucket(client, key, now.getTime(), expiresAt)
     await client.query('COMMIT')
     return bucket.count + 1
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+export interface BucketDecision {
+  allowed: boolean
+  /** Whole seconds until the window ends; only meaningful when refused. */
+  retryAfterSeconds: number
+}
+
+/**
+ * Take one attempt from a fixed window of `max`, deciding and counting in one
+ * transaction so concurrent callers cannot all pass a stale read. A refused
+ * attempt is not counted, and the window runs from the first attempt in it,
+ * so a caller who keeps knocking does not push their own wait further out.
+ */
+export async function consumeBucket(
+  pool: Pool,
+  key: string,
+  max: number,
+  windowSeconds: number,
+  now: Date = new Date(),
+): Promise<BucketDecision> {
+  const fresh = new Date(now.getTime() + windowSeconds * 1000)
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const bucket = await lockBucket(client, key, now, fresh)
+    const retryAfterSeconds = Math.max(
+      1,
+      Math.ceil((bucket.expiresAt.getTime() - now.getTime()) / 1000),
+    )
+    const allowed = bucket.count < max
+    if (allowed) await bumpBucket(client, key, now.getTime(), bucket.expiresAt)
+    await client.query('COMMIT')
+    return { allowed, retryAfterSeconds }
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {})
     throw error

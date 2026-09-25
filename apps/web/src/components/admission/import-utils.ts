@@ -1,11 +1,42 @@
 import * as XLSX from 'xlsx'
-import { StudentsBulkImportRow } from '@erp/contracts'
+import { isVerhoeffValid, StudentsBulkImportRow } from '@erp/contracts'
 import { messageForIssue, type FieldLabels } from '@/lib/validation'
 
 export const IMPORT_HEADERS = [
   'Admission Number', 'First Name', 'Last Name', 'Date of Birth', 'Gender', 'Class', 'Section', 'Roll Number',
   'Father Name', 'Mother Name', 'Guardian Phone', 'Guardian Email', 'City', 'State', 'Pincode', 'Category', 'Admission Type',
+  'Student Aadhaar', 'Guardian Aadhaar', 'Guardian PAN', 'Guardian Office Address',
 ]
+
+/** The sheet heading for each field the import sends, so a problem names the column the office sees. */
+const FIELD_HEADERS: Record<string, string> = {
+  admissionNumber: 'Admission Number',
+  firstName: 'First Name',
+  lastName: 'Last Name',
+  dateOfBirth: 'Date of Birth',
+  gender: 'Gender',
+  grade: 'Class',
+  section: 'Section',
+  rollNumber: 'Roll Number',
+  fatherName: 'Father Name',
+  motherName: 'Mother Name',
+  guardianPhone: 'Guardian Phone',
+  guardianEmail: 'Guardian Email',
+  city: 'City',
+  state: 'State',
+  pincode: 'Pincode',
+  category: 'Category',
+  admissionType: 'Admission Type',
+  studentAadhaar: 'Student Aadhaar',
+  guardianAadhaar: 'Guardian Aadhaar',
+  guardianPan: 'Guardian PAN',
+  guardianOfficeAddress: 'Guardian Office Address',
+}
+
+/** The column a problem belongs to, as the sheet heads it. */
+export function columnFor(field: string): string {
+  return FIELD_HEADERS[field] ?? field.replace(/([A-Z])/g, ' $1').replace(/^\w/, (c) => c.toUpperCase())
+}
 
 export const COLUMN_HELP: Array<{ name: string; required: boolean; help: string }> = [
   { name: 'Admission Number', required: false, help: 'Only for numbers your school already gave. Leave it blank and one is assigned when you import.' },
@@ -22,20 +53,31 @@ export const COLUMN_HELP: Array<{ name: string; required: boolean; help: string 
   { name: 'City / State / Pincode', required: false, help: 'Home address. PIN code is 6 digits.' },
   { name: 'Category', required: false, help: 'General, OBC, SC, ST or EWS.' },
   { name: 'Admission Type', required: false, help: 'New, Transfer or Readmission.' },
+  { name: 'Student Aadhaar', required: false, help: '12 digits, spaces allowed. Kept locked and shown only as the last four digits.' },
+  { name: 'Guardian Aadhaar', required: false, help: 'The Aadhaar number of the guardian on this row. Kept the same way.' },
+  { name: 'Guardian PAN', required: false, help: '10 characters, like ABCDE1234F. Kept locked and shown only as the last four.' },
+  { name: 'Guardian Office Address', required: false, help: 'Where the guardian works, if you have it.' },
 ]
 
 const EXAMPLE_ROWS = [
-  ['', 'Aarav', 'Sharma', '14-05-2015', 'Male', 'Class 6', 'A', 1, 'Rakesh Sharma', 'Neha Sharma', '9876543210', 'rakesh.sharma@example.com', 'Jaipur', 'Rajasthan', '302001', 'General', 'New'],
-  ['SVM/2025-26/102', 'Diya', 'Verma', '02-11-2015', 'Female', 'Class 6', 'B', 2, 'Anil Verma', 'Pooja Verma', '9812345678', '', 'Jaipur', 'Rajasthan', '302012', 'OBC', 'Transfer'],
+  ['', 'Aarav', 'Sharma', '14-05-2015', 'Male', 'Class 6', 'A', 1, 'Rakesh Sharma', 'Neha Sharma', '9876543210', 'rakesh.sharma@example.com', 'Jaipur', 'Rajasthan', '302001', 'General', 'New',
+    '2345 6789 0124', '3456 7890 1238', 'ABCDE1234F', 'Tonk Road, Jaipur'],
+  ['SVM/2025-26/102', 'Diya', 'Verma', '02-11-2015', 'Female', 'Class 6', 'B', 2, 'Anil Verma', 'Pooja Verma', '9812345678', '', 'Jaipur', 'Rajasthan', '302012', 'OBC', 'Transfer',
+    '', '', '', ''],
 ]
 
-/** Build and download the blank .xlsx template */
-export function downloadTemplate() {
+/** The template workbook: the header row and two example rows. */
+export function templateWorkbook(): XLSX.WorkBook {
   const wb = XLSX.utils.book_new()
   const ws = XLSX.utils.aoa_to_sheet([IMPORT_HEADERS, ...EXAMPLE_ROWS])
   ws['!cols'] = IMPORT_HEADERS.map((header) => ({ wch: Math.max(12, header.length + 2) }))
   XLSX.utils.book_append_sheet(wb, ws, 'Students')
-  XLSX.writeFile(wb, 'student-import-template.xlsx')
+  return wb
+}
+
+/** Build and download the blank .xlsx template */
+export function downloadTemplate() {
+  XLSX.writeFile(templateWorkbook(), 'student-import-template.xlsx')
 }
 
 /** Read a picked .xlsx/.csv file into plain rows keyed by the header names */
@@ -46,7 +88,31 @@ export async function readSpreadsheet(file: File): Promise<Record<string, unknow
   if (!first) return []
   const sheet = wb.Sheets[first]
   if (!sheet) return []
+  keepLongNumbersWhole(sheet)
   return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false })
+}
+
+/**
+ * Excel stores a 12 digit Aadhaar typed into a plain cell as a number and shows it as 2.34568E+11,
+ * which is what the formatted text would give us. A whole number that long is never a date or an
+ * amount on this sheet, so its digits are used as they are.
+ */
+function keepLongNumbersWhole(sheet: XLSX.WorkSheet) {
+  for (const [address, cell] of Object.entries(sheet)) {
+    if (address.startsWith('!')) continue
+    const value = (cell as XLSX.CellObject).v
+    if ((cell as XLSX.CellObject).t === 'n' && typeof value === 'number' && Number.isInteger(value) && Math.abs(value) >= 1e10) {
+      ;(cell as XLSX.CellObject).w = value.toFixed(0)
+    }
+  }
+}
+
+/** A cell by its heading, forgiving a heading typed in a different case. */
+function cell(sheetRow: Record<string, unknown>, header: string): unknown {
+  if (header in sheetRow) return sheetRow[header]
+  const wanted = header.toLowerCase()
+  const found = Object.keys(sheetRow).find((key) => key.trim().toLowerCase() === wanted)
+  return found === undefined ? undefined : sheetRow[found]
 }
 
 const text = (value: unknown): string => (value === null || value === undefined ? '' : String(value).trim())
@@ -101,6 +167,10 @@ const IMPORT_LABELS: FieldLabels = {
   pincode: 'pincode',
   category: { label: 'category', kind: 'select' },
   admissionType: { label: 'admission type', kind: 'select' },
+  studentAadhaar: 'student Aadhaar number',
+  guardianAadhaar: 'guardian Aadhaar number',
+  guardianPan: 'guardian PAN',
+  guardianOfficeAddress: 'guardian office address',
 }
 
 /**
@@ -133,6 +203,11 @@ export function mapSheetRows(sheetRows: Record<string, unknown>[]): MappedSheet 
       pincode: optional(sheetRow['Pincode']),
       category: optional(text(sheetRow['Category']).toLowerCase()),
       admissionType: optional(text(sheetRow['Admission Type']).toLowerCase()),
+      // Spaces and dashes are how people group an Aadhaar number; the contract checks the rest.
+      studentAadhaar: optional(text(cell(sheetRow, 'Student Aadhaar')).replace(/[\s-]/g, '')),
+      guardianAadhaar: optional(text(cell(sheetRow, 'Guardian Aadhaar')).replace(/[\s-]/g, '')),
+      guardianPan: optional(cell(sheetRow, 'Guardian PAN')),
+      guardianOfficeAddress: optional(cell(sheetRow, 'Guardian Office Address')),
     }
 
     const parsed = StudentsBulkImportRow.safeParse(candidate)
@@ -146,6 +221,15 @@ export function mapSheetRows(sheetRows: Record<string, unknown>[]): MappedSheet 
   })
 
   return { rows, problems }
+}
+
+/** A made-up 12 digit number that passes the Aadhaar check, so the sample reads like a real sheet. */
+function sampleAadhaar(seed: number): string {
+  const head = String(23456789010 + seed * 7919).slice(0, 11)
+  for (let digit = 0; digit <= 9; digit += 1) {
+    if (isVerhoeffValid(`${head}${digit}`)) return `${head}${digit}`
+  }
+  return ''
 }
 
 const FIRST = ['Aarav', 'Diya', 'Kabir', 'Ishita', 'Vivaan', 'Ananya', 'Reyansh', 'Myra', 'Arjun', 'Saanvi', 'Aditya', 'Kiara']
@@ -175,10 +259,15 @@ export function sampleRows(className: string, sectionName: string): Record<strin
       'Pincode': '302001',
       'Category': ['General', 'OBC', 'SC', 'EWS'][i % 4],
       'Admission Type': i % 5 === 0 ? 'Transfer' : 'New',
+      'Student Aadhaar': i % 2 === 0 ? sampleAadhaar(i) : '',
+      'Guardian Aadhaar': i % 4 === 0 ? sampleAadhaar(i + 100) : '',
+      'Guardian PAN': i % 4 === 0 ? `ABCDE${String(1000 + i)}F` : '',
+      'Guardian Office Address': i % 4 === 0 ? 'Tonk Road, Jaipur' : '',
     }
     if (i === 3) row['Guardian Phone'] = '12345'
     if (i === 7) row['Date of Birth'] = ''
     if (i === 10) row['Class'] = 'Class 99'
+    if (i === 5) row['Student Aadhaar'] = '12345'
     return row
   })
 }

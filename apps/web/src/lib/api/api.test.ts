@@ -294,6 +294,21 @@ describe('api paths', () => {
     expect(lastCall().path).toBe(`${PREFIX}/ownership/transfer`)
   })
 
+  it('reads, adds and lifts member restrictions', async () => {
+    await api.members.restrictions(SCHOOL, 'm1')
+    expect(methodOf()).toBe('GET')
+    expect(lastCall().path).toBe(`${PREFIX}/members/m1/restrictions`)
+    const body = { permission: 'students.read_medical' as const, reason: 'Not needed', expectedAccessVersion: 4 }
+    await api.members.addRestriction(SCHOOL, 'm1', body)
+    expect(methodOf()).toBe('POST')
+    expect(lastCall().path).toBe(`${PREFIX}/members/m1/restrictions`)
+    expect(lastCall().options.body).toEqual(body)
+    await api.members.liftRestriction(SCHOOL, 'm1', 'r1', { expectedVersion: 2, reason: 'Back on duty' })
+    expect(methodOf()).toBe('POST')
+    expect(lastCall().path).toBe(`${PREFIX}/members/m1/restrictions/r1/lift`)
+    expect(lastCall().options.body).toEqual({ expectedVersion: 2, reason: 'Back on duty' })
+  })
+
   it('reads an export job', async () => {
     await api.files.exportJob(SCHOOL, 'job-1')
     expect(lastCall().path).toBe(`${PREFIX}/exports/job-1`)

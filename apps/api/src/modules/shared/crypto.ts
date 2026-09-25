@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
+import { aadhaarLast4, panLast4 } from '@erp/contracts'
 
 /**
  * Sealed sensitive text (Task 12). The key lives in the API configuration and
@@ -53,4 +54,23 @@ export function open(sealed: string, keyBase64: string): string {
 /** The only form of an APAAR id a list or a detail response may carry. */
 export function maskApaar(last4: string): string {
   return `XXXX-XXXX-${last4}`
+}
+
+/**
+ * The sealed form of an identity number and the digits a screen may show.
+ * Both columns always move together, so a record can never carry a mask with
+ * no number behind it, or a number with the wrong mask in front of it. The
+ * admission form and the bulk import both seal through these two.
+ */
+export interface SealedNumber {
+  readonly ciphertext: string
+  readonly last4: string
+}
+
+export function sealAadhaar(value: string, encryptionKey: string): SealedNumber {
+  return { ciphertext: seal(value, encryptionKey), last4: aadhaarLast4(value) }
+}
+
+export function sealPan(value: string, encryptionKey: string): SealedNumber {
+  return { ciphertext: seal(value, encryptionKey), last4: panLast4(value) }
 }

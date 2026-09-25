@@ -125,6 +125,7 @@ export const qk = {
   members: (schoolId: string, params?: Params) => [schoolId, 'members', 'list', params ?? {}] as const,
   invitations: (schoolId: string, params?: Params) => [schoolId, 'members', 'invitations', params ?? {}] as const,
   accessExplanation: (schoolId: string, membershipId: string, params: Params) => [schoolId, 'members', 'accessExplanation', membershipId, params ?? {}] as const,
+  memberRestrictions: (schoolId: string, membershipId: string) => [schoolId, 'members', 'restrictions', membershipId] as const,
 
   exportJob: (schoolId: string, jobId: string) => [schoolId, 'exports', jobId] as const,
 } as const

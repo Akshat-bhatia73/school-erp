@@ -72,7 +72,14 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
         await authorizeSchoolAction(conn, context, 'students.import')
         await requireAcademicYear(conn.client, context.schoolId, body.academicYearId)
 
-        const outcome = await validateRows(conn.client, context.schoolId, body)
+        // Aadhaar and PAN are sealed here, before the rows are staged, so the
+        // stored preview never holds a whole number in plain text.
+        const outcome = await validateRows(
+          conn.client,
+          context.schoolId,
+          body,
+          deps.config.DATA_ENCRYPTION_KEY,
+        )
         const inserted = await conn.client.query<{ id: string; version: number; expires_at: Date }>(
           `INSERT INTO student_import_previews
              (school_id, created_by_membership_id, academic_year_id, status,

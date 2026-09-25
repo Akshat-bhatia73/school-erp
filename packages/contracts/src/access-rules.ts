@@ -16,7 +16,7 @@ export type AccessRuleTarget = z.infer<typeof AccessRuleTarget>
 export const RESOURCE_RULE_PERMISSIONS = {
   school: [
     'students.read_basic', 'students.export', 'staff.read_directory',
-    'students.read_sensitive', 'students.read_guardians', 'students.read_guardian_contact', 'students.read_medical',
+    'students.read_sensitive', 'students.read_guardians', 'students.read_medical',
   ],
   section: ['students.read_basic', 'students.export', 'timetable.read'],
   student: ['students.read_basic'],
@@ -29,10 +29,13 @@ export const RESOURCE_RULE_PERMISSIONS = {
  * deny rule on the whole school; an allow for these keys is never accepted, so
  * a rule can only ever narrow what a role already gives.
  */
+// The guardian contact projection (`students.read_guardian_contact`) is not
+// restrictable on its own: anyone holding full guardian records reads the
+// phone there too, so hiding the contact card alone would promise more than it
+// does. Staff who call families keep it.
 export const RESTRICTABLE_PERMISSIONS = [
   'students.read_sensitive',
   'students.read_guardians',
-  'students.read_guardian_contact',
   'students.read_medical',
 ] as const satisfies readonly z.infer<typeof PermissionKey>[]
 export const RestrictablePermission = z.enum(RESTRICTABLE_PERMISSIONS)

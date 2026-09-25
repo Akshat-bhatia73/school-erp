@@ -311,3 +311,15 @@ change it without signing out; both are a browser preference per user id, not a 
 field, because the session belongs to the identity and a person can hold different roles in
 different schools. `GET /dashboard` takes `?audience=` and accepts only one of the caller's own
 homes, else `INVALID_REQUEST`; it never widens a read. Lists stay the union of the roles.
+
+## 9. Rough edges after Task 23, September 2026
+
+Taken on 25 September 2026, before the AI assistant work, on `feat/rough-edges`. No new module; each item closes something a release left open.
+
+1. **A class signs in together.** The provider allows three sign-ins and three password changes every ten seconds from one address, and a school lab shares one address, so a class could not sign in at once. The pupil route now skips the provider's limit and applies its own: five attempts a minute per pupil account and 150 a minute per address, both durable and keyed on hashes; a password change is limited per person instead of per address. Staff sign-in is unchanged. See [PROTECTED_APIS.md](auth/PROTECTED_APIS.md#student-login).
+2. **Families allow messages themselves.** Most families had no `communication` consent, so Task 22 reached nobody. Decided by the product owner: the parent home asks, in a card at the top, "Get messages from the school", and one button records the consent for each child who is waiting, by the guardian through the portal. The office does not record consent in bulk, and the hosted test families are not filled in: they allow it themselves.
+3. **Restricting one person.** Decided by the product owner: an owner or principal can take sensitive details, full guardian records or medical information away from one member (the guardian contact card stays, because full records carry the phone too and staff who call families need it), with a reason and an optional end date. It is a school-wide deny rule under the newly active `access.manage`. See [ACCESS_MANAGEMENT.md](auth/ACCESS_MANAGEMENT.md#member-restrictions).
+4. **Photograph in the admission form.** Chosen with the pupil's details, uploaded after the admission is saved and only when a guardian gave consent for photographs at the consent step.
+5. **Identity numbers in bulk import.** Pupil Aadhaar, guardian Aadhaar, guardian PAN and office address are optional columns, sealed the moment the server reads them, in the stored preview as well as the record.
+
+Release: migration `0020_member_restrictions.sql`, `pnpm db:sync-roles` (2 grants per school), then merge.

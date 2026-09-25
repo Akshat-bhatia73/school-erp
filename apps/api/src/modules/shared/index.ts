@@ -25,5 +25,5 @@ export {
 } from './sequences.ts'
 export { assertVersion, bumpVersion } from './version.ts'
 export type { VersionedTable } from './version.ts'
-export { maskApaar, open, seal } from './crypto.ts'
+export { maskApaar, open, seal, sealAadhaar, sealPan, type SealedNumber } from './crypto.ts'
 export { schoolToday } from './clock.ts'

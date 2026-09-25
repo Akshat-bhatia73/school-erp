@@ -283,6 +283,23 @@ export interface RoleManagementRule {
  * Every role on the target membership must be manageable by the actor, so a
  * teacher+owner target is forbidden to principals and administrators.
  */
+/**
+ * Whom a member restriction may be put on (September 2026). Wider than the
+ * lifecycle rules above because a restriction can only take access away: a
+ * principal may restrict an administrator or accountant they could not
+ * suspend. Nobody restricts an owner, and only an owner restricts a principal.
+ * A parent or pupil role on the target is ignored; the control is for staff.
+ */
+export const ROLE_RESTRICTION_RULES = {
+  owner: { restrictableTargetRoles: ['principal', 'admin', 'accountant', 'teacher'] },
+  principal: { restrictableTargetRoles: ['admin', 'accountant', 'teacher'] },
+  admin: { restrictableTargetRoles: [] },
+  accountant: { restrictableTargetRoles: [] },
+  teacher: { restrictableTargetRoles: [] },
+  parent: { restrictableTargetRoles: [] },
+  student: { restrictableTargetRoles: [] },
+} as const satisfies Record<RoleKey, { readonly restrictableTargetRoles: readonly RoleKey[] }>
+
 export const ROLE_MANAGEMENT_RULES = {
   owner: { manageableTargetRoles: ['principal', 'admin', 'accountant', 'teacher', 'parent'] },
   principal: { manageableTargetRoles: ['teacher'] },

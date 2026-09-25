@@ -390,3 +390,17 @@ A short assessment of pupils' own logins, written when they were built (Task 23)
 **Retention.** The login ends when the pupil leaves or is anonymised; its credentials are deleted 30 days later by the sweep that already removes adults' credentials. Pupil message rows follow the two-year messages rule.
 
 **Open point.** Text messages are still held for testers (Task 16), so in a real school the password text needs the SMS provider before logins are useful.
+
+## 16. Rough edges after Task 23, September 2026
+
+A short note on five changes made together on 25 September 2026.
+
+**Member restrictions.** An owner or principal can now take sensitive details, full guardian records or medical information away from one member, whatever their roles give. This is a least-privilege control the office asked for: a person who needs the roster for their job no longer has to see every Aadhaar number on it. A restriction can only narrow access (the database refuses an allow for these fields), applies to records, lists, export files, PDFs and reveal routes through the same decision, and every restriction and lift is one audit row with the reason as a redactable note.
+
+**Families giving consent.** The parent home now asks the parent directly for consent to messages. The consent is recorded against the guardian, through the portal, one row per child, which is the strongest evidence the school can hold under DPDP section 6. Nothing is recorded without the parent pressing the button, and withdrawing stays one step away under "Manage consent".
+
+**Identity numbers in bulk import.** Pupil Aadhaar, guardian Aadhaar, guardian PAN and office address are sealed with the application key the moment the server reads the sheet, including in the stored import preview, which is swept with the rest of the previews. No whole number reaches a response, a log or the audit row.
+
+**Photograph at admission.** The picture is uploaded only after the admission is saved and only when a guardian ticked consent for photographs; otherwise it is dropped in the browser and never sent.
+
+**Pupil sign-in limits.** The new per-account and per-address counters are keyed on SHA-256 digests, so `auth_throttle` holds no admission number, school code or address in clear. Rows expire with their window.

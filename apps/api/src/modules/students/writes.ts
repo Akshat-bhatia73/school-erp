@@ -6,7 +6,6 @@ import type {
   StudentsUpdateGuardianRequest,
   StudentsUpdateSensitiveRequest,
 } from '@erp/contracts'
-import { aadhaarLast4, panLast4 } from '@erp/contracts'
 import {
   allocateAdmissionNumber,
   ApiFailure,
@@ -15,6 +14,8 @@ import {
   lockSchool,
   recordAuditEvent,
   seal,
+  sealAadhaar,
+  sealPan,
   writeAudit,
 } from '../shared/index.ts'
 import { endStudentLogin } from '../../memberships/student-logins.ts'
@@ -92,24 +93,6 @@ async function guardianExists(
          WHERE school_id = ${schoolId}::uuid AND id = ${assertUuidReference(guardianId)}::uuid`,
   )
   return rows.rows.length > 0
-}
-
-/**
- * The sealed form of an identity number and the digits a screen may show.
- * Both columns always move together, so a record can never carry a mask with
- * no number behind it, or a number with the wrong mask in front of it.
- */
-interface SealedNumber {
-  readonly ciphertext: string
-  readonly last4: string
-}
-
-function sealAadhaar(value: string, encryptionKey: string): SealedNumber {
-  return { ciphertext: seal(value, encryptionKey), last4: aadhaarLast4(value) }
-}
-
-function sealPan(value: string, encryptionKey: string): SealedNumber {
-  return { ciphertext: seal(value, encryptionKey), last4: panLast4(value) }
 }
 
 /** Creates the guardian record a link needs, or returns the named one. */

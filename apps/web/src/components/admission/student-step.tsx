@@ -4,12 +4,21 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { humanize } from '@/lib/utils'
 import { Field, SelectField, TextField, type Errors } from './fields'
-import type { AdmitDraft } from './admit-state'
+import type { AdmitDraft, ChosenPhoto } from './admit-state'
+import { AdmissionPhotoField } from './photo-pick'
 
 const CATEGORY = ['general', 'obc', 'sc', 'st', 'ews', 'other']
 const GENDERS = ['male', 'female', 'other'] as const
 
-export function StudentStep({ draft, set, errors }: { draft: AdmitDraft; set: (p: Partial<AdmitDraft>) => void; errors: Errors }) {
+export function StudentStep({ draft, set, errors, photo, onPhoto }: {
+  draft: AdmitDraft
+  set: (p: Partial<AdmitDraft>) => void
+  errors: Errors
+  /** The photograph is held beside the draft, not in it; the screen owns it. */
+  photo: ChosenPhoto | null
+  onPhoto: (photo: ChosenPhoto | null) => void
+}) {
+  const name = [draft.firstName, draft.lastName].filter(Boolean).join(' ') || 'New student'
   return (
     <div className="space-y-4">
       <Panel title="Student details" description="Name and date of birth go on every report card, so check the spelling.">
@@ -35,6 +44,10 @@ export function StudentStep({ draft, set, errors }: { draft: AdmitDraft; set: (p
             options={CATEGORY.map((c) => ({ value: c, label: ['obc', 'sc', 'st', 'ews'].includes(c) ? c.toUpperCase() : humanize(c) }))}
           />
         </div>
+      </Panel>
+
+      <Panel title="Photograph" description="Needs the family's consent for photographs.">
+        <AdmissionPhotoField name={name} photo={photo} onChange={onPhoto} />
       </Panel>
 
       <Panel title="Aadhaar" description="Only the last four digits are shown once it is saved.">

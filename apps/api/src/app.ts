@@ -43,6 +43,18 @@ const SEND_OTP_ROUTE = 'phone-number/send-otp'
 const VERIFY_OTP_ROUTE = 'phone-number/verify'
 const DISABLE_MFA_ROUTE = 'two-factor/disable'
 const CHANGE_PASSWORD_ROUTE = 'change-password'
+/**
+ * Failed password changes one person may make before waiting. The provider's
+ * own rule on this route is per address and is widened for a class sharing
+ * one (see customRules in auth/better-auth.ts), so the guard against guessing
+ * a current password from a stolen session is this budget on the person.
+ */
+export const CHANGE_PASSWORD_ATTEMPT_LIMIT = 5
+export const CHANGE_PASSWORD_ATTEMPT_WINDOW_SECONDS = 900
+
+export function changePasswordAttemptKey(userId: string): string {
+  return `change-password:user:${userId}`
+}
 /** Routes whose body may carry a remember-this-device request. */
 const TRUST_DEVICE_ROUTES = [
   'two-factor/verify-totp',
@@ -73,6 +85,7 @@ declare module 'fastify' {
     /** Set by the /api/auth/* preHandler; read after the provider answered. */
     sharedDeviceRequested?: boolean
     mfaAttemptKey?: string
+    changePasswordAttemptKey?: string
   }
 }
 
@@ -275,6 +288,24 @@ export function buildApp({
         // caller does not get to opt out of that.
         const body = safeJson(request.body) ?? {}
         request.body = JSON.stringify({ ...body, revokeOtherSessions: true })
+        // Without a session the provider refuses the call itself; with one,
+        // the failure budget belongs to the person, not to the address.
+        const userId = verified?.user.id
+        if (!userId) return
+        const key = changePasswordAttemptKey(userId)
+        request.changePasswordAttemptKey = key
+        const failures = await failureCount(pools.auth, key)
+        if (failures >= CHANGE_PASSWORD_ATTEMPT_LIMIT) {
+          const { status, body: error } = apiError(
+            'RATE_LIMITED',
+            request.id,
+            CHANGE_PASSWORD_ATTEMPT_WINDOW_SECONDS,
+          )
+          await reply
+            .status(status)
+            .header('retry-after', String(CHANGE_PASSWORD_ATTEMPT_WINDOW_SECONDS))
+            .send(error)
+        }
         return
       }
 
@@ -395,6 +426,16 @@ export function buildApp({
             MFA_ATTEMPT_WINDOW_SECONDS,
           )
         else await clearBucket(pools.auth, request.mfaAttemptKey)
+      }
+
+      if (request.changePasswordAttemptKey) {
+        if (response.status >= 400)
+          await recordFailure(
+            pools.auth,
+            request.changePasswordAttemptKey,
+            CHANGE_PASSWORD_ATTEMPT_WINDOW_SECONDS,
+          )
+        else await clearBucket(pools.auth, request.changePasswordAttemptKey)
       }
 
       const setCookie = response.headers.getSetCookie()

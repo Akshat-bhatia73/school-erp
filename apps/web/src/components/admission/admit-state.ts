@@ -52,6 +52,47 @@ export interface AdmitDraft {
   primaryIndex: number
 }
 
+/**
+ * The photograph chosen on the form. It is kept beside the draft, never inside it: the draft is
+ * plain data that becomes the request, and a picture is bytes that go up after the admission.
+ */
+export interface ChosenPhoto {
+  /** The picture as it will be sent: already shrunk and re-encoded as JPEG. */
+  prepared: Blob
+  /** A data address for the preview, so there is nothing to release afterwards. */
+  preview: string
+  fileName: string
+}
+
+/** A pupil's photograph may be kept only when a guardian agreed to photographs. */
+export function photoConsented(draft: AdmitDraft): boolean {
+  return draft.guardians.some((guardian) => guardian.consentPurposes.includes('photographs'))
+}
+
+/**
+ * Admit the pupil, then send the photograph with the new pupil's id when the family agreed to it.
+ * A photograph that fails never undoes the admission: the pupil exists and the office is told
+ * the picture still needs adding.
+ */
+export async function admitWithPhoto<S extends { id: string; version: number }>(
+  draft: AdmitDraft,
+  photo: ChosenPhoto | null,
+  calls: {
+    create: (body: AdmitStudentInput) => Promise<S>
+    uploadPhoto: (studentId: string, file: Blob, expectedVersion: number) => Promise<unknown>
+  },
+): Promise<{ student: S; photo: 'none' | 'saved' | 'skipped' | { failed: unknown } }> {
+  const student = await calls.create(toAdmitRequest(draft))
+  if (photo === null) return { student, photo: 'none' }
+  if (!photoConsented(draft)) return { student, photo: 'skipped' }
+  try {
+    await calls.uploadPhoto(student.id, photo.prepared, student.version)
+    return { student, photo: 'saved' }
+  } catch (error) {
+    return { student, photo: { failed: error } }
+  }
+}
+
 export const todayIso = () => new Date().toISOString().slice(0, 10)
 
 export function emptyGuardian(relation: GuardianRelation = 'father'): GuardianDraft {

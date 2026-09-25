@@ -2,13 +2,13 @@
 --
 -- An owner or principal can take one sensitive student field away from one
 -- member across the whole school: the sensitive block (Aadhaar, APAAR and the
--- like), full guardian records, the guardian contact projection or medical
+-- like), full guardian records (PAN, Aadhaar, office address) or medical
 -- information. A restriction is an ordinary resource_access_rules row with
 -- effect 'deny' on the school target, so the existing decision, list
 -- predicate and access version protocol already honour it.
 --
 -- The catalogue trigger accepted only a short list of permissions per target.
--- It now also accepts the four restrictable keys on the school target, and
+-- It now also accepts the three restrictable keys on the school target, and
 -- only as a deny: an allow for them would widen access beyond what a role
 -- gives, which no screen or route may do.
 --
@@ -21,7 +21,7 @@ CREATE OR REPLACE FUNCTION reject_bad_exception_permission ()
     AS $$
 BEGIN
     IF NEW.target_type = 'school'
-        AND NEW.permission IN ('students.read_sensitive', 'students.read_guardians', 'students.read_guardian_contact', 'students.read_medical') THEN
+        AND NEW.permission IN ('students.read_sensitive', 'students.read_guardians', 'students.read_medical') THEN
         IF NEW.effect <> 'deny' THEN
             RAISE EXCEPTION 'permission % can only be restricted', NEW.permission;
         END IF;
