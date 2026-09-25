@@ -298,6 +298,11 @@ export const TeacherDashboard = z.strictObject({
 export const ParentDashboard = z.strictObject({
   audience: z.literal('parent'),
   day: DashboardDay,
+  /**
+   * The viewer's own guardian record, so the home can record a consent the
+   * parent gives themselves. Absent when the membership has no guardian link.
+   */
+  guardianId: Id.optional(),
   children: z.array(
     z.strictObject({
       student: StudentBasic,

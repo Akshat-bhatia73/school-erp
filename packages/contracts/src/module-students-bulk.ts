@@ -1,6 +1,7 @@
 /** Task 5 request and response contracts owned by the students-bulk module. */
 import { z } from 'zod'
 import { CalendarDate, DisplayName, Email, Id } from './common.ts'
+import { AadhaarNumber, PanNumber } from './identifiers.ts'
 
 /**
  * One line of the uploaded sheet, as a person typed it. Names of grades and
@@ -31,6 +32,13 @@ export const StudentsBulkImportRow = z.strictObject({
   pincode: z.string().regex(/^\d{6}$/).optional(),
   category: z.enum(['general', 'obc', 'sc', 'st', 'ews']).optional(),
   admissionType: z.enum(['new', 'transfer', 'readmission']).optional(),
+  // September 2026: the numbers the admission form already takes. Each is
+  // sealed with the application key the moment the server reads it, in the
+  // stored preview as well as in the record, and shown as "ending 1234".
+  studentAadhaar: AadhaarNumber.optional(),
+  guardianAadhaar: AadhaarNumber.optional(),
+  guardianPan: PanNumber.optional(),
+  guardianOfficeAddress: z.string().trim().max(1000).optional(),
 })
 export type StudentsBulkImportRow = z.infer<typeof StudentsBulkImportRow>
 

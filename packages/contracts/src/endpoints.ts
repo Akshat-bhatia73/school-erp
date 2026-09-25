@@ -4,6 +4,7 @@ import { MeResponse, SchoolContextResponse } from './identity.ts'
 import {
   AcceptInvitationRequest, ChangeRolesRequest, InvitationActionRequest, InvitationListRequest,
   InvitationPage, InvitationSummary, InviteMemberRequest, MemberListRequest, MemberSummary, MembershipActionRequest, RestoreMembershipRequest, TransferOwnershipRequest,
+  CreateMemberRestrictionRequest, LiftMemberRestrictionRequest, MemberRestriction, MemberRestrictionList,
 } from './memberships.ts'
 import { PERMISSION_CATALOGUE, PermissionKey, ResourceType } from './permissions.ts'
 import {
@@ -37,6 +38,8 @@ export const AccessExplanationQuery = z.strictObject({
 }).refine((v) => PERMISSION_CATALOGUE[v.permission].resourceType === v.resourceType,
   'Resource type does not match the permission')
 
+const RestrictionParams = z.strictObject({ schoolId: Id, membershipId: Id, restrictionId: Id })
+
 /** Frozen application route contracts. Auth-provider routes are separately mounted in Task 2. */
 export const ACCESS_ENDPOINTS = {
   me: { method: 'GET', path: '/api/me', auth: 'session', response: MeResponse, successStatus: 200 },
@@ -53,6 +56,9 @@ export const ACCESS_ENDPOINTS = {
   restore: { method: 'POST', path: '/api/schools/:schoolId/members/:membershipId/restore', auth: 'membership', permission: 'members.restore', additionalPermissions: ['roles.assign'], params: MemberParams, body: RestoreMembershipRequest, response: MemberSummary, successStatus: 200 },
   transferOwnership: { method: 'POST', path: '/api/schools/:schoolId/ownership/transfer', auth: 'membership', permission: 'ownership.transfer', params: SchoolParams, body: TransferOwnershipRequest, response: MemberSummary, successStatus: 200 },
   explain: { method: 'GET', path: '/api/schools/:schoolId/members/:membershipId/access-explanation', auth: 'membership', permission: 'access.explain', params: MemberParams, query: AccessExplanationQuery, response: AccessExplanation, successStatus: 200 },
+  restrictions: { method: 'GET', path: '/api/schools/:schoolId/members/:membershipId/restrictions', auth: 'membership', permission: 'access.manage', params: MemberParams, response: MemberRestrictionList, successStatus: 200 },
+  addRestriction: { method: 'POST', path: '/api/schools/:schoolId/members/:membershipId/restrictions', auth: 'membership', permission: 'access.manage', params: MemberParams, body: CreateMemberRestrictionRequest, response: MemberRestriction, successStatus: 201 },
+  liftRestriction: { method: 'POST', path: '/api/schools/:schoolId/members/:membershipId/restrictions/:restrictionId/lift', auth: 'membership', permission: 'access.manage', params: RestrictionParams, body: LiftMemberRestrictionRequest, response: z.strictObject({ status: z.literal('lifted') }), successStatus: 200 },
   recovery: { method: 'POST', path: '/api/schools/:schoolId/members/:membershipId/recovery', auth: 'membership', permission: 'members.manage_credentials', params: MemberParams, body: MembershipActionRequest, response: z.strictObject({ status: z.literal('queued') }), successStatus: 202 },
 } as const satisfies Record<string, EndpointContract>
 

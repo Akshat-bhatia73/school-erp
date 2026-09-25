@@ -63,7 +63,7 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `roles.assign` | active | school | school | school | school | — | — | — | — |
 | `roles.manage` | reserved | school | — | — | — | — | — | — | — |
 | `access.explain` | active | school | school | — | — | — | — | — | — |
-| `access.manage` | reserved | school | — | — | — | — | — | — | — |
+| `access.manage` | active | school | school | school | — | — | — | — | — |
 | `ownership.transfer` | active | school | school | — | — | — | — | — | — |
 | `audit.read` | active | school, finance | school | school | — | finance | — | — | — |
 | `audit.export` | active | school, finance | school | — | — | finance | — | — | — |

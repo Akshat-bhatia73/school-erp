@@ -149,7 +149,7 @@ export const PERMISSION_CATALOGUE = {
   'roles.assign': active('role_assignment', ['school'], 'Assign only roles allowed by the separate delegation policy.', true),
   'roles.manage': reserved('role', ['school'], 'Reserved for a future custom role editor; fixed templates remain immutable.', true),
   'access.explain': active('access_decision', ['school'], 'Read a restricted explanation of a membership’s effective access.', true),
-  'access.manage': reserved('access_exception', ['school'], 'Reserved for a future resource-exception editor.', true),
+  'access.manage': active('access_exception', ['school'], 'Restrict one member from sensitive student fields, with a reason and an optional end date.', true),
   'ownership.transfer': active('school_ownership', ['school'], 'Transfer school ownership through the protected fresh-MFA workflow.', true),
   'audit.read': active('audit_event', ['school', 'finance'], 'Read authorized, redacted audit events.', true),
   'audit.export': active('audit_event', ['school', 'finance'], 'Export authorized, redacted audit events.', true),
