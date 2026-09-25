@@ -122,6 +122,13 @@ async function viewerGuardianId(conn: AuthzConnection, context: RequestContext):
 }
 
 /**
+ * The purposes the school asks every family about. The assistant is not one
+ * of them: it is asked for on its own card, and only for a child with a pupil
+ * login, so a younger child is never shown as waiting on it.
+ */
+const ASKED_OF_EVERY_FAMILY = CONSENT_PURPOSES.filter((purpose) => purpose !== 'ai_assistant')
+
+/**
  * The consent purposes this child has no answer of "given" on record for.
  * Only the newest row of each purpose counts, as it does when a message is
  * sent. With a guardian, only that guardian's own rows are read: another
@@ -148,7 +155,60 @@ async function consentsWaiting(
          WHERE newest.status = 'given'`,
   )
   const given = new Set(found.map((row) => row.purpose))
-  return CONSENT_PURPOSES.filter((purpose) => !given.has(purpose))
+  return ASKED_OF_EVERY_FAMILY.filter((purpose) => !given.has(purpose))
+}
+
+type AssistantConsent = NonNullable<ParentDashboard['children'][number]['assistantConsent']>
+
+/**
+ * Whether a pupil may use the assistant, as the assistant itself decides it:
+ * the newest `ai_assistant` row for the child from any guardian. One guardian
+ * agreeing is enough and any guardian withdrawing ends it.
+ */
+async function assistantConsentOf(
+  conn: AuthzConnection,
+  context: RequestContext,
+  studentId: string,
+): Promise<AssistantConsent> {
+  const plan = await readPlan(conn, context, 'students.read_consents', 'student')
+  const [newest] = await rows<{ status: string }>(
+    conn,
+    sql`SELECT gc.status AS status
+          FROM guardian_consents gc
+         WHERE gc.school_id = ${context.schoolId}::uuid AND gc.student_id = ${studentId}::uuid
+           AND gc.purpose = 'ai_assistant'
+           AND EXISTS (SELECT 1 FROM students
+                        WHERE ${predicateFor(plan)} AND students.id = gc.student_id)
+         ORDER BY gc.recorded_at DESC, gc.id DESC
+         LIMIT 1`,
+  )
+  if (newest === undefined) return 'none'
+  return newest.status === 'given' ? 'given' : 'withdrawn'
+}
+
+/**
+ * The children, of those already on the cards, whose own pupil login is on:
+ * a `student` membership that is active, as the login screen counts it.
+ */
+async function pupilLoginsOf(
+  conn: AuthzConnection,
+  context: RequestContext,
+  studentIds: readonly string[],
+): Promise<Set<string>> {
+  if (studentIds.length === 0) return new Set()
+  const idList = sql.join(
+    studentIds.map((value) => sql`${value}::uuid`),
+    sql`, `,
+  )
+  const found = await rows<{ student_id: string }>(
+    conn,
+    sql`SELECT msl.student_id AS student_id
+          FROM membership_student_links msl
+          JOIN school_memberships sm ON sm.school_id = msl.school_id AND sm.id = msl.membership_id
+         WHERE msl.school_id = ${context.schoolId}::uuid AND msl.student_id IN (${idList})
+           AND sm.kind = 'student' AND sm.status = 'active'`,
+  )
+  return new Set(found.map((row) => row.student_id))
 }
 
 /**
@@ -287,8 +347,8 @@ export async function learningCards(
 /**
  * The parent dashboard: their own children and nothing beside them. The
  * relationship list decides which students belong here and the student plan
- * decides what may be read about them; both are applied. Fees and consents
- * sit on a parent's card only.
+ * decides what may be read about them; both are applied. Fees, consents
+ * and whether a child has a pupil login sit on a parent's card only.
  */
 export async function parentDashboard(
   conn: AuthzConnection,
@@ -303,9 +363,11 @@ export async function parentDashboard(
   const guardianId = await viewerGuardianId(conn, context)
 
   const nextHoliday = calendar.holidays[0]
+  const withLogin = await pupilLoginsOf(conn, context, cards.map((card) => card.student.id))
   const children: ParentDashboard['children'] = []
   for (const card of cards) {
     const waiting = await optionalBlock(() => consentsWaiting(conn, context, card.student.id, guardianId))
+    const assistantConsent = await optionalBlock(() => assistantConsentOf(conn, context, card.student.id))
     const feesDuePaise =
       year === null
         ? undefined
@@ -314,6 +376,8 @@ export async function parentDashboard(
       ...card,
       ...(feesDuePaise === undefined ? {} : { feesDuePaise }),
       ...(nextHoliday === undefined ? {} : { nextHoliday }),
+      hasPupilLogin: withLogin.has(card.student.id),
+      ...(assistantConsent === undefined ? {} : { assistantConsent }),
       waitingOn: (waiting ?? []).map((purpose) => ({ kind: 'consent' as const, purpose })),
     })
   }

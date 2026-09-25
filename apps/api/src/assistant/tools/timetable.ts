@@ -1,0 +1,343 @@
+import { z } from 'zod'
+import {
+  AvailableTeacherSuggestionList,
+  BellSchedule,
+  BellScheduleList,
+  SectionDetail,
+  SectionTimetable,
+  StaffTimetable,
+  SubstitutionDay,
+  TeacherLoadList,
+  TimetableCell,
+} from '@erp/contracts'
+import { readTool, type ToolCallContext } from './types.ts'
+import {
+  DAY_NAMES,
+  DateInput,
+  IdInput,
+  NO_YEAR,
+  YearInput,
+  appPath,
+  capped,
+  dateLabel,
+  dayOfWeek,
+  fetchParsed,
+  num,
+  ok,
+  seg,
+  source,
+  tableCard,
+  tag,
+  text,
+  toolList,
+  yearFor,
+  type TableColumn,
+  type TableRow,
+} from './present.ts'
+
+type Cell = z.infer<typeof TimetableCell>
+type Period = { readonly name: string; readonly startTime: string; readonly endTime: string; readonly type: string }
+
+/** The bell periods by index, from the class's own schedule or the year's first one; empty when none can be read. */
+async function periodsFor(context: ToolCallContext, academicYearId: string, gradeId?: string): Promise<Map<number, Period>> {
+  const periods = gradeId
+    ? await fetchParsed(context, BellSchedule, `/timetable/bell-schedules/for-grade/${seg(gradeId)}`, { academicYearId })
+    : await fetchParsed(context, BellScheduleList, '/timetable/bell-schedules', { academicYearId })
+  if (!periods.ok) return new Map()
+  const schedule = Array.isArray(periods.body) ? periods.body[0] : periods.body
+  return new Map((schedule?.periods ?? []).map((period) => [period.index, period]))
+}
+
+const dayInput = z.number().int().min(1).max(6).optional().describe('Only this day: 1 is Monday ... 6 is Saturday. Leave out for the whole week.')
+
+function periodLabel(periods: Map<number, Period>, index: number): string {
+  const period = periods.get(index)
+  return period ? `${period.name} (${period.startTime}–${period.endTime})` : `Period ${index + 1}`
+}
+
+/**
+ * A week as a table: one row per period, one column per day. With a day, the
+ * lessons of that day only, one row each.
+ */
+function weekCard(title: string, cells: readonly Cell[], periods: Map<number, Period>, describe: (cell: Cell) => string, day?: number) {
+  if (day !== undefined) {
+    const lessons = cells.filter((cell) => cell.dayOfWeek === day).sort((a, b) => a.periodIndex - b.periodIndex)
+    return tableCard({
+      title: `${title}, ${DAY_NAMES[day]}`,
+      columns: [
+        { key: 'period', label: 'Period' },
+        { key: 'lesson', label: 'Lesson' },
+        { key: 'room', label: 'Room' },
+      ],
+      rows: lessons.map((cell) => ({
+        cells: { period: text(periodLabel(periods, cell.periodIndex)), lesson: text(describe(cell)), room: text(cell.roomNumber) },
+      })),
+    })
+  }
+  const days = [...new Set(cells.map((cell) => cell.dayOfWeek))].sort()
+  const shownDays = days.length > 0 ? days : [1, 2, 3, 4, 5, 6]
+  const indices = [...new Set(cells.map((cell) => cell.periodIndex))].sort((a, b) => a - b)
+  const columns: TableColumn[] = [
+    { key: 'period', label: 'Period' },
+    ...shownDays.map((value) => ({ key: `d${value}`, label: DAY_NAMES[value]!.slice(0, 3) })),
+  ]
+  const rows: TableRow[] = indices.map((index) => ({
+    cells: Object.fromEntries([
+      ['period', text(periodLabel(periods, index))],
+      ...shownDays.map((value) => {
+        const cell = cells.find((candidate) => candidate.dayOfWeek === value && candidate.periodIndex === index)
+        return [`d${value}`, text(cell ? describe(cell) : undefined)]
+      }),
+    ]),
+  }))
+  return tableCard({ title, columns, rows })
+}
+
+function cellForModel(cell: Cell) {
+  return {
+    day: DAY_NAMES[cell.dayOfWeek],
+    periodIndex: cell.periodIndex,
+    section: cell.section.name,
+    sectionId: cell.section.id,
+    subject: cell.subject.name,
+    teacher: cell.teacher?.name,
+    staffId: cell.teacher?.id,
+    room: cell.roomNumber,
+  }
+}
+
+export const sectionTimetable = readTool({
+  name: 'section_timetable',
+  description: "A section's weekly timetable: subject and teacher for every period, or for one day.",
+  permission: 'timetable.read',
+  input: z.object({ sectionId: IdInput('The section id, from find_sections.'), day: dayInput, academicYearId: YearInput() }),
+  async run(input, context) {
+    const academicYearId = yearFor(input, context)
+    if (academicYearId === null) return NO_YEAR
+    const found = await fetchParsed(context, SectionTimetable, `/timetable/sections/${seg(input.sectionId)}`, { academicYearId })
+    if (!found.ok) return found.outcome
+    const section = await fetchParsed(context, SectionDetail, `/sections/${seg(input.sectionId)}`)
+    const gradeId = section.ok ? section.body.gradeId : undefined
+    const periods = await periodsFor(context, academicYearId, gradeId)
+    const cells = found.body.cells.filter((cell) => input.day === undefined || cell.dayOfWeek === input.day)
+    const label = found.body.cells[0]?.section.name ?? 'Section'
+    return ok(
+      {
+        sectionId: input.sectionId,
+        section: label,
+        periods: Object.fromEntries([...periods].map(([index, period]) => [index, `${period.name} ${period.startTime}-${period.endTime}`])),
+        lessons: cells.map(cellForModel),
+      },
+      weekCard(`Timetable of ${label}`, cells, periods, (cell) => [cell.subject.name, cell.teacher?.name].filter(Boolean).join(' · '), input.day),
+      source(`Timetable, ${label}`, appPath('/timetable', { gradeId, sectionId: input.sectionId })),
+    )
+  },
+})
+
+export const teacherTimetable = readTool({
+  name: 'teacher_timetable',
+  description: "A teacher's weekly timetable: which section and subject they teach each period, or on one day.",
+  permission: 'timetable.read',
+  input: z.object({ staffId: IdInput('The staff id, from find_staff.'), day: dayInput, academicYearId: YearInput() }),
+  async run(input, context) {
+    const academicYearId = yearFor(input, context)
+    if (academicYearId === null) return NO_YEAR
+    const found = await fetchParsed(context, StaffTimetable, `/timetable/staff/${seg(input.staffId)}`, { academicYearId })
+    if (!found.ok) return found.outcome
+    const periods = await periodsFor(context, academicYearId)
+    const cells = found.body.cells.filter((cell) => input.day === undefined || cell.dayOfWeek === input.day)
+    const name = found.body.cells[0]?.teacher?.name ?? 'the teacher'
+    return ok(
+      { staffId: input.staffId, teacher: name, periodsPerWeek: found.body.cells.length, lessons: cells.map(cellForModel) },
+      weekCard(`Timetable of ${name}`, cells, periods, (cell) => `${cell.subject.name} · ${cell.section.name}`, input.day),
+      source(`Timetable, ${name}`, appPath('/timetable/teachers', { staffId: input.staffId })),
+    )
+  },
+})
+
+export const freeTeachers = readTool({
+  name: 'free_teachers',
+  description:
+    'Teachers with no lesson in one period of one day, best suited first. Use it to find cover for an absent teacher.',
+  permission: 'timetable.manage_entries',
+  input: z.object({
+    periodIndex: z.number().int().min(0).max(60).describe('The period index, as section_timetable and teacher_timetable give it.'),
+    date: DateInput('The day. Leave out for today.').optional(),
+    subjectId: IdInput('Prefer teachers of this subject.').optional(),
+    academicYearId: YearInput(),
+  }),
+  async run(input, context) {
+    const academicYearId = yearFor(input, context)
+    if (academicYearId === null) return NO_YEAR
+    const day = input.date ?? context.today
+    const weekday = dayOfWeek(day)
+    if (weekday === 0) return ok({ date: day, note: 'That day is a Sunday; there are no lessons.' })
+    const found = await fetchParsed(context, AvailableTeacherSuggestionList, '/timetable/free-teachers', {
+      academicYearId,
+      dayOfWeek: weekday,
+      periodIndex: input.periodIndex,
+      subjectId: input.subjectId,
+    })
+    if (!found.ok) return found.outcome
+    const list = capped(found.body)
+    const periods = await periodsFor(context, academicYearId)
+    return ok(
+      {
+        date: day,
+        day: DAY_NAMES[weekday],
+        period: periodLabel(periods, input.periodIndex),
+        periodIndex: input.periodIndex,
+        teachers: list.items.map((row) => ({ staffId: row.teacher.id, name: row.teacher.name, teachesSubject: row.teachesSubject, periodsPerWeek: row.periodsPerWeek })),
+        total: list.total,
+      },
+      tableCard({
+        title: `Free teachers, ${DAY_NAMES[weekday]}, ${periodLabel(periods, input.periodIndex)}`,
+        columns: [
+          { key: 'name', label: 'Teacher' },
+          { key: 'subject', label: 'Teaches the subject' },
+          { key: 'load', label: 'Periods a week', align: 'end' },
+        ],
+        rows: list.items.map((row) => ({
+          cells: { name: text(row.teacher.name), subject: tag(row.teachesSubject ? 'Yes' : 'No'), load: num(row.periodsPerWeek) },
+        })),
+        total: list.total,
+      }),
+      source(`Substitutions, ${dateLabel(day)}`, appPath('/timetable/substitutions', { date: day })),
+    )
+  },
+})
+
+export const substitutionsOnDay = readTool({
+  name: 'substitutions_on_day',
+  description: 'The cover arranged for absent teachers on one day: period, section, subject, who is away and who covers.',
+  permission: 'timetable.read',
+  input: z.object({ date: DateInput('The day. Leave out for today.').optional() }),
+  async run(input, context) {
+    const day = input.date ?? context.today
+    const found = await fetchParsed(context, SubstitutionDay, '/timetable/substitutions', { date: day })
+    if (!found.ok) return found.outcome
+    const list = capped(found.body.substitutions)
+    const periods = context.academicYearId ? await periodsFor(context, context.academicYearId) : new Map<number, Period>()
+    return ok(
+      {
+        date: day,
+        substitutions: list.items.map((row) => ({
+          periodIndex: row.periodIndex,
+          period: periodLabel(periods, row.periodIndex),
+          section: row.section.name,
+          subject: row.subject.name,
+          absentTeacher: row.absentTeacher.name,
+          substituteTeacher: row.substituteTeacher?.name ?? null,
+          notified: row.notified,
+        })),
+        total: list.total,
+      },
+      tableCard({
+        title: `Substitutions, ${dateLabel(day)}`,
+        columns: [
+          { key: 'period', label: 'Period' },
+          { key: 'section', label: 'Section' },
+          { key: 'subject', label: 'Subject' },
+          { key: 'absent', label: 'Away' },
+          { key: 'cover', label: 'Cover' },
+        ],
+        rows: list.items.map((row) => ({
+          cells: {
+            period: text(periodLabel(periods, row.periodIndex)),
+            section: text(row.section.name),
+            subject: text(row.subject.name),
+            absent: text(row.absentTeacher.name),
+            cover: row.substituteTeacher ? text(row.substituteTeacher.name) : tag('No cover'),
+          },
+        })),
+        total: list.total,
+      }),
+      source(`Substitutions, ${dateLabel(day)}`, appPath('/timetable/substitutions', { date: day })),
+    )
+  },
+})
+
+export const teacherLoads = readTool({
+  name: 'teacher_loads',
+  description: 'How many periods a week each teacher teaches, in how many sections and subjects.',
+  permission: 'timetable.read_teacher_loads',
+  input: z.object({ academicYearId: YearInput() }),
+  async run(input, context) {
+    const academicYearId = yearFor(input, context)
+    if (academicYearId === null) return NO_YEAR
+    const found = await fetchParsed(context, TeacherLoadList, '/timetable/teacher-loads', { academicYearId })
+    if (!found.ok) return found.outcome
+    const sorted = [...found.body].sort((a, b) => b.periodsPerWeek - a.periodsPerWeek)
+    const list = capped(sorted)
+    return ok(
+      {
+        teachers: list.items.map((row) => ({ staffId: row.teacher.id, name: row.teacher.name, periodsPerWeek: row.periodsPerWeek, sections: row.sectionsCount, subjects: row.subjectsCount })),
+        total: list.total,
+      },
+      tableCard({
+        title: 'Teacher loads',
+        columns: [
+          { key: 'name', label: 'Teacher' },
+          { key: 'periods', label: 'Periods a week', align: 'end' },
+          { key: 'sections', label: 'Sections', align: 'end' },
+          { key: 'subjects', label: 'Subjects', align: 'end' },
+        ],
+        rows: list.items.map((row) => ({
+          cells: { name: text(row.teacher.name), periods: num(row.periodsPerWeek), sections: num(row.sectionsCount), subjects: num(row.subjectsCount) },
+          href: appPath('/timetable/teachers', { staffId: row.teacher.id }),
+        })),
+        total: list.total,
+      }),
+      source('Teacher loads', '/timetable/teachers'),
+    )
+  },
+})
+
+export const bellSchedules = readTool({
+  name: 'bell_schedules',
+  description: 'The school day: each period and break with its start and end time, for each bell schedule of the year.',
+  permission: 'timetable.read',
+  input: z.object({ academicYearId: YearInput() }),
+  async run(input, context) {
+    const academicYearId = yearFor(input, context)
+    if (academicYearId === null) return NO_YEAR
+    const found = await fetchParsed(context, BellScheduleList, '/timetable/bell-schedules', { academicYearId })
+    if (!found.ok) return found.outcome
+    const schedules = found.body
+    const rows = schedules.flatMap((schedule) =>
+      schedule.periods.map((period) => ({ schedule: schedule.name, ...period })),
+    )
+    return ok(
+      {
+        schedules: schedules.map((schedule) => ({
+          name: schedule.name,
+          workingDays: schedule.workingDays.map((value) => DAY_NAMES[value]),
+          periods: schedule.periods.map((period) => ({ index: period.index, name: period.name, start: period.startTime, end: period.endTime, type: period.type })),
+        })),
+      },
+      tableCard({
+        title: 'Bell schedule',
+        columns: [
+          ...(schedules.length > 1 ? [{ key: 'schedule', label: 'Schedule' }] : []),
+          { key: 'name', label: 'Period' },
+          { key: 'start', label: 'Starts' },
+          { key: 'end', label: 'Ends' },
+          { key: 'type', label: 'Type' },
+        ],
+        rows: rows.map((row) => ({
+          cells: { schedule: text(row.schedule), name: text(row.name), start: text(row.startTime), end: text(row.endTime), type: tag(row.type) },
+        })),
+      }),
+      source('Periods and bells', '/timetable/periods'),
+    )
+  },
+})
+
+export const TIMETABLE_TOOLS = toolList(
+  sectionTimetable,
+  teacherTimetable,
+  freeTeachers,
+  substitutionsOnDay,
+  teacherLoads,
+  bellSchedules,
+)

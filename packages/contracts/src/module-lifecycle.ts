@@ -122,6 +122,22 @@ export const SubjectAccessEvent = z.strictObject({
 })
 
 /**
+ * One of the pupil's own conversations with the assistant (Task 24), in plain
+ * words: what the pupil asked and what the assistant answered. The records the
+ * answers drew on are in the export's own blocks, so tool results are left out.
+ */
+export const SubjectAssistantConversation = z.strictObject({
+  id: Id,
+  title: z.string().min(1).max(120),
+  createdAt: Timestamp,
+  messages: z.array(z.strictObject({
+    role: z.enum(['user', 'assistant']),
+    text: z.string().min(1).max(40000),
+    createdAt: Timestamp,
+  })).max(400),
+})
+
+/**
  * Everything the system holds about one student, in one audited document.
  * A block is present only when the caller holds the read permission for it on
  * this student, so the export says exactly what they could already read one
@@ -167,6 +183,11 @@ export const SubjectAccessExport = z.strictObject({
    */
   messages: z.array(SubjectMessage).max(500).optional(),
   accessHistory: z.array(SubjectAccessEvent).max(200).optional(),
+  /**
+   * The pupil's own conversations with the assistant, kept 30 days. Present
+   * when the pupil has, or had, a login of their own.
+   */
+  assistantConversations: z.array(SubjectAssistantConversation).max(500).optional(),
 })
 
 /**
@@ -203,4 +224,5 @@ export type SubjectSensitive = z.infer<typeof SubjectSensitive>
 export type SubjectAccessEvent = z.infer<typeof SubjectAccessEvent>
 export type SubjectGuardian = z.infer<typeof SubjectGuardian>
 export type SubjectAccessExport = z.infer<typeof SubjectAccessExport>
+export type SubjectAssistantConversation = z.infer<typeof SubjectAssistantConversation>
 export type RedactAuditNoteRequest = z.infer<typeof RedactAuditNoteRequest>

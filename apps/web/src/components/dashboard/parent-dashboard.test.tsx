@@ -63,6 +63,8 @@ function child(patch: Partial<ParentDashboardData['children'][number]> = {}): Pa
       { periodIndex: 1, name: 'Period 1', startTime: '08:00', endTime: '08:45', type: 'period', lesson: { section: { id: 'sec-1', name: 'Six A' }, subject: { id: 'sub-1', name: 'Mathematics' }, cover: false } },
     ],
     nextHoliday: { id: 'h1', name: 'Diwali', startDate: '2026-11-08', endDate: '2026-11-12', type: 'festival' },
+    hasPupilLogin: false,
+    assistantConsent: 'none',
     waitingOn: [],
     ...patch,
   } as ParentDashboardData['children'][number]
@@ -238,5 +240,66 @@ describe('parent dashboard, allow school messages', () => {
     unmount()
     renderAsker(parent({ guardianId: GUARDIAN, children: [ira] }), ['dashboard.read', 'students.read_basic', 'students.read_consents'])
     expect(screen.queryByText('Get messages from the school')).not.toBeInTheDocument()
+  })
+})
+
+describe('parent dashboard, allow the school assistant', () => {
+  const GUARDIAN = '20000000-0000-4000-8000-000000000041'
+  const riya = child({
+    student: { id: 'st-3', schoolId: SCHOOL, version: 1, firstName: 'Riya', lastName: 'Sharma', admissionNumber: 'SVM/2026/103', status: 'active', anonymised: false, hasPhoto: false },
+    hasPupilLogin: true,
+    assistantConsent: 'none',
+  })
+  const TITLE = 'Let Riya use the school assistant'
+
+  function renderAsker(data: ParentDashboardData, capabilities: PermissionKey[] = ['dashboard.read', 'students.read_basic', 'students.read_consents', 'students.manage_consents']) {
+    return renderWithSession(<ParentDashboard data={data} isLoading={false} error={undefined} />, {
+      roleKeys: ['parent'],
+      capabilities,
+    })
+  }
+
+  it('asks only for a child with their own login and no yes on record', () => {
+    renderAsker(parent({ guardianId: GUARDIAN, children: [child(), riya] }))
+    expect(screen.getByText(TITLE)).toBeInTheDocument()
+    expect(screen.getByText(/Their questions go to Google to be answered and are not used to train anything\./)).toBeInTheDocument()
+    // The younger child has no login, so nobody asks about them.
+    expect(screen.queryByText('Let Aarav use the school assistant')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Allow' })).toHaveLength(1)
+    // Nothing is recorded just by opening the page, and the school is not shown as waiting on it.
+    expect(recordConsent).not.toHaveBeenCalled()
+    expect(screen.queryByText('Consent for the school assistant')).not.toBeInTheDocument()
+  })
+
+  it('asks again after a withdrawal, and says nothing once it is given', () => {
+    const { unmount } = renderAsker(parent({ guardianId: GUARDIAN, children: [{ ...riya, assistantConsent: 'withdrawn' }] }))
+    expect(screen.getByText(TITLE)).toBeInTheDocument()
+    unmount()
+    renderAsker(parent({ guardianId: GUARDIAN, children: [{ ...riya, assistantConsent: 'given' }] }))
+    expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
+  })
+
+  it('is not shown without a guardian record, the right to answer or a consent answer to read', () => {
+    const { unmount } = renderAsker(parent({ children: [riya] }))
+    expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
+    unmount()
+    const second = renderAsker(parent({ guardianId: GUARDIAN, children: [riya] }), ['dashboard.read', 'students.read_basic', 'students.read_consents'])
+    expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
+    second.unmount()
+    renderAsker(parent({ guardianId: GUARDIAN, children: [{ ...riya, assistantConsent: undefined }] }))
+    expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
+  })
+
+  it('records the assistant consent for that child through the portal, then refreshes the home', async () => {
+    const { queryClient } = renderAsker(parent({ guardianId: GUARDIAN, children: [child(), riya] }))
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Riya can now use the school assistant'))
+    expect(recordConsent).toHaveBeenCalledTimes(1)
+    expect(recordConsent).toHaveBeenCalledWith(SCHOOL, 'st-3', {
+      guardianId: GUARDIAN, purpose: 'ai_assistant', status: 'given', method: 'portal',
+    })
+    const keys = invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey))
+    expect(keys).toContain(JSON.stringify([SCHOOL, 'dashboard', {}]))
   })
 })

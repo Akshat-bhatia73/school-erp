@@ -1,5 +1,5 @@
 /** The assistant: one conversation on the whole screen, past ones in the history popover. */
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
 import { AssistantScreen } from '@/components/assistant/assistant-screen'
 
@@ -15,5 +15,7 @@ export const Route = createFileRoute('/_app/assistant/')({
 
 function Page() {
   const { thread } = Route.useSearch()
-  return <AssistantScreen threadId={thread} />
+  const navigate = useNavigate({ from: Route.fullPath })
+  // Replace, not push: moving between conversations is not a trail Back should walk through.
+  return <AssistantScreen threadId={thread} onOpenThread={(id) => void navigate({ search: { thread: id }, replace: true })} />
 }

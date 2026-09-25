@@ -2,9 +2,11 @@ import type { ReactNode } from 'react'
 import type { MembershipStatus, RoleKey } from '@erp/contracts'
 import { PageTabs } from '@/components/shared/page'
 import type { TagColor } from '@/components/shared/tag'
+import { useSchoolContext } from '@/lib/session'
 
-/** Tabs shared by the three settings screens. */
+/** Tabs shared by the settings screens. The assistant tab is for those who run it. */
 export function SettingsTabs({ actions }: { actions?: ReactNode }) {
+  const { hasPermission } = useSchoolContext()
   return (
     <PageTabs
       actions={actions}
@@ -12,6 +14,7 @@ export function SettingsTabs({ actions }: { actions?: ReactNode }) {
         { label: 'Users & logins', to: '/settings/users' },
         { label: 'Roles & permissions', to: '/settings/roles' },
         { label: 'Audit log', to: '/settings/audit-log' },
+        ...(hasPermission('ai_assistant.manage') ? [{ label: 'Assistant', to: '/settings/assistant' }] : []),
       ]}
     />
   )

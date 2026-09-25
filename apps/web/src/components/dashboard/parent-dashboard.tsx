@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { CircleCheck, GraduationCap, MessageSquareText, Users } from 'lucide-react'
+import { CircleCheck, GraduationCap, MessageSquareText, Sparkles, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { CONSENT_PURPOSES, type ConsentPurpose, type ParentDashboard as ParentDashboardData } from '@erp/contracts'
 import { BentoGrid, Cell, DashboardCard } from './blocks/card'
@@ -280,6 +280,45 @@ function AllowMessagesCard({ guardianId, waiting }: { guardianId: string; waitin
   )
 }
 
+/**
+ * The prompt to let a pupil with their own login use the school assistant. A pupil may ask it
+ * anything only once a guardian has said yes, so the parent is asked here for that one child.
+ * Nothing is recorded until they press the button; withdrawing stays under Manage consent.
+ */
+function AllowAssistantCard({ guardianId, child }: { guardianId: string; child: ParentChild }) {
+  const { schoolId } = useSchoolContext()
+  const queryClient = useQueryClient()
+  const studentId = child.student.id
+  const firstName = child.student.firstName
+  const allow = useMutation({
+    mutationFn: () => api.students.recordConsent(schoolId, studentId, {
+      guardianId,
+      purpose: 'ai_assistant',
+      status: 'given',
+      method: 'portal',
+    }),
+    onSuccess: () => toast.success(`${firstName} can now use the school assistant`),
+    onError: (error) => toast.error(describeError(error)),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: qk.dashboard(schoolId) })
+      void queryClient.invalidateQueries({ queryKey: qk.studentConsents(schoolId, studentId) })
+    },
+  })
+
+  return (
+    <DashboardCard title={`Let ${firstName} use the school assistant`} tone="blue" icon={<Sparkles />}>
+      <div className="flex flex-col items-start gap-3">
+        <p className="text-[13.5px]">
+          Your child can ask the school assistant about their own timetable, attendance and results. Their questions go to
+          Google to be answered and are not used to train anything. Conversations are kept for 30 days and nobody else can
+          read them.
+        </p>
+        <Button size="sm" disabled={allow.isPending} onClick={() => allow.mutate()}>Allow</Button>
+      </div>
+    </DashboardCard>
+  )
+}
+
 /** The class block beside a single child: what the school has recorded for this year. */
 function ClassCard({ enrollment }: { enrollment: NonNullable<ParentChild['enrollment']> }) {
   return (
@@ -333,11 +372,20 @@ export function ParentDashboard({ data, isLoading, error }: { data?: ParentDashb
   )
   const guardianId = data.guardianId
   const askForMessages = guardianId !== undefined && hasPermission('students.manage_consents') && waitingOnMessages.length > 0
+  // The assistant is asked for only for a child with their own login who has no yes on record.
+  const askForAssistant = guardianId !== undefined && hasPermission('students.manage_consents')
+    ? data.children.filter((child) => child.hasPupilLogin && child.assistantConsent !== undefined && child.assistantConsent !== 'given')
+    : []
   return (
     <BentoGrid dense>
       {askForMessages && (
         <Cell col={12} rows={2}><AllowMessagesCard guardianId={guardianId} waiting={waitingOnMessages} /></Cell>
       )}
+      {guardianId !== undefined && askForAssistant.map((child) => (
+        <Cell key={`assistant-${child.student.id}`} col={12} rows={2}>
+          <AllowAssistantCard guardianId={guardianId} child={child} />
+        </Cell>
+      ))}
       {data.children.map((child) => (
         <Cell key={child.student.id} col={span} rows={6}>
           <ChildCard child={child} day={data.day} />

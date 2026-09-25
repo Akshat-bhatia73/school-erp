@@ -14,6 +14,7 @@ import type {
   PermissionKey,
   ReportCardView,
   SubjectAccessEvent,
+  SubjectAssistantConversation,
   SubjectMessage,
   SubjectSensitive,
 } from '@erp/contracts'
@@ -506,6 +507,77 @@ async function loadMessages(
   }))
 }
 
+interface ConversationRow {
+  id: string
+  title_sealed: string | null
+  created_at: string
+}
+
+/** The text of a kept UI message: its text parts, in order. */
+function messageText(parts: unknown): string {
+  if (!Array.isArray(parts)) return ''
+  return parts
+    .flatMap((part: unknown) =>
+      typeof part === 'object' && part !== null && (part as { type?: unknown }).type === 'text' &&
+      typeof (part as { text?: unknown }).text === 'string'
+        ? [(part as { text: string }).text]
+        : [],
+    )
+    .join('')
+    .trim()
+    .slice(0, 40000)
+}
+
+/**
+ * The pupil's own assistant conversations (Task 24), opened from their sealed
+ * form. They belong to the pupil's login, found through the link that names
+ * the pupil; undefined when the pupil never had a login.
+ */
+async function loadAssistantConversations(
+  conn: ModuleConnection,
+  context: RequestContext,
+  studentId: string,
+  key: string,
+): Promise<SubjectAssistantConversation[] | undefined> {
+  const logins = await conn.client.query<{ membership_id: string }>(
+    `SELECT membership_id FROM membership_student_links WHERE school_id = $1 AND student_id = $2`,
+    [context.schoolId, studentId],
+  )
+  if (logins.rows.length === 0) return undefined
+  const iso = `'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'`
+  const threads = await conn.client.query<ConversationRow>(
+    `SELECT id, title_sealed, to_char(created_at AT TIME ZONE 'UTC', ${iso}) AS created_at
+       FROM assistant_threads
+      WHERE school_id = $1 AND membership_id = ANY($2::uuid[])
+      ORDER BY created_at DESC, id
+      LIMIT 500`,
+    [context.schoolId, logins.rows.map((row) => row.membership_id)],
+  )
+  const conversations: SubjectAssistantConversation[] = []
+  for (const thread of threads.rows) {
+    const kept = await conn.client.query<{ role: 'user' | 'assistant'; content_sealed: string; created_at: string }>(
+      `SELECT role, content_sealed, to_char(created_at AT TIME ZONE 'UTC', ${iso}) AS created_at
+         FROM assistant_messages
+        WHERE school_id = $1 AND thread_id = $2
+        ORDER BY created_at, id
+        LIMIT 400`,
+      [context.schoolId, thread.id],
+    )
+    const messages = kept.rows.flatMap((row) => {
+      const text = messageText((JSON.parse(open(row.content_sealed, key)) as { parts?: unknown }).parts)
+      return text === '' ? [] : [{ role: row.role, text, createdAt: row.created_at }]
+    })
+    if (messages.length === 0) continue
+    conversations.push({
+      id: thread.id,
+      title: thread.title_sealed === null ? 'Conversation' : open(thread.title_sealed, key),
+      createdAt: thread.created_at,
+      messages,
+    })
+  }
+  return conversations
+}
+
 export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDependencies): void {
   protectedRoute(app, deps, {
     method: 'GET',
@@ -531,6 +603,7 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ...(result.reportCards === undefined ? [] : ['reportCards']),
           ...(result.messages === undefined ? [] : ['messages']),
           ...(result.accessHistory === undefined ? [] : ['accessHistory']),
+          ...(result.assistantConversations === undefined ? [] : ['assistantConversations']),
         ],
       }),
     },
@@ -658,6 +731,12 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ? await loadAccessHistory(conn, context, deps.pools.auth, studentId)
           : undefined
 
+        // The pupil's own conversations with the assistant: they are the
+        // pupil's words, so they are part of what is held about the pupil.
+        const assistantConversations = anonymised
+          ? undefined
+          : await loadAssistantConversations(conn, context, studentId, deps.config.DATA_ENCRYPTION_KEY)
+
         return {
           generatedAt: new Date().toISOString(),
           schoolId: context.schoolId,
@@ -674,6 +753,7 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ...(reportCards === undefined ? {} : { reportCards }),
           ...(messages === undefined ? {} : { messages }),
           ...(history === undefined ? {} : { accessHistory: history }),
+          ...(assistantConversations === undefined ? {} : { assistantConversations }),
         }
       })
     },

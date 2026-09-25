@@ -1,5 +1,5 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { CalendarClock, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, Mail, Menu, Search, Users } from 'lucide-react'
+import { CalendarClock, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, Mail, Menu, Search, Sparkles, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
 import { PUPIL_PATHS } from '@/components/layout/sidebar'
@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils'
  * Same height and hairline as the desktop PageHeader so the two read as one product.
  */
 export function MobileTopBar({ onOpenNav, onOpenQuickActions }: { onOpenNav: () => void; onOpenQuickActions: () => void }) {
-  const { school } = useSchoolContext()
+  const { school, hasPermission } = useSchoolContext()
   const { user } = useSession()
   const name = user?.displayName ?? 'Account'
   const view = useSchoolDashboardView().view
@@ -32,6 +32,12 @@ export function MobileTopBar({ onOpenNav, onOpenQuickActions }: { onOpenNav: () 
           <span className="block truncate text-[11px] leading-tight text-muted-foreground">{current?.name ?? ''}{school.code ? ` · ${school.code}` : ''}</span>
         )}
       </div>
+      {/* The tab island is full for most people, so the assistant sits up here, one tap away. */}
+      {hasPermission('ai_assistant.use') && (
+        <Link to="/assistant" aria-label="Assistant" className="flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none [&.active]:bg-accent [&.active]:text-foreground">
+          <Sparkles className="size-5" />
+        </Link>
+      )}
       <button type="button" onClick={onOpenQuickActions} aria-label="Search and quick actions" className="flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
         <Search className="size-5" />
       </button>
