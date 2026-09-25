@@ -12,7 +12,7 @@ import {
   type AssistantUnavailableReason,
   type AssistantValue,
 } from '@erp/contracts'
-import type { UIMessage } from 'ai'
+import { isToolUIPart, type UIMessage } from 'ai'
 import type { TagColor } from '@/components/shared/tag'
 import { formatDate, formatPaise, humanize } from '@/lib/utils'
 
@@ -262,4 +262,19 @@ export function parseBlocks(text: string): AnswerBlock[] {
     }
   }
   return blocks.filter((block) => block.kind !== 'paragraph' || block.lines.length > 0)
+}
+
+/**
+ * True while an answer is on its way but nothing on screen moves: before the
+ * first word, and between a lookup finishing and the next step starting. A
+ * lookup being asked for shows its own line, and words streaming are their
+ * own sign of life.
+ */
+export function showsNothingYet(last: UIMessage | undefined): boolean {
+  if (!last || last.role === 'user') return true
+  const part = last.parts[last.parts.length - 1]
+  if (!part) return true
+  if (part.type === 'text') return part.state !== 'streaming'
+  if (isToolUIPart(part)) return part.state !== 'input-streaming' && part.state !== 'input-available'
+  return true
 }

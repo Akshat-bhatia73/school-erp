@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import {
+  APICallError,
+  RetryError,
   consumeStream,
   convertToModelMessages,
   createUIMessageStreamResponse,
@@ -49,6 +51,7 @@ const HISTORY_MESSAGES = 20
 const TURN_TIMEOUT_MS = 240_000
 /** What the browser shows when a turn fails. Never the error itself. */
 const FAILED_TEXT = 'Something went wrong while answering. Please try again.'
+const BUSY_TEXT = 'The assistant is busy right now. Please try again in a few minutes.'
 
 type UsageStatus = 'answered' | 'failed' | 'stopped'
 
@@ -240,6 +243,9 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
       messages,
       tools: offered,
       stopWhen: isStepCount(ASSISTANT_MAX_TOOL_CALLS),
+      // One retry, not the default two: a provider that said "too many" a
+      // second ago says it again, and each retry spends the per-minute quota.
+      maxRetries: 1,
       // The last step, or once the calls are spent, has no tools, so the turn
       // ends with words rather than an unanswered call.
       prepareStep: ({ stepNumber }) =>
@@ -254,23 +260,35 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
       },
       onError: ({ error }) => {
         errored = true
-        request.log.warn({ requestId: request.id, turnId: setup.usageId, kind: errorKind(error) }, 'assistant turn failed')
+        request.log.warn(
+          { requestId: request.id, turnId: setup.usageId, kind: errorKind(error), ...providerFailure(error) },
+          'assistant turn failed',
+        )
       },
     })
 
+    let failure: string | undefined
     const stream = toUIMessageStream({
       stream: result.stream,
       tools: offered,
       originalMessages: setup.messages as unknown as UIMessage[],
       generateMessageId: () => randomUUID(),
-      onError: () => FAILED_TEXT,
+      onError: (error) => {
+        failure = providerFailure(error).providerStatus === 429 ? BUSY_TEXT : FAILED_TEXT
+        return failure
+      },
       onEnd: async ({ responseMessage, isAborted, outcome }) => {
         const status: UsageStatus = isAborted
           ? 'stopped'
           : errored || outcome.status === 'failed'
             ? 'failed'
             : 'answered'
-        await finish(status, responseMessage)
+        // A failed answer is kept with the sentence the person saw, so it
+        // reads the same when the conversation is opened again.
+        const kept = status === 'failed' && failure !== undefined && responseMessage
+          ? { ...responseMessage, parts: [...responseMessage.parts, { type: 'text' as const, text: failure }] }
+          : responseMessage
+        await finish(status, kept)
       },
     })
 
@@ -290,4 +308,28 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
 /** The error's class name, never its message, which may quote the question. */
 function errorKind(error: unknown): string {
   return error instanceof Error ? error.name : typeof error
+}
+
+/**
+ * Why the model provider refused, for the log: its HTTP status and its own
+ * short reason ("Quota exceeded…", "API key not valid…"). The provider's
+ * error body describes the call, never the question, so no words leave here;
+ * it is cut short all the same.
+ */
+function providerFailure(error: unknown): { providerStatus?: number; providerReason?: string } {
+  const last = RetryError.isInstance(error) ? error.lastError : error
+  if (!APICallError.isInstance(last)) return {}
+  let reason: string | undefined
+  try {
+    const body = JSON.parse(last.responseBody ?? '') as { error?: { status?: unknown; message?: unknown } }
+    const status = typeof body.error?.status === 'string' ? body.error.status : ''
+    const message = typeof body.error?.message === 'string' ? body.error.message : ''
+    reason = `${status} ${message}`.trim()
+  } catch {
+    reason = last.message
+  }
+  return {
+    ...(last.statusCode === undefined ? {} : { providerStatus: last.statusCode }),
+    ...(reason ? { providerReason: reason.slice(0, 300) } : {}),
+  }
 }

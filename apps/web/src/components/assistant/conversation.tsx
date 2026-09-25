@@ -9,7 +9,7 @@ import { ApiRequestError } from '@/lib/http'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
 import { Composer } from './composer'
-import { turnBody } from './format'
+import { showsNothingYet, turnBody } from './format'
 import { Message } from './message'
 import { ActivityLine } from './tool-activity'
 
@@ -109,7 +109,7 @@ export function Conversation({ threadId, initialMessages, firstQuestion, onFirst
   }
 
   const last = messages[messages.length - 1]
-  const waiting = status === 'submitted' && last?.role === 'user'
+  const waiting = busy && showsNothingYet(last)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -123,10 +123,10 @@ export function Conversation({ threadId, initialMessages, firstQuestion, onFirst
       >
         <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-4 pt-6 pb-8 md:px-6">
           {messages.map((message) => <Message key={message.id} message={message} />)}
-          {waiting && <ActivityLine label="Thinking…" />}
+          {waiting && <ActivityLine label="Working…" />}
           {error && !busy && (
             <p className="text-[13px] text-muted-foreground" role="alert">
-              {describeError(error)}{' '}
+              {failureText(error)}{' '}
               <button type="button" onClick={() => { stick.current = true; void regenerate() }} className="font-medium text-foreground underline-offset-4 hover:underline">
                 Try again
               </button>
@@ -143,4 +143,16 @@ export function Conversation({ threadId, initialMessages, firstQuestion, onFirst
       </div>
     </div>
   )
+}
+
+/**
+ * A refused request carries the API's error envelope; a turn that failed while
+ * answering carries the server's own plain sentence in the stream's error part
+ * ("The assistant is busy right now…"), which is the one to show.
+ */
+function failureText(error: Error): string {
+  if (error instanceof ApiRequestError) return describeError(error)
+  // A lost connection surfaces as a TypeError whose words are the browser's, not ours.
+  if (error instanceof TypeError || error.message.trim() === '') return describeError(error)
+  return error.message
 }
