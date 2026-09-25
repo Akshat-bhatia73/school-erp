@@ -122,7 +122,7 @@ test('documents and audit summaries cannot return storage credentials or raw pri
 
 test('advertised actions exclude reserved or duplicate permissions', () => {
   assert.equal(c.AllowedActions.safeParse(['students.read_basic']).success, true)
-  assert.equal(c.AllowedActions.safeParse(['ai_assistant.use']).success, false)
+  assert.equal(c.AllowedActions.safeParse(['roles.manage']).success, false)
   assert.equal(c.AllowedActions.safeParse(['students.read_basic', 'students.read_basic']).success, false)
 })
 
@@ -139,7 +139,7 @@ test('consent, reveal and anonymisation contracts refuse free-form or unscoped i
   }
   assert.equal(c.RecordConsentRequest.safeParse({ ...consent, purpose: 'anything' }).success, false)
   assert.equal(c.RecordConsentRequest.safeParse({ ...consent, evidenceReference: 'x'.repeat(201) }).success, false)
-  assert.deepEqual(c.CONSENT_PURPOSES.length, 5)
+  assert.deepEqual(c.CONSENT_PURPOSES.length, 6)
 
   // The sensitive block carries the mask only; the full value has its own audited route.
   const sensitive = { dateOfBirth: '2014-05-02', gender: 'female', admissionDate: '2020-04-01' }

@@ -68,6 +68,28 @@ const EnvSchema = z.object({
    * <this value>, which Vercel Cron sends on its own.
    */
   CRON_SECRET: z.string().min(32).optional(),
+  /**
+   * The assistant (Task 24). Off unless this says true, whatever each school
+   * chose, so one setting stops it everywhere.
+   */
+  ASSISTANT_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  /** A Vercel AI Gateway model id. Changing the model is changing this. */
+  ASSISTANT_MODEL: z.string().regex(/^[a-z0-9-]+\/[a-z0-9.-]+$/).default('google/gemini-3.8-flash'),
+  /**
+   * Every request asks the gateway for zero data retention and Google Vertex
+   * AI only. Per-request zero data retention needs the Vercel Pro plan; a test
+   * deployment with test data on the free plan may set false. Never false for
+   * a real school.
+   */
+  ASSISTANT_ZERO_DATA_RETENTION: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** The gateway key off Vercel. On Vercel the project's OIDC token is used instead. */
+  AI_GATEWAY_API_KEY: z.string().min(1).optional(),
   /** Error reporting. Absent means nothing leaves the process. */
   SENTRY_DSN: z.url().optional(),
   PORT: z.coerce.number().int().min(0).max(65_535).default(3001),

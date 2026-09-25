@@ -10,6 +10,7 @@ export const PURPOSE_LABEL: Record<ConsentPurpose, string> = {
   photographs: 'Photographs',
   communication: 'Messages from the school',
   third_party_services: 'Services run by others',
+  ai_assistant: 'The school assistant',
 }
 
 export const PURPOSE_DESCRIPTION: Record<ConsentPurpose, string> = {
@@ -18,6 +19,7 @@ export const PURPOSE_DESCRIPTION: Record<ConsentPurpose, string> = {
   photographs: 'Using photographs of this child in school material.',
   communication: 'Sending messages about school matters to this guardian.',
   third_party_services: 'Sharing what is needed with services the school uses.',
+  ai_assistant: 'Letting this child ask the school assistant about their own timetable, attendance and results.',
 }
 
 export const METHOD_LABEL: Record<ConsentMethod, string> = {

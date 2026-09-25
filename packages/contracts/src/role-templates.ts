@@ -122,6 +122,7 @@ export const ROLE_TEMPLATES = {
       ...attendanceOffice,
       ...examsOffice,
       ...communicationOffice,
+      grant('ai_assistant.use', 'self'), grant('ai_assistant.manage', 'school'),
     ],
   },
   principal: {
@@ -142,6 +143,7 @@ export const ROLE_TEMPLATES = {
       ...attendanceOffice,
       ...examsOffice,
       ...communicationOffice,
+      grant('ai_assistant.use', 'self'), grant('ai_assistant.manage', 'school'),
     ],
   },
   admin: {
@@ -159,6 +161,7 @@ export const ROLE_TEMPLATES = {
       ...attendanceOffice,
       ...examsOffice,
       ...communicationOffice,
+      grant('ai_assistant.use', 'self'),
     ],
   },
   accountant: {
@@ -178,6 +181,7 @@ export const ROLE_TEMPLATES = {
       grant('staff_attendance.read', 'school'),
       // Their own inbox: staff notices and the school's birthday wishes.
       grant('communication.read', 'self'),
+      grant('ai_assistant.use', 'self'),
     ],
   },
   teacher: {
@@ -211,6 +215,7 @@ export const ROLE_TEMPLATES = {
       // reads their own inbox and what they wrote.
       grant('communication.read', 'self'), grant('communication.read', 'assigned_sections'),
       grant('communication.send', 'assigned_sections'),
+      grant('ai_assistant.use', 'self'),
     ],
   },
   parent: {
@@ -235,6 +240,7 @@ export const ROLE_TEMPLATES = {
       // What the school addressed to this parent, and nothing addressed to
       // another guardian of the same child.
       grant('communication.read', 'self'),
+      grant('ai_assistant.use', 'self'),
     ],
   },
   // A pupil in Class 9 to 12 reads their own published learning record and
@@ -254,6 +260,8 @@ export const ROLE_TEMPLATES = {
       grant('exams.read', 'own_record'), grant('report_cards.read', 'own_record'),
       // Notices addressed to the pupil themself, and nothing written to their family.
       grant('communication.read', 'self'),
+      // Only after a guardian gives the ai_assistant consent; the API checks it.
+      grant('ai_assistant.use', 'self'),
     ],
   },
 } as const satisfies Record<RoleKey, RoleTemplate>

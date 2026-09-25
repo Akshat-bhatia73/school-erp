@@ -18,6 +18,8 @@ export const CONSENT_PURPOSES = [
   'photographs',
   'communication',
   'third_party_services',
+  // A pupil uses the assistant only after a guardian agrees (Task 24).
+  'ai_assistant',
 ] as const
 
 export const ConsentPurpose = z.enum(CONSENT_PURPOSES)

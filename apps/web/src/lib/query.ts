@@ -111,6 +111,15 @@ export const qk = {
     settings: (schoolId: string) => [schoolId, 'messages', 'settings'] as const,
   },
 
+  /** The assistant. A turn or a delete invalidates `[schoolId, 'assistant']`. */
+  assistant: {
+    status: (schoolId: string) => [schoolId, 'assistant', 'status'] as const,
+    threads: (schoolId: string) => [schoolId, 'assistant', 'threads'] as const,
+    thread: (schoolId: string, threadId: string) => [schoolId, 'assistant', 'thread', threadId] as const,
+    settings: (schoolId: string) => [schoolId, 'assistant', 'settings'] as const,
+    usage: (schoolId: string, month?: string) => [schoolId, 'assistant', 'usage', month ?? 'current'] as const,
+  },
+
   examSettings: (schoolId: string) => [schoolId, 'reportCards', 'settings'] as const,
   reportCardEntries: (schoolId: string, sectionId: string, term: string) => [schoolId, 'reportCards', 'entries', sectionId, term] as const,
   reportCardSections: (schoolId: string, params?: Params) => [schoolId, 'reportCards', 'sections', params ?? {}] as const,
