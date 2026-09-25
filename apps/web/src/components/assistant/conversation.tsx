@@ -126,7 +126,7 @@ export function Conversation({ threadId, initialMessages, firstQuestion, onFirst
           {waiting && <ActivityLine label="Thinking…" />}
           {error && !busy && (
             <p className="text-[13px] text-muted-foreground" role="alert">
-              {describeError(error)}{' '}
+              {failureText(error)}{' '}
               <button type="button" onClick={() => { stick.current = true; void regenerate() }} className="font-medium text-foreground underline-offset-4 hover:underline">
                 Try again
               </button>
@@ -143,4 +143,16 @@ export function Conversation({ threadId, initialMessages, firstQuestion, onFirst
       </div>
     </div>
   )
+}
+
+/**
+ * A refused request carries the API's error envelope; a turn that failed while
+ * answering carries the server's own plain sentence in the stream's error part
+ * ("The assistant is busy right now…"), which is the one to show.
+ */
+function failureText(error: Error): string {
+  if (error instanceof ApiRequestError) return describeError(error)
+  // A lost connection surfaces as a TypeError whose words are the browser's, not ours.
+  if (error instanceof TypeError || error.message.trim() === '') return describeError(error)
+  return error.message
 }
