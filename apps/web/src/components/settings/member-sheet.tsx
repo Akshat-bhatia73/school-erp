@@ -11,7 +11,7 @@ import {
   type RoleKey,
 } from '@erp/contracts'
 import { api } from '@/lib/api'
-import type { Member } from '@/lib/api/members'
+import type { Member, MemberPage } from '@/lib/api/members'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
 import { describeError, isApiError } from '@/lib/api-errors'
@@ -31,6 +31,7 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { MemberRestrictions } from './member-restrictions'
 import { memberStatusColor, memberStatusLabel, resourceGroupLabel, roleColor } from './settings-tabs'
 
 type LifecycleEvent = 'suspend' | 'remove' | 'restore'
@@ -105,6 +106,17 @@ function MemberSheetBody({ member, onUpdated }: { member: Member; onUpdated: (ne
   const isOwner = member.roleKeys.includes('owner')
   const canManage = canManageTarget(roleKeys, member.roleKeys)
   const refusal = refusalFor({ isSelf, isOwner, canManage, actorRoleKeys: roleKeys })
+  const showRestrictions = hasPermission('access.manage') && !isSelf
+  const queryClient = useQueryClient()
+
+  /** A restriction bumps the person's access version: refetch, then carry on with the fresh summary. */
+  const refreshMember = async () => {
+    await queryClient.invalidateQueries({ queryKey: [schoolId, 'members'] })
+    for (const [, page] of queryClient.getQueriesData<MemberPage>({ queryKey: [schoolId, 'members', 'list'] })) {
+      const fresh = page?.items.find((item) => item.id === member.id)
+      if (fresh && fresh.accessVersion !== member.accessVersion) { onUpdated(fresh); return }
+    }
+  }
 
   return (
     <>
@@ -123,6 +135,7 @@ function MemberSheetBody({ member, onUpdated }: { member: Member; onUpdated: (ne
           <TabsList>
             <TabsTrigger value="roles">Roles</TabsTrigger>
             <TabsTrigger value="access">Access</TabsTrigger>
+            {showRestrictions && <TabsTrigger value="restrictions">Restrictions</TabsTrigger>}
             <TabsTrigger value="signin">Sign-in help</TabsTrigger>
             {hasPermission('access.explain') && <TabsTrigger value="why">Why access?</TabsTrigger>}
           </TabsList>
@@ -132,6 +145,11 @@ function MemberSheetBody({ member, onUpdated }: { member: Member; onUpdated: (ne
           <TabsContent value="access" className="pt-4">
             <LifecycleTab member={member} schoolId={schoolId} actorRoleKeys={roleKeys} refusal={refusal} hasPermission={hasPermission} onUpdated={onUpdated} />
           </TabsContent>
+          {showRestrictions && (
+            <TabsContent value="restrictions" className="pt-4">
+              <MemberRestrictions member={member} schoolId={schoolId} onChanged={() => { void refreshMember() }} />
+            </TabsContent>
+          )}
           <TabsContent value="signin" className="pt-4">
             <RecoveryTab member={member} schoolId={schoolId} refusal={refusal} allowed={hasPermission('members.manage_credentials')} />
           </TabsContent>

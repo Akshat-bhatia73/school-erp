@@ -2,9 +2,12 @@
  * The admission draft only matters if it becomes a request the contract accepts, and the contract
  * no longer takes an admission number: the server assigns it.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { StudentsAdmitRequest, type ConsentPurpose } from '@erp/contracts'
-import { consentEntries, emptyDraft, emptyGuardian, errorsForStep, toAdmitRequest, validateDraft } from './admit-state'
+import {
+  admitWithPhoto, consentEntries, emptyDraft, emptyGuardian, errorsForStep, photoConsented, toAdmitRequest, validateDraft,
+  type ChosenPhoto,
+} from './admit-state'
 import { mapSheetRows, sampleRows } from './import-utils'
 
 function filledDraft() {
@@ -71,6 +74,65 @@ describe('admission draft', () => {
       { guardianIndex: 1, purpose: 'photographs', method: 'signed_form', evidenceReference: 'Form 12' },
       { guardianIndex: 1, purpose: 'communication', method: 'signed_form', evidenceReference: 'Form 12' },
     ])
+  })
+})
+
+describe('admission photograph', () => {
+  const photo: ChosenPhoto = { prepared: new Blob(['jpeg'], { type: 'image/jpeg' }), preview: 'data:image/jpeg;base64,eA==', fileName: 'aarav.png' }
+  const student = { id: 'student-1', version: 1, admissionNumber: 'SVM/2026-27/101' }
+  const withPhotoConsent = () => ({
+    ...filledDraft(),
+    guardians: [{ ...emptyGuardian('father'), firstName: 'Rakesh', phone: '9876543210', consentPurposes: ['photographs'] as ConsentPurpose[] }],
+  })
+
+  it('counts consent for photographs from any guardian, and nothing else', () => {
+    expect(photoConsented(filledDraft())).toBe(false)
+    expect(photoConsented({
+      ...filledDraft(),
+      guardians: [{ ...emptyGuardian('father'), consentPurposes: ['communication'] as ConsentPurpose[] }],
+    })).toBe(false)
+    expect(photoConsented(withPhotoConsent())).toBe(true)
+  })
+
+  it('sends the photograph with the new pupil id and version once the admission is saved', async () => {
+    const create = vi.fn().mockResolvedValue(student)
+    const uploadPhoto = vi.fn().mockResolvedValue(undefined)
+    const result = await admitWithPhoto(withPhotoConsent(), photo, { create, uploadPhoto })
+    expect(create).toHaveBeenCalledWith(toAdmitRequest(withPhotoConsent()))
+    expect(uploadPhoto).toHaveBeenCalledWith('student-1', photo.prepared, 1)
+    expect(result).toEqual({ student, photo: 'saved' })
+  })
+
+  it('skips the photograph when nobody agreed to photographs', async () => {
+    const uploadPhoto = vi.fn()
+    const result = await admitWithPhoto(filledDraft(), photo, { create: vi.fn().mockResolvedValue(student), uploadPhoto })
+    expect(uploadPhoto).not.toHaveBeenCalled()
+    expect(result.photo).toBe('skipped')
+  })
+
+  it('sends nothing when no photograph was chosen', async () => {
+    const uploadPhoto = vi.fn()
+    const result = await admitWithPhoto(withPhotoConsent(), null, { create: vi.fn().mockResolvedValue(student), uploadPhoto })
+    expect(uploadPhoto).not.toHaveBeenCalled()
+    expect(result.photo).toBe('none')
+  })
+
+  it('keeps the admission when the photograph fails, and says why', async () => {
+    const failure = new Error('too large')
+    const result = await admitWithPhoto(withPhotoConsent(), photo, {
+      create: vi.fn().mockResolvedValue(student),
+      uploadPhoto: vi.fn().mockRejectedValue(failure),
+    })
+    expect(result).toEqual({ student, photo: { failed: failure } })
+  })
+
+  it('sends no photograph when the admission itself is refused', async () => {
+    const uploadPhoto = vi.fn()
+    await expect(admitWithPhoto(withPhotoConsent(), photo, {
+      create: vi.fn().mockRejectedValue(new Error('refused')),
+      uploadPhoto,
+    })).rejects.toThrow('refused')
+    expect(uploadPhoto).not.toHaveBeenCalled()
   })
 })
 

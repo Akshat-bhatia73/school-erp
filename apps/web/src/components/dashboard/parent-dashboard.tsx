@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { CircleCheck, GraduationCap, Users } from 'lucide-react'
+import { CircleCheck, GraduationCap, MessageSquareText, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { CONSENT_PURPOSES, type ConsentPurpose, type ParentDashboard as ParentDashboardData } from '@erp/contracts'
 import { BentoGrid, Cell, DashboardCard } from './blocks/card'
@@ -229,6 +229,57 @@ function ChildCard({ child, day }: { child: ParentChild; day: ParentDashboardDat
   )
 }
 
+/** First names in plain English: "Aarav", "Aarav and Ira", "Aarav, Ira and Kabir". */
+function plainList(names: string[]): string {
+  return new Intl.ListFormat('en-GB', { style: 'long', type: 'conjunction' }).format(names)
+}
+
+/**
+ * The prompt to let the school's messages through. A message reaches a family only when this
+ * guardian has said yes for that child, so the parent is asked here and answers for themselves.
+ * Nothing is recorded until they press the button.
+ */
+function AllowMessagesCard({ guardianId, waiting }: { guardianId: string; waiting: ParentChild[] }) {
+  const { schoolId } = useSchoolContext()
+  const queryClient = useQueryClient()
+  const allow = useMutation({
+    mutationFn: async () => {
+      // One child at a time, so a refusal for one never hides what was saved for the others.
+      for (const child of waiting) {
+        await api.students.recordConsent(schoolId, child.student.id, {
+          guardianId,
+          purpose: 'communication',
+          status: 'given',
+          method: 'portal',
+        })
+      }
+    },
+    onSuccess: () => toast.success('School messages allowed'),
+    onError: (error) => toast.error(describeError(error)),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: qk.dashboard(schoolId) })
+      for (const child of waiting) {
+        void queryClient.invalidateQueries({ queryKey: qk.studentConsents(schoolId, child.student.id) })
+      }
+    },
+  })
+  const names = plainList(waiting.map((child) => child.student.firstName))
+
+  return (
+    <DashboardCard title="Get messages from the school" tone="blue" icon={<MessageSquareText />}>
+      <div className="flex flex-col items-start gap-3">
+        <p className="text-[13.5px]">
+          The school sends notices, absence alerts, fee reminders and results in this app and by email. Allow them for {names}.
+        </p>
+        <Button size="sm" disabled={allow.isPending} onClick={() => allow.mutate()}>
+          Allow school messages
+        </Button>
+        <p className="text-[12.5px] text-muted-foreground">You can turn this off any time under Manage consent.</p>
+      </div>
+    </DashboardCard>
+  )
+}
+
 /** The class block beside a single child: what the school has recorded for this year. */
 function ClassCard({ enrollment }: { enrollment: NonNullable<ParentChild['enrollment']> }) {
   return (
@@ -250,6 +301,7 @@ function ClassCard({ enrollment }: { enrollment: NonNullable<ParentChild['enroll
 
 /** The parent home: one card per child, with today's classes and anything still to answer. */
 export function ParentDashboard({ data, isLoading, error }: { data?: ParentDashboardData; isLoading: boolean; error: unknown }) {
+  const { hasPermission } = useSchoolContext()
   if (error && !data) {
     return <DashboardCard title="My children" error={error} />
   }
@@ -275,8 +327,17 @@ export function ParentDashboard({ data, isLoading, error }: { data?: ParentDashb
   const only = data.children.length === 1 ? data.children[0] : undefined
   const classAside = only?.enrollment
   const span = only ? (classAside ? 8 : 12) : 6
+  // The prompt is for a parent answering as their own guardian record, about the children still waiting.
+  const waitingOnMessages = data.children.filter((child) =>
+    child.waitingOn.some((item) => item.kind === 'consent' && item.purpose === 'communication'),
+  )
+  const guardianId = data.guardianId
+  const askForMessages = guardianId !== undefined && hasPermission('students.manage_consents') && waitingOnMessages.length > 0
   return (
     <BentoGrid dense>
+      {askForMessages && (
+        <Cell col={12} rows={2}><AllowMessagesCard guardianId={guardianId} waiting={waitingOnMessages} /></Cell>
+      )}
       {data.children.map((child) => (
         <Cell key={child.student.id} col={span} rows={6}>
           <ChildCard child={child} day={data.day} />

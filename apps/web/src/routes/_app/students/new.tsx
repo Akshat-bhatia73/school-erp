@@ -10,8 +10,8 @@ import { ReviewStep } from '@/components/admission/review-step'
 import { StepProgress, StepRail } from '@/components/admission/step-rail'
 import { StudentStep } from '@/components/admission/student-step'
 import {
-  emptyDraft, errorsForStep, stepOfError, toAdmitRequest, validateDraft,
-  type AdmitDraft,
+  admitWithPhoto, emptyDraft, errorsForStep, stepOfError, validateDraft,
+  type AdmitDraft, type ChosenPhoto,
 } from '@/components/admission/admit-state'
 import type { Errors } from '@/components/admission/fields'
 import { EmptyState, PageHeader } from '@/components/shared/page'
@@ -34,15 +34,27 @@ function Page() {
   const [step, setStep] = useState(0)
   const [draft, setDraft] = useState<AdmitDraft>(emptyDraft)
   const [errors, setErrors] = useState<Errors>({})
+  // The photograph is bytes, so it sits beside the draft and goes up once the pupil exists.
+  const [photo, setPhoto] = useState<ChosenPhoto | null>(null)
 
   const canCreate = hasPermission('students.create')
 
   const admit = useMutation({
-    mutationFn: () => api.students.create(schoolId, toAdmitRequest(draft)),
-    onSuccess: (student) => {
+    // The photograph goes up inside the same save, so the button stays busy until both are done.
+    mutationFn: () =>
+      admitWithPhoto(draft, photo, {
+        create: (body) => api.students.create(schoolId, body),
+        uploadPhoto: (studentId, file, expectedVersion) => api.students.uploadPhoto(schoolId, studentId, file, expectedVersion),
+      }),
+    onSuccess: ({ student, photo: photoOutcome }) => {
       void queryClient.invalidateQueries({ queryKey: [schoolId, 'students'] })
       // The number comes back on the created record; the office never types it.
       toast.success(`Student admitted as ${student.admissionNumber}`)
+      if (typeof photoOutcome === 'object') {
+        toast.error("Admitted, but the photograph was not saved. Add it from the pupil's page.", {
+          description: describeError(photoOutcome.failed),
+        })
+      }
       void navigate({ to: '/students/$studentId', params: { studentId: student.id } })
     },
     onError: (error) => toast.error(describeError(error)),
@@ -97,11 +109,11 @@ function Page() {
         <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
           <div className="mx-auto max-w-3xl p-3 md:p-5">
             <h1 className="mb-4 hidden text-[16px] font-semibold md:block">{STEPS[step]}</h1>
-            {step === 0 && <StudentStep draft={draft} set={set} errors={stepErrors} />}
+            {step === 0 && <StudentStep draft={draft} set={set} errors={stepErrors} photo={photo} onPhoto={setPhoto} />}
             {step === 1 && <GuardiansStep draft={draft} set={set} errors={stepErrors} canAttachExisting={hasPermission('students.manage_guardians')} />}
             {step === 2 && <ConsentStep draft={draft} set={set} errors={stepErrors} />}
             {step === 3 && <ClassStep draft={draft} set={set} errors={stepErrors} academicYearId={currentYearId} yearName={current?.name ?? 'This year'} />}
-            {step === 4 && <ReviewStep draft={draft} onEdit={setStep} academicYearId={currentYearId} yearName={current?.name ?? 'This year'} />}
+            {step === 4 && <ReviewStep draft={draft} onEdit={setStep} academicYearId={currentYearId} yearName={current?.name ?? 'This year'} photo={photo} />}
 
             {/* Sticky on mobile so Next is always in reach on a long form */}
             <div className="sticky bottom-0 -mx-3 mt-5 flex items-center justify-between gap-3 border-t bg-card px-3 py-3 md:static md:mx-0 md:bg-transparent md:px-0 md:pt-4 md:pb-0">

@@ -116,6 +116,19 @@ async function read(client: Client, date?: string, audience?: string): Promise<D
   return DashboardResponse.parse(await response.json())
 }
 
+/** The purposes one guardian's newest consent row for one pupil says "given" to. */
+async function ownGiven(guardianId: string, studentId: string): Promise<Set<string>> {
+  const newest = await adminPool().query<{ purpose: string }>(
+    `SELECT purpose FROM (
+       SELECT DISTINCT ON (purpose) purpose, status FROM guardian_consents
+        WHERE school_id = $1 AND student_id = $2 AND guardian_id = $3
+        ORDER BY purpose, recorded_at DESC, id DESC) newest
+      WHERE status = 'given'`,
+    [schoolA, studentId, guardianId],
+  )
+  return new Set(newest.rows.map((row) => row.purpose))
+}
+
 /** Link a membership to a pupil the way the portal does: guardian, family link, approved access. */
 async function linkChild(membershipId: string, studentId: string): Promise<void> {
   const pool = adminPool()
@@ -953,18 +966,79 @@ test("a parent sees their child's own day and what is still waiting on them", as
   // The consent already given is dropped; the others are still waiting.
   const purposes = child.waitingOn.map((item) => item.purpose)
   assert.ok(!purposes.includes('photographs'), 'a consent already given is still being asked for')
-  const given = await adminPool().query<{ purpose: string }>(
-    `SELECT DISTINCT purpose FROM guardian_consents
-      WHERE school_id = $1 AND student_id = $2 AND status = 'given'`,
-    [schoolA, studentA2],
-  )
-  const answered = new Set(given.rows.map((row) => row.purpose))
+  const answered = await ownGiven(guardianA2, studentA2)
   assert.deepEqual(
     [...purposes].sort(),
     CONSENT_PURPOSES.filter((purpose) => !answered.has(purpose)).slice().sort(),
   )
   assert.ok(purposes.length >= 1)
   assert.ok(child.waitingOn.every((item) => item.kind === 'consent'))
+})
+
+test("the parent home carries the viewer's own guardian record, and a teacher-parent's is their own", async () => {
+  const body = await read(parent, MONDAY)
+  if (body.audience !== 'parent') throw new Error('not the parent dashboard')
+  assert.equal(body.guardianId, guardianA2)
+  const dual = await read(teacherParent, MONDAY, 'parent')
+  if (dual.audience !== 'parent') throw new Error('not the parent dashboard')
+  assert.ok(dual.guardianId)
+  assert.notEqual(dual.guardianId, guardianA2)
+  assert.ok(dualGuardianIds.includes(dual.guardianId))
+})
+
+test("another guardian's consent does not answer for the viewer", async () => {
+  const pool = adminPool()
+  // A second guardian of the same pupil says yes to a purpose the viewer has
+  // not answered. The guardian row is left behind: consent history is
+  // append-only and points at it.
+  const otherGuardian = randomUUID()
+  await pool.query(
+    `INSERT INTO guardians (id, school_id, first_name, phone) VALUES ($1, $2, 'Other Guardian', $3)`,
+    [otherGuardian, schoolA, `9${Math.floor(100000000 + Math.random() * 899999999)}`],
+  )
+  const own = await ownGiven(guardianA2, studentA2)
+  const purpose = CONSENT_PURPOSES.find((candidate) => !own.has(candidate))
+  assert.ok(purpose, 'the viewer has answered every purpose already')
+  await pool.query(
+    `INSERT INTO guardian_consents(id,school_id,student_id,guardian_id,purpose,status,method,recorded_by_membership_id)
+     VALUES ($1,$2,$3,$4,$5,'given','in_person',$6)`,
+    [randomUUID(), schoolA, studentA2, otherGuardian, purpose, ownerMembershipId],
+  )
+  const body = await read(parent, MONDAY)
+  if (body.audience !== 'parent') throw new Error('not the parent dashboard')
+  const purposes = body.children[0]?.waitingOn.map((item) => item.purpose) ?? []
+  assert.ok(purposes.includes(purpose), `${purpose} was answered by another guardian`)
+})
+
+test('a parent who allows school messages is no longer asked, and asked again after withdrawing', async () => {
+  const record = (status: 'given' | 'withdrawn') =>
+    parent.fetch(`/api/schools/${schoolA}/students/${studentA2}/consents`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ guardianId: guardianA2, purpose: 'communication', status, method: 'portal' }),
+    })
+  const waitingOnMessages = async (): Promise<boolean> => {
+    const body = await read(parent, MONDAY)
+    if (body.audience !== 'parent') throw new Error('not the parent dashboard')
+    return body.children[0]?.waitingOn.some((item) => item.purpose === 'communication') ?? false
+  }
+
+  const given = await record('given')
+  assert.equal(given.status, 200, await given.clone().text())
+  assert.equal(await waitingOnMessages(), false)
+  const stored = await adminPool().query<{ method: string }>(
+    `SELECT method FROM guardian_consents
+      WHERE school_id = $1 AND student_id = $2 AND guardian_id = $3 AND purpose = 'communication'
+      ORDER BY recorded_at DESC, id DESC LIMIT 1`,
+    [schoolA, studentA2, guardianA2],
+  )
+  assert.equal(stored.rows[0]?.method, 'portal')
+
+  // Withdrawing is the newest row, so the question comes back. It also leaves
+  // the pupil's messages as the other suites found them.
+  const withdrawn = await record('withdrawn')
+  assert.equal(withdrawn.status, 200, await withdrawn.clone().text())
+  assert.equal(await waitingOnMessages(), true)
 })
 
 test('an accountant gets the roll and the money card, and no class strengths', async () => {
@@ -991,7 +1065,7 @@ test('the response carries only the fields the contract allows', async () => {
   // A strict parse of the raw body: an extra key would fail here.
   const parsed = DashboardResponse.parse(raw)
   assert.deepEqual(Object.keys(raw).sort(), Object.keys(parsed).sort())
-  assert.deepEqual(Object.keys(raw).sort(), ['audience', 'children', 'day'])
+  assert.deepEqual(Object.keys(raw).sort(), ['audience', 'children', 'day', 'guardianId'])
 })
 
 test('the dashboard is a read; it does not accept a query that widens it', async () => {

@@ -6,8 +6,7 @@ import { EmptyState, Panel } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
 import { Button } from '@/components/ui/button'
 import type { ImportPreview } from '@/lib/api/students'
-import { humanize } from '@/lib/utils'
-import type { SheetProblem } from './import-utils'
+import { columnFor, type SheetProblem } from './import-utils'
 
 function Tile({ label, value, tone }: { label: string; value: number; tone?: 'good' | 'bad' }) {
   return (
@@ -24,7 +23,7 @@ type ProblemRow = { row: number; field: string; message: string }
 
 const problemColumns: ColumnDef<ProblemRow, unknown>[] = [
   { id: 'row', header: 'Row #', size: 70, cell: ({ row }) => <span className="tabular-nums text-muted-foreground">{row.original.row}</span> },
-  { id: 'field', header: 'Field', size: 180, cell: ({ row }) => <Tag color="grey">{row.original.field ? humanize(row.original.field.replace(/([A-Z])/g, ' $1').toLowerCase()) : 'Row'}</Tag> },
+  { id: 'field', header: 'Field', size: 180, cell: ({ row }) => <Tag color="grey">{row.original.field && row.original.field !== 'row' ? columnFor(row.original.field) : 'Row'}</Tag> },
   { id: 'problem', header: 'Problem', cell: ({ row }) => row.original.message },
 ]
 

@@ -18,6 +18,7 @@ import { changeMembershipStatus, requiredParam } from './lifecycle.ts'
 import { changeRoles } from './roles.ts'
 import { transferOwnership } from './ownership.ts'
 import { startRecovery } from './recovery.ts'
+import { addRestriction, liftRestriction, listRestrictions } from './restrictions.ts'
 
 export interface AccessDependencies extends SessionDependencies {
   /** The real policy service; a route never decides access on its own. */
@@ -126,6 +127,41 @@ export function registerMembershipRoutes(
       },
     )
   }
+
+  app.get(
+    '/api/schools/:schoolId/members/:membershipId/restrictions',
+    { preHandler: requireMembership(deps) },
+    async (request) => {
+      const context = request.context
+      if (!context) throw new ApiFailure('AUTHENTICATION_REQUIRED')
+      const membershipId = requiredParam(request.params, 'membershipId')
+      return listRestrictions(deps, context, membershipId)
+    },
+  )
+
+  app.post(
+    '/api/schools/:schoolId/members/:membershipId/restrictions',
+    { preHandler: requireMembership(deps) },
+    async (request, reply) => {
+      const context = request.context
+      if (!context) throw new ApiFailure('AUTHENTICATION_REQUIRED')
+      const membershipId = requiredParam(request.params, 'membershipId')
+      const restriction = await addRestriction(deps, context, membershipId, request.body)
+      return reply.status(201).send(restriction)
+    },
+  )
+
+  app.post(
+    '/api/schools/:schoolId/members/:membershipId/restrictions/:restrictionId/lift',
+    { preHandler: requireMembership(deps) },
+    async (request) => {
+      const context = request.context
+      if (!context) throw new ApiFailure('AUTHENTICATION_REQUIRED')
+      const membershipId = requiredParam(request.params, 'membershipId')
+      const restrictionId = requiredParam(request.params, 'restrictionId')
+      return liftRestriction(deps, context, membershipId, restrictionId, request.body)
+    },
+  )
 
   app.post(
     '/api/schools/:schoolId/members/:membershipId/recovery',

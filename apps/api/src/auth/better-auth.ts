@@ -166,6 +166,22 @@ export function createAuth(
       enabled: true,
       storage: 'database',
       modelName: 'rateLimit',
+      // The provider's built-in rule for these paths is 3 requests per 10
+      // seconds per address. A class of forty pupils in a computer lab shares
+      // one public address, so that rule would turn most of them away.
+      customRules: {
+        // A pupil's sign-in comes through POST /api/student-sign-in, which
+        // takes its own budgets per pupil and per address before it calls the
+        // provider. Only that call is let past here; the staff email door
+        // keeps the built-in 3 per 10 seconds.
+        '/sign-in/email': (_request, currentRule) =>
+          studentSignInScope.getStore() === true ? false : currentRule,
+        // Changing a password needs a live session and the current password,
+        // and the API also keeps a per-person failure budget on this route
+        // (see CHANGE_PASSWORD_ROUTE in app.ts). The per-address rule only has
+        // to stop a flood, so a whole class can make its first change at once.
+        '/change-password': { window: 60, max: 120 },
+      },
     },
     hooks: {
       /**

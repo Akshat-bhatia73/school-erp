@@ -3,9 +3,9 @@
  * is still waiting for.
  */
 import type { ReactNode } from 'react'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ParentDashboard as ParentDashboardData } from '@erp/contracts'
+import type { ParentDashboard as ParentDashboardData, PermissionKey } from '@erp/contracts'
 import { ParentDashboard } from '@/components/dashboard/parent-dashboard'
 import { renderWithSession } from '@/test/session'
 
@@ -22,6 +22,16 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 const photoUrl = vi.fn(() => 'blob:photo')
 const consents = vi.fn()
 const studentGet = vi.fn()
+const recordConsent = vi.fn()
+const toastSuccess = vi.fn()
+const toastError = vi.fn()
+
+vi.mock('sonner', () => ({
+  toast: {
+    success: (...args: unknown[]) => toastSuccess(...args),
+    error: (...args: unknown[]) => toastError(...args),
+  },
+}))
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -29,7 +39,7 @@ vi.mock('@/lib/api', () => ({
       photoUrl: (...args: unknown[]) => photoUrl(...(args as [])),
       consents: (...args: unknown[]) => consents(...args),
       get: (...args: unknown[]) => studentGet(...args),
-      recordConsent: vi.fn(),
+      recordConsent: (...args: unknown[]) => recordConsent(...args),
       subjectAccess: vi.fn(),
     },
   },
@@ -78,6 +88,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   consents.mockResolvedValue({ items: [], allowedActions: [] })
   studentGet.mockResolvedValue({ student: null, guardianContacts: [], allowedActions: [] })
+  recordConsent.mockResolvedValue({ items: [], allowedActions: [] })
 })
 
 describe('parent dashboard', () => {
@@ -158,5 +169,74 @@ describe('parent dashboard, fees', () => {
   it('says nothing about fees when the figure was not sent', () => {
     renderParent(parent())
     expect(screen.queryByText('No fees due')).not.toBeInTheDocument()
+  })
+})
+
+describe('parent dashboard, allow school messages', () => {
+  const GUARDIAN = '20000000-0000-4000-8000-000000000041'
+  const waitingMessages = [{ kind: 'consent' as const, purpose: 'communication' as const }]
+  const ira = child({
+    student: { id: 'st-2', schoolId: SCHOOL, version: 1, firstName: 'Ira', lastName: 'Sharma', admissionNumber: 'SVM/2026/102', status: 'active', anonymised: false, hasPhoto: false },
+    waitingOn: waitingMessages,
+  })
+
+  function renderAsker(data: ParentDashboardData, capabilities: PermissionKey[] = ['dashboard.read', 'students.read_basic', 'students.read_consents', 'students.manage_consents']) {
+    return renderWithSession(<ParentDashboard data={data} isLoading={false} error={undefined} />, {
+      roleKeys: ['parent'],
+      capabilities,
+    })
+  }
+
+  it('asks once for every child still waiting, naming them in plain English', () => {
+    renderAsker(parent({ guardianId: GUARDIAN, children: [child({ waitingOn: waitingMessages }), ira] }))
+    expect(screen.getByText('Get messages from the school')).toBeInTheDocument()
+    expect(screen.getByText(
+      'The school sends notices, absence alerts, fee reminders and results in this app and by email. Allow them for Aarav and Ira.',
+    )).toBeInTheDocument()
+    expect(screen.getByText('You can turn this off any time under Manage consent.')).toBeInTheDocument()
+    // Nothing is recorded just by opening the page.
+    expect(recordConsent).not.toHaveBeenCalled()
+  })
+
+  it('names only the children still waiting on messages', () => {
+    renderAsker(parent({ guardianId: GUARDIAN, children: [child({ waitingOn: [{ kind: 'consent', purpose: 'photographs' }] }), ira] }))
+    expect(screen.getByText(/Allow them for Ira\.$/)).toBeInTheDocument()
+  })
+
+  it('records the consent for each waiting child, then says so and refreshes the home', async () => {
+    const { queryClient } = renderAsker(parent({ guardianId: GUARDIAN, children: [child({ waitingOn: waitingMessages }), ira] }))
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    fireEvent.click(screen.getByRole('button', { name: 'Allow school messages' }))
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('School messages allowed'))
+    expect(recordConsent).toHaveBeenCalledTimes(2)
+    for (const studentId of ['st-1', 'st-2']) {
+      expect(recordConsent).toHaveBeenCalledWith(SCHOOL, studentId, {
+        guardianId: GUARDIAN, purpose: 'communication', status: 'given', method: 'portal',
+      })
+    }
+    const keys = invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey))
+    expect(keys).toContain(JSON.stringify([SCHOOL, 'dashboard', {}]))
+    expect(keys.filter((key) => key.includes('consents'))).toHaveLength(2)
+  })
+
+  it('reports a refusal in plain words', async () => {
+    recordConsent.mockRejectedValueOnce(new Error('boom'))
+    renderAsker(parent({ guardianId: GUARDIAN, children: [ira] }))
+    fireEvent.click(screen.getByRole('button', { name: 'Allow school messages' }))
+    await waitFor(() => expect(toastError).toHaveBeenCalled())
+    expect(toastSuccess).not.toHaveBeenCalled()
+  })
+
+  it('is not shown once nothing is waiting on messages', () => {
+    renderAsker(parent({ guardianId: GUARDIAN, children: [child({ waitingOn: [{ kind: 'consent', purpose: 'photographs' }] })] }))
+    expect(screen.queryByText('Get messages from the school')).not.toBeInTheDocument()
+  })
+
+  it('is not shown without a guardian record or without the right to answer', () => {
+    const { unmount } = renderAsker(parent({ children: [ira] }))
+    expect(screen.queryByText('Get messages from the school')).not.toBeInTheDocument()
+    unmount()
+    renderAsker(parent({ guardianId: GUARDIAN, children: [ira] }), ['dashboard.read', 'students.read_basic', 'students.read_consents'])
+    expect(screen.queryByText('Get messages from the school')).not.toBeInTheDocument()
   })
 })

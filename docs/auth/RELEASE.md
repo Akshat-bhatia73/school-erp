@@ -201,6 +201,16 @@ uses, never to the internet; checklist item 16 checks both halves.
 Migrations run as `erp_migrator` and only at deploy time. The running service
 never holds that login.
 
+Migration `0020_member_restrictions.sql` is the member restrictions release
+(September 2026). It only replaces `reject_bad_exception_permission`, so the
+catalogue trigger also accepts a school-target deny for
+`students.read_sensitive`, `students.read_guardians` and
+`students.read_medical`, and refuses an allow for them. Additive: the previous code never writes such a row. **It
+changes the role templates**: `access.manage` becomes active for owner and
+principal, so every existing school needs `pnpm db:sync-roles` (2 grants per
+school). No new setting. The order is the same: migrate, `migrate:check`,
+`db:sync-roles`, merge, deploy, smoke.
+
 Migration `0019_student_login.sql` is the student login release (Task 23).
 It is additive for the previous code apart from one rule it lifts (an active
 student membership is now allowed; the previous code never creates one and

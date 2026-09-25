@@ -2,6 +2,12 @@ import type { PoolClient } from 'pg'
 import type { RequestContext } from '@erp/contracts/server'
 import type { StudentsBulkImportRow, StudentsImportPreviewRequest } from '@erp/contracts'
 import { ApiFailure } from '../shared/errors.ts'
+import { sealAadhaar, sealPan, type SealedNumber } from '../shared/crypto.ts'
+
+// Identity numbers are sealed at the moment the server reads the sheet, so no
+// copy of a whole Aadhaar or PAN ever sits in `student_import_previews` in
+// plain text; the commit writes the same sealed value into the record without
+// opening it.
 
 /**
  * A row after the server resolved it. The sheet names a grade and a section as
@@ -28,6 +34,12 @@ export interface StoredImportRow {
   readonly pincode?: string
   readonly category?: string
   readonly admissionType?: string
+  /** Sealed at preview time; never the whole number in plain text. */
+  readonly studentAadhaar?: SealedNumber
+  /** The row's one guardian, the primary, carries these three. */
+  readonly guardianAadhaar?: SealedNumber
+  readonly guardianPan?: SealedNumber
+  readonly guardianOfficeAddress?: string
 }
 
 export interface RowError {
@@ -121,6 +133,7 @@ export async function validateRows(
   client: PoolClient,
   schoolId: string,
   request: StudentsImportPreviewRequest,
+  encryptionKey: string,
 ): Promise<ValidationOutcome> {
   const sections = await sectionsByName(client, schoolId, request.academicYearId)
   const supplied = request.rows
@@ -171,7 +184,7 @@ export async function validateRows(
     // Compared exactly, because UNIQUE (school_id, admission_number) is exact:
     // 'abc/1' and 'ABC/1' are two admissible students, not a repeat.
     if (admissionNumber) seen.set(admissionNumber, row.rowNumber)
-    valid.push(storedRow(row, sectionId, admissionNumber))
+    valid.push(storedRow(row, sectionId, admissionNumber, encryptionKey))
   }
   return { validRows: valid, errors }
 }
@@ -180,6 +193,7 @@ function storedRow(
   row: StudentsBulkImportRow,
   sectionId: string,
   admissionNumber: string | undefined,
+  encryptionKey: string,
 ): StoredImportRow {
   // Optional fields are left out rather than stored as null, so the stored row
   // reads exactly like the contract it came from.
@@ -201,6 +215,18 @@ function storedRow(
     ...(row.pincode === undefined ? {} : { pincode: row.pincode }),
     ...(row.category === undefined ? {} : { category: row.category }),
     ...(row.admissionType === undefined ? {} : { admissionType: row.admissionType }),
+    // The contract has already checked and normalised each number; only the
+    // sealed form and its last four are kept from here on.
+    ...(row.studentAadhaar === undefined
+      ? {}
+      : { studentAadhaar: sealAadhaar(row.studentAadhaar, encryptionKey) }),
+    ...(row.guardianAadhaar === undefined
+      ? {}
+      : { guardianAadhaar: sealAadhaar(row.guardianAadhaar, encryptionKey) }),
+    ...(row.guardianPan === undefined ? {} : { guardianPan: sealPan(row.guardianPan, encryptionKey) }),
+    ...(row.guardianOfficeAddress === undefined || row.guardianOfficeAddress === ''
+      ? {}
+      : { guardianOfficeAddress: row.guardianOfficeAddress }),
   }
 }
 
@@ -293,8 +319,9 @@ export async function insertStudent(
   const student = await client.query<{ id: string }>(
     `INSERT INTO students
        (school_id, admission_number, first_name, last_name, status, date_of_birth,
-        gender, category, admission_type, admission_date, address)
-     VALUES ($1, $2, $3, $4, 'active', $5::date, $6, $7, $8, current_date, $9::jsonb)
+        gender, category, admission_type, admission_date, address,
+        aadhaar_ciphertext, aadhaar_last4)
+     VALUES ($1, $2, $3, $4, 'active', $5::date, $6, $7, $8, current_date, $9::jsonb, $10, $11)
      RETURNING id`,
     [
       schoolId,
@@ -306,6 +333,8 @@ export async function insertStudent(
       row.category ?? null,
       row.admissionType ?? null,
       address,
+      row.studentAadhaar?.ciphertext ?? null,
+      row.studentAadhaar?.last4 ?? null,
     ],
   )
   const studentId = student.rows[0]?.id
@@ -322,11 +351,24 @@ export async function insertStudent(
   // relationship; with neither name it is simply a guardian.
   const relation = row.fatherName ? 'father' : row.motherName ? 'mother' : 'guardian'
   const guardianName = row.fatherName ?? row.motherName ?? 'Guardian'
+  // Held exactly as admission holds them: the office address as a jsonb
+  // string, each number as its sealed form and last four.
   const guardian = await client.query<{ id: string }>(
-    `INSERT INTO guardians (school_id, first_name, phone, email)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO guardians (school_id, first_name, phone, email, office_address,
+                            pan_ciphertext, pan_last4, aadhaar_ciphertext, aadhaar_last4)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
      RETURNING id`,
-    [schoolId, guardianName, row.guardianPhone, row.guardianEmail ?? null],
+    [
+      schoolId,
+      guardianName,
+      row.guardianPhone,
+      row.guardianEmail ?? null,
+      row.guardianOfficeAddress === undefined ? null : JSON.stringify(row.guardianOfficeAddress),
+      row.guardianPan?.ciphertext ?? null,
+      row.guardianPan?.last4 ?? null,
+      row.guardianAadhaar?.ciphertext ?? null,
+      row.guardianAadhaar?.last4 ?? null,
+    ],
   )
   const guardianId = guardian.rows[0]?.id
   if (!guardianId) throw new ApiFailure('SERVICE_UNAVAILABLE')

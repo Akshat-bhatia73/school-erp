@@ -112,6 +112,7 @@ export const ROLE_TEMPLATES = {
       grant('members.remove', 'school'), grant('members.restore', 'school'),
       grant('members.manage_credentials', 'school'), grant('roles.read', 'school'),
       grant('roles.assign', 'school'), grant('access.explain', 'school'),
+      grant('access.manage', 'school'),
       grant('ownership.transfer', 'school'), grant('audit.read', 'school'),
       grant('audit.export', 'school'),
       grant('students.read_consents', 'school'), grant('students.manage_consents', 'school'),
@@ -132,7 +133,8 @@ export const ROLE_TEMPLATES = {
       grant('members.invite', 'school'),
       grant('members.suspend', 'school'), grant('members.remove', 'school'),
       grant('members.restore', 'school'), grant('roles.read', 'school'),
-      grant('roles.assign', 'school'), grant('audit.read', 'school'),
+      grant('roles.assign', 'school'), grant('access.manage', 'school'),
+      grant('audit.read', 'school'),
       grant('students.read_consents', 'school'), grant('students.manage_consents', 'school'),
       grant('students.anonymise', 'school'), grant('staff.anonymise', 'school'),
       grant('students.export_subject', 'school'),
@@ -281,6 +283,23 @@ export interface RoleManagementRule {
  * Every role on the target membership must be manageable by the actor, so a
  * teacher+owner target is forbidden to principals and administrators.
  */
+/**
+ * Whom a member restriction may be put on (September 2026). Wider than the
+ * lifecycle rules above because a restriction can only take access away: a
+ * principal may restrict an administrator or accountant they could not
+ * suspend. Nobody restricts an owner, and only an owner restricts a principal.
+ * A parent or pupil role on the target is ignored; the control is for staff.
+ */
+export const ROLE_RESTRICTION_RULES = {
+  owner: { restrictableTargetRoles: ['principal', 'admin', 'accountant', 'teacher'] },
+  principal: { restrictableTargetRoles: ['admin', 'accountant', 'teacher'] },
+  admin: { restrictableTargetRoles: [] },
+  accountant: { restrictableTargetRoles: [] },
+  teacher: { restrictableTargetRoles: [] },
+  parent: { restrictableTargetRoles: [] },
+  student: { restrictableTargetRoles: [] },
+} as const satisfies Record<RoleKey, { readonly restrictableTargetRoles: readonly RoleKey[] }>
+
 export const ROLE_MANAGEMENT_RULES = {
   owner: { manageableTargetRoles: ['principal', 'admin', 'accountant', 'teacher', 'parent'] },
   principal: { manageableTargetRoles: ['teacher'] },

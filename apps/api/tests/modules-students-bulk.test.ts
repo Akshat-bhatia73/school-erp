@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import test, { after, before } from 'node:test'
 import ExcelJS from 'exceljs'
+import { isVerhoeffValid } from '@erp/contracts'
 import { fixtureIds } from '@erp/db/fixtures'
 import {
   adminPool,
@@ -737,6 +738,203 @@ test('a committed import admits every stored row with its class and contact', as
   })
   // The preview is no longer pending, so a repeat submit cannot double admit.
   assert.equal(again.status, 400)
+})
+
+/** A twelve digit number this run owns, ending in the check digit Aadhaar wants. */
+function makeAadhaar(): string {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const head = String(2 + Math.floor(Math.random() * 8)) +
+      String(Math.floor(Math.random() * 1e10)).padStart(10, '0')
+    for (let digit = 0; digit <= 9; digit += 1) {
+      const candidate = `${head}${digit}`
+      if (isVerhoeffValid(candidate)) return candidate
+    }
+  }
+  throw new Error('no valid Aadhaar could be built')
+}
+
+/** Any twelve digits that fail the Aadhaar check digit. */
+function badAadhaar(): string {
+  const good = makeAadhaar()
+  const last = Number(good.slice(-1))
+  return `${good.slice(0, 11)}${(last + 1) % 10}`
+}
+
+test('an import row with a malformed Aadhaar or PAN is refused whole and stages nothing', async () => {
+  const count = async (): Promise<number> => {
+    const found = await adminPool().query<{ total: number }>(
+      `SELECT count(*)::int AS total FROM student_import_previews WHERE school_id = $1`,
+      [schoolA],
+    )
+    return found.rows[0]?.total ?? 0
+  }
+  const before = await count()
+  // The sheet is checked row by row on the screen with this same contract, so
+  // the office sees "Row 2" and the field there; the server only refuses.
+  for (const bad of [
+    { studentAadhaar: '12345' },
+    { studentAadhaar: badAadhaar() },
+    { guardianAadhaar: 'not a number' },
+    { guardianPan: 'ABCDE12345' },
+  ]) {
+    const response = await owner.fetch(`${base()}/import/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        academicYearId: yearA,
+        rows: [sheetRow({ rowNumber: 1 }), sheetRow({ rowNumber: 2, ...bad })],
+      }),
+    })
+    assert.equal(response.status, 400, JSON.stringify(bad))
+    assert.equal(await readError(response), 'INVALID_REQUEST')
+  }
+  assert.equal(await count(), before)
+})
+
+test('imported identity numbers are sealed in the preview and held like an admitted pupil', async () => {
+  const studentAadhaar = makeAadhaar()
+  const guardianAadhaar = makeAadhaar()
+  const guardianPan = `PQRSX${String(1000 + Math.floor(Math.random() * 8999))}K`
+  const officeAddress = `Tower ${stamp}, Sector 5`
+  const admissionNumber = `BULK-${stamp}-ids`
+  const firstName = `Ident-${stamp}`
+  const whole = [studentAadhaar, guardianAadhaar, guardianPan]
+
+  const preview = await owner.fetch(`${base()}/import/preview`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      academicYearId: yearA,
+      rows: [
+        sheetRow({
+          rowNumber: 1,
+          admissionNumber,
+          firstName,
+          fatherName: 'Imported Father',
+          // Typed the way an office types it: Aadhaar in groups, PAN in lower case.
+          studentAadhaar: `${studentAadhaar.slice(0, 4)} ${studentAadhaar.slice(4, 8)} ${studentAadhaar.slice(8)}`,
+          guardianAadhaar,
+          guardianPan: guardianPan.toLowerCase(),
+          guardianOfficeAddress: officeAddress,
+        }),
+      ],
+    }),
+  })
+  assert.equal(preview.status, 201)
+  const previewText = await preview.text()
+  for (const value of whole) {
+    assert.equal(previewText.includes(value), false, `the preview answer leaked ${value}`)
+  }
+  const staged = JSON.parse(previewText) as { id: string; version: number; validRows: number }
+  assert.equal(staged.validRows, 1)
+
+  // The staged copy, read straight from the table: sealed values and last
+  // four only, never a whole number in plain text.
+  const stored = await adminPool().query<{ rows: unknown }>(
+    `SELECT rows FROM student_import_previews WHERE school_id = $1 AND id = $2`,
+    [schoolA, staged.id],
+  )
+  const storedText = JSON.stringify(stored.rows[0]?.rows)
+  for (const value of whole) {
+    assert.equal(storedText.includes(value), false, `the stored preview holds ${value}`)
+  }
+  // No twelve digit run at all outside the sealed values, the +91 phone and
+  // the section id (a fixture uuid ends in twelve digits).
+  const unsealed = storedText
+    .replace(/"ciphertext":"[^"]*"/g, '')
+    .replace(/"guardianPhone":"[^"]*"/g, '')
+    .replace(/"sectionId":"[^"]*"/g, '')
+  assert.equal(/\d{12}/.test(unsealed), false)
+  const storedRow = (stored.rows[0]?.rows as Record<string, { ciphertext: string; last4: string }>[])[0]
+  assert.equal(storedRow?.studentAadhaar?.last4, studentAadhaar.slice(-4))
+  assert.match(storedRow?.studentAadhaar?.ciphertext ?? '', /^v1\./)
+  assert.equal(storedRow?.guardianPan?.last4, guardianPan.slice(-4))
+
+  const committed = await owner.fetch(`${base()}/import/commit`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ previewId: staged.id, expectedVersion: staged.version }),
+  })
+  assert.equal(committed.status, 201)
+
+  // The record holds exactly what admission holds: sealed, last four beside it.
+  const student = await adminPool().query<{
+    id: string
+    aadhaar_ciphertext: string | null
+    aadhaar_last4: string | null
+  }>(
+    `SELECT id, aadhaar_ciphertext, aadhaar_last4 FROM students
+      WHERE school_id = $1 AND admission_number = $2`,
+    [schoolA, admissionNumber],
+  )
+  const studentRow = student.rows[0]
+  assert.ok(studentRow, 'the pupil was admitted')
+  assert.equal(studentRow.aadhaar_last4, studentAadhaar.slice(-4))
+  assert.match(studentRow.aadhaar_ciphertext ?? '', /^v1\./)
+  assert.equal(studentRow.aadhaar_ciphertext?.includes(studentAadhaar), false)
+
+  const guardian = await adminPool().query<{
+    id: string
+    office_address: unknown
+    pan_ciphertext: string | null
+    pan_last4: string | null
+    aadhaar_ciphertext: string | null
+    aadhaar_last4: string | null
+  }>(
+    `SELECT g.id, g.office_address, g.pan_ciphertext, g.pan_last4, g.aadhaar_ciphertext, g.aadhaar_last4
+       FROM guardians g
+       JOIN student_guardians sg ON sg.school_id = g.school_id AND sg.guardian_id = g.id
+      WHERE sg.school_id = $1 AND sg.student_id = $2 AND sg.is_primary`,
+    [schoolA, studentRow.id],
+  )
+  const guardianRow = guardian.rows[0]
+  assert.ok(guardianRow, 'the primary guardian was created')
+  assert.equal(guardianRow.office_address, officeAddress)
+  assert.equal(guardianRow.pan_last4, guardianPan.slice(-4))
+  assert.equal(guardianRow.aadhaar_last4, guardianAadhaar.slice(-4))
+  assert.match(guardianRow.pan_ciphertext ?? '', /^v1\./)
+  assert.match(guardianRow.aadhaar_ciphertext ?? '', /^v1\./)
+
+  // Read as the office reads an admitted pupil: last four, nothing whole.
+  const detail = await owner.fetch(`${base()}/${studentRow.id}`)
+  assert.equal(detail.status, 200)
+  const detailText = await detail.text()
+  for (const value of whole) {
+    assert.equal(detailText.includes(value), false, `the detail read leaked ${value}`)
+  }
+  const detailBody = JSON.parse(detailText) as { sensitive?: { aadhaarLast4?: string } }
+  assert.equal(detailBody.sensitive?.aadhaarLast4, studentAadhaar.slice(-4))
+  const guardians = await owner.fetch(`${base()}/${studentRow.id}/guardians`)
+  assert.equal(guardians.status, 200)
+  const guardiansText = await guardians.text()
+  for (const value of whole) {
+    assert.equal(guardiansText.includes(value), false, `the guardian read leaked ${value}`)
+  }
+  assert.ok(guardiansText.includes(`"panLast4":"${guardianPan.slice(-4)}"`))
+  assert.ok(guardiansText.includes(`"aadhaarLast4":"${guardianAadhaar.slice(-4)}"`))
+  assert.ok(guardiansText.includes(officeAddress))
+
+  // The audited reveal routes are the one way back to the whole number.
+  const revealStudent = await owner.fetch(`${base()}/${studentRow.id}/aadhaar`)
+  assert.equal(revealStudent.status, 200)
+  assert.deepEqual(await revealStudent.json(), { aadhaar: studentAadhaar })
+  const revealGuardian = await owner.fetch(
+    `${base()}/${studentRow.id}/guardians/${guardianRow.id}/identity`,
+  )
+  assert.equal(revealGuardian.status, 200)
+  assert.deepEqual(await revealGuardian.json(), { pan: guardianPan, aadhaar: guardianAadhaar })
+
+  // Neither import audit row carries a number or the office address.
+  const audit = await adminPool().query<{ summary: string; safe_changes: unknown }>(
+    `SELECT summary, safe_changes FROM audit_events
+      WHERE school_id = $1 AND action = 'students.import' AND target_id = $2`,
+    [schoolA, staged.id],
+  )
+  assert.equal(audit.rowCount, 2)
+  const auditText = JSON.stringify(audit.rows)
+  for (const value of [...whole, studentAadhaar.slice(-4), officeAddress]) {
+    assert.equal(auditText.includes(value), false, `an import audit row holds ${value}`)
+  }
 })
 
 test('a promotion preview lists only the students the caller may read', async () => {

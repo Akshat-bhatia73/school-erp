@@ -25,8 +25,16 @@ export function formatWhen(iso: string) {
   return { date: formatDate(iso), time }
 }
 
+/** Actions whose raw name reads badly, in the words an office uses. */
+const ACTION_LABEL: Record<string, string> = {
+  'access.restrict': 'Restricted a member',
+  'access.restriction_lift': 'Lifted a restriction',
+}
+
 /** 'members.suspend' -> 'Members suspend'. The server sends the raw action name. */
 export function actionLabel(action: string): string {
+  const named = ACTION_LABEL[action]
+  if (named !== undefined) return named
   const words = action.replace(/[._]/g, ' ')
   return words.charAt(0).toUpperCase() + words.slice(1)
 }

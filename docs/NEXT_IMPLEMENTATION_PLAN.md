@@ -1,6 +1,6 @@
 # Next implementation plan: readiness and the first school modules
 
-Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Tasks 15, 18, 19, 20, 21, 22 and 23 are built; Tasks 16 and 17 are not started.
+Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Tasks 15, 18, 19, 20, 21, 22 and 23 are built, and the rough edges they left are closed (section 9); Tasks 16 and 17 are not started. Next: Task 24, the AI assistant (decided 25 September 2026).
 
 ## 1. Where we are
 
@@ -103,9 +103,17 @@ Built with these decisions taken by the product owner on 24 September 2026, whic
 
 Decisions taken while building it. A notice in the pupil's own app needs no consent row (it is the school talking to the pupil inside the school's app; nothing leaves it). `own_record` is written exactly like `own_children` with the pupil themself as the only child. The pupil's identity has a generated `@student.invalid` address and signs in through the provider's own email door, called only from `POST /api/student-sign-in`. A pupil holds `students.read_basic`, `students.read_enrollments`, class, section, subject, timetable, dashboard, attendance, exams and report card reads at `own_record`, the calendar, and `communication.read` at `self`; no fee, guardian, consent, document, export or write key. One new office key, `students.manage_login`. The release changes the role templates (15 grants per school), so every existing school needs `pnpm db:sync-roles` after migration `0019`. Described in [PROTECTED_APIS.md](auth/PROTECTED_APIS.md#student-login) and [DATA_PROTECTION.md](compliance/DATA_PROTECTION.md) section 15.
 
+### Task 24: AI assistant — next, decided 25 September 2026
+
+Brought into this plan by the product owner on 25 September 2026 and placed ahead of everything else still open, including Tasks 16 and 17. An assistant inside the app that answers questions about the school and helps with work, always bounded by the caller's own permissions: it reads through the same protected routes, plans and scopes a screen would, never a wider query, and it can never see or do what the person asking could not. The reserved keys `ai_assistant.use` and `ai_assistant.manage` in `packages/contracts/src/permissions.ts` are its vocabulary.
+
+Not specified yet. Before any build the product owner decides, at least: who gets it (which roles, pupils or not); what it may do (answer only, draft for a person to send, or act with confirmation); which model provider and where data is processed, since children's data would leave the school's database; what is kept (prompts, answers, how long) and whether it is audited per question; languages; and cost limits per school. Each decision will be written here, with the DPDP assessment (a new sub-processor, a new purpose, a cross-border transfer) in `docs/compliance/DATA_PROTECTION.md` and the sub-processor list, before the first line of code.
+
+Exit check, to be refined with the decisions: a teacher asking about another class, a parent asking about another family's child and a pupil asking about anything beyond their own record each get nothing more than the screen would give them, proven in `tests/security`; every answer that used school data names where it came from; switching the assistant off for a school or a person takes effect on the next request.
+
 ### Out of scope for this plan
 
-The AI assistant, custom role building, a policy editor, native apps, offline data and online payment collection. The permission names for the assistant stay reserved.
+Custom role building, a policy editor, native apps, offline data and online payment collection.
 
 ## 5. Order
 
@@ -115,7 +123,8 @@ The AI assistant, custom role building, a policy editor, native apps, offline da
 | 2 | Task 16 (provider registration has lead time; start it first). Task 19 fees. |
 | 3 | Task 17 region move, before any real school. Task 20 attendance (built). |
 | 4 | Task 21 exams and report cards, then Task 22 communication. |
-| 5 | Task 23 student login. |
+| 5 | Task 23 student login. Rough edges after it (section 9). |
+| 6 | **Task 24 AI assistant — next.** Product decisions first, then the build. Tasks 16 and 17 follow, and must finish before the first paying school whatever else is built. |
 
 The readiness tasks are the release gate for the first paying school; the module tasks decide what that school gets. Fees can be built while the region move is pending, but must not hold real money before it.
 
@@ -129,6 +138,7 @@ The readiness tasks are the release gate for the first paying school; the module
 | Online payment gateway. Decided for Task 19: none, payments are recorded by hand. Which gateway, if any, is still to decide | Product owner | Before any online payment work |
 | Which school is first, and its fee structure and grading scheme, to shape the fixtures | Product owner | Tasks 19 and 21 |
 | Named holders for the backup key and the security contact address | Product owner | Task 17 |
+| AI assistant: audience, what it may do, model provider and processing region, retention and audit of questions, languages, cost limits | Product owner | Task 24 |
 
 ## 7. Office feedback, September 2026
 
@@ -311,3 +321,15 @@ change it without signing out; both are a browser preference per user id, not a 
 field, because the session belongs to the identity and a person can hold different roles in
 different schools. `GET /dashboard` takes `?audience=` and accepts only one of the caller's own
 homes, else `INVALID_REQUEST`; it never widens a read. Lists stay the union of the roles.
+
+## 9. Rough edges after Task 23, September 2026
+
+Taken on 25 September 2026, before the AI assistant work, on `feat/rough-edges`. No new module; each item closes something a release left open.
+
+1. **A class signs in together.** The provider allows three sign-ins and three password changes every ten seconds from one address, and a school lab shares one address, so a class could not sign in at once. The pupil route now skips the provider's limit and applies its own: five attempts a minute per pupil account and 150 a minute per address, both durable and keyed on hashes; a password change is limited per person instead of per address. Staff sign-in is unchanged. See [PROTECTED_APIS.md](auth/PROTECTED_APIS.md#student-login).
+2. **Families allow messages themselves.** Most families had no `communication` consent, so Task 22 reached nobody. Decided by the product owner: the parent home asks, in a card at the top, "Get messages from the school", and one button records the consent for each child who is waiting, by the guardian through the portal. The office does not record consent in bulk, and the hosted test families are not filled in: they allow it themselves.
+3. **Restricting one person.** Decided by the product owner: an owner or principal can take sensitive details, full guardian records or medical information away from one member (the guardian contact card stays, because full records carry the phone too and staff who call families need it), with a reason and an optional end date. It is a school-wide deny rule under the newly active `access.manage`. See [ACCESS_MANAGEMENT.md](auth/ACCESS_MANAGEMENT.md#member-restrictions).
+4. **Photograph in the admission form.** Chosen with the pupil's details, uploaded after the admission is saved and only when a guardian gave consent for photographs at the consent step.
+5. **Identity numbers in bulk import.** Pupil Aadhaar, guardian Aadhaar, guardian PAN and office address are optional columns, sealed the moment the server reads them, in the stored preview as well as the record.
+
+Release: migration `0020_member_restrictions.sql`, `pnpm db:sync-roles` (2 grants per school), then merge.

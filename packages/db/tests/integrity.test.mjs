@@ -4,6 +4,7 @@ import pg from 'pg'
 import {
   PermissionKey,
   RESOURCE_RULE_PERMISSIONS,
+  RESTRICTABLE_PERMISSIONS,
   ROLE_TEMPLATES,
 } from '@erp/contracts'
 import { fixtureIds as i, seedFixtures } from '../scripts/fixtures.mjs'
@@ -104,10 +105,13 @@ test('resource rules accept every supported target/permission pair and reject ba
       for (const permission of permissions) {
         const cols = Object.keys(targets[type]),
           vals = Object.values(targets[type])
-        await c.query(
-          `INSERT INTO resource_access_rules(school_id,membership_id,permission,effect,target_type,${cols.join(',')}${cols.length ? ',' : ''}effective_from,reason,author_membership_id) VALUES ($1,$2,$3,'allow',$4${cols.map((_, n) => `,$${n + 5}`).join('')},now(),'valid',$2)`,
-          [i.schoolA, i.adult, permission, type, ...vals],
-        )
+        // A member restriction key is accepted only as a deny (migration 0020).
+        const restrictable = RESTRICTABLE_PERMISSIONS.includes(permission)
+        const insert = (effect) =>
+          `INSERT INTO resource_access_rules(school_id,membership_id,permission,effect,target_type,${cols.join(',')}${cols.length ? ',' : ''}effective_from,reason,author_membership_id) VALUES ($1,$2,$3,'${effect}',$4${cols.map((_, n) => `,$${n + 5}`).join('')},now(),'valid',$2)`
+        await c.query(insert(restrictable ? 'deny' : 'allow'), [i.schoolA, i.adult, permission, type, ...vals])
+        if (restrictable)
+          await rejected(c, insert('allow'), [i.schoolA, i.adult, permission, type, ...vals], 'P0001')
       }
     for (const [type, target] of Object.entries(targets))
       for (const permission of PermissionKey.options.filter(
