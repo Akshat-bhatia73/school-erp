@@ -169,7 +169,7 @@ function SettingsForm({ settings }: { settings: AssistantSettings }) {
           <div className="min-w-0 space-y-1">
             <Label htmlFor="assistant-enabled" className="text-[13.5px] font-medium">{SWITCH_LABEL}</Label>
             <p className="text-[12.5px] text-muted-foreground">
-              Questions and the records needed to answer them go to Google to be answered. Nothing is kept by Google.
+              Questions and the records needed to answer them go to Google to be answered.
               Conversations are kept for 30 days and only the person who asked can read them.
             </p>
           </div>

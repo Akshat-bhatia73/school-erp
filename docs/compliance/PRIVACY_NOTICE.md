@@ -172,8 +172,10 @@ words, such as "How was Riya's attendance this month?", and get an answer from t
 - **It does not change anything by itself.** When a member of staff asks it to change something, it
   shows the change first, and nothing happens until they check it and confirm.
 - **Questions are answered by Google.** To answer, the question and the records needed are sent to
-  Google (Vertex AI), through Vercel. Neither keeps them after the answer, and they are not used to
-  train anything.
+  Google. `[Name the route the school uses: "Google Vertex AI, through Vercel, neither of which keeps
+  them after the answer" or "Google's Gemini API on a paid account, where Google does not use them to
+  improve its products and keeps them only for a short time to check for misuse".]` They are not used
+  to advertise to you or your child.
 - **Conversations are kept for 30 days**, and only the person who asked can read them. The school
   office cannot read your questions or your child's. The school records that a question was asked
   and which records were looked at, but never the words.
@@ -186,7 +188,7 @@ words, such as "How was Riya's attendance this month?", and get an answer from t
 - `[Provider name]`, the company that runs the software for us, and the companies it uses to do
   that. The full list, with where each one stores data, is at `[link the school publishes, or "on
   request from the school office"]`.
-- Google, through Vercel, only to answer questions asked in the school assistant, and only if the
+- Google, directly or through Vercel, only to answer questions asked in the school assistant, and only if the
   school has switched it on (see above).
 - Government departments and the education board, where the law requires us to report.
 - Anyone else only if you have agreed, or if a law or a court requires it.

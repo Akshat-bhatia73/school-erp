@@ -57,7 +57,7 @@ question in `tests/security`.
  Protected routes (protectedRoute → @erp/authz → planPredicate → Postgres)
 ```
 
-The browser talks only to our API. Our API talks to the model through Vercel AI Gateway. The model
+The browser talks only to our API. Our API talks to the model, either through Vercel AI Gateway or straight to Google AI Studio (section 12). The model
 never talks to our database. It can only ask for a tool call, and each tool call is an ordinary
 request to one of our routes, made as the person.
 
@@ -266,7 +266,7 @@ through a turn.
 A new consent purpose, `ai_assistant`, joins the list in `packages/contracts/src/module-lifecycle.ts`.
 A pupil may use the assistant when the newest `ai_assistant` consent event for that pupil, from any
 of their guardians, is `given`. The parent home asks for it with a card that explains, in plain
-words, that questions go to Google to be answered, are not used to train anything, and are kept 30
+words, that questions go to Google to be answered and are kept 30
 days.
 
 Parents and staff need no separate consent to use it. The school's own processing, with Google
@@ -395,17 +395,26 @@ Check the installed AI SDK 7 docs in `node_modules/ai/docs/` for the exact names
 
 ## 12. The model
 
-- **Gateway:** Vercel AI Gateway, through the AI SDK. The model is a plain string such as
-  `google/gemini-…` held in `ASSISTANT_MODEL`. Changing the model, or later the provider, is a
-  configuration change and nothing else.
-- **Provider:** Google, through Vertex AI. Every request sets
+- **Two ways to reach the model, chosen by `ASSISTANT_PROVIDER`.** The model is held in
+  `ASSISTANT_MODEL` as `provider/model`, by default `google/gemini-3.5-flash-lite`. Changing the
+  model, or the way to reach it, is a configuration change and nothing else. `apps/api/src/assistant/model.ts`
+  is the one place that turns the settings into a model.
+- **`google`: Google AI Studio, directly.** The AI SDK's Google provider calls the Gemini API with
+  `GOOGLE_GENERATIVE_AI_API_KEY`; the model id is `ASSISTANT_MODEL` without `google/`. There is no
+  gateway in between. A free-tier AI Studio key lets Google use what it is sent to improve its
+  products and have people review it, so it is for test data only. A real school needs a key whose
+  Google Cloud project has billing on (the paid tier, where Google does not use prompts or answers
+  to improve its products).
+- **`gateway` (the default): Vercel AI Gateway, then Google Vertex AI.** Every request sets
   `providerOptions.gateway = { only: ['vertex'], zeroDataRetention: true }`. The request then goes
   only to Google Vertex AI, and only under the zero data retention agreement Vercel holds with it.
   If no such route is available the request fails. It never falls back to a provider that keeps
   data.
 - **Plan:** per-request zero data retention needs Vercel **Pro**. The hosted test school can run on
   the free plan with test data only. Real children's data needs Pro first.
-- **Key:** `AI_GATEWAY_API_KEY` locally, and the project's OIDC token on Vercel.
+- **Key:** with the gateway, `AI_GATEWAY_API_KEY` locally and the project's OIDC token on Vercel.
+  The gateway needs a card on the Vercel team before it serves any request, even from the free
+  credits.
 
 ### The rules in the prompt
 

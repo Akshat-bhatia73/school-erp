@@ -22,13 +22,14 @@ export function isFamilyOnly(roleKeys: readonly RoleKey[]): boolean {
 }
 
 /**
- * The service is on when this deployment switched it on and can reach the
- * gateway: a key off Vercel, or the project's OIDC token on Vercel, which the
- * gateway provider reads from the environment or from the function's request
- * context.
+ * The service is on when this deployment switched it on and can reach its
+ * model: with Google AI Studio, its key; with the gateway, a key off Vercel or
+ * the project's OIDC token on Vercel, which the gateway provider reads from
+ * the environment or from the function's request context.
  */
 export function serviceOn(config: ApiConfig, env: NodeJS.ProcessEnv = process.env): boolean {
   if (!config.ASSISTANT_ENABLED) return false
+  if (config.ASSISTANT_PROVIDER === 'google') return config.GOOGLE_GENERATIVE_AI_API_KEY !== undefined
   return (
     config.AI_GATEWAY_API_KEY !== undefined ||
     (env.VERCEL_OIDC_TOKEN ?? '') !== '' ||

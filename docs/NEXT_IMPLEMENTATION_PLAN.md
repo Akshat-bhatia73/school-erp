@@ -116,7 +116,7 @@ The full design is in [docs/assistant/ARCHITECTURE.md](assistant/ARCHITECTURE.md
 - **It answers and it acts, but only after the person confirms.** When it wants to change something it shows the change as a card. The person can edit the card in place and then press Confirm. Nothing changes before that.
 - **It acts as the person using it.** It reads and writes through the same routes and checks as the screens, with the person's own session. It has no access of its own.
 - **High-risk actions stay off it**: role changes, invitations, removing or suspending members, ownership transfer, restrictions, anonymising, deleting. It explains how to do them and links to the screen.
-- **Google models through Vercel AI Gateway**, so changing the model is a configuration change. Requests go only to Google Vertex AI under zero data retention.
+- **Google models, the model a configuration change.** First through Vercel AI Gateway (Vertex only, zero data retention); on 25 September 2026 the product owner added Google AI Studio called directly with the school's own key (`ASSISTANT_PROVIDER=google`, model `google/gemini-3.5-flash-lite`), because the gateway needs a card before it serves anything. A free AI Studio key is for test data only.
 - **What is kept**: one audit row per question (which tools, how many records, no text), and the conversation text for 30 days, sealed, visible only to the person who asked.
 - **Languages**: it replies in the language of the question, English or Hindi.
 - **Limits**: questions per person per day and per school per month, set by the owner or principal. A monthly budget on the gateway is the hard stop for money.

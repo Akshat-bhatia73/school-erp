@@ -28,14 +28,15 @@ import { READ_TOOLS, toolsFor } from './tools/registry.ts'
 import type { AnyReadTool, ToolCallContext } from './tools/types.ts'
 import { availability } from './limits.ts'
 import { instructionsFor } from './prompt.ts'
+import { assistantModel } from './model.ts'
 import { keepMessage, keptMessages, ownThread, titleFrom, type KeptMessage } from './threads.ts'
 import { buildToolSet, ToolLedger } from './toolset.ts'
 import { routeGetter } from './inject.ts'
 
 export interface AssistantDependencies extends ModuleDependencies {
   /**
-   * Tests only: a scripted model in place of the gateway. Never set in
-   * production, where the model is the gateway id in ASSISTANT_MODEL.
+   * Tests only: a scripted model in place of the real one. Never set in
+   * production, where the model comes from ASSISTANT_PROVIDER and ASSISTANT_MODEL.
    */
   readonly assistantModel?: LanguageModel
   /** Tests only: the read tools on offer in place of the registry's. */
@@ -85,7 +86,8 @@ interface TurnInput {
 export async function runTurn(deps: AssistantDependencies, input: TurnInput): Promise<Response> {
   const { context, body, threadId, request, reply } = input
   const key = deps.config.DATA_ENCRYPTION_KEY
-  const model: LanguageModel = deps.assistantModel ?? deps.config.ASSISTANT_MODEL
+  const chosen = assistantModel(deps.config)
+  const model: LanguageModel = deps.assistantModel ?? chosen.model
   const modelId = modelName(model)
 
   const setup = await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
@@ -244,12 +246,7 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
         stepNumber >= ASSISTANT_MAX_TOOL_CALLS - 1 || ledger.calls >= ASSISTANT_MAX_TOOL_CALLS
           ? { activeTools: [] }
           : undefined,
-      providerOptions: {
-        gateway: {
-          only: ['vertex'],
-          ...(deps.config.ASSISTANT_ZERO_DATA_RETENTION ? { zeroDataRetention: true } : {}),
-        },
-      },
+      providerOptions: chosen.providerOptions,
       abortSignal,
       onStepEnd: (step) => {
         tokens.input += step.usage.inputTokens ?? 0

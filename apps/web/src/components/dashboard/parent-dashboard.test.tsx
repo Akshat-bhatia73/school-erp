@@ -262,7 +262,7 @@ describe('parent dashboard, allow the school assistant', () => {
   it('asks only for a child with their own login and no yes on record', () => {
     renderAsker(parent({ guardianId: GUARDIAN, children: [child(), riya] }))
     expect(screen.getByText(TITLE)).toBeInTheDocument()
-    expect(screen.getByText(/Their questions go to Google to be answered and are not used to train anything\./)).toBeInTheDocument()
+    expect(screen.getByText(/Their questions go to Google to be answered\. Conversations are kept for 30 days/)).toBeInTheDocument()
     // The younger child has no login, so nobody asks about them.
     expect(screen.queryByText('Let Aarav use the school assistant')).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Allow' })).toHaveLength(1)
