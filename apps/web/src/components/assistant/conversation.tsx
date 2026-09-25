@@ -134,8 +134,8 @@ export function Conversation({ threadId, initialMessages, firstQuestion, onFirst
           )}
         </div>
       </div>
-      <div className="shrink-0 px-4 pb-4 md:px-6">
-        <div className="mx-auto w-full max-w-[760px]">
+      <div className="shrink-0 pb-4">
+        <div className="mx-auto w-full max-w-[760px] px-4 md:px-6">
           {locked ?? (
             <Composer value={draft} onChange={setDraft} onSend={ask} onStop={() => void stop()} busy={busy} autoFocus={!firstQuestion} />
           )}

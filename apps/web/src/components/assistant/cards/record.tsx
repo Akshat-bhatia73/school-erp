@@ -4,6 +4,7 @@ import { UserAvatar } from '@/components/shared/avatar'
 import { Facts } from '@/components/shared/page'
 import { Tag, colorFor } from '@/components/shared/tag'
 import { AppLink } from '../app-link'
+import { tagColor } from '../format'
 import { Value } from './value'
 
 type RecordCardData = Extract<AssistantCard, { kind: 'record' }>
@@ -26,7 +27,7 @@ export function RecordCard({ card }: { card: RecordCardData }) {
           {card.subtitle && <p className="mt-0.5 truncate text-[12.5px] text-muted-foreground">{card.subtitle}</p>}
           {card.tags.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {card.tags.map((tag) => <Tag key={tag} color={colorFor(tag)}>{tag}</Tag>)}
+              {card.tags.map((tag) => <Tag key={tag} color={statusOr(tag)}>{tag}</Tag>)}
             </div>
           )}
         </div>
@@ -43,4 +44,10 @@ export function RecordCard({ card }: { card: RecordCardData }) {
       )}
     </section>
   )
+}
+
+/** A status reads the same colour here as in a table ("Active" is green everywhere); anything else keeps its stable colour. */
+function statusOr(tag: string) {
+  const status = tagColor(tag)
+  return status === 'grey' ? colorFor(tag) : status
 }
