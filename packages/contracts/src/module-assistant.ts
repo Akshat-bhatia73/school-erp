@@ -125,6 +125,17 @@ export const AssistantToolResult = z.strictObject({
 })
 export type AssistantToolResult = z.infer<typeof AssistantToolResult>
 
+/**
+ * The output of a read tool as it is kept and streamed: the result above plus
+ * `forModel`, the plain JSON the model reads (the SDK's toModelOutput sends
+ * only that part to the model, including when an old conversation is replayed).
+ * The browser ignores `forModel`.
+ */
+export const AssistantToolOutput = AssistantToolResult.extend({
+  forModel: z.unknown().optional(),
+})
+export type AssistantToolOutput = z.infer<typeof AssistantToolOutput>
+
 // ---------------------------------------------------------------------------
 // Threads and messages.
 
