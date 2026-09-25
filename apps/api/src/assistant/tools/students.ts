@@ -187,7 +187,10 @@ export const studentGuardianContacts = readTool({
   name: 'student_guardian_contacts',
   description:
     "A pupil's guardians with their relation and phone number. Use it when someone asks how to reach a pupil's family.",
-  permission: 'students.read_basic',
+  // Offered by what it shows, not by the route it reads: the pupil record
+  // route carries the contact card only for holders of this key, so a pupil
+  // (who holds read_basic for their own record) is never offered it.
+  permission: 'students.read_guardian_contact',
   input: z.object({ studentId: IdInput('The pupil id, from find_students.') }),
   async run(input, context) {
     const found = await fetchParsed(context, StudentDetailByAudience, `/students/${seg(input.studentId)}`)

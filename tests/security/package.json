@@ -16,6 +16,7 @@
   "devDependencies": {
     "@types/node": "24.13.3",
     "@types/pg": "8.23.1",
+    "ai": "7.0.106",
     "tsx": "4.23.13",
     "typescript": "6.0.3"
   }
