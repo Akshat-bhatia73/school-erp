@@ -313,8 +313,10 @@ Two more rules:
 
 ### Layout
 
-`/assistant` is a new route under `apps/web/src/routes/_app/assistant/` with `index.tsx` for a new
-conversation and `$threadId.tsx` for an existing one. The sidebar gets an **Assistant** entry with
+`/assistant` is one route, `apps/web/src/routes/_app/assistant/index.tsx`. The open conversation is
+the search parameter `?thread=<id>`, absent for a new one. It is a search parameter and not a path
+so that opening a conversation, or the first question creating one, never remounts the chat and
+never cuts off an answer that is still streaming. The sidebar gets an **Assistant** entry with
 the lucide `Sparkles` icon, shown only when `hasPermission('ai_assistant.use')`.
 
 ```
@@ -472,7 +474,7 @@ apps/api/src/assistant/
   tools/             one file per module: students.ts, attendance.ts, fees.ts …
   tools/registry.ts  every tool, and which ones a person is offered
 apps/web/src/lib/api/assistant.ts
-apps/web/src/routes/_app/assistant/index.tsx, $threadId.tsx
+apps/web/src/routes/_app/assistant/index.tsx        one route, ?thread=<id>
 apps/web/src/components/assistant/
   assistant-screen.tsx, history-popover.tsx, composer.tsx, message.tsx
   cards/record.tsx, table.tsx, figures.tsx, sources.tsx

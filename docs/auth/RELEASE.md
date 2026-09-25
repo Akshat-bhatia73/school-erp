@@ -201,6 +201,26 @@ uses, never to the internet; checklist item 16 checks both halves.
 Migrations run as `erp_migrator` and only at deploy time. The running service
 never holds that login.
 
+Migration `0021_assistant.sql` is the assistant release (Task 24, part 24a). It
+is additive: four new tables (`assistant_settings`, `assistant_threads`,
+`assistant_messages`, `assistant_usage`), one `SECURITY DEFINER` function owned
+by `erp_maintenance` (`sweep_assistant`), the `ai_assistant` consent purpose
+added to the `guardian_consents` CHECK, and `ai_assistant.use` accepted as a
+school-target deny by the restriction trigger, so the previous version of the
+code runs against it. **It changes the role templates**: `ai_assistant.use`
+becomes active at `self` for all seven roles and `ai_assistant.manage` at
+`school` for owner and principal, so every existing school needs
+`pnpm db:sync-roles` after the migration: 9 grants per school. It needs new
+settings: `ASSISTANT_ENABLED=true` to switch it on at all (it stays off without
+it), `ASSISTANT_MODEL` (default `google/gemini-3.8-flash`), and on Vercel the
+project's OIDC token reaches the AI Gateway on its own (off Vercel set
+`AI_GATEWAY_API_KEY`). `ASSISTANT_ZERO_DATA_RETENTION` stays `true`; per-request
+zero data retention needs the Vercel Pro plan, so a free-plan test deployment
+with test data only may set it to `false`, and a real school never. Each school
+still switches it on itself under Settings → Assistant. The function's
+`maxDuration` is 300 seconds for long answers. The order is the same: migrate,
+`migrate:check`, `db:sync-roles`, merge, deploy, smoke.
+
 Migration `0020_member_restrictions.sql` is the member restrictions release
 (September 2026). It only replaces `reject_bad_exception_permission`, so the
 catalogue trigger also accepts a school-target deny for
@@ -374,6 +394,10 @@ the request that asked for them. Each one is produced under the requester's own
 access, in its own transaction, so a job whose requester has lost the permission
 is recorded as failed rather than made.
 
+It also removes the assistant's conversations 30 days after each message was
+written, then conversations with nothing left, then question counts after 13
+months (`sweep_assistant`).
+
 It also removes messages two years after they went out (and drafts untouched for
 a year): the attachment bytes first, then the rows (`sweep_messages`), reported
 as `messages.files_removed`, `messages.files_left` and `messages.messages`.
@@ -424,6 +448,8 @@ quote the same numbers. Periods start when the purpose ends, not when the row wa
 | Export files (a spreadsheet or document made from a list, a record or a timetable) | 24 hours from the moment the file is ready | The bytes are deleted first, then the job row; the audit row saying who asked stays | `list_expired_export_files ()` then `sweep_tenant_transients`, daily |
 | Invitations | Until terminal | The identifier is blanked at that point; the row is deleted after 90 days | `sweep_tenant_transients`, daily |
 | Delivery outbox | 90 days after delivery or failure | Deleted | `sweep_tenant_transients`, daily |
+| Assistant conversations (`assistant_messages`, sealed; `assistant_threads`, title sealed) | 30 days after each message was written | Deleted; a conversation goes once it has no messages and was last used 30 days ago. A person deletes their own at once; anonymising a pupil deletes theirs | `sweep_assistant()`, daily; `DELETE /assistant/threads/:id`; `POST /students/:id/anonymise` |
+| Assistant question counts (`assistant_usage`: who, which day, tokens, no words) | 13 months | Deleted | `sweep_assistant()`, daily |
 | Audit events | 7 years, covering a child's time at the school plus the one-year log requirement | Archive whole years to cold storage; never edit | Manual; see section 6 |
 | Audit notes | With their event, unless redacted on request | Redaction removes the text and keeps the event | `POST /audit-events/:id/note/redact` |
 | Access logs | 180 days | Deleted | `access_log` and `sweep_access_log()`, daily. CERT-In wants these kept in India and the database is in Neon `us-east-1`; see section 6.3 |
