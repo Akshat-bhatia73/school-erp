@@ -76,8 +76,17 @@ const EnvSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
-  /** A Vercel AI Gateway model id. Changing the model is changing this. */
-  ASSISTANT_MODEL: z.string().regex(/^[a-z0-9-]+\/[a-z0-9.-]+$/).default('google/gemini-3.8-flash'),
+  /**
+   * Where the assistant's model runs. `gateway` is Vercel AI Gateway (Google
+   * Vertex only, zero data retention). `google` calls Google AI Studio (the
+   * Gemini API) directly with GOOGLE_GENERATIVE_AI_API_KEY.
+   */
+  ASSISTANT_PROVIDER: z.enum(['gateway', 'google']).default('gateway'),
+  /**
+   * The model, as `provider/model`. Changing the model is changing this. With
+   * ASSISTANT_PROVIDER=google it must be a `google/` model.
+   */
+  ASSISTANT_MODEL: z.string().regex(/^[a-z0-9-]+\/[a-z0-9.-]+$/).default('google/gemini-3.5-flash-lite'),
   /**
    * Every request asks the gateway for zero data retention and Google Vertex
    * AI only. Per-request zero data retention needs the Vercel Pro plan; a test
@@ -90,6 +99,12 @@ const EnvSchema = z.object({
     .transform((value) => value === 'true'),
   /** The gateway key off Vercel. On Vercel the project's OIDC token is used instead. */
   AI_GATEWAY_API_KEY: z.string().min(1).optional(),
+  /**
+   * A Google AI Studio key, for ASSISTANT_PROVIDER=google. A free-tier key
+   * lets Google use what it is sent to improve its products: test data only.
+   * A real school needs a key whose Google Cloud project has billing on.
+   */
+  GOOGLE_GENERATIVE_AI_API_KEY: z.string().min(1).optional(),
   /** Error reporting. Absent means nothing leaves the process. */
   SENTRY_DSN: z.url().optional(),
   PORT: z.coerce.number().int().min(0).max(65_535).default(3001),
@@ -197,6 +212,9 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): ApiConfig {
     throw new ConfigurationError(
       'DEV_SANDBOX_OUTBOX=true exposes one-time codes and is refused when NODE_ENV=production.',
     )
+  }
+  if (parsed.data.ASSISTANT_PROVIDER === 'google' && !parsed.data.ASSISTANT_MODEL.startsWith('google/')) {
+    throw new ConfigurationError('ASSISTANT_PROVIDER=google needs a google/ model in ASSISTANT_MODEL.')
   }
   if (parsed.data.NODE_ENV === 'production') assertProductionSafe(parsed.data)
   return Object.freeze(parsed.data)

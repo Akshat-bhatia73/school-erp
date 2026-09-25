@@ -973,9 +973,11 @@ test('an accountant fee plan selects the whole school', async () => {
  * A mark refuses a DELETE even to the owner of the table, so neither these
  * rows nor the class and pupil they point at are ever registered for cleanup:
  * the test database is disposable and the ids are fresh on every run. The day
- * is random for the same reason: two runs must never write the same mark.
+ * is random for the same reason: two runs must never write the same mark. It
+ * is in July because the database package's own attendance test marks the
+ * fixture pupil on 15 June, and a June day collided with it one run in 28.
  */
-const ATTENDANCE_DAY = `2026-06-${String(1 + Math.floor(Math.random() * 28)).padStart(2, '0')}`
+const ATTENDANCE_DAY = `2026-07-${String(1 + Math.floor(Math.random() * 28)).padStart(2, '0')}`
 
 let attendanceRows: Promise<{
   teacher: { membershipId: string; userId: string }

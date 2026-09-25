@@ -64,7 +64,7 @@ describe('assistant settings', () => {
     renderPage()
     const toggle = await screen.findByRole('switch', { name: 'Let people in this school use the assistant' })
     expect(toggle).toHaveAttribute('aria-checked', 'false')
-    expect(screen.getByText(/Nothing is kept by Google\./)).toBeInTheDocument()
+    expect(screen.getByText(/go to Google to be answered\./)).toBeInTheDocument()
     expect(screen.getByLabelText('Questions per staff member per day')).toHaveValue(50)
     expect(screen.getByLabelText('Questions per parent or pupil per day')).toHaveValue(20)
     expect(screen.getByLabelText('Questions for the whole school per month')).toHaveValue(3000)

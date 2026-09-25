@@ -212,9 +212,12 @@ becomes active at `self` for all seven roles and `ai_assistant.manage` at
 `school` for owner and principal, so every existing school needs
 `pnpm db:sync-roles` after the migration: 9 grants per school. It needs new
 settings: `ASSISTANT_ENABLED=true` to switch it on at all (it stays off without
-it), `ASSISTANT_MODEL` (default `google/gemini-3.8-flash`), and on Vercel the
-project's OIDC token reaches the AI Gateway on its own (off Vercel set
-`AI_GATEWAY_API_KEY`). `ASSISTANT_ZERO_DATA_RETENTION` stays `true`; per-request
+it), `ASSISTANT_MODEL` (default `google/gemini-3.5-flash-lite`) and
+`ASSISTANT_PROVIDER`: `gateway` (the default; on Vercel the project's OIDC
+token reaches the AI Gateway on its own, off Vercel set `AI_GATEWAY_API_KEY`;
+the gateway needs a card on the Vercel team) or `google` (Google AI Studio
+directly with `GOOGLE_GENERATIVE_AI_API_KEY`, a free-tier key for test data
+only). `ASSISTANT_ZERO_DATA_RETENTION` stays `true`; per-request
 zero data retention needs the Vercel Pro plan, so a free-plan test deployment
 with test data only may set it to `false`, and a real school never. Each school
 still switches it on itself under Settings → Assistant. The function's

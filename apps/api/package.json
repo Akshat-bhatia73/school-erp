@@ -15,6 +15,7 @@
     "build:vercel": "node scripts/build-vercel.mjs"
   },
   "dependencies": {
+    "@ai-sdk/google": "4.0.75",
     "@erp/authz": "workspace:*",
     "@erp/contracts": "workspace:*",
     "@erp/db": "workspace:*",

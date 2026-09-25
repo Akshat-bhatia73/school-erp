@@ -310,8 +310,7 @@ function AllowAssistantCard({ guardianId, child }: { guardianId: string; child: 
       <div className="flex flex-col items-start gap-3">
         <p className="text-[13.5px]">
           Your child can ask the school assistant about their own timetable, attendance and results. Their questions go to
-          Google to be answered and are not used to train anything. Conversations are kept for 30 days and nobody else can
-          read them.
+          Google to be answered. Conversations are kept for 30 days and nobody else can read them, not even the school.
         </p>
         <Button size="sm" disabled={allow.isPending} onClick={() => allow.mutate()}>Allow</Button>
       </div>

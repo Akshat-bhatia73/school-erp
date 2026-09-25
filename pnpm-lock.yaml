@@ -10,6 +10,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@ai-sdk/google':
+        specifier: 4.0.75
+        version: 4.0.75(zod@4.5.4)
       '@erp/authz':
         specifier: workspace:*
         version: link:../../packages/authz
@@ -347,6 +350,12 @@ packages:
 
   '@ai-sdk/gateway@4.0.86':
     resolution: {integrity: sha512-sPqb9+Uparn18A7zf6GDXXIx/+tsdA7V43NyL+HaHMBl7wrFaO9fBEf4/FoiKn1D/zv0Cc3PgpJX9JsuG7MKeg==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/google@4.0.75':
+    resolution: {integrity: sha512-OhPsdbZwep3jlb8iaoB5FVxzsnTXqcHs+Gec2HmBLKttZNpdZErC8UKp8PcSQw2sXrI9g+ChkrGsMF0siklb9A==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -4217,6 +4226,12 @@ snapshots:
       '@ai-sdk/provider': 4.0.17
       '@ai-sdk/provider-utils': 5.0.44(zod@4.5.4)
       '@vercel/oidc': 3.2.0
+      zod: 4.5.4
+
+  '@ai-sdk/google@4.0.75(zod@4.5.4)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.17
+      '@ai-sdk/provider-utils': 5.0.44(zod@4.5.4)
       zod: 4.5.4
 
   '@ai-sdk/mcp@2.0.53(zod@4.5.4)':
