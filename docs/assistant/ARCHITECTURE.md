@@ -292,7 +292,9 @@ Two more rules:
 
 - When a pupil is anonymised, their own conversations are deleted straight away. Other people's
   conversations that mention them are gone within 30 days anyway.
-- A pupil's own conversations are part of their subject-access export.
+- A pupil's subject-access export says how many conversations they had and when, never the
+  words. Decided by the product owner on 25 September 2026: a pupil's conversations are read by the
+  pupil alone, their parent and the school office included. The pupil reads their own in the app.
 
 ## 10. Audit and logs
 

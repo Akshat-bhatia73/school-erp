@@ -433,6 +433,6 @@ A short assessment of the assistant (Task 24), written before it is built, as th
 - Conversation text is sealed with the application key and never goes to a log, an audit row or an error report.
 - A school, a person (by member restriction) or a pupil (by a guardian withdrawing consent) can be switched off, and it takes effect on the next question.
 
-**Retention.** Conversation text, tool results and proposals are deleted 30 days after they were written. Usage counts with no text are kept 13 months for limits and billing. Anonymising a pupil deletes their own conversations at once. A pupil's own conversations are in their subject-access export.
+**Retention.** Conversation text, tool results and proposals are deleted 30 days after they were written. Usage counts with no text are kept 13 months for limits and billing. Anonymising a pupil deletes their own conversations at once. A pupil's subject-access export counts their conversations and says when they were, but never holds the words: the product owner decided on 25 September 2026 that a pupil's conversations are read by the pupil alone, a parent included, and the pupil can read them in the app for the 30 days they are kept. **Counsel to confirm** this sits well with a parent exercising the child's right of access.
 
 **Changes to make in the 24a pull request.** The privacy notice (the assistant, Google as a recipient, the 30 days, no training, no profiling), the processing agreement's sub-processor clause, the retention schedule (two new lines) and the consent wording for the `ai_assistant` purpose.

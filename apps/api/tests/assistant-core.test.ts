@@ -570,21 +570,21 @@ test('the nightly sweep removes messages older than 30 days and the conversation
   assert.ok(recent.rows.length >= 1)
 })
 
-test("a pupil's own conversations are in their subject access export and go when the pupil is anonymised", async () => {
+test("a pupil's subject access export counts their conversations without their words, and they go when the pupil is anonymised", async () => {
   const threadId = await newThread(pupil.client)
   const question = `What is my timetable ${randomUUID()}?`
   const response = await ask(pupil.client, threadId, question)
   assert.equal(response.status, 200)
   await response.text()
 
-  const exported = await ok<{ assistantConversations?: { id: string; title: string; messages: { role: string; text: string }[] }[] }>(
+  const exported = await ok<{ assistantConversations?: { conversations: number; questions: number; keptDays: number } }>(
     await owner.client.fetch(`/api/schools/${school}/students/${pupilId}/subject-access`),
   )
-  const conversation = exported.assistantConversations?.find((entry) => entry.id === threadId)
-  assert.ok(conversation)
-  assert.deepEqual(conversation.messages.map((message) => message.role), ['user', 'assistant'])
-  assert.equal(conversation.messages[0]?.text, question)
-  assert.equal(conversation.messages[1]?.text, 'Here is what I found.')
+  // That the pupil used it, never what they asked: the words are theirs alone.
+  assert.ok((exported.assistantConversations?.conversations ?? 0) >= 1)
+  assert.ok((exported.assistantConversations?.questions ?? 0) >= 1)
+  assert.equal(exported.assistantConversations?.keptDays, 30)
+  assert.equal(JSON.stringify(exported).includes(question), false)
 
   const pool = adminPool()
   await pool.query(`UPDATE students SET status = 'left', left_on = current_date - interval '4 years' WHERE id = $1`, [pupilId])
