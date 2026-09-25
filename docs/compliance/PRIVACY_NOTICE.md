@@ -116,6 +116,7 @@ the parent portal). These are the things we ask about:
 | Photographs | Taking and using your child's photograph |
 | Communication | Contacting you about your child |
 | Third-party services | Sharing your child's details with another organisation we name when we ask |
+| The school assistant | Letting your child, if they are in Class 9 to 12, ask the school assistant about their own record |
 
 You can withdraw any of these at any time by telling the school office. We keep the old answer in
 the record so we can show what was true at the time, but we act on the new one from the moment you
@@ -124,7 +125,7 @@ an admission register.
 
 Your child is a child in law, so it is you, as parent or guardian, who gives consent. We do not
 profile children, we do not advertise to them, and we do not track them for any purpose beyond
-running the school. Your child does not get a login to this system at all.
+running the school. Only pupils in Class 9 to 12 get a login of their own (see below).
 
 ## Who can see it
 
@@ -160,11 +161,33 @@ and a list will never show you a row you would not be allowed to open. Every tim
 your child's sensitive information, the system writes down who it was and when. The school can read
 that history.
 
+## The school assistant
+
+The school can switch on an assistant inside the app. It lets a person ask questions in plain
+words, such as "How was Riya's attendance this month?", and get an answer from the school's records.
+
+- **It sees only what the person asking could see.** It reads the records through the same checks
+  as every screen, signed in as that person. A teacher cannot use it to see another class, and you
+  cannot use it to see another family's child.
+- **It does not change anything by itself.** When a member of staff asks it to change something, it
+  shows the change first, and nothing happens until they check it and confirm.
+- **Questions are answered by Google.** To answer, the question and the records needed are sent to
+  Google (Vertex AI), through Vercel. Neither keeps them after the answer, and they are not used to
+  train anything.
+- **Conversations are kept for 30 days**, and only the person who asked can read them. The school
+  office cannot read your questions or your child's. The school records that a question was asked
+  and which records were looked at, but never the words.
+- **Your child can use it only if you allow it.** If your child is in Class 9 to 12, the parent
+  home asks you. You can change your mind at any time, and it stops at once. We do not use your
+  child's questions to profile them or for anything but answering.
+
 ## Who else it goes to
 
 - `[Provider name]`, the company that runs the software for us, and the companies it uses to do
   that. The full list, with where each one stores data, is at `[link the school publishes, or "on
   request from the school office"]`.
+- Google, through Vercel, only to answer questions asked in the school assistant, and only if the
+  school has switched it on (see above).
 - Government departments and the education board, where the law requires us to report.
 - Anyone else only if you have agreed, or if a law or a court requires it.
 

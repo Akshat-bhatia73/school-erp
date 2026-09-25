@@ -300,6 +300,7 @@ async function removePreviousSchool(client: pg.PoolClient): Promise<void> {
   // A message that went out is kept; only a draft may be deleted.
   await client.query('ALTER TABLE messages DISABLE TRIGGER messages_guard_delete')
   const tables = [
+    'assistant_usage', 'assistant_messages', 'assistant_threads', 'assistant_settings',
     'message_recipients', 'message_attachments', 'messages', 'message_templates', 'communication_settings',
     'guardian_consents', 'audit_event_notes',
     'attendance_entries', 'staff_attendance_entries',
@@ -1388,6 +1389,19 @@ async function main(): Promise<void> {
         schoolId, noLoginGuardian.id,
       ])
     }
+    // The assistant: two of the named pupils' guardians allowed it, the third
+    // has not been asked, so the parent home shows its card and the pupil sees
+    // "a parent or guardian needs to allow the assistant first".
+    for (const pupil of namedPupils.slice(0, 2)) {
+      const guardian = guardiansOf.get(pupil.id)?.[0]
+      if (!guardian) continue
+      await client.query(
+        `INSERT INTO guardian_consents (id, school_id, student_id, guardian_id, purpose, status, method,
+                                        recorded_by_membership_id, recorded_at)
+         VALUES ($1, $2, $3, $4, 'ai_assistant', 'given', 'signed_form', $5, now() - interval '2 days')`,
+        [randomUUID(), schoolId, pupil.id, guardian.id, ownerMembershipId],
+      )
+    }
     console.info(
       `Pupil logins: ${pupilLogins} in Class 9 and Class 10 (one switched off); ` +
         `${noLoginPupil.firstName} ${noLoginPupil.lastName} (${noLoginPupil.admissionNumber}) has none.`,
@@ -2215,6 +2229,9 @@ async function main(): Promise<void> {
     await client.query(`INSERT INTO communication_settings (school_id, automatic_since) VALUES ($1, clock_timestamp())`, [
       schoolId,
     ])
+    // The assistant is switched on for the development school. It still needs
+    // ASSISTANT_ENABLED=true and a gateway key in apps/api/.env to answer.
+    await client.query('INSERT INTO assistant_settings (school_id, enabled) VALUES ($1, true)', [schoolId])
 
     // Consent to messages for about nine in ten families: the existing rows
     // cover the first guardian of three children in five, so every other pair

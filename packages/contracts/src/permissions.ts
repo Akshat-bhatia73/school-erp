@@ -210,8 +210,10 @@ export const PERMISSION_CATALOGUE = {
   'staff_attendance.record': active('staff_attendance', ['school'], 'Mark the staff attendance register for today.', true),
   'staff_attendance.manage': active('staff_attendance', ['school'], 'Correct a past day of the staff register with a reason.', true),
   'staff_attendance.export': active('staff_attendance', ['school'], 'Export the staff attendance register for a month.', true),
-  'ai_assistant.use': reserved('ai_assistant', ['school', 'self', 'assigned_sections', 'assigned_subjects', 'own_children', 'finance'], 'Reserved for an assistant that remains bounded by the caller’s permissions.'),
-  'ai_assistant.manage': reserved('ai_assistant', ['school'], 'Reserved for school assistant configuration.', true),
+  // Opens the assistant and one's own conversations. It widens nothing: what
+  // the assistant reaches is exactly what the person's other keys allow.
+  'ai_assistant.use': active('ai_assistant', ['self'], 'Use the assistant, bounded by one\'s own permissions, and read one\'s own conversations.'),
+  'ai_assistant.manage': active('ai_assistant', ['school'], 'Switch the assistant on or off for the school, set its limits and read usage counts, never anyone\'s conversation.', true),
 } as const satisfies Record<PermissionKey, PermissionMetadata>
 
 export const ACTIVE_PERMISSION_KEYS = PermissionKey.options.filter(

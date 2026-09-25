@@ -275,3 +275,83 @@ export function protectedRoute<TQuery, TBody, TResponse>(
     },
   })
 }
+
+/** A route that answers with a stream it builds itself, for example the assistant's turn. */
+export interface StreamRouteDefinition<TBody> {
+  readonly method: 'POST'
+  readonly path: string
+  /** Decided against the whole school before the handler runs, exactly as protectedRoute does. */
+  readonly permission: PermissionKey
+  readonly body: z.ZodType<TBody>
+  /**
+   * Returns the streamed answer as a web Response. Its status and headers are
+   * kept, except cache-control, which stays the no-store every API answer
+   * carries. A failure before the Response is returned is an ordinary error
+   * envelope.
+   */
+  handler(input: RouteInput<undefined, TBody>): Promise<Response>
+}
+
+/**
+ * The streaming sibling of protectedRoute: the same membership guard, the
+ * same aggregate gate and the same recorded refusal, a parsed body, and then
+ * the handler's own stream. The stream is sent through reply.send rather than
+ * by hijacking the reply, because a hijacked reply skips the hooks: the
+ * no-store and request id headers (onSend) and the access log row
+ * (onResponse) would both be lost.
+ */
+export function protectedStreamRoute<TBody>(
+  app: FastifyInstance,
+  deps: ModuleDependencies,
+  definition: StreamRouteDefinition<TBody>,
+): void {
+  if (!PermissionKey.safeParse(definition.permission).success) {
+    throw new Error(`Route ${definition.method} ${definition.path} declares no known permission`)
+  }
+  if (PERMISSION_CATALOGUE[definition.permission].availability !== 'active') {
+    throw new Error(`Route ${definition.method} ${definition.path} uses a reserved permission`)
+  }
+
+  app.route({
+    method: definition.method,
+    url: definition.path,
+    preHandler: requireMembership(deps),
+    handler: async (request, reply) => {
+      const context = request.context
+      if (!context) throw new ApiFailure('AUTHENTICATION_REQUIRED')
+
+      let answer: Response
+      try {
+        await withTenantTransaction(deps.pools.runtime, context, (conn) =>
+          authorizeSchoolAction(conn, context, definition.permission),
+        )
+        const body = parseBody(request.body, definition.body)
+        answer = await definition.handler({
+          context,
+          query: undefined,
+          body,
+          permission: definition.permission,
+          request,
+          reply,
+          param: (name: string) => requiredParam(request.params, name),
+        })
+      } catch (error) {
+        if (isAccessDenied(error)) {
+          await recordDenial(deps, context, definition.permission, request, undefined).catch(
+            (failure: unknown) =>
+              request.log.error({ requestId: request.id, err: failure }, 'denied audit row failed'),
+          )
+        }
+        throw error
+      }
+
+      reply.status(answer.status)
+      for (const [name, value] of answer.headers) {
+        // The onSend hook sets no-store; a stream helper's own "no-cache" is weaker.
+        if (name.toLowerCase() === 'cache-control') continue
+        reply.header(name, value)
+      }
+      return reply.send(answer.body)
+    },
+  })
+}

@@ -140,6 +140,16 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
           [context.schoolId],
         )
 
+        // The pupil's own assistant conversations go now, with their messages;
+        // other people's that mention the pupil are gone within 30 days anyway.
+        const assistantThreads = await conn.client.query(
+          `DELETE FROM assistant_threads
+            WHERE school_id = $1 AND membership_id IN (
+              SELECT membership_id FROM membership_student_links
+               WHERE school_id = $1 AND student_id = $2)`,
+          [context.schoolId, studentId],
+        )
+
         // A login still on or switched off ends with the record (Task 23).
         const login = await endStudentLogin(conn, context, studentId)
 
@@ -157,6 +167,7 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
             reportCardVersionRemarksCleared: versionsCleared.rowCount ?? 0,
             messagesRedacted: messagesRedacted.rowCount ?? 0,
             messageEmailsCleared: messageEmailsCleared.rowCount ?? 0,
+            assistantThreadsDeleted: assistantThreads.rowCount ?? 0,
             ...(login === null ? {} : { studentLoginEnded: true }),
           },
           note: body.reason,

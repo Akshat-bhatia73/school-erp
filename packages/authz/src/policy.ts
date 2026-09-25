@@ -131,6 +131,12 @@ export function matchesScope(scope: AccessScope, facts: RelationshipFacts, resou
         if (resourceFacts.aggregate === true) return true
         return facts.membershipId !== undefined && (resourceFacts.membershipIds ?? []).includes(facts.membershipId)
       }
+      if (resourceFacts.resourceType === 'ai_assistant') {
+        // Every member may hold their own conversations; one conversation is
+        // its owner's alone, which the assistant's own queries enforce.
+        if (resourceFacts.aggregate === true) return true
+        return facts.membershipId !== undefined && (resourceFacts.membershipIds ?? []).includes(facts.membershipId)
+      }
       if (facts.selfStaffId === null) return false
       // An aggregate resource stands for the whole dataset, so a caller who has
       // a staff record of their own can exercise the scope somewhere in it.

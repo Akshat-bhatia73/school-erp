@@ -37,6 +37,8 @@ export const RESTRICTABLE_PERMISSIONS = [
   'students.read_sensitive',
   'students.read_guardians',
   'students.read_medical',
+  // Switching the assistant off for one person (Task 24).
+  'ai_assistant.use',
 ] as const satisfies readonly z.infer<typeof PermissionKey>[]
 export const RestrictablePermission = z.enum(RESTRICTABLE_PERMISSIONS)
 export type RestrictablePermission = z.infer<typeof RestrictablePermission>

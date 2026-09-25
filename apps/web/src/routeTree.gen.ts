@@ -24,6 +24,7 @@ import { Route as AccountChangePasswordRouteImport } from './routes/account/chan
 import { Route as AccountSecurityRouteImport } from './routes/account/security'
 import { Route as MfaSetupRouteImport } from './routes/mfa/setup'
 import { Route as MfaVerifyRouteImport } from './routes/mfa/verify'
+import { Route as AppAssistantIndexRouteImport } from './routes/_app/assistant/index'
 import { Route as AppAttendanceIndexRouteImport } from './routes/_app/attendance/index'
 import { Route as AppExamsIndexRouteImport } from './routes/_app/exams/index'
 import { Route as AppExamsExamIdRouteImport } from './routes/_app/exams/$examId'
@@ -32,6 +33,7 @@ import { Route as AppFeesCollectionsRouteImport } from './routes/_app/fees/colle
 import { Route as AppFeesSetupRouteImport } from './routes/_app/fees/setup'
 import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages/index'
 import { Route as AppMessagesNewRouteImport } from './routes/_app/messages/new'
+import { Route as AppSettingsAssistantRouteImport } from './routes/_app/settings/assistant'
 import { Route as AppSettingsAuditLogRouteImport } from './routes/_app/settings/audit-log'
 import { Route as AppSettingsRolesRouteImport } from './routes/_app/settings/roles'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
@@ -145,6 +147,11 @@ const MfaVerifyRoute = MfaVerifyRouteImport.update({
   path: '/mfa/verify',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppAssistantIndexRoute = AppAssistantIndexRouteImport.update({
+  id: '/assistant/',
+  path: '/assistant/',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAttendanceIndexRoute = AppAttendanceIndexRouteImport.update({
   id: '/attendance/',
   path: '/attendance/',
@@ -183,6 +190,11 @@ const AppMessagesIndexRoute = AppMessagesIndexRouteImport.update({
 const AppMessagesNewRoute = AppMessagesNewRouteImport.update({
   id: '/messages/new',
   path: '/messages/new',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsAssistantRoute = AppSettingsAssistantRouteImport.update({
+  id: '/settings/assistant',
+  path: '/settings/assistant',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsAuditLogRoute = AppSettingsAuditLogRouteImport.update({
@@ -410,6 +422,7 @@ export interface FileRoutesByFullPath {
   '/fees/collections': typeof AppFeesCollectionsRoute
   '/fees/setup': typeof AppFeesSetupRoute
   '/messages/new': typeof AppMessagesNewRoute
+  '/settings/assistant': typeof AppSettingsAssistantRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/settings/roles': typeof AppSettingsRolesRoute
   '/settings/users': typeof AppSettingsUsersRoute
@@ -427,6 +440,7 @@ export interface FileRoutesByFullPath {
   '/timetable/periods': typeof AppTimetablePeriodsRoute
   '/timetable/substitutions': typeof AppTimetableSubstitutionsRoute
   '/timetable/teachers': typeof AppTimetableTeachersRoute
+  '/assistant/': typeof AppAssistantIndexRoute
   '/attendance/': typeof AppAttendanceIndexRoute
   '/exams/': typeof AppExamsIndexRoute
   '/fees/': typeof AppFeesIndexRoute
@@ -472,6 +486,7 @@ export interface FileRoutesByTo {
   '/fees/collections': typeof AppFeesCollectionsRoute
   '/fees/setup': typeof AppFeesSetupRoute
   '/messages/new': typeof AppMessagesNewRoute
+  '/settings/assistant': typeof AppSettingsAssistantRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/settings/roles': typeof AppSettingsRolesRoute
   '/settings/users': typeof AppSettingsUsersRoute
@@ -489,6 +504,7 @@ export interface FileRoutesByTo {
   '/timetable/periods': typeof AppTimetablePeriodsRoute
   '/timetable/substitutions': typeof AppTimetableSubstitutionsRoute
   '/timetable/teachers': typeof AppTimetableTeachersRoute
+  '/assistant': typeof AppAssistantIndexRoute
   '/attendance': typeof AppAttendanceIndexRoute
   '/exams': typeof AppExamsIndexRoute
   '/fees': typeof AppFeesIndexRoute
@@ -536,6 +552,7 @@ export interface FileRoutesById {
   '/_app/fees/collections': typeof AppFeesCollectionsRoute
   '/_app/fees/setup': typeof AppFeesSetupRoute
   '/_app/messages/new': typeof AppMessagesNewRoute
+  '/_app/settings/assistant': typeof AppSettingsAssistantRoute
   '/_app/settings/audit-log': typeof AppSettingsAuditLogRoute
   '/_app/settings/roles': typeof AppSettingsRolesRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
@@ -553,6 +570,7 @@ export interface FileRoutesById {
   '/_app/timetable/periods': typeof AppTimetablePeriodsRoute
   '/_app/timetable/substitutions': typeof AppTimetableSubstitutionsRoute
   '/_app/timetable/teachers': typeof AppTimetableTeachersRoute
+  '/_app/assistant/': typeof AppAssistantIndexRoute
   '/_app/attendance/': typeof AppAttendanceIndexRoute
   '/_app/exams/': typeof AppExamsIndexRoute
   '/_app/fees/': typeof AppFeesIndexRoute
@@ -600,6 +618,7 @@ export interface FileRouteTypes {
     | '/fees/collections'
     | '/fees/setup'
     | '/messages/new'
+    | '/settings/assistant'
     | '/settings/audit-log'
     | '/settings/roles'
     | '/settings/users'
@@ -617,6 +636,7 @@ export interface FileRouteTypes {
     | '/timetable/periods'
     | '/timetable/substitutions'
     | '/timetable/teachers'
+    | '/assistant/'
     | '/attendance/'
     | '/exams/'
     | '/fees/'
@@ -662,6 +682,7 @@ export interface FileRouteTypes {
     | '/fees/collections'
     | '/fees/setup'
     | '/messages/new'
+    | '/settings/assistant'
     | '/settings/audit-log'
     | '/settings/roles'
     | '/settings/users'
@@ -679,6 +700,7 @@ export interface FileRouteTypes {
     | '/timetable/periods'
     | '/timetable/substitutions'
     | '/timetable/teachers'
+    | '/assistant'
     | '/attendance'
     | '/exams'
     | '/fees'
@@ -725,6 +747,7 @@ export interface FileRouteTypes {
     | '/_app/fees/collections'
     | '/_app/fees/setup'
     | '/_app/messages/new'
+    | '/_app/settings/assistant'
     | '/_app/settings/audit-log'
     | '/_app/settings/roles'
     | '/_app/settings/users'
@@ -742,6 +765,7 @@ export interface FileRouteTypes {
     | '/_app/timetable/periods'
     | '/_app/timetable/substitutions'
     | '/_app/timetable/teachers'
+    | '/_app/assistant/'
     | '/_app/attendance/'
     | '/_app/exams/'
     | '/_app/fees/'
@@ -893,6 +917,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MfaVerifyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/assistant/': {
+      id: '/_app/assistant/'
+      path: '/assistant'
+      fullPath: '/assistant/'
+      preLoaderRoute: typeof AppAssistantIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/attendance/': {
       id: '/_app/attendance/'
       path: '/attendance'
@@ -947,6 +978,13 @@ declare module '@tanstack/react-router' {
       path: '/messages/new'
       fullPath: '/messages/new'
       preLoaderRoute: typeof AppMessagesNewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/assistant': {
+      id: '/_app/settings/assistant'
+      path: '/settings/assistant'
+      fullPath: '/settings/assistant'
+      preLoaderRoute: typeof AppSettingsAssistantRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/audit-log': {
@@ -1224,6 +1262,7 @@ interface AppRouteChildren {
   AppFeesCollectionsRoute: typeof AppFeesCollectionsRoute
   AppFeesSetupRoute: typeof AppFeesSetupRoute
   AppMessagesNewRoute: typeof AppMessagesNewRoute
+  AppSettingsAssistantRoute: typeof AppSettingsAssistantRoute
   AppSettingsAuditLogRoute: typeof AppSettingsAuditLogRoute
   AppSettingsRolesRoute: typeof AppSettingsRolesRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRoute
@@ -1241,6 +1280,7 @@ interface AppRouteChildren {
   AppTimetablePeriodsRoute: typeof AppTimetablePeriodsRoute
   AppTimetableSubstitutionsRoute: typeof AppTimetableSubstitutionsRoute
   AppTimetableTeachersRoute: typeof AppTimetableTeachersRoute
+  AppAssistantIndexRoute: typeof AppAssistantIndexRoute
   AppAttendanceIndexRoute: typeof AppAttendanceIndexRoute
   AppExamsIndexRoute: typeof AppExamsIndexRoute
   AppFeesIndexRoute: typeof AppFeesIndexRoute
@@ -1274,6 +1314,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppFeesCollectionsRoute: AppFeesCollectionsRoute,
   AppFeesSetupRoute: AppFeesSetupRoute,
   AppMessagesNewRoute: AppMessagesNewRoute,
+  AppSettingsAssistantRoute: AppSettingsAssistantRoute,
   AppSettingsAuditLogRoute: AppSettingsAuditLogRoute,
   AppSettingsRolesRoute: AppSettingsRolesRoute,
   AppSettingsUsersRoute: AppSettingsUsersRoute,
@@ -1291,6 +1332,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppTimetablePeriodsRoute: AppTimetablePeriodsRoute,
   AppTimetableSubstitutionsRoute: AppTimetableSubstitutionsRoute,
   AppTimetableTeachersRoute: AppTimetableTeachersRoute,
+  AppAssistantIndexRoute: AppAssistantIndexRoute,
   AppAttendanceIndexRoute: AppAttendanceIndexRoute,
   AppExamsIndexRoute: AppExamsIndexRoute,
   AppFeesIndexRoute: AppFeesIndexRoute,

@@ -211,6 +211,8 @@ export interface CustomServer extends TestServer {
 export async function startServerWith(options: {
   delivery?: DeliveryAdapter
   env?: Record<string, string>
+  /** Tests only: the assistant's scripted model (and, if given, its tools). */
+  assistant?: Parameters<typeof buildApp>[0]['assistant']
 }): Promise<CustomServer> {
   const port = await freePort()
   const config = loadConfig(testEnv(port, options.env ?? {}))
@@ -218,7 +220,7 @@ export async function startServerWith(options: {
   const delivery = options.delivery ?? createScriptedDelivery()
   const auth = createAuth(config, pools.auth, delivery, pools.identity)
   const documents = createMemoryDocumentStorage()
-  const app = buildApp({ config, auth, delivery, pools, documents })
+  const app = buildApp({ config, auth, delivery, pools, documents, assistant: options.assistant })
   await app.listen({ port: config.PORT, host: '127.0.0.1' })
   const origin = `http://127.0.0.1:${config.PORT}`
   const jar = new CookieJar()

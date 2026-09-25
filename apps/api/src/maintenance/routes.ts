@@ -274,6 +274,9 @@ export function registerMaintenanceRoutes(
         [`${RETENTION.credentialGraceDays} days`],
       )),
       ...(await sweep(deps.pools.runtime, 'messages', 'SELECT * FROM sweep_messages()')),
+      // Assistant conversations 30 days after each message was written, the
+      // conversations left empty, and the word-free usage counts after 13 months.
+      ...(await sweep(deps.pools.runtime, 'assistant', 'SELECT * FROM sweep_assistant()')),
     ]
 
     // The exports that were too big to build in the request that asked for

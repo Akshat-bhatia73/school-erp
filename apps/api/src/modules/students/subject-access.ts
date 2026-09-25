@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { sql } from 'drizzle-orm'
 import { AuthorizationError, communicationScopedTable, planPredicate, scopedTableFor } from '@erp/authz'
 import { withTenantTransaction } from '@erp/db'
-import { SubjectAccessExport } from '@erp/contracts'
+import { ASSISTANT_KEEP_DAYS, SubjectAccessExport } from '@erp/contracts'
 import type {
   AttendanceMark,
   AttendanceYearRecord,
@@ -14,6 +14,7 @@ import type {
   PermissionKey,
   ReportCardView,
   SubjectAccessEvent,
+  SubjectAssistantSummary,
   SubjectMessage,
   SubjectSensitive,
 } from '@erp/contracts'
@@ -506,6 +507,43 @@ async function loadMessages(
   }))
 }
 
+/**
+ * That the pupil used the assistant (Task 24): how many conversations and
+ * questions, and when. The words are the pupil's alone and stay sealed; they
+ * are never opened here. Undefined when the pupil never had a login.
+ */
+async function loadAssistantSummary(
+  conn: ModuleConnection,
+  context: RequestContext,
+  studentId: string,
+): Promise<SubjectAssistantSummary | undefined> {
+  const logins = await conn.client.query<{ membership_id: string }>(
+    `SELECT membership_id FROM membership_student_links WHERE school_id = $1 AND student_id = $2`,
+    [context.schoolId, studentId],
+  )
+  if (logins.rows.length === 0) return undefined
+  const iso = `'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'`
+  const counted = await conn.client.query<{ conversations: string; questions: string; oldest: string | null; newest: string | null }>(
+    `SELECT (SELECT count(*) FROM assistant_threads t
+              WHERE t.school_id = $1 AND t.membership_id = ANY($2::uuid[])
+                AND EXISTS (SELECT 1 FROM assistant_messages m WHERE m.school_id = t.school_id AND m.thread_id = t.id))::text AS conversations,
+            count(*) FILTER (WHERE role = 'user')::text AS questions,
+            to_char(min(created_at) AT TIME ZONE 'UTC', ${iso}) AS oldest,
+            to_char(max(created_at) AT TIME ZONE 'UTC', ${iso}) AS newest
+       FROM assistant_messages
+      WHERE school_id = $1 AND membership_id = ANY($2::uuid[])`,
+    [context.schoolId, logins.rows.map((row) => row.membership_id)],
+  )
+  const row = counted.rows[0]
+  return {
+    conversations: Number(row?.conversations ?? '0'),
+    questions: Number(row?.questions ?? '0'),
+    ...(row?.oldest ? { oldestAt: row.oldest } : {}),
+    ...(row?.newest ? { newestAt: row.newest } : {}),
+    keptDays: ASSISTANT_KEEP_DAYS,
+  }
+}
+
 export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDependencies): void {
   protectedRoute(app, deps, {
     method: 'GET',
@@ -531,6 +569,7 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ...(result.reportCards === undefined ? [] : ['reportCards']),
           ...(result.messages === undefined ? [] : ['messages']),
           ...(result.accessHistory === undefined ? [] : ['accessHistory']),
+          ...(result.assistantConversations === undefined ? [] : ['assistantConversations']),
         ],
       }),
     },
@@ -658,6 +697,10 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ? await loadAccessHistory(conn, context, deps.pools.auth, studentId)
           : undefined
 
+        // That the pupil used the assistant, never what they said: the
+        // conversations are the pupil's alone, a parent's copy included.
+        const assistantConversations = anonymised ? undefined : await loadAssistantSummary(conn, context, studentId)
+
         return {
           generatedAt: new Date().toISOString(),
           schoolId: context.schoolId,
@@ -674,6 +717,7 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ...(reportCards === undefined ? {} : { reportCards }),
           ...(messages === undefined ? {} : { messages }),
           ...(history === undefined ? {} : { accessHistory: history }),
+          ...(assistantConversations === undefined ? {} : { assistantConversations }),
         }
       })
     },

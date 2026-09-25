@@ -219,6 +219,25 @@ async function member(
 
 const extraUserIds: string[] = []
 
+/** The purposes every family is asked about; the assistant has its own card. */
+const ASKED_OF_EVERY_FAMILY = CONSENT_PURPOSES.filter((purpose) => purpose !== 'ai_assistant')
+
+/**
+ * A family of two for the assistant card: a senior pupil with a login that is
+ * on and a younger child without one, under one guardian and one parent login.
+ * Everything is made and removed by this suite.
+ */
+const family = {
+  guardianId: randomUUID(),
+  otherGuardianId: randomUUID(),
+  seniorId: randomUUID(),
+  youngerId: randomUUID(),
+  pupilUserId: randomUUID(),
+  pupilMembershipId: randomUUID(),
+  parentUserId: '',
+  parentMembershipId: '',
+}
+
 before(async () => {
   await seedDatabaseFixtures()
   const pool = adminPool()
@@ -478,6 +497,34 @@ after(async () => {
     schoolA,
     [freshStudentId, leftStudentId],
   ])
+  // The family of the assistant card. Consent history is append-only, so its
+  // trigger is lifted for the tidy-up alone, as for the report card above.
+  const familyStudents = [family.seniorId, family.youngerId]
+  const familyGuardians = [family.guardianId, family.otherGuardianId]
+  await pool.query('ALTER TABLE guardian_consents DISABLE TRIGGER guardian_consents_no_update')
+  await pool.query('DELETE FROM guardian_consents WHERE school_id = $1 AND student_id = ANY($2::uuid[])', [
+    schoolA,
+    familyStudents,
+  ])
+  await pool.query('ALTER TABLE guardian_consents ENABLE TRIGGER guardian_consents_no_update')
+  for (const table of ['guardian_student_access', 'student_guardians']) {
+    await pool.query(`DELETE FROM ${table} WHERE school_id = $1 AND student_id = ANY($2::uuid[])`, [
+      schoolA,
+      familyStudents,
+    ])
+  }
+  await pool.query('DELETE FROM membership_student_links WHERE school_id = $1 AND student_id = ANY($2::uuid[])', [
+    schoolA,
+    familyStudents,
+  ])
+  await pool.query('DELETE FROM school_memberships WHERE school_id = $1 AND id = $2', [schoolA, family.pupilMembershipId])
+  await pool.query('DELETE FROM auth_user WHERE id = $1', [family.pupilUserId])
+  await pool.query('DELETE FROM membership_guardian_links WHERE school_id = $1 AND guardian_id = ANY($2::uuid[])', [
+    schoolA,
+    familyGuardians,
+  ])
+  await pool.query('DELETE FROM guardians WHERE school_id = $1 AND id = ANY($2::uuid[])', [schoolA, familyGuardians])
+  await pool.query('DELETE FROM students WHERE school_id = $1 AND id = ANY($2::uuid[])', [schoolA, familyStudents])
   await server?.close()
   await closeAdminPool()
 })
@@ -967,9 +1014,11 @@ test("a parent sees their child's own day and what is still waiting on them", as
   const purposes = child.waitingOn.map((item) => item.purpose)
   assert.ok(!purposes.includes('photographs'), 'a consent already given is still being asked for')
   const answered = await ownGiven(guardianA2, studentA2)
+  // The assistant is asked for on its own card, never as something the school waits on.
+  assert.ok(!purposes.includes('ai_assistant'))
   assert.deepEqual(
     [...purposes].sort(),
-    CONSENT_PURPOSES.filter((purpose) => !answered.has(purpose)).slice().sort(),
+    ASKED_OF_EVERY_FAMILY.filter((purpose) => !answered.has(purpose)).slice().sort(),
   )
   assert.ok(purposes.length >= 1)
   assert.ok(child.waitingOn.every((item) => item.kind === 'consent'))
@@ -997,7 +1046,7 @@ test("another guardian's consent does not answer for the viewer", async () => {
     [otherGuardian, schoolA, `9${Math.floor(100000000 + Math.random() * 899999999)}`],
   )
   const own = await ownGiven(guardianA2, studentA2)
-  const purpose = CONSENT_PURPOSES.find((candidate) => !own.has(candidate))
+  const purpose = ASKED_OF_EVERY_FAMILY.find((candidate) => !own.has(candidate))
   assert.ok(purpose, 'the viewer has answered every purpose already')
   await pool.query(
     `INSERT INTO guardian_consents(id,school_id,student_id,guardian_id,purpose,status,method,recorded_by_membership_id)
@@ -1039,6 +1088,105 @@ test('a parent who allows school messages is no longer asked, and asked again af
   const withdrawn = await record('withdrawn')
   assert.equal(withdrawn.status, 200, await withdrawn.clone().text())
   assert.equal(await waitingOnMessages(), true)
+})
+
+test('the parent home says which child has a pupil login and where the assistant consent stands', async () => {
+  const pool = adminPool()
+  await pool.query(
+    `INSERT INTO students(id,school_id,admission_number,first_name,last_name,status,gender)
+     VALUES ($1,$2,$3,'Riya','Senior','active','female'), ($4,$2,$5,'Kabir','Younger','active','male')`,
+    [family.seniorId, schoolA, `DASH-SR-${suffix}`, family.youngerId, `DASH-YR-${suffix}`],
+  )
+  await pool.query(
+    `INSERT INTO guardians (id, school_id, first_name, phone)
+     VALUES ($1, $2, 'Family Guardian', $3), ($4, $2, 'Other Guardian', $5)`,
+    [
+      family.guardianId,
+      schoolA,
+      `9${Math.floor(100000000 + Math.random() * 899999999)}`,
+      family.otherGuardianId,
+      `9${Math.floor(100000000 + Math.random() * 899999999)}`,
+    ],
+  )
+  for (const studentId of [family.seniorId, family.youngerId]) {
+    for (const guardianId of [family.guardianId, family.otherGuardianId]) {
+      await pool.query(
+        `INSERT INTO student_guardians (school_id, student_id, guardian_id, relation) VALUES ($1, $2, $3, 'guardian')`,
+        [schoolA, studentId, guardianId],
+      )
+    }
+    await pool.query(
+      `INSERT INTO guardian_student_access
+         (school_id, guardian_id, student_id, status, areas, approved_by_membership_id, approved_at)
+       VALUES ($1, $2, $3, 'approved', ARRAY['basic']::text[], $4, now())`,
+      [schoolA, family.guardianId, studentId, ownerMembershipId],
+    )
+  }
+  // The senior pupil's own login, made the way issuance makes it.
+  await pool.query(`INSERT INTO auth_user(id,name,email) VALUES ($1::uuid,'Pupil',$1::text || '@student.invalid')`, [
+    family.pupilUserId,
+  ])
+  await pool.query(
+    `INSERT INTO school_memberships(id,school_id,user_id,kind,status) VALUES ($1,$2,$3,'student','active')`,
+    [family.pupilMembershipId, schoolA, family.pupilUserId],
+  )
+  await pool.query(`INSERT INTO membership_student_links(school_id,membership_id,student_id) VALUES ($1,$2,$3)`, [
+    schoolA,
+    family.pupilMembershipId,
+    family.seniorId,
+  ])
+  const parentMember = await member(['parent'], 'family', false)
+  extraUserIds.push(parentMember.userId)
+  await pool.query(
+    `INSERT INTO membership_guardian_links (school_id, membership_id, guardian_id, verified_at) VALUES ($1, $2, $3, now())`,
+    [schoolA, parentMember.membershipId, family.guardianId],
+  )
+  const familyParent = parentMember.client
+
+  const children = async () => {
+    const body = await read(familyParent, MONDAY)
+    if (body.audience !== 'parent') throw new Error('not the parent dashboard')
+    const senior = body.children.find((child) => child.student.id === family.seniorId)
+    const younger = body.children.find((child) => child.student.id === family.youngerId)
+    assert.ok(senior && younger, 'both children are on the parent home')
+    return { senior, younger }
+  }
+
+  let { senior, younger } = await children()
+  assert.equal(senior.hasPupilLogin, true)
+  assert.equal(senior.assistantConsent, 'none')
+  assert.equal(younger.hasPupilLogin, false)
+  assert.equal(younger.assistantConsent, 'none')
+  assert.ok(!senior.waitingOn.some((item) => item.purpose === 'ai_assistant'))
+  assert.ok(!younger.waitingOn.some((item) => item.purpose === 'ai_assistant'))
+
+  // The parent allows it through the portal, as the card does.
+  const allowed = await familyParent.fetch(`/api/schools/${schoolA}/students/${family.seniorId}/consents`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ guardianId: family.guardianId, purpose: 'ai_assistant', status: 'given', method: 'portal' }),
+  })
+  assert.equal(allowed.status, 200, await allowed.clone().text())
+  ;({ senior, younger } = await children())
+  assert.equal(senior.assistantConsent, 'given')
+  assert.equal(younger.assistantConsent, 'none')
+
+  // Any guardian withdrawing ends it: the newest row of any guardian counts.
+  await pool.query(
+    `INSERT INTO guardian_consents(id,school_id,student_id,guardian_id,purpose,status,method,recorded_by_membership_id,recorded_at)
+     VALUES ($1,$2,$3,$4,'ai_assistant','withdrawn','in_person',$5, now() + interval '1 second')`,
+    [randomUUID(), schoolA, family.seniorId, family.otherGuardianId, ownerMembershipId],
+  )
+  ;({ senior } = await children())
+  assert.equal(senior.assistantConsent, 'withdrawn')
+
+  // A login switched off is not a login the assistant card is for.
+  await pool.query(`UPDATE school_memberships SET status = 'suspended' WHERE school_id = $1 AND id = $2`, [
+    schoolA,
+    family.pupilMembershipId,
+  ])
+  ;({ senior } = await children())
+  assert.equal(senior.hasPupilLogin, false)
 })
 
 test('an accountant gets the roll and the money card, and no class strengths', async () => {

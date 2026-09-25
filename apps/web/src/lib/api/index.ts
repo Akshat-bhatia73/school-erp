@@ -25,6 +25,7 @@ import * as reportCards from './report-cards'
 import * as logo from './logo'
 import * as messages from './messages'
 import * as studentLogins from './student-logins'
+import * as assistant from './assistant'
 
 export const api = {
   setup,
@@ -65,6 +66,7 @@ export const api = {
     delete: messages.remove,
     export: messages.exportDelivery,
   },
+  assistant,
 } as const
 
 export * from './shared'

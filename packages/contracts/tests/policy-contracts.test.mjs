@@ -29,7 +29,7 @@ test('every role grants only supported active permission/scope pairs, without du
 test('malformed grants cannot introduce reserved actions, arbitrary scopes or bypass flags', () => {
   for (const grant of [
     { permission: 'roles.assign', scope: 'own_children' },
-    { permission: 'ai_assistant.use', scope: 'school' },
+    { permission: 'roles.manage', scope: 'school' },
     { permission: '*', scope: 'school' },
     { permission: 'students.read_basic', scope: 'school', bypass: true },
   ]) assert.equal(c.RoleGrant.safeParse(grant).success, false)

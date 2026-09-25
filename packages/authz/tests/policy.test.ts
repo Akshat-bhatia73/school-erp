@@ -190,7 +190,7 @@ test('invariants deny before any grant is considered', () => {
 
   assert.deepEqual(evaluate({ ...base, context: owner, permission: 'not.a.permission' }), { allowed: false, code: 'ACCESS_DENIED' })
   assert.deepEqual(
-    evaluate({ ...base, context: owner, permission: 'ai_assistant.use', resource: reference('ai_assistant'), resourceFacts: resourceFactsFor('ai_assistant') }),
+    evaluate({ ...base, context: owner, permission: 'roles.manage', resource: reference('role'), resourceFacts: resourceFactsFor('role') }),
     { allowed: false, code: 'ACCESS_DENIED' },
   )
   // A student login holds the student role alone, and only a student login holds it.

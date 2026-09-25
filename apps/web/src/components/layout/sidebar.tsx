@@ -13,7 +13,7 @@ import { useAcademicYear } from '@/lib/use-academic-year'
 import { cn } from '@/lib/utils'
 
 /** Everything a pupil's navigation offers; anything else stays out of it whatever it is gated on. */
-export const PUPIL_PATHS: ReadonlySet<string> = new Set(['/dashboard', '/timetable', '/attendance', '/exams', '/messages'])
+export const PUPIL_PATHS: ReadonlySet<string> = new Set(['/dashboard', '/timetable', '/attendance', '/exams', '/messages', '/assistant'])
 
 /** `permissions` means any one of them is enough; `permission` stays the single-key form. */
 interface NavItem { label: string; to: string; icon: ReactNode; count?: number | string; permission?: PermissionKey; permissions?: PermissionKey[]; exact?: boolean }
@@ -85,6 +85,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
     { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read'] },
     { label: 'Exams', to: '/exams', icon: <NotebookPen />, permissions: ['exams.read', 'report_cards.read'] },
     { label: 'Messages', to: '/messages', icon: <Mail />, count: unread?.unread ? unread.unread : undefined, permission: 'communication.read' },
+    { label: 'Assistant', to: '/assistant', icon: <Sparkles />, permission: 'ai_assistant.use' },
   ]
   const setup: NavItem[] = [
     { label: 'School profile', to: '/setup/school', icon: <School />, permission: 'school.read' },
@@ -150,17 +151,6 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
             {!collapsed && <SectionLabel>Settings</SectionLabel>}
             {collapsed && <div className="my-2 border-t" />}
             <nav className="flex flex-col gap-0.5">{visible(settings).map((i) => <NavLink key={i.to} item={i} collapsed={collapsed} onNavigate={onNavigate} />)}</nav>
-          </>
-        )}
-
-        {!collapsed && audience === 'office' && (
-          <>
-            <SectionLabel>Coming next</SectionLabel>
-            <div className="flex flex-col gap-0.5 opacity-60">
-              {[['AI assistant', 'Phase 4']].map(([l, p]) => (
-                <div key={l} className="flex h-8 items-center justify-between px-2 text-[13px] text-muted-foreground"><span>{l}</span><span className="text-[11px]">{p}</span></div>
-              ))}
-            </div>
           </>
         )}
       </div>

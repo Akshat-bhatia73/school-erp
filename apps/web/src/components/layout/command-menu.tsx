@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, LogOut, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus, CalendarClock, ClipboardCheck, NotebookPen, Mail } from 'lucide-react'
+import { BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, LogOut, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus, CalendarClock, ClipboardCheck, NotebookPen, Mail, Sparkles } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Tag, colorFor } from '@/components/shared/tag'
@@ -25,6 +25,7 @@ const goTo: Entry[] = [
   { label: 'Attendance', icon: <ClipboardCheck />, to: '/attendance', permission: 'attendance.read' },
   { label: 'Exams', icon: <NotebookPen />, to: '/exams', permission: 'exams.read' },
   { label: 'Messages', icon: <Mail />, to: '/messages', permission: 'communication.read' },
+  { label: 'Assistant', icon: <Sparkles />, to: '/assistant', permission: 'ai_assistant.use' },
   { label: 'School profile', icon: <School />, to: '/setup/school', permission: 'school.read' },
   { label: 'Academic years', icon: <CalendarDays />, to: '/setup/academic-years', permission: 'academic_years.read' },
   { label: 'Classes & sections', icon: <Building2 />, to: '/setup/classes', permission: 'sections.read' },

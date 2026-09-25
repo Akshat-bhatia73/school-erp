@@ -316,6 +316,14 @@ export const ParentDashboard = z.strictObject({
       attendance: DashboardChildAttendance.optional(),
       /** The newest published report card of any year; needs `report_cards.read` on this child. */
       latestReportCard: DashboardReportCard.optional(),
+      /** The child has a pupil login that is on (Class 9 to 12). */
+      hasPupilLogin: z.boolean(),
+      /**
+       * The newest `ai_assistant` consent for this child from any guardian, or
+       * none when nobody has answered; needs `students.read_consents`.
+       */
+      assistantConsent: z.enum(['given', 'withdrawn', 'none']).optional(),
+      /** The consents the school asks every family for. The assistant is asked for on its own card. */
       waitingOn: z.array(
         z.strictObject({ kind: z.literal('consent'), purpose: ConsentPurpose }),
       ),

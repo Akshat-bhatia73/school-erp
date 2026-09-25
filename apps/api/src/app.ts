@@ -30,6 +30,7 @@ import { registerInvitationRoutes } from './invitations/routes.ts'
 import { registerModuleRoutes } from './modules/index.ts'
 import { registerMaintenanceRoutes } from './maintenance/routes.ts'
 import { registerMessageMaintenanceRoutes } from './maintenance/messages.ts'
+import { registerAssistantRoutes, type AssistantDependencies } from './assistant/routes.ts'
 import {
   MFA_ATTEMPT_LIMIT,
   MFA_ATTEMPT_WINDOW_SECONDS,
@@ -96,6 +97,8 @@ export interface AppDependencies {
   pools: ApiPools
   /** Private document bytes. Storage keys never leave the server. */
   documents: DocumentStorage
+  /** Tests only: a scripted model and read tools for the assistant. Never set in production. */
+  assistant?: Pick<AssistantDependencies, 'assistantModel' | 'assistantTools'>
 }
 
 /** Internal header carrying the address Fastify resolved for this request. */
@@ -128,6 +131,7 @@ export function buildApp({
   delivery,
   pools,
   documents,
+  assistant,
 }: AppDependencies): FastifyInstance {
   const app = Fastify({
     trustProxy: config.API_TRUST_PROXY,
@@ -229,6 +233,7 @@ export function buildApp({
   registerMembershipRoutes(app, { auth, pools, authz, delivery })
   registerInvitationRoutes(app, { auth, pools, authz, delivery })
   registerModuleRoutes(app, { config, auth, pools, authz, delivery, documents })
+  registerAssistantRoutes(app, { config, auth, pools, authz, delivery, documents, ...assistant })
   registerMaintenanceRoutes(app, { config, pools, documents })
   registerMessageMaintenanceRoutes(app, { config, pools, documents, delivery })
 

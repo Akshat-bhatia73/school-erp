@@ -107,9 +107,37 @@ Decisions taken while building it. A notice in the pupil's own app needs no cons
 
 Brought into this plan by the product owner on 25 September 2026 and placed ahead of everything else still open, including Tasks 16 and 17. An assistant inside the app that answers questions about the school and helps with work, always bounded by the caller's own permissions: it reads through the same protected routes, plans and scopes a screen would, never a wider query, and it can never see or do what the person asking could not. The reserved keys `ai_assistant.use` and `ai_assistant.manage` in `packages/contracts/src/permissions.ts` are its vocabulary.
 
-Not specified yet. Before any build the product owner decides, at least: who gets it (which roles, pupils or not); what it may do (answer only, draft for a person to send, or act with confirmation); which model provider and where data is processed, since children's data would leave the school's database; what is kept (prompts, answers, how long) and whether it is audited per question; languages; and cost limits per school. Each decision will be written here, with the DPDP assessment (a new sub-processor, a new purpose, a cross-border transfer) in `docs/compliance/DATA_PROTECTION.md` and the sub-processor list, before the first line of code.
+The full design is in [docs/assistant/ARCHITECTURE.md](assistant/ARCHITECTURE.md). The data protection assessment is [DATA_PROTECTION.md](compliance/DATA_PROTECTION.md) section 17.
 
-Exit check, to be refined with the decisions: a teacher asking about another class, a parent asking about another family's child and a pupil asking about anything beyond their own record each get nothing more than the screen would give them, proven in `tests/security`; every answer that used school data names where it came from; switching the assistant off for a school or a person takes effect on the next request.
+**What the product owner decided on 25 September 2026:**
+
+- **A screen of its own**, like Linear's agent: the conversation fills the screen, and past conversations open from a "New chat" popover at the top, so there is never a second sidebar. Answers can hold cards (a pupil, a table, a fee statement), not only text.
+- **Everyone can use it**: owner, principal, office, accountant, teacher, parent, and pupils in Class 9 to 12. A pupil can use it only after a guardian agrees, through a new `ai_assistant` consent asked for on the parent home. If a guardian withdraws, it stops.
+- **It answers and it acts, but only after the person confirms.** When it wants to change something it shows the change as a card. The person can edit the card in place and then press Confirm. Nothing changes before that.
+- **It acts as the person using it.** It reads and writes through the same routes and checks as the screens, with the person's own session. It has no access of its own.
+- **High-risk actions stay off it**: role changes, invitations, removing or suspending members, ownership transfer, restrictions, anonymising, deleting. It explains how to do them and links to the screen.
+- **Google models through Vercel AI Gateway**, so changing the model is a configuration change. Requests go only to Google Vertex AI under zero data retention.
+- **What is kept**: one audit row per question (which tools, how many records, no text), and the conversation text for 30 days, sealed, visible only to the person who asked.
+- **Languages**: it replies in the language of the question, English or Hindi.
+- **Limits**: questions per person per day and per school per month, set by the owner or principal. A monthly budget on the gateway is the hard stop for money.
+
+**Choices made in the design**, open to question: the confirm goes through the assistant's own route, which then calls the real write route as the person; whole identity numbers, files and the audit log are never available to it; switching it off for one person is a member restriction (`ai_assistant.use` becomes the fourth restrictable key); parents and staff need no separate consent because Google acts for the school as a sub-processor, which counsel should confirm; conversation text is sealed with the application key.
+
+**Permissions.** `ai_assistant.use` becomes active at `self` for every role, pupils included. It only opens the screen; what the assistant can reach is what the person's other keys allow. `ai_assistant.manage` becomes active at `school` for owner and principal: the school switch, the limits and usage counts, never anyone's conversation. Existing schools need `pnpm db:sync-roles` at release.
+
+**Build order.** Five parts, one pull request each, each shipping on its own:
+
+| Part | What ships |
+|---|---|
+| 24a Foundation | The screen, conversations, streaming, every read tool, cards, sources, the audit row, 30-day keeping, the switches and limits, the pupil consent and its parent home card, Settings → Assistant. Answers only. |
+| 24b Attendance and marks | Proposals, editable cards, Confirm and Confirm all, clash handling; then changes to the attendance register, staff register, exam marks and co-scholastic grades. |
+| 24c Messages and notices | Write, schedule, send and withdraw. |
+| 24d Fees | Record a payment, apply a concession, add an optional fee. |
+| 24e Pupil and staff records | Update details and guardians, admit a pupil, arrange a substitution. |
+
+**Before real children's data goes through it**: the Vercel team moves to Pro (per-request zero data retention needs it), the privacy notice, processing agreement and retention schedule change in the 24a pull request, and counsel reviews DATA_PROTECTION.md section 17.
+
+**Exit check.** A teacher asking about another class, a parent asking about another family's child and a pupil asking about anything beyond their own record each get nothing more than the screen would give them, proven in `tests/security` with a scripted model. One person can never read or confirm another person's conversation or proposal, the owner included. Every answer that used school data shows its sources, built from the tool calls the server made. Nothing is written until the person presses Confirm, and a confirm re-checks the body and the record's version. Switching it off for a school or a person, a guardian withdrawing consent, and suspending a member each take effect on the next request. No audit row, log line or error report holds the text of a question or an answer.
 
 ### Out of scope for this plan
 
@@ -138,7 +166,7 @@ The readiness tasks are the release gate for the first paying school; the module
 | Online payment gateway. Decided for Task 19: none, payments are recorded by hand. Which gateway, if any, is still to decide | Product owner | Before any online payment work |
 | Which school is first, and its fee structure and grading scheme, to shape the fixtures | Product owner | Tasks 19 and 21 |
 | Named holders for the backup key and the security contact address | Product owner | Task 17 |
-| AI assistant: audience, what it may do, model provider and processing region, retention and audit of questions, languages, cost limits | Product owner | Task 24 |
+| AI assistant: audience, what it may do, model provider and processing region, retention and audit of questions, languages, cost limits. Decided 25 September 2026, see Task 24 | Product owner | Task 24 |
 
 ## 7. Office feedback, September 2026
 

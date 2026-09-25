@@ -1488,6 +1488,65 @@ export const messageRecipients = pgTable(
   ],
 )
 
+
+/** The assistant's switch and limits for one school (Task 24). */
+export const assistantSettings = pgTable('assistant_settings', {
+  schoolId: tenant().primaryKey(),
+  enabled: boolean('enabled').notNull().default(false),
+  dailyQuestionsStaff: integer('daily_questions_staff').notNull().default(50),
+  dailyQuestionsFamily: integer('daily_questions_family').notNull().default(20),
+  monthlyQuestions: integer('monthly_questions').notNull().default(3000),
+  version: integer('version').notNull().default(1),
+  ...timestamps(),
+})
+
+/** One conversation, its owner's alone. The title is sealed. */
+export const assistantThreads = pgTable(
+  'assistant_threads',
+  {
+    id: id(),
+    schoolId: tenant(),
+    membershipId: uuid('membership_id').notNull(),
+    titleSealed: text('title_sealed'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique('assistant_threads_school_id_id_key').on(t.schoolId, t.id)],
+)
+
+/** One question or answer in the AI SDK's UI message shape, sealed whole. */
+export const assistantMessages = pgTable(
+  'assistant_messages',
+  {
+    id: id(),
+    schoolId: tenant(),
+    threadId: uuid('thread_id').notNull(),
+    membershipId: uuid('membership_id').notNull(),
+    messageKey: text('message_key').notNull(),
+    role: text('role').notNull(),
+    contentSealed: text('content_sealed').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique('assistant_messages_school_id_thread_id_message_key_key').on(t.schoolId, t.threadId, t.messageKey)],
+)
+
+/** One row per question, for the limits and the bill. No words. */
+export const assistantUsage = pgTable('assistant_usage', {
+  id: id(),
+  schoolId: tenant(),
+  membershipId: uuid('membership_id').notNull(),
+  roleKeys: text('role_keys').array().notNull(),
+  schoolDay: date('school_day').notNull(),
+  status: text('status').notNull().default('started'),
+  model: text('model'),
+  toolCalls: integer('tool_calls').notNull().default(0),
+  refusedCalls: integer('refused_calls').notNull().default(0),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+})
+
 export const schoolTables = [
   schoolMemberships,
   roles,
@@ -1543,4 +1602,8 @@ export const schoolTables = [
   messages,
   messageAttachments,
   messageRecipients,
+  assistantSettings,
+  assistantThreads,
+  assistantMessages,
+  assistantUsage,
 ] as const

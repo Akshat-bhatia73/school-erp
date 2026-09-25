@@ -31,6 +31,8 @@ section 3:
 | Resend (Resend Inc.) | Sends email: invitations, one-time codes, password resets, and the school's messages to families and staff (Task 22), with their attached files. | Contact data: the recipient address and the message body. A school message's body and files are about children: absence, results, fees, birthdays and the school's notices | Account data, email metadata and logs are stored in the United States whatever sending region is chosen. Our sending region is `[read it in the Resend dashboard under the domain's settings; existing domains default to us-east-1, North Virginia]` | 19 Sep 2026 |
 | Sentry (Functional Software, Inc.) | Error reports and the repeated-denial alert. | Technical data only. The API sends no request bodies, cookies, headers, query strings, users or breadcrumbs ([release runbook](../auth/RELEASE.md#2-environment-variables)) | The organisation's storage location is either the US (Iowa) or the EU (Frankfurt), fixed when the organisation was created. Ours is `[read it in Sentry under Organization Settings; it cannot be changed without creating a new organisation]` | 19 Sep 2026 |
 | Better Stack (Better Stack, Inc.) | Uptime checks against the public health route. | None of the school's. The health route returns no personal data and writes no access-log row. Better Stack holds only our own account and the check results | Better Stack stores data in EU regions by default and offers custom locations for enterprise accounts. Ours is the default unless changed: `[confirm in the Better Stack dashboard]` | 19 Sep 2026 |
+| Vercel AI Gateway (Vercel Inc.) | Passes the assistant's requests to the language model and back (Task 24, not yet in use). | School records in transit: the question, the records needed to answer it and the answer. Nothing kept after the request (zero data retention, per request) | Processed by Vercel's gateway; not stored. `[region of the gateway endpoint to confirm]` | 25 Sep 2026 |
+| Google Vertex AI (Google LLC), through Vercel AI Gateway | Runs the language model that answers the assistant's questions (Task 24, not yet in use). | School records in transit, as above, including children's. Sent only under the zero data retention agreement Vercel holds with Google; not used for training | `[the gateway does not let us pick a Vertex AI region; record the region Vercel states]` | 25 Sep 2026 |
 | GitHub (GitHub, Inc., a Microsoft company) | Source code, issues and CI. | None of the school's. No school data, no database dump and no export is ever stored in the repository or as a CI artifact ([the backup rules](../auth/BACKUPS.md)) | USA | 19 Sep 2026 |
 
 ## 3. Sources
@@ -50,6 +52,10 @@ section 3:
 - Better Stack, "Security and Compliance": "by default, all data is stored in the EU regions in
   GDPR-compliant DIN ISO/IEC 27001-certified data centers", with custom locations for enterprise
   accounts. <https://betterstack.com/security>, read 19 September 2026.
+- Vercel, "AI Gateway Zero Data Retention": "AI Gateway has a ZDR policy and does not retain
+  prompts, outputs, or sensitive data"; per-request ZDR is for Pro and Enterprise; Google Vertex AI
+  is listed as a ZDR provider. <https://vercel.com/docs/ai-gateway/security-and-compliance/zdr>,
+  read 25 September 2026.
 - Neon region: taken from the deployment, not from documentation. It is written in
   [the incident runbook](./INCIDENT_RESPONSE.md) section 9.
 

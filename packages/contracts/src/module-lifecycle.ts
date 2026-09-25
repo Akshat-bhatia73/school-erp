@@ -18,6 +18,8 @@ export const CONSENT_PURPOSES = [
   'photographs',
   'communication',
   'third_party_services',
+  // A pupil uses the assistant only after a guardian agrees (Task 24).
+  'ai_assistant',
 ] as const
 
 export const ConsentPurpose = z.enum(CONSENT_PURPOSES)
@@ -120,6 +122,20 @@ export const SubjectAccessEvent = z.strictObject({
 })
 
 /**
+ * That the pupil used the assistant (Task 24), and nothing of what was said.
+ * A pupil's conversations are read by the pupil alone, a parent and the school
+ * office included, so an export names only how many there are and when; the
+ * pupil reads their own in the app until they are deleted after 30 days.
+ */
+export const SubjectAssistantSummary = z.strictObject({
+  conversations: z.number().int().min(0),
+  questions: z.number().int().min(0),
+  oldestAt: Timestamp.optional(),
+  newestAt: Timestamp.optional(),
+  keptDays: z.number().int().min(1),
+})
+
+/**
  * Everything the system holds about one student, in one audited document.
  * A block is present only when the caller holds the read permission for it on
  * this student, so the export says exactly what they could already read one
@@ -165,6 +181,11 @@ export const SubjectAccessExport = z.strictObject({
    */
   messages: z.array(SubjectMessage).max(500).optional(),
   accessHistory: z.array(SubjectAccessEvent).max(200).optional(),
+  /**
+   * How many conversations the pupil had with the assistant and when, never
+   * their words. Present when the pupil has, or had, a login of their own.
+   */
+  assistantConversations: SubjectAssistantSummary.optional(),
 })
 
 /**
@@ -201,4 +222,5 @@ export type SubjectSensitive = z.infer<typeof SubjectSensitive>
 export type SubjectAccessEvent = z.infer<typeof SubjectAccessEvent>
 export type SubjectGuardian = z.infer<typeof SubjectGuardian>
 export type SubjectAccessExport = z.infer<typeof SubjectAccessExport>
+export type SubjectAssistantSummary = z.infer<typeof SubjectAssistantSummary>
 export type RedactAuditNoteRequest = z.infer<typeof RedactAuditNoteRequest>

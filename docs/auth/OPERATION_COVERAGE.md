@@ -99,6 +99,8 @@ Owner or permission changed:
 | `/messages/:messageId/edit` | `communication.send` / the author of a draft or a scheduled message, or `communication.manage` | `MessageDetail` | Task 22 |
 | `/messages/templates` | `communication.send` to read; `communication.manage` / school to change | `MessageTemplateList`, `MessageTemplate` | Task 22 |
 | `/messages/settings` | `communication.manage` / school | `CommunicationSettings` | Task 22 |
+| `/assistant` | `ai_assistant.use` / self (every role; a pupil also needs a guardian's `ai_assistant` consent). Every answer reads through the other routes in this table as the person, so it reaches what their other keys reach and nothing more | `AssistantStatus`, `AssistantThreadList`, `AssistantThread`, the turn stream of `AssistantToolOutput` parts | Task 24 |
+| `/settings/assistant` | `ai_assistant.manage` / school | `AssistantSettings`, `AssistantUsage` | Task 24 |
 
 ## API client operations
 

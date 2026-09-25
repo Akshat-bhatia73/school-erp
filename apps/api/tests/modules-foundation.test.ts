@@ -108,7 +108,7 @@ test('a route registered without a known permission is refused at startup', () =
       method: 'GET',
       path: '/api/schools/:schoolId/reserved',
       // A reserved permission can never be decided, so it fails closed too.
-      permission: 'ai_assistant.use',
+      permission: 'roles.manage',
       response: z.null(),
       handler: async () => null,
     }),

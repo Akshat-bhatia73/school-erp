@@ -216,7 +216,7 @@ describe('Consent', () => {
 
     expect(await screen.findByText('Photographs')).toBeInTheDocument()
     expect(screen.getByText(/^Given/)).toBeInTheDocument()
-    expect(screen.getAllByText('Not asked')).toHaveLength(4)
+    expect(screen.getAllByText('Not asked')).toHaveLength(5)
     expect(screen.queryByRole('button', { name: 'Withdraw' })).not.toBeInTheDocument()
   })
 

@@ -404,3 +404,35 @@ A short note on five changes made together on 25 September 2026.
 **Photograph at admission.** The picture is uploaded only after the admission is saved and only when a guardian ticked consent for photographs; otherwise it is dropped in the browser and never sent.
 
 **Pupil sign-in limits.** The new per-account and per-address counters are keyed on SHA-256 digests, so `auth_throttle` holds no admission number, school code or address in clear. Rows expire with their window.
+
+## 17. The assistant, September 2026
+
+A short assessment of the assistant (Task 24), written before it is built, as the plan requires. The design is in [the assistant architecture](../assistant/ARCHITECTURE.md). Counsel should review this section before a real school's data goes through the assistant.
+
+**What changes.** People at the school can ask questions in plain words and get answers from the school's records, and can ask for changes that happen only after they confirm them. Everyone can use it, pupils in Class 9 to 12 included. To answer, the question and the records it needs are sent to a language model run by Google (Vertex AI), through Vercel AI Gateway. That is the first time school records leave our own database and document store to be *read and processed* by a third party, not only stored or delivered.
+
+**Roles.** Nothing changes. The school stays the fiduciary and we stay its processor. Google and Vercel act as sub-processors, answering the school's questions on its behalf. They do not decide anything about the data and may not use it for their own purposes.
+
+**Purpose and basis.** The assistant is a different way to do what the screens already do: read the school's records and change them. It creates no new records about a pupil except the conversation itself, so for staff and parents we treat it as the same purposes the records are already held for, carried out by a processor. That is the same footing as the database, the hosting and the email provider. Pupils are different, because a child is typing to an AI tool, so a pupil uses it only when a guardian has given the new `ai_assistant` consent (verifiable parental consent under section 9). The Fourth Schedule's education exemption might cover this. As with photographs, we do not rely on that and ask anyway. **Counsel to confirm** that staff and parent use needs no separate consent.
+
+**Who sees what.**
+
+- The assistant can reach only what the person asking can reach on screen. It calls the same routes, signed in as them. It holds no access of its own.
+- The model sees only what a question needed, one page of at most 50 rows at a time. It never sees a whole Aadhaar, APAAR or PAN number, a document, a photograph or the audit log.
+- A person's conversations are theirs alone. The owner and principal see only counts of questions, never the words.
+
+**What leaves the country.** Questions, answers and the records used to answer them go to Google Vertex AI through Vercel AI Gateway. Every request is sent with zero data retention: the gateway keeps nothing after the request, and it routes only to Google under the retention agreement Vercel holds, failing the request rather than using any other route. Where Google processes the request is `[to confirm: the gateway does not let us choose a Vertex AI region; record the region Vercel states for Google Vertex AI]`. The transfer is allowed under section 16 of the Act because no country has been restricted. Per-request zero data retention needs the Vercel Pro plan, so **the Pro plan comes before any real child's data goes through the assistant**.
+
+**No profiling of children.** Section 9(3) forbids tracking or behavioural monitoring of children. The assistant keeps a pupil's conversations only so the pupil can scroll back. Nobody else can read them, and nothing is worked out from them about the pupil. The privacy notice will say so.
+
+**What keeps it honest.**
+
+- Nothing is written unless the person presses Confirm on a card that shows every field that will change. The write goes through the ordinary route and its one audit row.
+- High-risk actions have no path through the assistant: access changes, anonymising, deleting, consent, pupil logins.
+- One audit row per question records the tools used and how many records they returned, never the words. Every read the assistant makes is a real request, so it appears in "who opened this record" like any read from a screen.
+- Conversation text is sealed with the application key and never goes to a log, an audit row or an error report.
+- A school, a person (by member restriction) or a pupil (by a guardian withdrawing consent) can be switched off, and it takes effect on the next question.
+
+**Retention.** Conversation text, tool results and proposals are deleted 30 days after they were written. Usage counts with no text are kept 13 months for limits and billing. Anonymising a pupil deletes their own conversations at once. A pupil's subject-access export counts their conversations and says when they were, but never holds the words: the product owner decided on 25 September 2026 that a pupil's conversations are read by the pupil alone, a parent included, and the pupil can read them in the app for the 30 days they are kept. **Counsel to confirm** this sits well with a parent exercising the child's right of access.
+
+**Changes to make in the 24a pull request.** The privacy notice (the assistant, Google as a recipient, the 30 days, no training, no profiling), the processing agreement's sub-processor clause, the retention schedule (two new lines) and the consent wording for the `ai_assistant` purpose.

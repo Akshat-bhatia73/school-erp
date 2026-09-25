@@ -29,6 +29,7 @@ const RESTRICTION_LABEL: Record<RestrictablePermission, string> = {
   'students.read_sensitive': 'Sensitive details (Aadhaar, APAAR)',
   'students.read_guardians': 'Full guardian records (PAN, Aadhaar, office address)',
   'students.read_medical': 'Medical information',
+  'ai_assistant.use': 'The school assistant',
 }
 
 const ADD_LABELS: FieldLabels = {

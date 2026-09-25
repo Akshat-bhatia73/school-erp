@@ -102,5 +102,5 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `staff_attendance.record` | active | school | school | school | school | — | — | — | — |
 | `staff_attendance.manage` | active | school | school | school | school | — | — | — | — |
 | `staff_attendance.export` | active | school | school | school | school | — | — | — | — |
-| `ai_assistant.use` | reserved | — | — | — | — | — | — | — | — |
-| `ai_assistant.manage` | reserved | school | — | — | — | — | — | — | — |
+| `ai_assistant.use` | active | — | self | self | self | self | self | self | self |
+| `ai_assistant.manage` | active | school | school | school | — | — | — | — | — |
