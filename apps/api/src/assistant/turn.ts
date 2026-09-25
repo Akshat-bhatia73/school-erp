@@ -243,6 +243,9 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
       messages,
       tools: offered,
       stopWhen: isStepCount(ASSISTANT_MAX_TOOL_CALLS),
+      // One retry, not the default two: a provider that said "too many" a
+      // second ago says it again, and each retry spends the per-minute quota.
+      maxRetries: 1,
       // The last step, or once the calls are spent, has no tools, so the turn
       // ends with words rather than an unanswered call.
       prepareStep: ({ stepNumber }) =>
@@ -264,19 +267,28 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
       },
     })
 
+    let failure: string | undefined
     const stream = toUIMessageStream({
       stream: result.stream,
       tools: offered,
       originalMessages: setup.messages as unknown as UIMessage[],
       generateMessageId: () => randomUUID(),
-      onError: (error) => (providerFailure(error).providerStatus === 429 ? BUSY_TEXT : FAILED_TEXT),
+      onError: (error) => {
+        failure = providerFailure(error).providerStatus === 429 ? BUSY_TEXT : FAILED_TEXT
+        return failure
+      },
       onEnd: async ({ responseMessage, isAborted, outcome }) => {
         const status: UsageStatus = isAborted
           ? 'stopped'
           : errored || outcome.status === 'failed'
             ? 'failed'
             : 'answered'
-        await finish(status, responseMessage)
+        // A failed answer is kept with the sentence the person saw, so it
+        // reads the same when the conversation is opened again.
+        const kept = status === 'failed' && failure !== undefined && responseMessage
+          ? { ...responseMessage, parts: [...responseMessage.parts, { type: 'text' as const, text: failure }] }
+          : responseMessage
+        await finish(status, kept)
       },
     })
 
