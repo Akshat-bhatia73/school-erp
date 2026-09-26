@@ -94,6 +94,24 @@ async function countMonth(conn: TenantConnection, schoolId: string, day: string)
   return Number(found.rows[0]?.count ?? '0')
 }
 
+/**
+ * The switches alone, without the question limits: this deployment, the
+ * school, and for a pupil a guardian's consent. Confirming a proposal is not
+ * a question, so it spends no limit, but it must stop the moment any of these
+ * is off, exactly as the next question would. A restriction or a suspension
+ * never reaches here: the route gate refuses first.
+ */
+export async function switchedOff(
+  conn: TenantConnection,
+  context: RequestContext,
+  config: ApiConfig,
+): Promise<AssistantUnavailableReason | null> {
+  if (!serviceOn(config)) return 'service_off'
+  if (!(await loadAssistantSettings(conn, context.schoolId)).enabled) return 'school_off'
+  if (context.membershipKind === 'student' && !(await pupilConsented(conn, context))) return 'no_consent'
+  return null
+}
+
 export async function availability(
   conn: TenantConnection,
   context: RequestContext,

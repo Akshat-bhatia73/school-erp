@@ -14,6 +14,7 @@ import { protectedRoute } from '../../modules/shared/route.ts'
 import type { TenantConnection } from '../../modules/shared/audit.ts'
 import { getByPath, routeGetter, routeWriter, type WriteAnswer } from '../inject.ts'
 import { ownThread } from '../threads.ts'
+import { switchedOff } from '../limits.ts'
 import type { AssistantDependencies } from '../turn.ts'
 import { proposeToolNamed } from './registry.ts'
 import type { AnyProposeTool } from './types.ts'
@@ -193,6 +194,9 @@ export function registerAssistantProposalRoutes(app: FastifyInstance, deps: Assi
           const row = requireFound(await ownProposal(conn, context, proposalId, true))
           if (row.lapsed) return { proposal: proposalOf(await decide(conn, context, row, { status: 'expired' }), key) }
           if (row.status !== 'open') return { proposal: proposalOf(row, key) }
+          // Switched off since the proposal was made: nothing is written, and
+          // the proposal stays open until it expires or is switched back on.
+          if ((await switchedOff(conn, context, deps.config)) !== null) throw new ApiFailure('FEATURE_DISABLED')
           const result = await confirm({ deps, context, conn, row, edited: body.preview, get, write })
           return { proposal: proposalOf(result.row, key, result.shown) }
         })
