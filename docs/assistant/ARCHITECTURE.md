@@ -105,32 +105,37 @@ also writes its usual `denied` audit row, which is correct: the person really di
 Here is what happens when a teacher types "Mark 9A present today except Riya and Kabir, who are
 absent".
 
-1. **The model reads first.** It loads 9A's register for today through a read tool, the same way
-   as in section 4.
-2. **The model calls a change tool**, here `propose_attendance_day`. A change tool never writes.
-   It does three things:
-   - checks the draft against the write route's own request contract from `@erp/contracts`;
-   - reads the record's current version, so we can detect a clash later;
-   - saves a **proposal** row: who asked, which route, which body, which version, and an expiry
-     30 minutes away.
+1. **The model calls a change tool**, here `propose_attendance_day`, with small inputs a small
+   model can fill: the class name, the day, "everyone present" and the two exceptions by name. A
+   change tool never writes. It does three things:
+   - reads the register through the same GET route a screen uses, as the teacher, and matches the
+     names to the pupils on it;
+   - builds a **preview**: every pupil on the register with the mark saved now and the proposed
+     mark;
+   - saves a **proposal** row: who asked, which tool, the sealed preview, the GET route it read,
+     a digest of that route's answer, and an expiry 30 minutes away.
 3. **The model finishes its turn** with a short line such as "Here is the register. Check it and
    confirm." It cannot go further. There is no "confirm" tool for the model to call.
 4. **The browser draws an editable card.** For attendance this is the class register itself: every
    pupil with their mark, the two absences already set. The teacher can change any mark right in
    the card. The card shows every field that will change, not a summary.
-5. **The teacher presses Confirm.** The browser sends the edited body to
-   `POST /api/schools/:schoolId/assistant/proposals/:proposalId/confirm`.
+5. **The teacher presses Confirm.** The browser sends the preview as the teacher left it to
+   `POST /api/schools/:schoolId/assistant/proposals/:proposalId/confirm`. The browser never builds
+   a write; it only edits the fields a card lets it edit.
 6. **The API makes the change as the teacher.** It checks the proposal belongs to this person, is
-   still open and has not expired. It checks the edited body against the same contract again. Then
-   it calls the real write route through `app.inject()` with the teacher's cookie and the saved
-   version. The write route does all its usual work: locks the school, decides the record, checks
-   the version, writes the change and writes its one audit row.
+   still open and has not expired, and that the edited preview is the same change with only the
+   editable fields moved (same class, same day, same pupils). The tool turns the preview into the
+   one request the write route expects. The API reads the same GET route again and compares its
+   digest: if anything changed since the proposal, nothing is written. Then it calls the real
+   write route through `app.inject()` with the teacher's cookie. The write route does all its
+   usual work: locks the school, decides the record, writes the change and writes its one audit
+   row.
 7. **The outcome is saved on the proposal** (done, or the error code) and returned to the browser.
    The browser refreshes the affected screens' data through the usual `qk` prefix.
 8. **The conversation carries on.** The next turn tells the model what happened, including any
    edits the teacher made, so it can say "Done. 9A: 38 present, 2 absent."
 
-If someone else changed the same register between the proposal and the confirm, the version check
+If someone else changed the same register between the proposal and the confirm, the digest check
 fails. The card says "This changed since the assistant read it" and offers to ask again. Nothing is
 half-written.
 

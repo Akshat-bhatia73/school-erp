@@ -11,8 +11,11 @@
  * the sources under an answer, the threads, the switches and the limits.
  */
 import { z } from 'zod'
-import { CalendarDate, Id, Timestamp, Version } from './common.ts'
+import { CalendarDate, Id, Reason, Timestamp, Version } from './common.ts'
 import { AllowedActions } from './responses.ts'
+import { AttendanceMark } from './module-attendance.ts'
+import { ExamComponent, ExamReasonKind, MarkValue } from './module-exams.ts'
+import { CoScholasticGrades, ReportCardKind } from './module-report-cards.ts'
 
 // ---------------------------------------------------------------------------
 // Limits that never change per school.
@@ -253,3 +256,192 @@ export const AssistantUsage = z.strictObject({
   ).max(7),
 })
 export type AssistantUsage = z.infer<typeof AssistantUsage>
+
+// ---------------------------------------------------------------------------
+// Proposals (24b). A change tool never writes. It returns a proposal: an
+// editable preview of the change and nothing else. The person edits the
+// preview on a card and presses Confirm; the server then builds the write
+// from the edited preview, checks the record has not changed since it was
+// read, and calls the real write route as the person. See ARCHITECTURE.md
+// section 5.
+
+/** Minutes a proposal stays open. */
+export const ASSISTANT_PROPOSAL_MINUTES = 30
+
+export const AssistantProposalKind = z.enum([
+  'attendance_day',
+  'staff_attendance_day',
+  'exam_marks',
+  'co_scholastic',
+])
+export type AssistantProposalKind = z.infer<typeof AssistantProposalKind>
+
+export const AssistantProposalStatus = z.enum([
+  /** Waiting for the person. */
+  'open',
+  /** Confirmed and written. */
+  'done',
+  /** The person discarded it. */
+  'dismissed',
+  /** Nobody confirmed it within ASSISTANT_PROPOSAL_MINUTES. */
+  'expired',
+  /** The record changed after it was read, so nothing was written. */
+  'stale',
+  /** The write route refused or failed; nothing was written. */
+  'failed',
+])
+export type AssistantProposalStatus = z.infer<typeof AssistantProposalStatus>
+
+/**
+ * Whether a change is the first entry or a change to what is already saved.
+ * A change to saved attendance or marks needs a reason, which the card asks
+ * for; the write route decides who may make it.
+ */
+export const AssistantProposalMode = z.enum(['first_entry', 'correction'])
+export type AssistantProposalMode = z.infer<typeof AssistantProposalMode>
+
+const PersonName = z.string().min(1).max(160)
+const RowLimit = 200
+
+/**
+ * The previews. Everything in one is fixed by the server except the fields
+ * named `proposed…`, `reason` and `reasonKind`, which the person may edit.
+ * `current…` is what is saved now, so the card can show old beside new.
+ */
+export const AttendanceDayPreview = z.strictObject({
+  kind: z.literal('attendance_day'),
+  mode: AssistantProposalMode,
+  sectionId: Id,
+  sectionName: z.string().min(1).max(120),
+  date: CalendarDate,
+  rows: z.array(z.strictObject({
+    studentId: Id,
+    name: PersonName,
+    rollNumber: z.number().int().min(0).nullable(),
+    current: AttendanceMark.nullable(),
+    proposed: AttendanceMark,
+  })).min(1).max(RowLimit),
+  reason: Reason.optional(),
+})
+export type AttendanceDayPreview = z.infer<typeof AttendanceDayPreview>
+
+export const StaffAttendanceDayPreview = z.strictObject({
+  kind: z.literal('staff_attendance_day'),
+  mode: AssistantProposalMode,
+  date: CalendarDate,
+  rows: z.array(z.strictObject({
+    staffId: Id,
+    name: PersonName,
+    designation: z.string().max(120).nullable(),
+    current: AttendanceMark.nullable(),
+    proposed: AttendanceMark,
+  })).min(1).max(500),
+  reason: Reason.optional(),
+})
+export type StaffAttendanceDayPreview = z.infer<typeof StaffAttendanceDayPreview>
+
+export const ExamMarksPreview = z.strictObject({
+  kind: z.literal('exam_marks'),
+  mode: AssistantProposalMode,
+  paperId: Id,
+  /**
+   * Which write the marks go through: the marks sheet (the subject teacher, or
+   * the office, before the re-check deadline) or the office's correction after
+   * it, which always needs a reason kind and a reason.
+   */
+  route: z.enum(['marks_sheet', 'office_correction']),
+  /** "Half-yearly, Mathematics, 9 A". */
+  title: z.string().min(1).max(200),
+  components: z.array(z.strictObject({
+    component: ExamComponent,
+    label: z.string().min(1).max(60),
+    maxMarks: z.number().positive(),
+  })).min(1).max(4),
+  rows: z.array(z.strictObject({
+    studentId: Id,
+    name: PersonName,
+    rollNumber: z.number().int().min(0).nullable(),
+    cells: z.array(z.strictObject({
+      component: ExamComponent,
+      current: MarkValue.nullable(),
+      /** Null leaves the cell as it is. */
+      proposed: MarkValue.nullable(),
+    })).min(1).max(4),
+  })).min(1).max(RowLimit),
+  reasonKind: ExamReasonKind.optional(),
+  reason: Reason.optional(),
+})
+export type ExamMarksPreview = z.infer<typeof ExamMarksPreview>
+
+export const CoScholasticPreview = z.strictObject({
+  kind: z.literal('co_scholastic'),
+  sectionId: Id,
+  sectionName: z.string().min(1).max(120),
+  card: ReportCardKind,
+  rows: z.array(z.strictObject({
+    studentId: Id,
+    name: PersonName,
+    rollNumber: z.number().int().min(0).nullable(),
+    /** The saved entry's version, 0 when nothing is saved: the save route's expectedVersion. */
+    version: z.number().int().nonnegative(),
+    current: CoScholasticGrades,
+    proposed: CoScholasticGrades,
+    currentRemarks: z.string().max(1000).nullable(),
+    proposedRemarks: z.string().trim().max(1000).nullable(),
+  })).min(1).max(RowLimit),
+})
+export type CoScholasticPreview = z.infer<typeof CoScholasticPreview>
+
+export const AssistantProposalPreview = z.discriminatedUnion('kind', [
+  AttendanceDayPreview,
+  StaffAttendanceDayPreview,
+  ExamMarksPreview,
+  CoScholasticPreview,
+])
+export type AssistantProposalPreview = z.infer<typeof AssistantProposalPreview>
+
+/** A proposal as the browser draws it. */
+export const AssistantProposal = z.strictObject({
+  id: Id,
+  kind: AssistantProposalKind,
+  /** "Mark 9 A for 26 Sep 2026". */
+  title: z.string().min(1).max(200),
+  status: AssistantProposalStatus,
+  expiresAt: Timestamp,
+  preview: AssistantProposalPreview,
+  /** Plain words for a stale or failed proposal, or what was saved. */
+  outcome: z.string().max(500).optional(),
+  /** Where to see the record, once done. */
+  href: AppPath.optional(),
+  /** When it was confirmed, dismissed or found stale or failed. */
+  decidedAt: Timestamp.optional(),
+})
+export type AssistantProposal = z.infer<typeof AssistantProposal>
+
+/** A change tool's output: a proposal instead of a card. */
+export const AssistantProposalToolOutput = z.strictObject({
+  status: z.enum(['ok', 'not_available', 'failed', 'invalid']),
+  proposal: AssistantProposal.optional(),
+  /** For `invalid`: what the model asked for that cannot be proposed, in plain words. */
+  problem: z.string().max(500).optional(),
+  forModel: z.unknown().optional(),
+})
+export type AssistantProposalToolOutput = z.infer<typeof AssistantProposalToolOutput>
+
+/** Confirming sends the preview as the person left it. */
+export const ConfirmAssistantProposalRequest = z.strictObject({
+  preview: AssistantProposalPreview,
+})
+export type ConfirmAssistantProposalRequest = z.infer<typeof ConfirmAssistantProposalRequest>
+
+/** The proposal after the attempt: done, stale, failed or expired, with the reason in `outcome`. */
+export const ConfirmAssistantProposalResponse = z.strictObject({
+  proposal: AssistantProposal,
+})
+export type ConfirmAssistantProposalResponse = z.infer<typeof ConfirmAssistantProposalResponse>
+
+/** The current state of every proposal in a thread, so a reopened conversation shows what happened. */
+export const AssistantProposalStates = z.strictObject({
+  items: z.array(AssistantProposal).max(200),
+})
+export type AssistantProposalStates = z.infer<typeof AssistantProposalStates>

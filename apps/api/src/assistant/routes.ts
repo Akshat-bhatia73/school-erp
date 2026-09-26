@@ -7,6 +7,7 @@ import { availability } from './limits.ts'
 import { suggestionsFor } from './prompt.ts'
 import { registerAssistantSettingsRoutes } from './settings.ts'
 import { registerAssistantThreadRoutes } from './threads.ts'
+import { registerAssistantProposalRoutes } from './proposals/routes.ts'
 import { runTurn, type AssistantDependencies } from './turn.ts'
 
 export type { AssistantDependencies }
@@ -14,7 +15,9 @@ export type { AssistantDependencies }
 /**
  * The assistant's routes (Task 24). They read no school table of their own:
  * a question's tools call the ordinary protected routes as the person. What
- * lives here is the person's own conversations, the switches and the counts.
+ * lives here is the person's own conversations and the changes proposed in
+ * them, the switches and the counts. A confirmed change goes to the real
+ * write route as the person.
  * See docs/assistant/ARCHITECTURE.md.
  */
 export function registerAssistantRoutes(app: FastifyInstance, deps: AssistantDependencies): void {
@@ -36,6 +39,7 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: AssistantDep
   })
 
   registerAssistantThreadRoutes(app, deps)
+  registerAssistantProposalRoutes(app, deps)
 
   protectedStreamRoute(app, deps, {
     method: 'POST',

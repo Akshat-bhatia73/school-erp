@@ -619,6 +619,9 @@ test('a body that is not exactly the roll is refused and writes nothing', async 
 })
 
 test('a Sunday, a holiday, a day outside the year and a future day are refused', async () => {
+  // A future school day: tomorrow, or the day after when tomorrow is a Sunday,
+  // which would be refused as a Sunday first (this test used to fail every Saturday).
+  const ahead = new Date(`${shift(today, 1)}T00:00:00Z`).getUTCDay() === 0 ? shift(today, 2) : shift(today, 1)
   const day = await readDay(teacher, attSection, today)
   const roll = everyone(day, 'present')
   const before = await entryCount()
@@ -627,7 +630,7 @@ test('a Sunday, a holiday, a day outside the year and a future day are refused',
     [sunday, 'attendance_not_a_school_day'],
     [holiday, 'attendance_not_a_school_day'],
     ['2026-05-04', 'attendance_date_outside_year'],
-    [shift(today, 1), 'attendance_date_in_future'],
+    [ahead, 'attendance_date_in_future'],
   ]
   for (const [date, reason] of cases) {
     await failure(await markDay(teacher, date, roll), 400, reason)
@@ -646,7 +649,7 @@ test('a Sunday, a holiday, a day outside the year and a future day are refused',
   const onHoliday = await readDay(teacher, attSection, holiday)
   assert.equal(onHoliday.day.kind, 'holiday')
   assert.ok(onHoliday.day.holidayName?.startsWith('Founders Day'))
-  const tomorrow = await readDay(teacher, attSection, shift(today, 1))
+  const tomorrow = await readDay(teacher, attSection, ahead)
   assert.equal(tomorrow.day.future, true)
   assert.equal(tomorrow.window.recordBlockedBy, 'attendance_date_in_future')
 })

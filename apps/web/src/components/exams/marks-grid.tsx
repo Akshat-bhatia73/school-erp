@@ -42,7 +42,7 @@ export function parseCell(text: string | undefined, component: ExamComponent): M
 }
 
 /** A typed A, M or E becomes the status; anything else is left as typed. */
-function normalise(previous: string, typed: string): string {
+export function normalise(previous: string, typed: string): string {
   const text = typed.trim().toLowerCase()
   // Deleting from a status empties the cell rather than leaving half a word.
   if ((STATUSES as string[]).includes(previous) && text.length < STATUS_LABELS[previous as MarkStatus].length) return ''

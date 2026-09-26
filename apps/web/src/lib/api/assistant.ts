@@ -4,12 +4,15 @@
  * chat hook posts to `turnPath` and reads the AI SDK's message stream.
  */
 import {
+  AssistantProposalStates,
   AssistantSettings,
   AssistantStatus,
   AssistantThread,
   AssistantThreadList,
   AssistantUsage,
+  ConfirmAssistantProposalResponse,
   CreateAssistantThreadResponse,
+  type ConfirmAssistantProposalRequest,
   type UpdateAssistantSettingsRequest,
 } from '@erp/contracts'
 import { request } from '@/lib/http'
@@ -55,4 +58,20 @@ export function updateSettings(schoolId: string, body: UpdateAssistantSettingsRe
 /** Question counts for one month (YYYY-MM, the current month when left out). Never anyone's words. */
 export function usage(schoolId: string, month?: string) {
   return request(withQuery(base(schoolId, '/usage'), { month }), { schema: AssistantUsage })
+}
+
+// ---------- proposals (24b) ----------
+
+/** Every proposal in a conversation, as it stands now: open, done, dismissed, expired, stale or failed. */
+export function proposals(schoolId: string, threadId: string) {
+  return request(base(schoolId, `/threads/${seg(threadId)}/proposals`), { schema: AssistantProposalStates })
+}
+
+/** Confirm with the preview as the person left it. The server writes it through the real route, as them. */
+export function confirmProposal(schoolId: string, proposalId: string, body: ConfirmAssistantProposalRequest) {
+  return request(base(schoolId, `/proposals/${seg(proposalId)}/confirm`), { method: 'POST', body, schema: ConfirmAssistantProposalResponse })
+}
+
+export function dismissProposal(schoolId: string, proposalId: string) {
+  return request(base(schoolId, `/proposals/${seg(proposalId)}/dismiss`), { method: 'POST', schema: ConfirmAssistantProposalResponse })
 }

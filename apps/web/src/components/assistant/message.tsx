@@ -1,6 +1,8 @@
 import { getToolName, isToolUIPart, type UIMessage } from 'ai'
 import { AnswerText } from './answer-text'
 import { collectSources, messageText } from './format'
+import { ConfirmAllBar } from './proposals/confirm-all'
+import { proposalsIn } from './proposals/model'
 import { Sources } from './sources'
 import { ToolPart } from './tool-activity'
 
@@ -17,16 +19,18 @@ function UserMessage({ message }: { message: UIMessage }) {
 
 /**
  * An answer across the full column: the words, then each lookup's card (or its activity line while
- * it runs), then where the answer came from.
+ * it runs), "Confirm all" when it proposed more than one change, then where the answer came from.
  */
 function AssistantMessage({ message }: { message: UIMessage }) {
   const text = messageText(message)
   const tools = message.parts.filter(isToolUIPart)
   const sources = collectSources(tools)
+  const proposals = proposalsIn(message)
   return (
     <div className="flex flex-col gap-3">
       {text.trim() !== '' && <AnswerText text={text} />}
       {tools.map((part) => <ToolPart key={part.toolCallId} part={part} toolName={getToolName(part)} />)}
+      {proposals.length > 1 && <ConfirmAllBar proposals={proposals} />}
       <Sources sources={sources} />
     </div>
   )

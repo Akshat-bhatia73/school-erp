@@ -1547,6 +1547,33 @@ export const assistantUsage = pgTable('assistant_usage', {
   finishedAt: timestamp('finished_at', { withTimezone: true }),
 })
 
+
+/** A change the assistant proposed; the preview is sealed. Written by a person's Confirm, never by the model. */
+export const assistantProposals = pgTable(
+  'assistant_proposals',
+  {
+    id: id(),
+    schoolId: tenant(),
+    threadId: uuid('thread_id').notNull(),
+    membershipId: uuid('membership_id').notNull(),
+    kind: text('kind').notNull(),
+    toolName: text('tool_name').notNull(),
+    titleSealed: text('title_sealed').notNull(),
+    previewSealed: text('preview_sealed').notNull(),
+    confirmedPreviewSealed: text('confirmed_preview_sealed'),
+    checkPath: text('check_path').notNull(),
+    checkDigest: text('check_digest').notNull(),
+    status: text('status').notNull().default('open'),
+    outcome: text('outcome'),
+    writeRequestId: text('write_request_id'),
+    edited: boolean('edited'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+  },
+  (t) => [unique('assistant_proposals_school_id_id_key').on(t.schoolId, t.id)],
+)
+
 export const schoolTables = [
   schoolMemberships,
   roles,
@@ -1606,4 +1633,5 @@ export const schoolTables = [
   assistantThreads,
   assistantMessages,
   assistantUsage,
+  assistantProposals,
 ] as const

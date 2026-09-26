@@ -32,8 +32,11 @@ import { availability } from './limits.ts'
 import { instructionsFor } from './prompt.ts'
 import { assistantModel } from './model.ts'
 import { keepMessage, keptMessages, ownThread, titleFrom, type KeptMessage } from './threads.ts'
-import { buildToolSet, ToolLedger } from './toolset.ts'
+import { buildProposeToolSet, buildToolSet, ToolLedger, type SaveProposal } from './toolset.ts'
 import { routeGetter } from './inject.ts'
+import { PROPOSE_TOOLS, proposeToolsFor } from './proposals/registry.ts'
+import type { AnyProposeTool } from './proposals/types.ts'
+import { forModelOf, replayProposals, saveProposal, threadProposals } from './proposals/store.ts'
 
 export interface AssistantDependencies extends ModuleDependencies {
   /**
@@ -43,6 +46,8 @@ export interface AssistantDependencies extends ModuleDependencies {
   readonly assistantModel?: LanguageModel
   /** Tests only: the read tools on offer in place of the registry's. */
   readonly assistantTools?: readonly AnyReadTool[]
+  /** Tests only: the change tools on offer, and confirmable, in place of the registry's. */
+  readonly assistantProposeTools?: readonly AnyProposeTool[]
 }
 
 /** The messages of a thread the model sees again with a new question. */
@@ -68,6 +73,15 @@ function modelName(model: LanguageModel): string {
 function offeredTools(deps: AssistantDependencies, capabilities: ReadonlySet<PermissionKey>): readonly AnyReadTool[] {
   if (deps.assistantTools) return deps.assistantTools.filter((tool) => capabilities.has(tool.permission))
   return toolsFor(capabilities)
+}
+
+/** The change tools this person is offered: those whose write permission they hold somewhere. */
+function offeredProposeTools(
+  deps: AssistantDependencies,
+  capabilities: ReadonlySet<PermissionKey>,
+): readonly AnyProposeTool[] {
+  if (deps.assistantProposeTools) return deps.assistantProposeTools.filter((tool) => capabilities.has(tool.permission))
+  return proposeToolsFor(capabilities)
 }
 
 interface TurnInput {
@@ -119,6 +133,10 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
     if (!usageId) throw new ApiFailure('SERVICE_UNAVAILABLE')
 
     const history = await keptMessages(conn, context, threadId, key, HISTORY_MESSAGES)
+    // Where each proposal in the conversation stands now, for the model's copy.
+    const proposals = new Map(
+      (await threadProposals(conn, context, threadId)).map((row) => [row.id, forModelOf(row, key)] as const),
+    )
     const question: KeptMessage = { id: body.messageId, role: 'user', parts: [{ type: 'text', text: body.text }] }
     await keepMessage(conn, context, threadId, question, key)
     if (thread.title_sealed === null) {
@@ -145,6 +163,7 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
       usageId,
       today: allowed.schoolDay,
       messages: [...history.map(({ id, role, parts }) => ({ id, role, parts })), question],
+      proposals,
       schoolName: row.name,
       academicYearId: row.year_id,
       academicYearName: row.year_name,
@@ -214,15 +233,30 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
       academicYearId: setup.academicYearId,
       get: routeGetter(request, context.schoolId),
     }
-    const offered = buildToolSet(offeredTools(deps, capabilities), { context: toolContext, ledger })
+    // A proposal is saved in its own short transaction, in this thread and
+    // as this person; the change tool itself never touches the database.
+    const save: SaveProposal = (tool, draft, checkDigest) =>
+      withTenantTransaction(deps.pools.runtime, context, (conn) =>
+        saveProposal(conn, context, { threadId, tool, draft, checkDigest }, key),
+      )
+    const offered = {
+      ...buildToolSet(offeredTools(deps, capabilities), { context: toolContext, ledger }),
+      ...buildProposeToolSet(offeredProposeTools(deps, capabilities), { context: toolContext, ledger, save }),
+    }
     // Replaying a kept conversation needs every tool's model output, including
     // tools this person is no longer offered, so the model reads only the
     // trimmed part of an old result.
-    const described = { ...buildToolSet(deps.assistantTools ?? READ_TOOLS), ...offered }
-    const messages = await convertToModelMessages(setup.messages as unknown as UIMessage[], {
-      tools: described,
-      ignoreIncompleteToolCalls: true,
-    })
+    const described = {
+      ...buildToolSet(deps.assistantTools ?? READ_TOOLS),
+      ...buildProposeToolSet(deps.assistantProposeTools ?? PROPOSE_TOOLS),
+      ...offered,
+    }
+    // The model's copy tells it where each earlier proposal stands now (done,
+    // stale, dismissed…); what the browser keeps and gets back is unchanged.
+    const messages = await convertToModelMessages(
+      replayProposals(setup.messages, setup.proposals) as unknown as UIMessage[],
+      { tools: described, ignoreIncompleteToolCalls: true },
+    )
 
     // Stops when the person closes the page, and after about four minutes.
     const stop = new AbortController()
