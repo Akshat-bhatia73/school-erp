@@ -21,9 +21,22 @@ export type ConfirmResult = AssistantProposalStatus | 'blocked'
 
 export type ConfirmHandle = () => Promise<ConfirmResult>
 
+/**
+ * Whether a card knows how its proposal stands now. `checking` while the conversation's states
+ * load, `failed` when they could not be loaded, `ready` otherwise.
+ */
+export type ProposalCheck = 'ready' | 'checking' | 'failed'
+
 interface ProposalsValue {
   /** The latest known state of a proposal, or nothing when only the answer's own copy is known. */
   live: (id: string) => SettledProposal | undefined
+  /**
+   * Whether the answer's own copy of this proposal can be trusted to act on. Only a proposal that
+   * came from the kept history waits for the states; one streamed in this session is fresh.
+   */
+  check: (id: string) => ProposalCheck
+  /** Ask for the states again after they failed. */
+  retry: () => void
   settle: (settled: SettledProposal) => void
   register: (id: string, handle: ConfirmHandle) => () => void
   handle: (id: string) => ConfirmHandle | undefined
@@ -31,6 +44,8 @@ interface ProposalsValue {
 
 const NONE: ProposalsValue = {
   live: () => undefined,
+  check: () => 'ready',
+  retry: () => {},
   settle: () => {},
   register: () => () => {},
   handle: () => undefined,
@@ -42,11 +57,18 @@ export function useProposals(): ProposalsValue {
   return useContext(ProposalsContext)
 }
 
-export function ProposalsProvider({ schoolId, threadId, enabled, children }: {
+export function ProposalsProvider({ schoolId, threadId, enabled, kept, children }: {
   schoolId: string
   threadId: string
   /** Only a conversation that holds a change asks for the states. */
   enabled: boolean
+  /**
+   * The proposals in the answers the conversation was opened with. Their copy in the answer is how
+   * they stood when the answer was written, possibly days ago, so their cards wait for the states
+   * before offering Confirm. A proposal streamed in this session was made seconds ago and is open
+   * by construction, so its card may act at once even while the states load or fail.
+   */
+  kept?: ReadonlySet<string>
   children: ReactNode
 }) {
   const states = useQuery({
@@ -73,6 +95,10 @@ export function ProposalsProvider({ schoolId, threadId, enabled, children }: {
     }
   }, [])
 
+  // Data from an earlier load still answers after a failed refetch; only no data at all is unknown.
+  const known: ProposalCheck = !enabled || states.data ? 'ready' : states.isError ? 'failed' : 'checking'
+  const { refetch } = states
+
   const value = useMemo<ProposalsValue>(() => ({
     // What a card got back from its own Confirm or Discard is the newest word; the server's list
     // covers a reopened conversation and anything that expired while nobody looked.
@@ -82,10 +108,12 @@ export function ProposalsProvider({ schoolId, threadId, enabled, children }: {
       const item = fetched.get(id)
       return item ? { proposal: item } : undefined
     },
+    check: (id) => (settled[id] || !kept?.has(id) ? 'ready' : known),
+    retry: () => void refetch(),
     settle,
     register,
     handle: (id) => handles.current.get(id),
-  }), [settled, fetched, settle, register])
+  }), [settled, fetched, known, kept, refetch, settle, register])
 
   return <ProposalsContext.Provider value={value}>{children}</ProposalsContext.Provider>
 }
