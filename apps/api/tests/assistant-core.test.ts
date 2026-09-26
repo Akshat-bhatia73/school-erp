@@ -24,6 +24,7 @@ import {
 } from './harness.ts'
 import { HIDDEN_RESULT, hideUnoffered } from '../src/assistant/threads.ts'
 import { HISTORY_TOKEN_BUDGET, trimToBudget } from '../src/assistant/turn.ts'
+import { instructionsFor } from '../src/assistant/prompt.ts'
 import {
   BROKEN_WORDS,
   FAIL_ONCE_WORDS,
@@ -369,6 +370,8 @@ test('a turn streams the answer, keeps the words sealed, finishes the usage row 
   const instructions = JSON.stringify(toolTurn.prompt.filter((message) => message.role === 'system'))
   assert.ok(instructions.includes(SCHOOL_NAME))
   assert.ok(instructions.includes(`AI-${suffix}`))
+  // The model is told the time on the school's clock, so "now" means something.
+  assert.match(instructions, /the time is \d{2}:\d{2}, in the school's timezone/)
 
   // Sealed at rest: neither column holds the question.
   const stored = await adminPool().query<{ role: string; content_sealed: string }>(
@@ -937,4 +940,23 @@ test('a long conversation is cut from the oldest end to fit the budget, never lo
   const system = JSON.stringify(call?.prompt.filter((entry) => entry.role === 'system'))
   assert.ok(system.includes('Earlier messages in this conversation are not shown to you.'))
   assert.equal(call?.maxOutputTokens, 1500)
+})
+
+test('the prompt says how to name people, when an answer is incomplete and what a done proposal saved', () => {
+  const rules = instructionsFor({
+    displayName: 'Asha',
+    roleKeys: ['principal'],
+    schoolName: 'Sunrise',
+    today: '2026-09-26',
+    now: '10:05',
+    academicYearName: '2026-27',
+  })
+  assert.ok(rules.includes('Today is 2026-09-26 and the time is 10:05'))
+  assert.match(rules, /absent_pupils_day/)
+  assert.match(rules, /English letters/)
+  assert.match(rules, /not marked, say how many/)
+  assert.match(rules, /fewer rows than its total/)
+  assert.match(rules, /`saved`/)
+  // Without a clock it says the day only, and never invents a time.
+  assert.doesNotMatch(instructionsFor({ displayName: 'A', roleKeys: ['teacher'], schoolName: 'S', today: '2026-09-26', academicYearName: null }), /the time is/)
 })

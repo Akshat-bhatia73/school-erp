@@ -180,10 +180,14 @@ export function rosterFilters(input: {
   if (input.search !== undefined && input.search !== '') {
     // Only fields the basic projection already shows are searchable, so a
     // search can never confirm a value the caller may not read.
-    const like = `%${input.search.replace(/[\\%_]/g, (match) => `\\${match}`)}%`
+    // A full name ("Ananya Yadav") matches first and last name together;
+    // runs of spaces in what was typed count as one.
+    const term = input.search.trim().replace(/\s+/g, ' ')
+    const like = `%${term.replace(/[\\%_]/g, (match) => `\\${match}`)}%`
     filters.push(
       sql`(students.first_name ILIKE ${like} ESCAPE '\\'
         OR students.last_name ILIKE ${like} ESCAPE '\\'
+        OR (students.first_name || ' ' || coalesce(students.last_name, '')) ILIKE ${like} ESCAPE '\\'
         OR students.admission_number ILIKE ${like} ESCAPE '\\')`,
     )
   }

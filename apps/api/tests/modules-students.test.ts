@@ -303,6 +303,20 @@ test('the count and the search answer over the same authorized rows', async () =
   assert.deepEqual((await body<Roster>(filtered)).items.map((item) => item.id), [studentA2])
 })
 
+test('a search by full name finds the pupil, spaces and case aside', async () => {
+  // The fixture pupils have one name; give Student A a last name for this test only.
+  await adminPool().query(`UPDATE students SET last_name = 'Verma' WHERE id = $1`, [studentA])
+  try {
+    const typed = encodeURIComponent('  student a   VERMA ')
+    const hits = await body<Basic[]>(await owner.fetch(`/api/schools/${schoolA}/students/search?q=${typed}`))
+    assert.ok(hits.some((hit) => hit.id === studentA))
+    const listed = await body<Roster>(await owner.fetch(`/api/schools/${schoolA}/students?search=${typed}&pageSize=100`))
+    assert.ok(listed.items.some((item) => item.id === studentA))
+  } finally {
+    await adminPool().query(`UPDATE students SET last_name = NULL WHERE id = $1`, [studentA])
+  }
+})
+
 test('a sibling link never widens what a caller may read', async () => {
   const response = await parent.fetch(`/api/schools/${schoolA}/students/${studentA2}/siblings`)
   assert.equal(response.status, 200)

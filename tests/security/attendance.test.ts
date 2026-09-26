@@ -113,6 +113,7 @@ function pupilRoutes(): Route[] {
   const marks = [{ studentId: child, mark: 'present' }]
   return [
     { method: 'GET', path: `/attendance/sections?date=${today}` },
+    { method: 'GET', path: `/attendance/days/${today}/absences` },
     { method: 'GET', path: `/attendance/sections/${sectionOne}/days/${today}` },
     { method: 'PUT', path: `/attendance/sections/${sectionOne}/days/${today}`, body: { marks } },
     {
@@ -551,6 +552,30 @@ test('[attendance] a parent reads their own child in every year, and never anoth
     `/api/schools/${schoolA}/attendance/sections/${sectionTwo}/days/${today}`,
   )
   assert.equal(other.status, 404, await other.clone().text())
+})
+
+test('[attendance] the absences of a day name nobody the caller could not read on the register', async () => {
+  // The class teacher marked the stranger absent in section one.
+  type Absences = { items: { student: { id: string }; section: { id: string } }[]; unmarkedSections: { section: { id: string } }[] }
+  const path = `/api/schools/${schoolA}/attendance/days/${today}/absences`
+  const own = await body<Absences>(await classTeacher.fetch(path))
+  assert.deepEqual(own.items.map((item) => item.student.id), [stranger])
+
+  // The teacher of the class next door sees neither the name nor the class.
+  const next = await body<Absences>(await subjectTeacher.fetch(path))
+  assert.ok(!next.items.some((item) => item.student.id === stranger || item.section.id === sectionOne), 'another class leaked')
+  assert.ok(!next.unmarkedSections.some((row) => row.section.id === sectionOne))
+
+  // A parent sees their own child at most, never the classmate who was absent.
+  const family = await parent.fetch(path)
+  assert.equal(family.status, 200, await family.clone().text())
+  const listed = await body<Absences>(family)
+  assert.ok(listed.items.every((item) => item.student.id === child), 'a parent saw another family')
+  assert.ok(!JSON.stringify(listed).includes(stranger))
+
+  // School B's day is not reachable through school A, and school A's not through B.
+  const foreign = await office.fetch(`/api/schools/${schoolB}/attendance/days/${today}/absences`)
+  assert.equal(foreign.status, 403, await foreign.clone().text())
 })
 
 test('[attendance] a parent may not mark anything, and every refusal is on the record', async () => {

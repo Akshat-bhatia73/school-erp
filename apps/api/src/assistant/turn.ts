@@ -228,8 +228,10 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
       )
     }
 
-    const school = await conn.client.query<{ name: string; year_id: string | null; year_name: string | null }>(
-      `SELECT s.name, y.id AS year_id, y.name AS year_name
+    // The time now on the school's clock, worked out as the school day is.
+    const school = await conn.client.query<{ name: string; now: string; year_id: string | null; year_name: string | null }>(
+      `SELECT s.name, to_char(now() AT TIME ZONE COALESCE(NULLIF(s.timezone, ''), 'Asia/Kolkata'), 'HH24:MI') AS now,
+              y.id AS year_id, y.name AS year_name
          FROM schools s
          LEFT JOIN LATERAL (
            SELECT id, name FROM academic_years
@@ -243,6 +245,7 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
     return {
       usageId,
       today: allowed.schoolDay,
+      now: row.now,
       messages: [...history.slice(0, retried ?? history.length).map(({ id, role, parts }) => ({ id, role, parts })), question],
       proposals,
       schoolName: row.name,
@@ -341,6 +344,7 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
     const toolContext: ToolCallContext = {
       schoolId: context.schoolId,
       today: setup.today,
+      now: setup.now,
       academicYearId: setup.academicYearId,
       get: routeGetter(request, context.schoolId),
     }
@@ -375,6 +379,7 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
       roleKeys: context.roleKeys,
       schoolName: setup.schoolName,
       today: setup.today,
+      now: setup.now,
       academicYearName: setup.academicYearName,
     })
     const instructions: string | SystemModelMessage[] = history.trimmed

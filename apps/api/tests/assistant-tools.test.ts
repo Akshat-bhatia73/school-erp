@@ -94,10 +94,11 @@ const FORBIDDEN: readonly RegExp[] = [
 ]
 
 /** A tool context whose `get` is a real HTTP GET as the signed-in client. */
-function contextFor(client: Client): ToolCallContext {
+function contextFor(client: Client, now?: string): ToolCallContext {
   return {
     schoolId: school,
     today,
+    ...(now === undefined ? {} : { now }),
     academicYearId: year,
     async get(path, query): Promise<RouteAnswer> {
       calledPaths.add(path)
@@ -123,10 +124,10 @@ function toolNamed(name: string): AnyReadTool {
 }
 
 /** Run a tool the way the assistant does: the input is checked against the tool's schema first. */
-async function run(client: Client, name: string, input: Record<string, unknown>): Promise<ReadToolOutcome> {
+async function run(client: Client, name: string, input: Record<string, unknown>, now?: string): Promise<ReadToolOutcome> {
   const tool = toolNamed(name)
   const parsed = tool.input.parse(input)
-  return tool.run(parsed as never, contextFor(client))
+  return tool.run(parsed as never, contextFor(client, now))
 }
 
 /** An `ok` outcome whose card and source are what the browser can draw. */
@@ -629,7 +630,9 @@ test('the starters are only questions the person is offered a tool for', () => {
   for (const role of Object.keys(ROLE_TEMPLATES) as (keyof typeof ROLE_TEMPLATES)[]) {
     const starters = suggestionsFor([role], capabilitiesOf(role))
     if (role !== 'student') assert.ok(starters.length > 0, `${role} has no starters`)
-    assert.ok(!starters.includes('Which teachers are free now?'), role)
+    // Only the office, who may arrange cover, is asked who is free now.
+    const office = ['owner', 'principal', 'admin'].includes(role)
+    assert.equal(starters.includes('Which teachers are free now?'), office, role)
   }
   const owner = suggestionsFor(['owner'], capabilitiesOf('owner'))
   assert.ok(owner.includes('Which fees are due this month?'))
@@ -686,4 +689,113 @@ test('each pupil detail tool returns its own fields and nothing else', async () 
   assert.equal(parentHealth.card, undefined)
   const parentPersonal = assertDrawable(await run(parent, 'student_personal_details', { studentId: p1 }), 'parent personal')
   assert.equal((parentPersonal.forModel as { personalDetails: string }).personalDetails, 'not_available')
+})
+
+// ---------------------------------------------------------------------------
+// Answer quality: names, the time now, and saying when a list is not whole.
+
+test('absent_pupils_day names who is not present and the registers not marked, within what the person may read', async (t) => {
+  if (new Date(`${today}T00:00:00Z`).getUTCDay() === 0) return t.skip('there is no register on a Sunday')
+  const marked = await owner.fetch(
+    `/api/schools/${school}/attendance/sections/${mySection}/days/${today}`,
+    {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ marks: [{ studentId: p1, mark: 'absent' }, { studentId: p2, mark: 'present' }] }),
+    },
+  )
+  assert.equal(marked.status, 200, await marked.clone().text())
+
+  type Absent = {
+    totals: { sections: number; markedSections: number; unmarkedSections: number; notPresent: number }
+    unmarkedSections: string[]
+    pupils: { studentId: string; name: string; mark: string }[]
+    shown: number
+    total: number
+  }
+  const office = assertDrawable(await run(owner, 'absent_pupils_day', {}), 'absent_pupils_day')
+  const seen = office.forModel as Absent
+  assert.deepEqual(seen.pupils.map((row) => [row.name, row.mark]), [['Riya Tools', 'absent']])
+  assert.equal(seen.totals.unmarkedSections, 2, 'the two classes nobody has marked')
+  assert.equal(seen.totals.markedSections, 1)
+  assert.equal(seen.shown, 1)
+  assert.equal(seen.total, 1)
+  const card = rowsOf(office)
+  assert.equal(card.rows.length, 2, 'one pupil and one line for the registers not marked')
+  assert.deepEqual(card.rows.at(-1)?.cells.mark, { type: 'tag', value: 'Not marked' })
+
+  const own = assertDrawable(await run(teacher, 'absent_pupils_day', {}), 'teacher absent_pupils_day')
+  const mine = own.forModel as Absent
+  assert.deepEqual(mine.pupils.map((row) => row.studentId), [p1])
+  assert.deepEqual(mine.unmarkedSections, [], 'a teacher is not told about classes they do not teach')
+
+  // The per-class counts say how many registers are not marked, in so many words.
+  const counts = assertDrawable(await run(owner, 'attendance_sections_day', {}), 'attendance_sections_day')
+  assert.equal((counts.forModel as { totals: { unmarkedSections: number } }).totals.unmarkedSections, 2)
+})
+
+test('free_teachers without a period reads the period running now from the bell schedule', async (t) => {
+  const weekday = new Date(`${today}T00:00:00Z`).getUTCDay()
+  if (weekday === 0) return t.skip('there are no lessons on a Sunday')
+  await adminPool().query(
+    `INSERT INTO bell_schedules(id,school_id,academic_year_id,name,grade_ids,working_days,periods)
+     VALUES ($1,$2,$3,$4,'{}'::uuid[],ARRAY[1,2,3,4,5,6]::smallint[],$5::jsonb)`,
+    [
+      randomUUID(),
+      school,
+      year,
+      `Bell ${suffix}`,
+      JSON.stringify([
+        { index: 0, name: 'Assembly', startTime: '08:00', endTime: '08:15', type: 'assembly' },
+        { index: 1, name: 'Period 1', startTime: '08:15', endTime: '09:00', type: 'period' },
+        { index: 2, name: 'Period 2', startTime: '09:00', endTime: '09:45', type: 'period' },
+        { index: 3, name: 'Break', startTime: '09:45', endTime: '10:00', type: 'break' },
+        { index: 4, name: 'Period 3', startTime: '10:00', endTime: '10:45', type: 'period' },
+      ]),
+    ],
+  )
+
+  const during = assertDrawable(await run(owner, 'free_teachers', {}, '09:10'), 'free now')
+  const found = during.forModel as { periodIndex: number; now: string; teachers: unknown[] }
+  assert.equal(found.periodIndex, 2, 'at 09:10 it is Period 2')
+  assert.equal(found.now, '09:10')
+  assert.equal(during.card?.kind, 'table')
+
+  const breakTime = assertDrawable(await run(owner, 'free_teachers', {}, '09:50'), 'at break')
+  const onBreak = breakTime.forModel as { noPeriodNow: boolean; note: string; nextPeriod: { periodIndex: number; startsAt: string } }
+  assert.equal(onBreak.noPeriodNow, true)
+  assert.match(onBreak.note, /Break/)
+  assert.deepEqual([onBreak.nextPeriod.periodIndex, onBreak.nextPeriod.startsAt], [4, '10:00'])
+
+  const early = (assertDrawable(await run(owner, 'free_teachers', {}, '07:30'), 'early').forModel as { note: string; nextPeriod: { periodIndex: number } })
+  assert.match(early.note, /not started/)
+  assert.equal(early.nextPeriod.periodIndex, 1)
+  const late = assertDrawable(await run(owner, 'free_teachers', {}, '16:00'), 'late').forModel as { note: string; nextPeriod?: unknown }
+  assert.match(late.note, /over for the day/)
+  assert.equal(late.nextPeriod, undefined)
+
+  // Another day, or no clock: the tool asks which period rather than guess.
+  const otherDay = assertDrawable(await run(owner, 'free_teachers', { date: shift(today, -7) }, '09:10'), 'another day')
+  assert.equal((otherDay.forModel as { needs: string }).needs, 'periodIndex')
+  const noClock = assertDrawable(await run(owner, 'free_teachers', {}), 'no clock')
+  assert.equal((noClock.forModel as { needs: string }).needs, 'periodIndex')
+})
+
+test('a name written in Devanagari is answered with a request for English letters, not an empty search', async () => {
+  for (const name of ['find_students', 'find_staff', 'search_school']) {
+    const outcome = assertDrawable(await run(owner, name, { query: 'रिया' }), name)
+    const told = outcome.forModel as { found: string; hint: string }
+    assert.equal(told.found, 'nothing')
+    assert.match(told.hint, /English letters/)
+    assert.equal(outcome.card, undefined)
+  }
+})
+
+test('fee_dues tells the model its rows are sorted by balance, highest first', async () => {
+  const dues = assertDrawable(await run(owner, 'fee_dues', { onlyWithDues: false }), 'fee_dues')
+  const told = dues.forModel as { sortedBy: string; shown: number; total: number; pupils: { balanceRupees: number }[] }
+  assert.equal(told.sortedBy, 'balance, highest first')
+  assert.equal(told.shown, told.pupils.length)
+  const balances = told.pupils.map((row) => row.balanceRupees)
+  assert.deepEqual(balances, [...balances].sort((a, b) => b - a))
 })

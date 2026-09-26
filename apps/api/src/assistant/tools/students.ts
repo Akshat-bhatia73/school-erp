@@ -30,6 +30,8 @@ import {
   text,
   toolList,
   type TableRow,
+  englishLettersOnly,
+  notInEnglishLetters,
 } from './present.ts'
 
 /** A pupil as the model needs them to answer and to chain the next call. */
@@ -77,8 +79,9 @@ export const findStudents = readTool({
   description:
     'Find pupils by name or admission number. Use this first when the question names a pupil, to get their id.',
   permission: 'students.read_basic',
-  input: z.object({ query: z.string().trim().min(1).max(100).describe('Part of a name or an admission number.') }),
+  input: z.object({ query: z.string().trim().min(1).max(100).describe('Part of a name or an admission number, in English letters.') }),
   async run(input, context) {
+    if (notInEnglishLetters(input.query)) return englishLettersOnly(input.query)
     const found = await fetchParsed(context, StudentSearchResults, '/students/search', { q: input.query })
     if (!found.ok) return found.outcome
     const list = capped(found.body)
@@ -98,7 +101,7 @@ export const listStudents = readTool({
   input: z.object({
     sectionId: IdInput('Only pupils of this section.').optional(),
     status: z.enum(['active', 'left', 'alumni', 'suspended']).optional().describe('Leave out for every status.'),
-    search: z.string().trim().min(1).max(100).optional().describe('Part of a name or an admission number.'),
+    search: z.string().trim().min(1).max(100).optional().describe('Part of a name or an admission number, in English letters.'),
     sort: z.enum(['name', 'admission', 'roll']).optional().describe('Sort order; name by default.'),
     page: z.number().int().min(1).max(1000).optional().describe('Page of 50, from 1.'),
   }),
@@ -117,7 +120,7 @@ export const listStudents = readTool({
     const first = items[0]?.enrollment
     const label = input.sectionId && first ? className(first.grade, first.section) : undefined
     return ok(
-      { pupils: items.map(pupilForModel), total, page, pageSize: PAGE_SIZE, morePages: page * PAGE_SIZE < total },
+      { pupils: items.map(pupilForModel), shown: items.length, total, page, pageSize: PAGE_SIZE, morePages: page * PAGE_SIZE < total },
       tableCard({ title: label ? `Pupils of ${label}` : 'Pupils', columns: PUPIL_COLUMNS, rows: items.map(pupilRow), total }),
       source(label ? `Students, ${label}` : 'Students', appPath('/students', { sectionId: input.sectionId, status: input.status, q: input.search })),
     )

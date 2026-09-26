@@ -25,6 +25,8 @@ import {
   text,
   toolList,
   type TableRow,
+  englishLettersOnly,
+  notInEnglishLetters,
 } from './present.ts'
 
 function staffForModel(staff: StaffDirectory) {
@@ -48,8 +50,9 @@ export const findStaff = readTool({
   name: 'find_staff',
   description: 'Find staff members by name, designation or department. Use this first when the question names a teacher or staff member.',
   permission: 'staff.read_directory',
-  input: z.object({ query: z.string().trim().min(1).max(100).describe('Part of a name, designation or department.') }),
+  input: z.object({ query: z.string().trim().min(1).max(100).describe('Part of a name, designation or department, in English letters.') }),
   async run(input, context) {
+    if (notInEnglishLetters(input.query)) return englishLettersOnly(input.query)
     const found = await fetchParsed(context, StaffSearchResults, '/staff/search', { q: input.query })
     if (!found.ok) return found.outcome
     const list = capped(found.body)
@@ -81,7 +84,7 @@ export const listStaff = readTool({
     if (!found.ok) return found.outcome
     const { items, total } = found.body
     return ok(
-      { staff: items.map(staffForModel), total, page, morePages: page * PAGE_SIZE < total },
+      { staff: items.map(staffForModel), shown: items.length, total, page, morePages: page * PAGE_SIZE < total },
       tableCard({ title: input.department ? `Staff, ${input.department}` : 'Staff', columns: STAFF_COLUMNS, rows: items.map(staffRow), total }),
       source('Staff', appPath('/staff', { department: input.department, q: input.search })),
     )
@@ -159,6 +162,7 @@ export const staffAssignments = readTool({
           validFrom: row.validFrom,
           validUntil: row.validUntil,
         })),
+        shown: list.items.length,
         total: list.total,
       },
       tableCard({

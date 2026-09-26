@@ -37,6 +37,8 @@ import { buildApp } from '../src/app.ts'
 import { open, seal } from '../src/modules/shared/crypto.ts'
 import { proposeTool, type AnyProposeTool } from '../src/assistant/proposals/types.ts'
 import { STALE_OUTCOME, REFUSED_OUTCOME } from '../src/assistant/proposals/routes.ts'
+import { matchPerson, personProblem } from '../src/assistant/proposals/match.ts'
+import { savedChanges } from '../src/assistant/proposals/store.ts'
 import { OPERATION_HEADER, requestIdFor, reserveRequestId } from '../src/http/request-ids.ts'
 import {
   adminPool,
@@ -717,7 +719,7 @@ test('the proposal states read back for the thread, and the next turn tells the 
 })
 
 test('an edited mark is written as edited', async () => {
-  const { proposal } = await proposed(owner.client, sectionB, [{ pupil: 'Asha', mark: 'absent' }])
+  const { threadId, proposal } = await proposed(owner.client, sectionB, [{ pupil: 'Asha', mark: 'absent' }])
   const preview = AttendanceDayPreview.parse(proposal.preview)
   const edited = {
     ...preview,
@@ -730,6 +732,20 @@ test('an edited mark is written as edited', async () => {
   assert.equal(await markOf(sectionB, 'Asha'), 'absent')
   assert.equal(await markOf(sectionB, 'Chirag'), 'late')
   assert.equal(await markOf(sectionB, 'Bela'), 'present')
+
+  // The next turn tells the model what was saved, the person's edit included,
+  // not what it first proposed.
+  await ask(owner.client, threadId, 'What did you save for Chirag?')
+  const replay = JSON.stringify(server.model.doStreamCalls.at(-1)?.prompt)
+  const saved = [
+    { name: 'Asha PupilB', mark: 'absent' },
+    { name: 'Bela PupilB', mark: 'present' },
+    { name: 'Chirag PupilB', mark: 'late' },
+  ]
+  for (const change of saved) {
+    const text = JSON.stringify(change)
+    assert.ok(replay.includes(text) || replay.includes(JSON.stringify(text).slice(1, -1)), `${text} missing from ${replay}`)
+  }
 })
 
 test("a tool's problem with the preview is a 400 in its own words, and the proposal stays open", async () => {
@@ -1091,4 +1107,49 @@ test('the nightly sweep removes proposals older than 30 days', async () => {
   assert.equal((await adminPool().query('SELECT 1 FROM assistant_proposals WHERE id = $1', [old])).rows.length, 0)
   // A recent one is kept.
   assert.equal((await row(teacherProposal.id)).status, 'done')
+})
+
+test('a name written in Devanagari is told to come in English letters, not that nobody has it', () => {
+  const candidates = [{ item: 'riya', name: 'Riya Sharma' }]
+  const match = matchPerson('रिया', candidates)
+  if (match.status !== 'none') throw new Error(`a Devanagari name matched: ${match.status}`)
+  const problem = personProblem('रिया', match, 'Class 9 A for 26 Sep')
+  assert.match(problem, /English letters/)
+  assert.doesNotMatch(problem, /Nobody called/)
+  // A name in English letters that is not there still reads as before.
+  assert.equal(personProblem('Zoya', { status: 'none' }, 'Class 9 A'), 'Nobody called Zoya is on Class 9 A.')
+})
+
+test('what a confirmed preview saved: changed marks, cells and grades only, by name', () => {
+  const id = () => randomUUID()
+  assert.deepEqual(
+    savedChanges({
+      kind: 'exam_marks',
+      mode: 'first_entry',
+      paperId: id(),
+      route: 'marks_sheet',
+      title: 'Half-yearly, Maths, 9 A',
+      components: [{ component: 'written', label: 'Written exam', maxMarks: 80 }],
+      rows: [
+        { studentId: id(), name: 'Riya', rollNumber: 1, cells: [{ component: 'written', current: null, proposed: 72 }] },
+        { studentId: id(), name: 'Kabir', rollNumber: 2, cells: [{ component: 'written', current: 60, proposed: 60 }] },
+        { studentId: id(), name: 'Aarav', rollNumber: 3, cells: [{ component: 'written', current: 50, proposed: null }] },
+      ],
+    }),
+    [{ name: 'Riya', part: 'Written exam', value: 72 }],
+  )
+  const grades = { work_education: 'A', art_education: 'B', health_physical_education: null, discipline: null } as const
+  assert.deepEqual(
+    savedChanges({
+      kind: 'co_scholastic',
+      sectionId: id(),
+      sectionName: '9 A',
+      card: 'term_1',
+      rows: [
+        { studentId: id(), name: 'Riya', rollNumber: 1, version: 1, current: grades, proposed: { ...grades, discipline: 'A' }, currentRemarks: null, proposedRemarks: 'Kind' },
+        { studentId: id(), name: 'Kabir', rollNumber: 2, version: 1, current: grades, proposed: grades, currentRemarks: 'Neat', proposedRemarks: 'Neat' },
+      ],
+    }),
+    [{ name: 'Riya', grades: { discipline: 'A' }, remarkChanged: true }],
+  )
 })

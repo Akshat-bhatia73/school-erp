@@ -1,6 +1,7 @@
 /** The attendance registers, a pupil's month, the staff register and the files.
  *  Mirrors apps/api/src/modules/attendance. */
 import {
+  AttendanceAbsencesResponse,
   AttendanceCorrectionRequest,
   AttendanceDayResponse,
   AttendanceExportJob,
@@ -24,6 +25,7 @@ import { schoolPath, seg, withQuery } from './shared'
 export type AttendanceSectionsResult = z.infer<typeof AttendanceSectionsResponse>
 export type AttendanceSectionDayRow = AttendanceSectionsResult['items'][number]
 export type AttendanceDayResult = z.infer<typeof AttendanceDayResponse>
+export type AttendanceAbsencesResult = z.infer<typeof AttendanceAbsencesResponse>
 export type AttendanceRosterRowRecord = AttendanceDayResult['rows'][number]
 export type AttendanceStudentMonthResult = z.infer<typeof AttendanceStudentMonthResponse>
 export type AttendanceSectionMonthResult = z.infer<typeof AttendanceSectionMonthResponse>
@@ -51,6 +53,11 @@ export function sections(schoolId: string, params: { date?: string } = {}) {
 
 export function day(schoolId: string, sectionId: string, date: string) {
   return request(base(schoolId, `/sections/${seg(sectionId)}/days/${seg(date)}`), { schema: AttendanceDayResponse })
+}
+
+/** Every pupil not present on a day, across the registers the caller may read, and the registers not marked yet. */
+export function absences(schoolId: string, date: string) {
+  return request(base(schoolId, `/days/${seg(date)}/absences`), { schema: AttendanceAbsencesResponse })
 }
 
 /** Marking a day is one write of the whole roster: every pupil on it, nobody else. */

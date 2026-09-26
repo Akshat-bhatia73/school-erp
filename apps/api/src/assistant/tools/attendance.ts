@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import {
+  ASSISTANT_MAX_ROWS,
+  AttendanceAbsencesResponse,
   AttendanceDayResponse,
   AttendanceSectionMonthResponse,
   AttendanceSectionsResponse,
@@ -20,6 +22,7 @@ import {
   dateLabel,
   figuresCard,
   fetchParsed,
+  listedNames,
   monthLabel,
   num,
   ok,
@@ -77,7 +80,7 @@ const month = () => MonthInput('The month. Leave out for this month.').optional(
 export const attendanceSectionsDay = readTool({
   name: 'attendance_sections_day',
   description:
-    'For one day, every section you may see: whether its register is marked and how many pupils were present, absent, late or on leave.',
+    'For one day, every section you may see: whether its register is marked and how many pupils were present, absent, late or on leave. Counts per class only; for the names use absent_pupils_day.',
   permission: 'attendance.read',
   input: z.object({ date: date() }),
   async run(input, context) {
@@ -102,8 +105,11 @@ export const attendanceSectionsDay = readTool({
         totals: {
           sections: items.length,
           marked: items.filter((row) => row.marked).length,
+          unmarkedSections: items.filter((row) => !row.marked).length,
           absent: items.reduce((sum, row) => sum + (row.counts?.absent ?? 0), 0),
         },
+        shown: list.items.length,
+        total: list.total,
       },
       tableCard({
         title: `Attendance, ${dateLabel(day)}`,
@@ -131,6 +137,70 @@ export const attendanceSectionsDay = readTool({
         total: list.total,
       }),
       source(`Attendance, ${dateLabel(day)}`, appPath('/attendance', { date: day })),
+    )
+  },
+})
+
+export const absentPupilsDay = readTool({
+  name: 'absent_pupils_day',
+  description:
+    'For one day, the names of every pupil not present (absent, late, on leave or half day) in every class you may see, with their class, and the registers not marked yet. Use it for "who is absent" and "names of absent pupils".',
+  permission: 'attendance.read',
+  input: z.object({ date: date() }),
+  async run(input, context) {
+    const day = input.date ?? context.today
+    const found = await fetchParsed(context, AttendanceAbsencesResponse, `/attendance/days/${seg(day)}/absences`)
+    if (!found.ok) return found.outcome
+    const body = found.body
+    const unmarked = body.unmarkedSections.map((row) => className(row.grade, row.section) ?? row.section.name)
+    const notPresent = body.totals.absent + body.totals.late + body.totals.leave + body.totals.halfDay
+    // One row of the card is kept for the registers not marked yet.
+    const room = unmarked.length > 0 ? ASSISTANT_MAX_ROWS - 1 : ASSISTANT_MAX_ROWS
+    const shown = body.items.slice(0, room)
+    return ok(
+      {
+        date: body.date,
+        dayKind: body.day.kind,
+        holidayName: body.day.holidayName,
+        totals: {
+          sections: body.totals.sections,
+          markedSections: body.totals.markedSections,
+          unmarkedSections: unmarked.length,
+          notPresent,
+          absent: body.totals.absent,
+          late: body.totals.late,
+          leave: body.totals.leave,
+          halfDay: body.totals.halfDay,
+        },
+        unmarkedSections: unmarked.slice(0, ASSISTANT_MAX_ROWS),
+        pupils: shown.map((row) => ({
+          studentId: row.student.id,
+          name: row.student.name,
+          class: className(row.grade, row.section),
+          mark: row.mark,
+        })),
+        shown: shown.length,
+        total: notPresent,
+      },
+      tableCard({
+        title: `Not present, ${dateLabel(body.date)}`,
+        columns: [
+          { key: 'name', label: 'Pupil' },
+          { key: 'class', label: 'Class' },
+          { key: 'mark', label: 'Mark' },
+        ],
+        rows: [
+          ...shown.map((row) => ({
+            cells: { name: text(row.student.name), class: text(className(row.grade, row.section)), mark: markTag(row.mark) },
+            href: `/students/${seg(row.student.id)}`,
+          })),
+          ...(unmarked.length > 0
+            ? [{ cells: { name: text('Registers not marked yet'), class: text(listedNames(unmarked, 12)), mark: tag('Not marked') } }]
+            : []),
+        ],
+        total: notPresent + (unmarked.length > 0 ? 1 : 0),
+      }),
+      source(`Attendance, ${dateLabel(body.date)}`, appPath('/attendance', { date: body.date })),
     )
   },
 })
@@ -211,6 +281,7 @@ export const sectionAttendanceMonth = readTool({
         section: label,
         month: body.month,
         pupils: list.items.map((row) => ({ studentId: row.student.id, name: row.student.name, roll: row.student.rollNumber, ...summaryForModel(row.summary) })),
+        shown: list.items.length,
         total: list.total,
       },
       tableCard({
@@ -349,6 +420,7 @@ export const staffAttendanceMonth = readTool({
 
 export const ATTENDANCE_TOOLS = toolList(
   attendanceSectionsDay,
+  absentPupilsDay,
   sectionAttendanceDay,
   sectionAttendanceMonth,
   studentAttendanceMonth,
