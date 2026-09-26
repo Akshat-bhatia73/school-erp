@@ -40,6 +40,19 @@ export const ids = {
   sectionB1: b('12'),
   subjectB: b('13'),
   studentBravo: b('14'),
+
+  // The assistant's own class, so what it marks never changes another test's
+  // register: two sections of one grade, each with three pupils, both looked
+  // after by Teacher Delta.
+  gradeAssist: b('40'),
+  sectionAssistR: b('41'),
+  sectionAssistS: b('42'),
+  pupilRia: b('43'),
+  pupilRavi: b('44'),
+  pupilRekha: b('45'),
+  pupilSam: b('46'),
+  pupilSita: b('47'),
+  pupilSuraj: b('48'),
 } as const
 
 /** A person the suite signs in as, with everything a test needs to find them. */
@@ -77,6 +90,8 @@ export const teacherGamma = person('teacher-gamma', '02', 'Teacher Gamma')
 export const teacherDual = person('teacher-dual', '03', 'Teacher Dual')
 /** Owner of school A. A privileged role, so a second factor is required. */
 export const ownerA = person('owner', '04', 'Browser Owner')
+/** Class teacher of the assistant's two sections, and the one who asks it things. */
+export const teacherDelta = person('teacher-delta', '05', 'Teacher Delta')
 
 /** The school B half of the two-school teacher. */
 export const teacherDualSchoolB = {
@@ -95,10 +110,27 @@ export const PROMOTE_FROM_LABEL = 'Six - P'
 export const PROMOTE_TO_LABEL = 'Six - Q'
 export const NEXT_YEAR_NAME = '2027-28'
 
+/** The assistant's two sections, as the assistant names them in its cards. */
+export const ASSIST_GRADE_NAME = 'Eight'
+export const ASSIST_SECTION_R = { id: ids.sectionAssistR, label: 'Eight R' }
+export const ASSIST_SECTION_S = { id: ids.sectionAssistS, label: 'Eight S' }
+/** Section R's pupils, in roll order, then section S's. */
+export const ASSIST_PUPILS_R = [
+  { id: ids.pupilRia, name: 'Ria Rowan', roll: 1 },
+  { id: ids.pupilRavi, name: 'Ravi Rowan', roll: 2 },
+  { id: ids.pupilRekha, name: 'Rekha Rowan', roll: 3 },
+] as const
+export const ASSIST_PUPILS_S = [
+  { id: ids.pupilSam, name: 'Sam Stone', roll: 1 },
+  { id: ids.pupilSita, name: 'Sita Stone', roll: 2 },
+  { id: ids.pupilSuraj, name: 'Suraj Stone', roll: 3 },
+] as const
+
 export const people = [
   teacherAlpha,
   teacherBeta,
   teacherGamma,
   teacherDual,
   ownerA,
+  teacherDelta,
 ] as const

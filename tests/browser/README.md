@@ -1,6 +1,6 @@
 # Browser tests for session transitions and downloads
 
-Seven Playwright tests that drive the real web app against the real API, in
+Playwright tests that drive the real web app against the real API, in
 Chromium. They cover the moments where one identity's data could leak into the
 next one's screen — sign-out, school switch, suspension, a typed address outside
 a teacher's sections, and tampered browser storage — and the one place the app
@@ -66,6 +66,7 @@ down first, then adds the people this suite signs in as, all named in
 | Teacher Gamma | Fixture A | teacher | Section A. Suspended by the owner, then restored |
 | Teacher Dual | Fixture A and Fixture B | teacher | Alpha Learner in A, Bravo Learner in B |
 | Browser Owner | Fixture A | owner | Everything, after a second factor |
+| Teacher Delta | Fixture A | teacher | Class teacher of Eight R and Eight S, the assistant's sections |
 
 The password is the same for all of them (`setup/people.ts`). It is hashed by
 the API's own authentication instance, in a separate process, because there is
@@ -86,6 +87,7 @@ over the base32 secret the enrolment published.
 | `school-switch-in-flight.spec.ts` | The same, across a school switch by a person with two memberships |
 | `suspension.spec.ts` | An owner suspends a teacher who is signed in at that moment, in another browser context; the teacher's next navigation lands on the refusal ("No school yet", whose copy names suspension, because `/api/me` lists active memberships only), never on the roster |
 | `tampering.spec.ts` | `localStorage`, `sessionStorage` and readable cookies that look like a role or a school override change no role, no school and no control |
+| `assistant.spec.ts` | A teacher's read question is answered from a real read tool, with its card and a conversation in the history; a register card is edited, confirmed and shows on the register screen; a card whose register was saved another way first says "Changed since" and the other save stands; a failed answer is asked again with Try again |
 | `exports.spec.ts` | An owner picks rows on the roster and "Export to Excel" saves a real `.xlsx`; "Export PDF" on one student's record saves a real `.pdf`. It enrols a second factor for the owner and hands it back afterwards, so the suspension test still starts from nothing |
 
 Two halves of the plan row for production output live elsewhere, on purpose:
@@ -99,6 +101,18 @@ tests honest: the first fetches the answer while the old session is still
 valid and then defers delivering it until after the transition, the second
 installs a MutationObserver that records every DOM state, so a row that flashes
 and is swept away still fails.
+
+## The assistant's model
+
+`webServer[0]` runs `support/assistant-server.ts`, which assembles the API the
+way `apps/api/src/runtime.ts` does but hands the assistant a scripted
+`MockLanguageModelV4` through the existing test-only `assistant` dependency.
+The script answers the newest question (the phrases live in
+`support/assistant-script.ts`); every tool, route and session is the real one,
+and nothing is sent anywhere. The seed switches the assistant on for Fixture A
+and clears Delta's conversations, questions counted and both registers.
+
+`BROWSER_DB_NAME` points the suite at another database (default `erp_browser`).
 
 ## Conventions
 
