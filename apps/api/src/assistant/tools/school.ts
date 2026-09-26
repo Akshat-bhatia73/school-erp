@@ -33,6 +33,8 @@ import {
   tag,
   text,
   toolList,
+  englishLettersOnly,
+  notInEnglishLetters,
 } from './present.ts'
 import { pupilForModel } from './students.ts'
 
@@ -41,8 +43,9 @@ export const searchSchool = readTool({
   description:
     'Search pupils and staff together by name, admission number or designation. Use it when you do not know whether a name is a pupil or a staff member.',
   permission: 'students.read_basic',
-  input: z.object({ query: z.string().trim().min(1).max(100).describe('A name, admission number or designation.') }),
+  input: z.object({ query: z.string().trim().min(1).max(100).describe('A name, admission number or designation, in English letters.') }),
   async run(input, context) {
+    if (notInEnglishLetters(input.query)) return englishLettersOnly(input.query)
     const found = await fetchParsed(context, SearchResponse, '/search', { q: input.query })
     if (!found.ok) return found.outcome
     const students = capped(found.body.students)
@@ -233,6 +236,7 @@ export const listHolidays = readTool({
     return ok(
       {
         holidays: list.items.map((holiday) => ({ name: holiday.name, from: holiday.startDate, to: holiday.endDate, type: holiday.type })),
+        shown: list.items.length,
         total: list.total,
       },
       tableCard({

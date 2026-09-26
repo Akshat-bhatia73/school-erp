@@ -62,6 +62,7 @@ export const myInbox = readTool({
           from: item.sender.name,
           pupil: item.pupil?.name,
         })),
+        shown: body.items.length,
         morePages: page * PAGE_SIZE < body.total,
       },
       tableCard({
@@ -130,6 +131,7 @@ export const listMessages = readTool({
           sendAt: item.sendAt,
           ...(item.counts ? { recipients: item.counts.recipients, delivered: item.counts.delivered, read: item.counts.read } : {}),
         })),
+        shown: body.items.length,
         morePages: page * PAGE_SIZE < body.total,
       },
       tableCard({

@@ -67,9 +67,12 @@ export async function staffScope(
 /** Search covers directory fields only: never pay, phone, address or identity. */
 function searchTerm(search: string | undefined): SQL | undefined {
   if (!search) return undefined
-  const pattern = `%${search.replace(/[\\%_]/g, (match) => `\\${match}`)}%`
+  // A full name matches first and last name together, as on the students list.
+  const term = search.trim().replace(/\s+/g, ' ')
+  const pattern = `%${term.replace(/[\\%_]/g, (match) => `\\${match}`)}%`
   return sql`(${staff.firstName} ILIKE ${pattern} ESCAPE '\\'
     OR coalesce(${staff.lastName}, '') ILIKE ${pattern} ESCAPE '\\'
+    OR (${staff.firstName} || ' ' || coalesce(${staff.lastName}, '')) ILIKE ${pattern} ESCAPE '\\'
     OR ${staff.employeeCode} ILIKE ${pattern} ESCAPE '\\'
     OR ${staff.designation} ILIKE ${pattern} ESCAPE '\\'
     OR coalesce(${staff.department}, '') ILIKE ${pattern} ESCAPE '\\')`

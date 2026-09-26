@@ -7,6 +7,7 @@ import {
   CreateAssistantThreadResponse,
   type AssistantStoredMessage,
   type AssistantThreadSummary,
+  type PermissionKey,
 } from '@erp/contracts'
 import type { RequestContext } from '@erp/contracts/server'
 import { withTenantTransaction } from '@erp/db'
@@ -14,6 +15,10 @@ import { open, seal } from '../modules/shared/crypto.ts'
 import { assertUuidParam, requireFound } from '../modules/shared/errors.ts'
 import { writeAudit, type TenantConnection } from '../modules/shared/audit.ts'
 import { protectedRoute, type ModuleDependencies } from '../modules/shared/route.ts'
+import { isOffered, toolsFor } from './tools/registry.ts'
+import type { AnyReadTool } from './tools/types.ts'
+import { proposeToolsFor } from './proposals/registry.ts'
+import type { AnyProposeTool } from './proposals/types.ts'
 
 /**
  * A conversation is its owner's alone. Every query here names the caller's
@@ -123,7 +128,66 @@ export async function keepMessage(
   )
 }
 
-export function registerAssistantThreadRoutes(app: FastifyInstance, deps: ModuleDependencies): void {
+/** Tests only: the tools on offer in place of the registries'. */
+export interface ToolOverrides {
+  readonly assistantTools?: readonly AnyReadTool[]
+  readonly assistantProposeTools?: readonly AnyProposeTool[]
+}
+
+/** The read tools this person is offered: those whose keys they hold somewhere. */
+export function offeredTools(deps: ToolOverrides, capabilities: ReadonlySet<PermissionKey>): readonly AnyReadTool[] {
+  if (deps.assistantTools) return deps.assistantTools.filter((tool) => isOffered(tool, capabilities))
+  return toolsFor(capabilities)
+}
+
+/** The change tools this person is offered: those whose write permission they hold somewhere. */
+export function offeredProposeTools(
+  deps: ToolOverrides,
+  capabilities: ReadonlySet<PermissionKey>,
+): readonly AnyProposeTool[] {
+  if (deps.assistantProposeTools) return deps.assistantProposeTools.filter((tool) => capabilities.has(tool.permission))
+  return proposeToolsFor(capabilities)
+}
+
+/** The names of every tool, read or change, this person is offered now. */
+export function offeredToolNames(deps: ToolOverrides, capabilities: ReadonlySet<PermissionKey>): ReadonlySet<string> {
+  return new Set([...offeredTools(deps, capabilities), ...offeredProposeTools(deps, capabilities)].map((tool) => tool.name))
+}
+
+/** What the model reads in place of an old result from a tool the person is no longer offered. */
+export const HIDDEN_RESULT = 'This result is hidden because you no longer have access to it.'
+
+/** The tool a UI message part called, or null for a part that is not a tool call. */
+function toolNameOf(part: Record<string, unknown>): string | null {
+  if (part.type === 'dynamic-tool') return typeof part.toolName === 'string' ? part.toolName : null
+  return typeof part.type === 'string' && part.type.startsWith('tool-') ? part.type.slice('tool-'.length) : null
+}
+
+/**
+ * The same messages with the result of every tool call to a tool this person
+ * is no longer offered replaced by `hidden`. A result was read under the
+ * permissions of the day it was asked; once a permission is gone, so is what
+ * it showed, on the screen and in what the model reads again. The call itself
+ * stays, so the conversation is still well formed.
+ */
+export function hideUnoffered<T extends Pick<KeptMessage, 'parts'>>(
+  messages: readonly T[],
+  offered: ReadonlySet<string>,
+  hidden: unknown,
+): T[] {
+  return messages.map((message) => {
+    let changed = false
+    const parts = message.parts.map((part) => {
+      const name = toolNameOf(part)
+      if (name === null || offered.has(name) || !('output' in part)) return part
+      changed = true
+      return { ...part, output: hidden }
+    })
+    return changed ? { ...message, parts } : message
+  })
+}
+
+export function registerAssistantThreadRoutes(app: FastifyInstance, deps: ModuleDependencies & ToolOverrides): void {
   const key = deps.config.DATA_ENCRYPTION_KEY
 
   protectedRoute(app, deps, {
@@ -176,9 +240,13 @@ export function registerAssistantThreadRoutes(app: FastifyInstance, deps: Module
     response: AssistantThread,
     handler: async ({ context, param }) => {
       const threadId = assertUuidParam(param('threadId'))
+      const offered = offeredToolNames(deps, new Set(await deps.authz.capabilities(context)))
       return withTenantTransaction(deps.pools.runtime, context, async (conn) => {
         const row = requireFound(await ownThread(conn, context, threadId))
-        const messages: AssistantStoredMessage[] = (await keptMessages(conn, context, threadId, key)).map(
+        // An old card from a tool the person is no longer offered comes back
+        // as "not available", which the screen draws as nothing.
+        const kept = hideUnoffered(await keptMessages(conn, context, threadId, key), offered, { status: 'not_available' })
+        const messages: AssistantStoredMessage[] = kept.map(
           (message) => ({
             id: message.id,
             role: message.role,

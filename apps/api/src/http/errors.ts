@@ -97,6 +97,7 @@ const REASON_MESSAGES: Record<ErrorReason, string> = {
   student_login_no_guardian_phone: 'Add a phone number for the primary guardian first: the password is sent there.',
   student_login_exists: 'This pupil already has a login.',
   student_login_missing: 'This pupil does not have a login yet.',
+  assistant_still_answering: 'An answer is still being written in this conversation. Wait for it to finish, then ask again.',
 }
 
 export class ApiFailure extends Error {

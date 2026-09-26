@@ -16,6 +16,8 @@ export interface ToolCallContext {
   readonly schoolId: string
   /** Today in the school's timezone, YYYY-MM-DD. */
   readonly today: string
+  /** The time now in the school's timezone, HH:MM, when the turn knows it. */
+  readonly now?: string
   /** The current academic year's id, when the school has one the person can read. */
   readonly academicYearId: string | null
   /**
@@ -55,6 +57,11 @@ export interface ReadToolDefinition<TInput> {
    * wasting steps; it is not the security boundary, the route is.
    */
   readonly permission: PermissionKey
+  /**
+   * Further keys the person must also hold to be offered the tool, for a tool
+   * that shows one block of a route: the route's own key plus the block's.
+   */
+  readonly alsoRequires?: readonly PermissionKey[]
   readonly input: z.ZodType<TInput>
   run(input: TInput, context: ToolCallContext): Promise<ReadToolOutcome>
 }
