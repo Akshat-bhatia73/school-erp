@@ -9,10 +9,11 @@ import { ApiRequestError } from '@/lib/http'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
 import { Composer } from './composer'
-import { showsNothingYet, turnBody } from './format'
+import { messageText, showsNothingYet, turnBody } from './format'
 import { Message } from './message'
 import { ProposalsProvider } from './proposals/context'
-import { holdsProposal } from './proposals/model'
+import { holdsProposal, proposalsIn } from './proposals/model'
+import { draftKeys, emptyText, noText, restoreText, useSessionDraft } from './session-draft'
 import { ActivityLine } from './tool-activity'
 
 /**
@@ -54,7 +55,13 @@ export function Conversation({ threadId, initialMessages, firstQuestion, onFirst
 }) {
   const { schoolId } = useSchoolContext()
   const queryClient = useQueryClient()
-  const [draft, setDraft] = useState('')
+  // The unsent question survives leaving the screen, for this conversation only, until it is sent.
+  const [draft, setDraft, clearDraft] = useSessionDraft(draftKeys.question(schoolId, threadId), { initial: noText, restore: restoreText, isEmpty: emptyText })
+  // The proposals this conversation was opened with. Their cards wait for the server's word on how
+  // they stand now; a proposal streamed later in this session is new and needs no such wait.
+  const [kept] = useState(() => new Set(initialMessages.flatMap((message) => proposalsIn(message).map((proposal) => proposal.id))))
+  // What the one live region says when a turn ends. Nothing while the words stream in.
+  const [announcement, setAnnouncement] = useState('')
 
   const transport = useMemo(() => new DefaultChatTransport({
     api: api.assistant.turnPath(schoolId, threadId),
@@ -73,7 +80,12 @@ export function Conversation({ threadId, initialMessages, firstQuestion, onFirst
     id: threadId,
     messages: initialMessages,
     transport,
-    onFinish: refresh,
+    onFinish: ({ message, isAbort, isError }) => {
+      refresh()
+      if (isAbort || isError) return
+      if (proposalsIn(message).length > 0) setAnnouncement('A change is ready to check.')
+      else if (messageText(message).trim() !== '') setAnnouncement('Answer ready.')
+    },
     // A refused turn may mean the limit was reached: the status says so on the next look.
     onError: refresh,
   })
@@ -106,7 +118,8 @@ export function Conversation({ threadId, initialMessages, firstQuestion, onFirst
   const ask = (text: string) => {
     stick.current = true
     clearError()
-    setDraft('')
+    clearDraft()
+    setAnnouncement('')
     void sendMessage({ text })
   }
 
@@ -114,7 +127,7 @@ export function Conversation({ threadId, initialMessages, firstQuestion, onFirst
   const waiting = busy && showsNothingYet(last)
 
   return (
-    <ProposalsProvider schoolId={schoolId} threadId={threadId} enabled={holdsProposal(messages)}>
+    <ProposalsProvider schoolId={schoolId} threadId={threadId} enabled={holdsProposal(messages)} kept={kept}>
       <div className="flex min-h-0 flex-1 flex-col">
         <div
           ref={scroller}
@@ -124,7 +137,9 @@ export function Conversation({ threadId, initialMessages, firstQuestion, onFirst
           }}
           className="min-h-0 flex-1 overflow-y-auto scrollbar-thin"
         >
-          <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-4 pt-6 pb-8 md:px-6">
+          {/* A log to move through; its implied live announcing is off (it would read every word as it
+              streams), and the status region below says once when a turn is done. */}
+          <div role="log" aria-label="Conversation" aria-live="off" className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-4 pt-6 pb-8 md:px-6">
             {messages.map((message) => <Message key={message.id} message={message} />)}
             {waiting && <ActivityLine label="Working…" />}
             {error && !busy && (
@@ -137,6 +152,7 @@ export function Conversation({ threadId, initialMessages, firstQuestion, onFirst
             )}
           </div>
         </div>
+        <p role="status" aria-live="polite" className="sr-only">{announcement}</p>
         <div className="shrink-0 pb-4">
           <div className="mx-auto w-full max-w-[760px] px-4 md:px-6">
             {locked ?? (

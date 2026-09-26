@@ -6,7 +6,7 @@ import {
   type ErrorReason,
 } from '@erp/contracts'
 import type { ToolCallContext } from '../tools/types.ts'
-import { className, fetchParsed, seg } from '../tools/present.ts'
+import { className, fetchParsed, inEnglishLetters, notInEnglishLetters, seg } from '../tools/present.ts'
 import type { PrepareOutcome } from './types.ts'
 
 /**
@@ -99,6 +99,23 @@ export function invalid(problem: string): PrepareOutcome<never> {
   return { status: 'invalid', problem: problem.length <= 500 ? problem : `${problem.slice(0, 499)}…` }
 }
 
+/**
+ * What the model is told when marking a register would give people nobody
+ * named a mark on a guess: ask, then say it with `everyone`.
+ */
+export function unaskedProblem(count: number, where: string, who: 'pupils' | 'staff' = 'pupils'): string {
+  const people = who === 'staff' ? (count === 1 ? 'staff member' : 'staff members') : count === 1 ? 'pupil' : 'pupils'
+  return `${count} ${people} on ${where} ${count === 1 ? 'has' : 'have'} no mark yet and ${count === 1 ? 'was' : 'were'} not named. Ask whether everyone else is present, then pass everyone with their mark, or name each one.`
+}
+
+/**
+ * The revision a write expects for a row, when the preview has one, so the
+ * route refuses the write if the mark moved since it was read.
+ */
+export function expected(row: { readonly revision?: number | undefined }): { expectedRevision?: number } {
+  return row.revision === undefined ? {} : { expectedRevision: row.revision }
+}
+
 // ---------------------------------------------------------------------------
 // Matching a person on a list.
 
@@ -168,6 +185,7 @@ export function matchPerson<T>(said: string, candidates: readonly PersonCandidat
 
 /** The plain problem for a name that matched nobody or more than one person. */
 export function personProblem(said: string, match: Exclude<PersonMatch<unknown>, { status: 'one' }>, where: string): string {
+  if (match.status === 'none' && notInEnglishLetters(said)) return inEnglishLetters(said)
   if (match.status === 'none') return `Nobody called ${said} is on ${where}.`
   return `More than one person on ${where} could be ${said}: ${listed(match.names)}. Say which one.`
 }
@@ -210,6 +228,7 @@ export async function findSection(context: ToolCallContext, said: string): Promi
     return { ok: true, id: detail.body.id, label: className(grades.get(detail.body.gradeId), detail.body) ?? detail.body.name }
   }
 
+  if (notInEnglishLetters(trimmed)) return { ok: false, outcome: invalid(inEnglishLetters(trimmed, "the class's name")) }
   const wanted = foldSection(trimmed)
   const exact = named.filter(({ section, grade, label }) =>
     [label, `${grade?.shortName ?? ''}${section.name}`].some((candidate) => foldSection(candidate) === wanted),

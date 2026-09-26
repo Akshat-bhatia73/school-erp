@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import {
   AssistantProposalStates,
@@ -17,14 +18,17 @@ import { ownThread } from '../threads.ts'
 import { switchedOff } from '../limits.ts'
 import type { AssistantDependencies } from '../turn.ts'
 import { proposeToolNamed } from './registry.ts'
-import type { AnyProposeTool } from './types.ts'
+import type { AnyProposeTool, WriteRequest } from './types.ts'
 import {
   decide,
   digestOf,
   expireLapsed,
+  markConfirming,
   ownProposal,
   previewOf,
   proposalOf,
+  settle,
+  settleAbandoned,
   stableJson,
   threadProposals,
   type Decision,
@@ -68,26 +72,41 @@ function refusedWrite(answer: Extract<WriteAnswer, { ok: false }>): Decision {
   return { status: 'failed', outcome: answer.message ?? FAILED_OUTCOME }
 }
 
-interface ConfirmInput {
+interface Checked {
   readonly deps: AssistantDependencies
   readonly context: RequestContext
   readonly conn: Conn
   readonly row: ProposalRow
   readonly edited: AssistantProposalPreview
-  readonly get: ReturnType<typeof routeGetter>
-  readonly write: ReturnType<typeof routeWriter>
+}
+
+/** One confirmed change, ready to send: its write, and the preview as the person left it. */
+interface Ready {
+  readonly request: WriteRequest
+  readonly edited: AssistantProposalPreview
+  readonly changed: boolean
+  readonly describeDone: (preview: AssistantProposalPreview) => string
+}
+
+type ToolView = {
+  sameTarget(original: AssistantProposalPreview, edited: AssistantProposalPreview): boolean
+  write(preview: AssistantProposalPreview): WriteRequest | { problem: string }
+  describeDone(preview: AssistantProposalPreview): string
+}
+
+function viewOf(tool: AnyProposeTool): ToolView {
+  return tool as unknown as ToolView
 }
 
 /**
- * Confirm one open proposal, in order: the tool still exists; the edited
- * preview is the same change as the original with only its editable fields
- * moved; the tool turns it into one write; the check route answers exactly
- * as it did when the proposal was made; then the write goes to the real
- * route as the person. Returns the edited preview as it was written, or
- * throws when nothing may be written at all.
+ * Check one open proposal before anything is sent, in order: the tool still
+ * exists; the edited preview is the same change as the original with only
+ * its editable fields moved; the tool turns it into one write. Decides the
+ * proposal (and returns the row) when it can never be written, and throws
+ * when the person must fix the card first.
  */
-async function confirm(input: ConfirmInput): Promise<{ row: ProposalRow; shown?: AssistantProposalPreview }> {
-  const { deps, context, conn, row, get, write } = input
+async function check(input: Checked): Promise<Ready | { row: ProposalRow }> {
+  const { deps, context, conn, row } = input
   const key = deps.config.DATA_ENCRYPTION_KEY
   const tool = toolFor(deps, row.tool_name)
   if (!tool) return { row: await decide(conn, context, row, { status: 'failed', outcome: GONE_OUTCOME }) }
@@ -98,38 +117,42 @@ async function confirm(input: ConfirmInput): Promise<{ row: ProposalRow; shown?:
   if (!original.success || !edited.success) throw new ApiFailure('INVALID_REQUEST')
   if (edited.data.kind !== original.data.kind || edited.data.kind !== row.kind) throw new ApiFailure('INVALID_REQUEST')
 
-  const same = tool as unknown as {
-    sameTarget(original: AssistantProposalPreview, edited: AssistantProposalPreview): boolean
-    write(preview: AssistantProposalPreview): { method: 'POST' | 'PUT' | 'PATCH'; path: string; body: unknown } | { problem: string }
-    describeDone(preview: AssistantProposalPreview): string
-  }
-  if (!same.sameTarget(original.data, edited.data)) throw new ApiFailure('INVALID_REQUEST')
-  const request = same.write(edited.data)
+  const view = viewOf(tool)
+  if (!view.sameTarget(original.data, edited.data)) throw new ApiFailure('INVALID_REQUEST')
+  const request = view.write(edited.data)
   if ('problem' in request) throw new ProposalProblem(request.problem)
-
-  // The record as it stands now must be the record the proposal was made
-  // from; anything else is somebody else's change, which is never overwritten.
-  const check = await getByPath(get, row.check_path)
-  if (!check.ok) {
-    if (check.status === 403 || check.status === 404) {
-      return { row: await decide(conn, context, row, { status: 'failed', outcome: REFUSED_OUTCOME }) }
-    }
-    throw new ApiFailure('SERVICE_UNAVAILABLE')
+  return {
+    request,
+    edited: edited.data,
+    changed: stableJson(edited.data) !== stableJson(original.data),
+    describeDone: (preview) => view.describeDone(preview),
   }
-  if (digestOf(check.body) !== row.check_digest) {
-    return { row: await decide(conn, context, row, { status: 'stale', outcome: STALE_OUTCOME }) }
-  }
+}
 
-  const answer = await write(request)
-  if (!answer.ok) return { row: await decide(conn, context, row, refusedWrite(answer)) }
-  const updated = await decide(conn, context, row, {
-    status: 'done',
-    outcome: same.describeDone(edited.data),
-    writeRequestId: answer.requestId,
-    edited: stableJson(edited.data) !== stableJson(original.data),
-    confirmedPreviewSealed: seal(JSON.stringify(edited.data), key),
-  })
-  return { row: updated, shown: edited.data }
+/**
+ * Send a confirming proposal's write, holding no database connection: read
+ * the check route again, and write only if it answers exactly as it did when
+ * the proposal was made (the write route also refuses any mark that moved,
+ * through the revisions in the body). Returns what to settle the proposal
+ * with; 'open' means nothing was written and the person may try again.
+ */
+async function send(
+  row: ProposalRow,
+  ready: Ready,
+  operationId: string,
+  get: ReturnType<typeof routeGetter>,
+  write: ReturnType<typeof routeWriter>,
+): Promise<Decision | { readonly status: 'open' }> {
+  const current = await getByPath(get, row.check_path)
+  if (!current.ok) {
+    if (current.status === 403 || current.status === 404) return { status: 'failed', outcome: REFUSED_OUTCOME }
+    return { status: 'open' }
+  }
+  // Anything else is somebody else's change, which is never overwritten.
+  if (digestOf(current.body) !== row.check_digest) return { status: 'stale', outcome: STALE_OUTCOME }
+  const answer = await write(ready.request, operationId)
+  if (!answer.ok) return refusedWrite(answer)
+  return { status: 'done', outcome: ready.describeDone(ready.edited) }
 }
 
 /**
@@ -172,7 +195,9 @@ export function registerAssistantProposalRoutes(app: FastifyInstance, deps: Assi
           requireFound(await ownThread(conn, context, threadId))
           await expireLapsed(conn, context, threadId)
           const rows = await threadProposals(conn, context, threadId)
-          return { items: rows.map((row) => proposalOf(row, key)) }
+          const settled = []
+          for (const row of rows) settled.push(await settleAbandoned(conn, context, row, key, toolFor(deps, row.tool_name)?.describeDone as never))
+          return { items: settled.map((row) => proposalOf(row, key)) }
         })
       },
     })
@@ -188,18 +213,49 @@ export function registerAssistantProposalRoutes(app: FastifyInstance, deps: Assi
         const proposalId = assertUuidParam(param('proposalId'))
         const get = routeGetter(request, context.schoolId)
         const write = routeWriter(request, context.schoolId)
-        return withTenantTransaction(deps.pools.runtime, context, async (conn) => {
-          // Locked to the end: a second click waits here and then finds the
-          // proposal already decided, so a change is written once.
-          const row = requireFound(await ownProposal(conn, context, proposalId, true))
-          if (row.lapsed) return { proposal: proposalOf(await decide(conn, context, row, { status: 'expired' }), key) }
-          if (row.status !== 'open') return { proposal: proposalOf(row, key) }
+
+        // Step one, in a short transaction: check the proposal and mark it
+        // confirming with the id its write will carry. A second click waits
+        // on the row lock, then finds it confirming or decided.
+        const started = await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+          let row = requireFound(await ownProposal(conn, context, proposalId, true))
+          row = await settleAbandoned(conn, context, row, key, toolFor(deps, row.tool_name)?.describeDone as never)
+          if (row.lapsed) return { answer: proposalOf(await decide(conn, context, row, { status: 'expired' }), key) }
+          if (row.status !== 'open') return { answer: proposalOf(row, key) }
           // Switched off since the proposal was made: nothing is written, and
           // the proposal stays open until it expires or is switched back on.
           if ((await switchedOff(conn, context, deps.config)) !== null) throw new ApiFailure('FEATURE_DISABLED')
-          const result = await confirm({ deps, context, conn, row, edited: body.preview, get, write })
-          return { proposal: proposalOf(result.row, key, result.shown) }
+          const ready = await check({ deps, context, conn, row, edited: body.preview })
+          if ('row' in ready) return { answer: proposalOf(ready.row, key) }
+          const operationId = randomUUID()
+          const marked = await markConfirming(conn, context, row, {
+            operationId,
+            edited: ready.changed,
+            confirmedPreviewSealed: seal(JSON.stringify(ready.edited), key),
+          })
+          return { marked, ready, operationId }
         })
+        if ('answer' in started) return { proposal: started.answer }
+
+        // Step two, holding no connection: the write, as the person.
+        const { marked, ready, operationId } = started
+        let decision: Decision | { readonly status: 'open' }
+        try {
+          decision = await send(marked, ready, operationId, get, write)
+        } catch (error) {
+          // Nobody knows whether the write happened; the proposal stays
+          // confirming and is settled from the audit log later.
+          request.log.warn({ requestId: request.id, proposalId }, 'assistant proposal write did not answer')
+          throw error
+        }
+
+        // Step three: settle it.
+        const settled = await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+          const row = await settle(conn, context, proposalId, operationId, decision)
+          return row ?? requireFound(await ownProposal(conn, context, proposalId))
+        })
+        if (decision.status === 'open') throw new ApiFailure('SERVICE_UNAVAILABLE')
+        return { proposal: proposalOf(settled, key, decision.status === 'done' ? ready.edited : undefined) }
       },
     })
 
@@ -211,7 +267,8 @@ export function registerAssistantProposalRoutes(app: FastifyInstance, deps: Assi
       handler: async ({ context, param }) => {
         const proposalId = assertUuidParam(param('proposalId'))
         return withTenantTransaction(deps.pools.runtime, context, async (conn) => {
-          const row = requireFound(await ownProposal(conn, context, proposalId, true))
+          let row = requireFound(await ownProposal(conn, context, proposalId, true))
+          row = await settleAbandoned(conn, context, row, key, toolFor(deps, row.tool_name)?.describeDone as never)
           if (row.lapsed) return { proposal: proposalOf(await decide(conn, context, row, { status: 'expired' }), key) }
           if (row.status !== 'open') return { proposal: proposalOf(row, key) }
           return { proposal: proposalOf(await decide(conn, context, row, { status: 'dismissed' }), key) }

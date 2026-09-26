@@ -61,6 +61,7 @@ export const reportCardSections = readTool({
           coScholasticEntered: row.coScholasticEntered,
           examsReady: row.examsReady,
         })),
+        shown: list.items.length,
         total: list.total,
       },
       tableCard({
@@ -117,6 +118,7 @@ export const sectionReportCards = readTool({
           publishedAt: row.latest?.publishedAt,
           changedSince: row.latest?.changedSince,
         })),
+        shown: list.items.length,
         total: list.total,
       },
       tableCard({

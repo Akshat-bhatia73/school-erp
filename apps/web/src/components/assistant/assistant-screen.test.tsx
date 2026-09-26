@@ -21,6 +21,7 @@ const threads = vi.fn()
 const thread = vi.fn()
 const createThread = vi.fn()
 const deleteThread = vi.fn()
+const proposals = vi.fn()
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -30,6 +31,7 @@ vi.mock('@/lib/api', () => ({
       thread: (...args: unknown[]) => thread(...args),
       createThread: (...args: unknown[]) => createThread(...args),
       deleteThread: (...args: unknown[]) => deleteThread(...args),
+      proposals: (...args: unknown[]) => proposals(...args),
       turnPath: (schoolId: string, threadId: string) => `/api/schools/${schoolId}/assistant/threads/${threadId}/turns`,
     },
   },
@@ -57,7 +59,22 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock)
   status.mockResolvedValue(AVAILABLE)
   threads.mockResolvedValue({ items: [] })
+  proposals.mockResolvedValue({ items: [] })
 })
+
+const EMPTY_THREAD = { id: 'th-1', title: 'Fees', createdAt: '2026-09-25T04:00:00.000Z', lastMessageAt: '2026-09-25T04:00:00.000Z', messages: [] }
+
+function textAnswer(text: string): Response {
+  return streamResponse([
+    { type: 'start', messageId: 'a1' },
+    { type: 'start-step' },
+    { type: 'text-start', id: 't1' },
+    { type: 'text-delta', id: 't1', delta: text },
+    { type: 'text-end', id: 't1' },
+    { type: 'finish-step' },
+    { type: 'finish' },
+  ])
+}
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -179,5 +196,87 @@ describe('the history popover', () => {
     await waitFor(() => expect(deleteThread).toHaveBeenCalledWith(SCHOOL, 'th-1'))
     // The open conversation was the one deleted, so the screen goes back to a new one.
     await waitFor(() => expect(onOpenThread).toHaveBeenCalledWith(undefined))
+  })
+})
+
+describe('what a screen reader hears', () => {
+  it('says once that the answer is ready, in one status region, and labels who said what', async () => {
+    thread.mockResolvedValue(EMPTY_THREAD)
+    fetchMock.mockResolvedValue(textAnswer('Nine pupils have fee dues.'))
+    renderWithSession(<AssistantScreen threadId="th-1" onOpenThread={() => {}} />, ACCESS)
+
+    const log = await screen.findByRole('log', { name: 'Conversation' })
+    expect(log).toHaveAttribute('aria-live', 'off')
+    await userEvent.type(screen.getByLabelText('Your question'), 'Which pupils have fee dues?{Enter}')
+    expect(await screen.findByText('Nine pupils have fee dues.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Answer ready.')).toHaveAttribute('role', 'status'))
+    expect(screen.getByText('You said:')).toHaveClass('sr-only')
+    expect(screen.getByText('Assistant:')).toHaveClass('sr-only')
+  })
+
+  it('says a change is ready to check when the answer proposes one', async () => {
+    thread.mockResolvedValue(EMPTY_THREAD)
+    const proposal = {
+      id: 'p-1', kind: 'attendance_day', title: 'Mark 9 A for 26 Sep 2026', status: 'open', expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      preview: { kind: 'attendance_day', mode: 'first_entry', sectionId: 'sec-9a', sectionName: '9 A', date: '2026-09-26', rows: [{ studentId: 'st-1', name: 'Riya Sharma', rollNumber: 1, current: null, proposed: 'absent' }] },
+    }
+    fetchMock.mockResolvedValue(streamResponse([
+      { type: 'start', messageId: 'a1' },
+      { type: 'start-step' },
+      { type: 'tool-input-available', toolCallId: 'c1', toolName: 'propose_attendance_day', input: {} },
+      { type: 'tool-output-available', toolCallId: 'c1', output: { status: 'ok', proposal } },
+      { type: 'finish-step' },
+      { type: 'start-step' },
+      { type: 'text-start', id: 't1' },
+      { type: 'text-delta', id: 't1', delta: 'Check the register below.' },
+      { type: 'text-end', id: 't1' },
+      { type: 'finish-step' },
+      { type: 'finish' },
+    ]))
+    renderWithSession(<AssistantScreen threadId="th-1" onOpenThread={() => {}} />, ACCESS)
+    await userEvent.type(await screen.findByLabelText('Your question'), 'Mark Riya absent{Enter}')
+    expect(await screen.findByText('A change is ready to check.')).toBeInTheDocument()
+    // Made in this session, so it may be confirmed at once.
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+  })
+})
+
+describe('the history list when it cannot be loaded', () => {
+  it('says so, apart from having none, and tries again', async () => {
+    threads.mockRejectedValueOnce(new ApiRequestError({ code: 'NETWORK_ERROR', status: 0, message: 'No connection.' }))
+    threads.mockResolvedValueOnce({ items: [{ id: 'th-9', title: 'Absences in 9 A', createdAt: new Date().toISOString(), lastMessageAt: new Date().toISOString() }] })
+    renderWithSession(<AssistantScreen onOpenThread={() => {}} />, ACCESS)
+    await userEvent.click(await screen.findByRole('button', { name: /New chat/ }))
+    expect(await screen.findByText('Could not load your conversations.')).toBeInTheDocument()
+    expect(screen.queryByText('Your conversations of the last 30 days show here.')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Absences in 9 A')).toBeInTheDocument()
+    expect(screen.queryByText('Could not load your conversations.')).not.toBeInTheDocument()
+  })
+})
+
+describe('an unsent question', () => {
+  it('is still there after leaving and coming back, and gone once sent', async () => {
+    thread.mockResolvedValue(EMPTY_THREAD)
+    fetchMock.mockResolvedValue(textAnswer('Nobody.'))
+    const first = renderWithSession(<AssistantScreen threadId="th-1" onOpenThread={() => {}} />, ACCESS)
+    await userEvent.type(await screen.findByLabelText('Your question'), 'Who has fee dues in Class 7')
+    first.unmount()
+
+    renderWithSession(<AssistantScreen threadId="th-1" onOpenThread={() => {}} />, ACCESS)
+    const box = await screen.findByLabelText('Your question')
+    expect(box).toHaveValue('Who has fee dues in Class 7')
+    await userEvent.type(box, '?{Enter}')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(box).toHaveValue('')
+    expect(window.sessionStorage.getItem(`erp:assistant:draft:${SCHOOL}:th-1`)).toBeNull()
+  })
+
+  it('on a new chat is kept apart from any conversation', async () => {
+    const first = renderWithSession(<AssistantScreen onOpenThread={() => {}} />, ACCESS)
+    await userEvent.type(await screen.findByLabelText('Your question'), 'Fee dues')
+    first.unmount()
+    renderWithSession(<AssistantScreen onOpenThread={() => {}} />, ACCESS)
+    expect(await screen.findByLabelText('Your question')).toHaveValue('Fee dues')
   })
 })

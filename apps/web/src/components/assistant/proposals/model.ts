@@ -110,8 +110,30 @@ export function countChanges(preview: AssistantProposalPreview): number {
   }
 }
 
+/** Grade cells and remarks that move on a co-scholastic card, counted apart so a changed remark is never hidden in a pupil count. */
+export function coScholasticChanges(preview: CoScholasticPreview): { grades: number; remarks: number } {
+  let grades = 0
+  let remarks = 0
+  for (const row of preview.rows) {
+    grades += (Object.keys(row.proposed) as Array<keyof typeof row.proposed>).filter((area) => row.proposed[area] !== row.current[area]).length
+    if (!sameRemarks(row.currentRemarks, row.proposedRemarks)) remarks += 1
+  }
+  return { grades, remarks }
+}
+
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
+
 export function changesText(count: number, preview?: AssistantProposalPreview): string {
   if (count === 0) return 'Nothing changes yet'
+  if (preview?.kind === 'co_scholastic') {
+    // "3 grade changes and 1 remark change": a remark the assistant wrote is said out loud.
+    const { grades, remarks } = coScholasticChanges(preview)
+    const parts = [
+      grades > 0 ? plural(grades, 'grade change', 'grade changes') : '',
+      remarks > 0 ? plural(remarks, 'remark change', 'remark changes') : '',
+    ].filter((part) => part !== '')
+    return parts.join(' and ')
+  }
   // A register marked for the first time saves every mark; nothing it replaces.
   if ((preview?.kind === 'attendance_day' || preview?.kind === 'staff_attendance_day') && preview.mode === 'first_entry') {
     return `${count} ${count === 1 ? 'mark' : 'marks'} to save`
@@ -143,6 +165,57 @@ export function needsReason(preview: AssistantProposalPreview): boolean {
 export function initialDraft(preview: AssistantProposalPreview): AssistantProposalPreview {
   if (preview.kind === 'exam_marks' && needsReason(preview) && !preview.reasonKind) return { ...preview, reasonKind: 'recheck' }
   return preview
+}
+
+/** Who each row is about, in order: the part of a preview a kept draft must match. */
+function rowIds(preview: AssistantProposalPreview): string[] {
+  switch (preview.kind) {
+    case 'attendance_day': return preview.rows.map((row) => row.studentId)
+    case 'staff_attendance_day': return preview.rows.map((row) => row.staffId)
+    case 'exam_marks': return preview.rows.map((row) => `${row.studentId}:${row.cells.map((cell) => cell.component).join(',')}`)
+    case 'co_scholastic': return preview.rows.map((row) => row.studentId)
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * A card's edited copy kept in the tab, put back over the proposal it was made from. It is used
+ * only when it is plainly the same change (same kind, the same rows in the same order), and only
+ * the fields the card lets the person edit are taken from it; everything else comes from the
+ * proposal. Anything else returns null and the card starts from the proposal.
+ */
+export function restoreDraft(original: AssistantProposalPreview, kept: unknown): AssistantProposalPreview | null {
+  if (!isRecord(kept) || kept.kind !== original.kind || !Array.isArray(kept.rows)) return null
+  const keptPreview = kept as unknown as AssistantProposalPreview
+  const a = rowIds(original)
+  let b: string[]
+  try { b = rowIds(keptPreview) } catch { return null }
+  if (a.length !== b.length || a.some((id, i) => id !== b[i])) return null
+
+  const reason = typeof kept.reason === 'string' ? kept.reason : undefined
+  try {
+    switch (original.kind) {
+      case 'attendance_day':
+      case 'staff_attendance_day': {
+        const rows = (keptPreview as typeof original).rows
+        return { ...original, reason, rows: original.rows.map((row, i) => ({ ...row, proposed: rows[i]!.proposed })) } as AssistantProposalPreview
+      }
+      case 'exam_marks': {
+        const rows = (keptPreview as ExamMarksPreview).rows
+        const reasonKind = (keptPreview as ExamMarksPreview).reasonKind ?? original.reasonKind
+        return { ...original, reason, reasonKind, rows: original.rows.map((row, i) => ({ ...row, cells: row.cells.map((cell, c) => ({ ...cell, proposed: rows[i]!.cells[c]!.proposed })) })) }
+      }
+      case 'co_scholastic': {
+        const rows = (keptPreview as CoScholasticPreview).rows
+        return { ...original, rows: original.rows.map((row, i) => ({ ...row, proposed: { ...row.proposed, ...rows[i]!.proposed }, proposedRemarks: rows[i]!.proposedRemarks ?? null })) }
+      }
+    }
+  } catch {
+    return null
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -229,6 +302,7 @@ export function isSettled(status: AssistantProposalStatus): boolean {
 export function settledText(proposal: Pick<AssistantProposal, 'status' | 'outcome'>): string {
   switch (proposal.status) {
     case 'open': return ''
+    case 'confirming': return 'Saving this change. It updates here in a moment.'
     case 'done': return proposal.outcome ?? 'Saved.'
     case 'stale': return 'This changed after the assistant read it. Ask again to get a fresh copy.'
     case 'failed': return proposal.outcome ?? 'This change was not saved.'

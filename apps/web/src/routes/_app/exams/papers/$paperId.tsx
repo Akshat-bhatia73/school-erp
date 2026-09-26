@@ -11,7 +11,7 @@ import type { ExamMarkLine, ExamReasonKind } from '@erp/contracts'
 import { Download, NotebookPen, PencilLine } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { examLabel, EnteredBar, PaperStatusTag, reasonText } from '@/components/exams/labels'
+import { examLabel, EnteredBar, PaperStatusTag, reasonText, STALE_MARKS_MESSAGE } from '@/components/exams/labels'
 import { cellKey, draftFromSheet, MarksGrid, parseCell, type Draft } from '@/components/exams/marks-grid'
 import { ReasonDialog } from '@/components/exams/reason-dialog'
 import { useExportDownload } from '@/components/shared/export-download'
@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
 import type { ExamSheetResult } from '@/lib/api/exams'
-import { describeError } from '@/lib/api-errors'
+import { describeError, isApiError } from '@/lib/api-errors'
 import { allows } from '@/lib/permissions'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
@@ -29,7 +29,10 @@ import { formatDate } from '@/lib/utils'
 
 export const Route = createFileRoute('/_app/exams/papers/$paperId')({ component: Page })
 
-/** The cells that are filled and valid, and what is wrong with the rest. */
+/**
+ * The cells that are filled and valid, and what is wrong with the rest. Each line carries the
+ * revision of the cell this sheet read (0 for an empty one), so a stale save is refused.
+ */
 function linesOf(sheet: ExamSheetResult, draft: Draft) {
   const lines: ExamMarkLine[] = []
   const changed: ExamMarkLine[] = []
@@ -41,7 +44,7 @@ function linesOf(sheet: ExamSheetResult, draft: Draft) {
       const saved = row.cells.find((cell) => cell.component === component.key)
       if (value === 'invalid') { invalid += 1; continue }
       if (value === null) { if (saved) emptied += 1; continue }
-      const line = { studentId: row.student.id, component: component.key, value }
+      const line = { studentId: row.student.id, component: component.key, value, expectedRevision: saved?.revision ?? 0 }
       lines.push(line)
       if (saved && String(saved.value) !== String(value)) changed.push(line)
       if (!saved) changed.push(line)
@@ -80,26 +83,32 @@ function Page() {
     toast.success(message)
   }
 
+  const failed = (failure: unknown) => {
+    // Somebody saved after this sheet was read: fetch their marks, which replace the draft.
+    if (isApiError(failure, 'VERSION_CONFLICT')) {
+      void queryClient.invalidateQueries({ queryKey: [schoolId, 'exams'] })
+      setReasonOpen(false)
+      setProblem(STALE_MARKS_MESSAGE)
+      toast.error(STALE_MARKS_MESSAGE)
+      return
+    }
+    const text = describeError(failure)
+    setProblem(text)
+    toast.error(text)
+  }
+
   const saveMarks = useMutation({
     mutationFn: (change?: { reasonKind: ExamReasonKind; reason: string }) =>
       api.exams.saveMarks(schoolId, paperId, { entries: summary?.lines ?? [], change }),
     onSuccess: (fresh) => afterWrite(fresh, 'Marks saved'),
-    onError: (failure) => {
-      const text = describeError(failure)
-      setProblem(text)
-      toast.error(text)
-    },
+    onError: failed,
   })
 
   const correct = useMutation({
     mutationFn: (change: { reasonKind: ExamReasonKind; reason: string }) =>
       api.exams.correct(schoolId, paperId, { entries: summary?.changed ?? [], ...change }),
     onSuccess: (fresh) => afterWrite(fresh, 'Marks corrected'),
-    onError: (failure) => {
-      const text = describeError(failure)
-      setProblem(text)
-      toast.error(text)
-    },
+    onError: failed,
   })
 
   const startExport = useMutation({

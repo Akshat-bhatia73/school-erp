@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { ApiFailure, apiError } from './http/errors.ts'
 import type { ApiConfig } from './config.ts'
@@ -13,6 +12,7 @@ import { registerStudentSignInRoute } from './auth/student-sign-in.ts'
 import { registerDevRoutes, registerHeldSmsRoute } from './routes/dev.ts'
 import { reportDenial, reportError } from './observability.ts'
 import { registerAccessLog } from './http/access-log.ts'
+import { requestIdFor } from './http/request-ids.ts'
 import {
   GENERIC_SEND_RESPONSE,
   consumeSendAllowance,
@@ -135,9 +135,10 @@ export function buildApp({
 }: AppDependencies): FastifyInstance {
   const app = Fastify({
     trustProxy: config.API_TRUST_PROXY,
-    // Our own opaque request id; a client header must not choose it.
+    // Our own opaque request id; a client header must not choose it. Only a
+    // write the API sends to itself may bring an id it reserved beforehand.
     requestIdHeader: false,
-    genReqId: () => randomUUID(),
+    genReqId: requestIdFor,
     disableRequestLogging: true,
     logger: {
       level: config.NODE_ENV === 'test' ? 'silent' : 'info',

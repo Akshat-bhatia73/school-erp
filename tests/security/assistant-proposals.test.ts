@@ -470,7 +470,7 @@ async function classTeacher(sectionName: string): Promise<ClassTeacher> {
 /** One open register proposal of a class teacher's own class: everyone present but Asha. */
 async function openRegisterProposal(who: ClassTeacher): Promise<AssistantProposal> {
   const turn = await askOnce(who.client, [
-    { tool: 'propose_attendance_day', input: { section: who.sectionId, except: [{ pupil: 'Asha', mark: 'absent' }] } },
+    { tool: 'propose_attendance_day', input: { section: who.sectionId, everyone: 'present', except: [{ pupil: 'Asha', mark: 'absent' }] } },
   ])
   const proposal = proposalOf(turn.outputs[0], 'own register')
   assert.equal(proposal.status, 'open')
@@ -654,7 +654,7 @@ after(async () => {
 
 /** The three changes the teacher may propose for their own class. */
 const ownClassCalls = (): ScriptedCall[] => [
-  { tool: 'propose_attendance_day', input: { section: '8A', except: [{ pupil: 'Tara', mark: 'absent' }] } },
+  { tool: 'propose_attendance_day', input: { section: '8A', everyone: 'present', except: [{ pupil: 'Tara', mark: 'absent' }] } },
   {
     tool: 'propose_exam_marks',
     input: {
@@ -723,8 +723,8 @@ test('[proposals] a turn that proposes a register, marks and co-scholastic grade
 
 /** The same three changes for 8 B, by id and by name. */
 const otherClassCalls = (): ScriptedCall[] => [
-  { tool: 'propose_attendance_day', input: { section: sectionOther, except: [{ pupil: 'Zorawar', mark: 'absent' }] } },
-  { tool: 'propose_attendance_day', input: { section: '8B', except: [{ pupil: 'Zorawar', mark: 'absent' }] } },
+  { tool: 'propose_attendance_day', input: { section: sectionOther, everyone: 'present', except: [{ pupil: 'Zorawar', mark: 'absent' }] } },
+  { tool: 'propose_attendance_day', input: { section: '8B', everyone: 'present', except: [{ pupil: 'Zorawar', mark: 'absent' }] } },
   { tool: 'propose_exam_marks', input: { paper: otherPaper, marks: [{ pupil: 'Zorawar', value: 40 }] } },
   { tool: 'propose_exam_marks', input: { exam: 'half-yearly', subject: 'Maths', section: '8B', marks: [{ pupil: 'Zorawar', value: 40 }] } },
   { tool: 'propose_co_scholastic', input: { section: sectionOther, card: 'term_1', grades: [{ pupil: 'Zorawar', area: 'discipline', grade: 'C' }] } },
@@ -1027,6 +1027,57 @@ test('[proposals] suspending the person after a proposal refuses its confirm on 
   assert.equal(await codeOf(response), 'SCHOOL_ACCESS_UNAVAILABLE')
   assert.equal(await attendanceRowsIn(who.sectionId), 0)
   await assertUnwritten(proposal.id, 'suspended')
+})
+
+/**
+ * A proposal left confirming by a crash is settled by the next person to look
+ * at it. That must be its owner: to anyone else the states route, confirm and
+ * dismiss answer exactly as for a missing proposal, and settle nothing.
+ */
+test("[proposals] nobody else can read or settle someone's confirming proposal: it is not found, and stays as it was", async () => {
+  const who = await classTeacher('F')
+  const threadId = await newThread(who.client)
+  const turn = await ask(who.client, threadId, 'Mark my class.', {
+    steps: [[{ tool: 'propose_attendance_day', input: { section: who.sectionId, everyone: 'present', except: [{ pupil: 'Asha', mark: 'absent' }] } }]],
+  })
+  const proposal = proposalOf(turn.outputs[0], 'own register')
+  // Confirming for longer than the lease, waiting on a write that never happened.
+  const operation = randomUUID()
+  await adminPool().query(
+    `UPDATE assistant_proposals SET status = 'confirming', confirming_at = now() - interval '7 minutes', write_request_id = $2 WHERE id = $1`,
+    [proposal.id, operation],
+  )
+  const stored = async () =>
+    (
+      await adminPool().query<{ status: string; write_request_id: string | null; confirming_at: string }>(
+        'SELECT status, write_request_id, confirming_at::text FROM assistant_proposals WHERE id = $1',
+        [proposal.id],
+      )
+    ).rows[0]
+  const before = await stored()
+
+  const missing = randomUUID()
+  for (const [label, other] of [
+    ['the owner', owner],
+    ['a principal', principal],
+    ["8 B's teacher", otherTeacher],
+    ['the first teacher', teacher],
+  ] as const) {
+    const states = await other.fetch(assistant(`/threads/${threadId}/proposals`))
+    const noThread = await other.fetch(assistant(`/threads/${missing}/proposals`))
+    assert.equal(states.status, noThread.status, `${label}: a real thread differs from a missing one`)
+    assert.equal(await codeOf(states), 'RESOURCE_NOT_FOUND', label)
+    assert.equal(await codeOf(await confirm(other, proposal.id, proposal.preview)), 'RESOURCE_NOT_FOUND', `${label} confirming`)
+    assert.equal(await codeOf(await dismiss(other, proposal.id)), 'RESOURCE_NOT_FOUND', `${label} dismissing`)
+  }
+  assert.deepEqual(await stored(), before)
+  assert.equal(before?.status, 'confirming')
+  assert.equal(await attendanceRowsIn(who.sectionId), 0)
+
+  // Its owner looking settles it: no audit row carries the id, so it opens again.
+  const own = await body<{ items: AssistantProposal[] }>(await who.client.fetch(assistant(`/threads/${threadId}/proposals`)))
+  assert.deepEqual(own.items.map((item) => [item.id, item.status]), [[proposal.id, 'open']])
+  await assertUnwritten(proposal.id, 'settled by its owner')
 })
 
 // ---------------------------------------------------------------------------

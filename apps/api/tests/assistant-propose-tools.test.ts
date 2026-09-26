@@ -373,9 +373,15 @@ test('attendance: names resolve, an ambiguous or unknown name is refused, anothe
 })
 
 test('attendance: a first entry proposes the whole roll, and write is exactly the mark the route accepts', async () => {
+  // Nobody unnamed and unmarked is given a mark on a guess: the model is told to ask.
+  assert.equal(
+    problemOf(await prepare(teacher, 'propose_attendance_day', { section: '9A', except: [{ pupil: 'Kabir', mark: 'absent' }] })),
+    "3 pupils on Class 9 A's register have no mark yet and were not named. Ask whether everyone else is present, then pass everyone with their mark, or name each one.",
+  )
   const draft = drafted(
     await prepare(teacher, 'propose_attendance_day', {
       section: 'Class 9 A',
+      everyone: 'present',
       except: [
         { pupil: 'Kabir', mark: 'absent' },
         { pupil: `AIP/${suffix}/1`, mark: 'late' },
@@ -393,12 +399,12 @@ test('attendance: a first entry proposes the whole roll, and write is exactly th
   assert.equal(draft.checkPath, `/attendance/sections/${nineA}/days/${today}`)
   assert.equal(draft.href, `/attendance/sections/${nineA}?date=${today}`)
   assert.deepEqual(
-    preview.rows.map((row) => [row.studentId, row.current, row.proposed]),
+    preview.rows.map((row) => [row.studentId, row.current, row.proposed, row.revision]),
     [
-      [riyaS, null, 'late'],
-      [riyaP, null, 'present'],
-      [kabir, null, 'absent'],
-      [aarav, null, 'present'],
+      [riyaS, null, 'late', 0],
+      [riyaP, null, 'present', 0],
+      [kabir, null, 'absent', 0],
+      [aarav, null, 'present', 0],
     ],
   )
   assert.deepEqual((draft.forModel as { notPresent: unknown[] }).notPresent, [
@@ -413,7 +419,10 @@ test('attendance: a first entry proposes the whole roll, and write is exactly th
   const request = requestOf('propose_attendance_day', edited)
   assert.equal(request.method, 'PUT')
   assert.equal(request.path, `/attendance/sections/${nineA}/days/${today}`)
-  assert.equal((request.body as { marks: unknown[] }).marks.length, 4)
+  assert.deepEqual(
+    (request.body as { marks: { expectedRevision?: number }[] }).marks.map((line) => line.expectedRevision),
+    [0, 0, 0, 0],
+  )
 
   await ok(await send(teacher, request))
   const day = await readBody<Day>(teacher, `/attendance/sections/${nineA}/days/${today}`)
@@ -446,6 +455,9 @@ test('attendance: sameTarget refuses another section or day, an added, removed o
   const renamed = clone(preview)
   renamed.rows[0]!.current = 'absent'
   assert.equal(sameTarget(name, preview, renamed), false)
+  const revised = clone(preview)
+  revised.rows[0]!.revision = (revised.rows[0]!.revision ?? 0) + 1
+  assert.equal(sameTarget(name, preview, revised), false)
   const reasoned = clone(preview)
   reasoned.reason = 'Typed on the card'
   assert.equal(sameTarget(name, preview, reasoned), true)
@@ -457,6 +469,7 @@ test('attendance: sameTarget refuses another section or day, an added, removed o
     preview.rows.filter((row) => row.proposed !== row.current).map((row) => row.studentId),
     [aarav],
   )
+  assert.deepEqual(preview.rows.map((row) => row.revision), [1, 1, 1, 1])
   const unchanged = clone(preview)
   unchanged.rows[3]!.proposed = unchanged.rows[3]!.current!
   assert.deepEqual(writeOf(name, unchanged), { problem: 'Nothing has changed.' })
@@ -486,7 +499,7 @@ test('attendance: the office corrects a past day, changed pupils only, and only 
   const request = requestOf('propose_attendance_day', edited)
   assert.equal(request.method, 'POST')
   assert.equal(request.path, `/attendance/sections/${nineA}/days/${pastDay}/corrections`)
-  assert.deepEqual(request.body, { marks: [{ studentId: riyaS, mark: 'absent' }], reason: 'Left at the first period' })
+  assert.deepEqual(request.body, { marks: [{ studentId: riyaS, mark: 'absent', expectedRevision: 1 }], reason: 'Left at the first period' })
 
   await ok(await send(owner, request), 201)
   const day = await readBody<Day>(owner, `/attendance/sections/${nineA}/days/${pastDay}`)
@@ -500,6 +513,27 @@ test('attendance: the office corrects a past day, changed pupils only, and only 
     problemOf(await prepare(owner, 'propose_attendance_day', { section: '9A', date: pastDay, except: [{ pupil: 'Riya Sharma', mark: 'absent' }] })),
     /already has those marks/,
   )
+})
+
+test('attendance: correcting a day nobody marked changes only the pupils named, and leaves the rest unmarked', async () => {
+  // The school day before the past day: nothing was ever saved on it.
+  let earlier = shift(pastDay, -1)
+  while (new Date(`${earlier}T00:00:00Z`).getUTCDay() === 0) earlier = shift(earlier, -1)
+  const draft = drafted(
+    await prepare(owner, 'propose_attendance_day', { section: '9A', date: earlier, except: [{ pupil: 'Kabir', mark: 'absent' }] }),
+    AttendanceDayPreview,
+  )
+  const preview = draft.preview
+  assert.equal(preview.mode, 'correction')
+  assert.deepEqual(preview.rows.map((row) => [row.studentId, row.current, row.proposed, row.revision]), [[kabir, null, 'absent', 0]])
+  assert.equal((draft.forModel as { leftUnmarked?: number }).leftUnmarked, 3)
+
+  const request = requestOf('propose_attendance_day', { ...preview, reason: 'From the paper register' })
+  assert.deepEqual(request.body, { marks: [{ studentId: kabir, mark: 'absent', expectedRevision: 0 }], reason: 'From the paper register' })
+  await ok(await send(owner, request), 201)
+  const day = await readBody<Day>(owner, `/attendance/sections/${nineA}/days/${earlier}`)
+  assert.equal(markOf(day, kabir), 'absent')
+  for (const other of [riyaS, riyaP, aarav]) assert.equal(markOf(day, other), undefined)
 })
 
 // ---------------------------------------------------------------------------
@@ -518,7 +552,11 @@ test('staff register: the caller is left out, names resolve, and the whole regis
   // A teacher holds no staff register key beyond their own month.
   assert.deepEqual(await prepare(teacher, name, {}), { status: 'not_available' })
 
-  const draft = drafted(await prepare(owner, name, { except: [{ person: 'Anita Rao', mark: 'leave' }] }), StaffAttendanceDayPreview)
+  assert.equal(
+    problemOf(await prepare(owner, name, { except: [{ person: 'Anita Rao', mark: 'leave' }] })),
+    '2 staff members on the staff register have no mark yet and were not named. Ask whether everyone else is present, then pass everyone with their mark, or name each one.',
+  )
+  const draft = drafted(await prepare(owner, name, { everyone: 'present', except: [{ person: 'Anita Rao', mark: 'leave' }] }), StaffAttendanceDayPreview)
   const preview = draft.preview
   assert.equal(preview.mode, 'first_entry')
   assert.match(draft.title, /^Mark the staff register for /)
@@ -530,9 +568,11 @@ test('staff register: the caller is left out, names resolve, and the whole regis
   assert.equal(sameTarget(name, preview, { ...clone(preview), rows: [...clone(preview.rows)].reverse() }), false)
   assert.equal(sameTarget(name, preview, { ...clone(preview), rows: [...clone(preview.rows), { ...clone(preview.rows[0]!), staffId: officeStaff }] }), false)
 
+  assert.ok(preview.rows.every((row) => row.revision === 0))
   const request = requestOf(name, preview)
   assert.equal(request.method, 'PUT')
   assert.equal(request.path, `/staff-attendance/days/${today}`)
+  assert.ok((request.body as { marks: { expectedRevision?: number }[] }).marks.every((line) => line.expectedRevision === 0))
   await ok(await send(owner, request))
   const day = await readBody<StaffDay>(owner, `/staff-attendance/days/${today}`)
   assert.equal(day.rows.find((row) => row.staff.id === anitaRao)?.mark, 'leave')
@@ -541,19 +581,24 @@ test('staff register: the caller is left out, names resolve, and the whole regis
   assert.match(describeDone(name, preview), /^Saved the staff register for .*: 2 present, 1 on leave\.$/)
 })
 
-test('staff register: a past day is a correction with a reason', async () => {
+test('staff register: a past day is a correction with a reason, and only the people named are marked', async () => {
   const name = 'propose_staff_attendance_day'
-  const preview = drafted(await prepare(owner, name, { date: pastDay, except: [{ person: 'desai', mark: 'absent' }] }), StaffAttendanceDayPreview).preview
+  const draft = drafted(await prepare(owner, name, { date: pastDay, except: [{ person: 'desai', mark: 'absent' }] }), StaffAttendanceDayPreview)
+  const preview = draft.preview
   assert.equal(preview.mode, 'correction')
+  // Nothing was saved that day: the two not named are left out, not marked present.
+  assert.deepEqual(preview.rows.map((row) => row.staffId), [anitaDesai])
+  assert.equal((draft.forModel as { leftUnmarked?: number }).leftUnmarked, 2)
   assert.deepEqual(writeOf(name, preview), { problem: 'Add a reason for changing a saved register.' })
   const request = requestOf(name, { ...preview, reason: 'Filled in from the gate book' })
   assert.equal(request.method, 'POST')
   assert.equal(request.path, `/staff-attendance/days/${pastDay}/corrections`)
-  // Nothing was saved that day, so every row is a change.
-  assert.equal((request.body as { marks: unknown[] }).marks.length, 3)
+  assert.deepEqual((request.body as { marks: unknown[] }).marks, [{ staffId: anitaDesai, mark: 'absent', expectedRevision: 0 }])
   await ok(await send(owner, request), 201)
   const day = await readBody<StaffDay>(owner, `/staff-attendance/days/${pastDay}`)
   assert.equal(day.rows.find((row) => row.staff.id === anitaDesai)?.mark, 'absent')
+  assert.equal(day.rows.find((row) => row.staff.id === anitaRao)?.mark, undefined)
+  assert.equal(day.rows.find((row) => row.staff.id === teacherStaff)?.mark, undefined)
 })
 
 // ---------------------------------------------------------------------------
@@ -626,9 +671,9 @@ test('exam marks: the paper is found by name, and a first entry saves through th
   assert.equal(request.path, `/exams/papers/${paperId}/marks`)
   assert.deepEqual(request.body, {
     entries: [
-      { studentId: riyaS, component: 'written', value: 72.5 },
-      { studentId: kabir, component: 'notebook', value: 4 },
-      { studentId: kabir, component: 'written', value: 'absent' },
+      { studentId: riyaS, component: 'written', value: 72.5, expectedRevision: 0 },
+      { studentId: kabir, component: 'notebook', value: 4, expectedRevision: 0 },
+      { studentId: kabir, component: 'written', value: 'absent', expectedRevision: 0 },
     ],
   })
   await ok(await send(teacher, request))
@@ -646,14 +691,20 @@ test('exam marks: changing a saved mark needs a reason, and the whole sheet is s
   assert.deepEqual(writeOf(name, preview), { problem: 'Add a reason for changing saved marks.' })
   assert.deepEqual(writeOf(name, { ...clone(preview), reason: 'Added up wrongly' }), { problem: 'Add a reason for changing saved marks.' })
 
+  // Every saved cell carries its revision, an empty one 0.
+  const revisionOf = (studentId: string, component: string) =>
+    preview.rows.find((row) => row.studentId === studentId)?.cells.find((cell) => cell.component === component)?.revision
+  assert.equal(revisionOf(riyaS, 'written'), 1)
+  assert.equal(revisionOf(riyaS, 'notebook'), 0)
+
   const edited: ExamMarksPreview = { ...clone(preview), reasonKind: 'entry_error', reason: 'Added up wrongly' }
   const request = requestOf(name, edited)
   assert.equal(request.method, 'PUT')
   assert.deepEqual(request.body, {
     entries: [
-      { studentId: riyaS, component: 'written', value: 75 },
-      { studentId: kabir, component: 'notebook', value: 4 },
-      { studentId: kabir, component: 'written', value: 'absent' },
+      { studentId: riyaS, component: 'written', value: 75, expectedRevision: 1 },
+      { studentId: kabir, component: 'notebook', value: 4, expectedRevision: 1 },
+      { studentId: kabir, component: 'written', value: 'absent', expectedRevision: 1 },
     ],
     change: { reasonKind: 'entry_error', reason: 'Added up wrongly' },
   })
@@ -670,6 +721,13 @@ test('exam marks: changing a saved mark needs a reason, and the whole sheet is s
   const moved = clone(preview)
   moved.rows[0]!.cells[0]!.current = 3
   assert.equal(sameTarget(name, preview, moved), false)
+  const revised = clone(preview)
+  revised.rows[0]!.cells[0]!.revision = 7
+  assert.equal(sameTarget(name, preview, revised), false)
+
+  // Sent again, the same request is refused: the marks it was read at have moved.
+  const again = await send(teacher, request)
+  assert.equal(again.status, 409, await again.clone().text())
 
   // A number over the maximum typed on the card is refused before any write.
   const over = clone(edited)
@@ -699,7 +757,7 @@ test('exam marks: after the re-check deadline only the office corrects, through 
   assert.equal(request.method, 'POST')
   assert.equal(request.path, `/exams/papers/${paperId}/corrections`)
   assert.deepEqual(request.body, {
-    entries: [{ studentId: aarav, component: 'periodic_test', value: 9 }],
+    entries: [{ studentId: aarav, component: 'periodic_test', value: 9, expectedRevision: 0 }],
     reasonKind: 'recheck',
     reason: 'Re-check asked by the family',
   })

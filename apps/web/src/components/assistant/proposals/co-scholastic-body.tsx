@@ -1,6 +1,8 @@
 /**
  * Co-scholastic grades inside a change card: one row per pupil with the same four grade pickers
- * as the entries screen, and the remarks folded away under each row until somebody opens them.
+ * as the entries screen. Remarks the change would alter start open with the saved remark above
+ * the new one, so nothing the assistant wrote goes unseen; unchanged remarks stay folded away
+ * until somebody opens them.
  */
 import { CO_SCHOLASTIC_AREAS, CoScholasticArea, type CoScholasticGrade, type CoScholasticPreview } from '@erp/contracts'
 import { MessageSquareText } from 'lucide-react'
@@ -17,13 +19,20 @@ const NOT_GRADED = 'none'
 
 type Row = CoScholasticPreview['rows'][number]
 
-export function CoScholasticBody({ preview, onChange, errors, readOnly }: {
+const remarksDiffer = (row: Row) => (row.proposedRemarks ?? '').trim() !== (row.currentRemarks ?? '').trim()
+
+export function CoScholasticBody({ preview, onChange, errors, readOnly, idBase }: {
   preview: CoScholasticPreview
   onChange: (next: CoScholasticPreview) => void
   errors: FieldErrors
   readOnly: boolean
+  /** Unique to the card, for the ids an error message is found by. */
+  idBase: string
 }) {
-  const [open, setOpen] = useState<Record<string, boolean>>({})
+  // Opened once, from the change as it came: editing a remark back to what is saved does not fold it away mid-word.
+  const [open, setOpen] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(preview.rows.filter(remarksDiffer).map((row) => [row.studentId, true])),
+  )
   const th = 'sticky top-0 z-10 border-b bg-card px-2 py-2 text-left text-[12px] font-medium text-muted-foreground'
 
   const update = (index: number, change: Partial<Row>) =>
@@ -42,8 +51,9 @@ export function CoScholasticBody({ preview, onChange, errors, readOnly }: {
         <tbody>
           {preview.rows.map((row, index) => {
             const changed = gradesChange(row)
-            const remarksChanged = (row.proposedRemarks ?? '').trim() !== (row.currentRemarks ?? '').trim()
+            const remarksChanged = remarksDiffer(row)
             const remarksError = errors[`rows.${index}.proposedRemarks`]
+            const remarksErrorId = `${idBase}-remarks-${index}-error`
             const expanded = open[row.studentId] || !!remarksError
             return (
               <Fragment key={row.studentId}>
@@ -82,7 +92,6 @@ export function CoScholasticBody({ preview, onChange, errors, readOnly }: {
                     <button
                       type="button"
                       aria-expanded={expanded}
-                      aria-label={`Remarks for ${row.name}`}
                       onClick={() => setOpen((old) => ({ ...old, [row.studentId]: !expanded }))}
                       className={cn(
                         'inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
@@ -90,18 +99,26 @@ export function CoScholasticBody({ preview, onChange, errors, readOnly }: {
                       )}
                     >
                       <MessageSquareText className="size-3.5" />
+                      <span className="sr-only">Remarks for {row.name}{remarksChanged ? ', changed' : ''}</span>
                     </button>
                   </td>
                 </tr>
                 {expanded && (
                   <tr className={cn(changed && CHANGED_ROW)}>
                     <td colSpan={AREAS.length + 2} className="border-b px-2 py-2">
+                      {remarksChanged && (
+                        <p className="mb-1.5 text-[12px] break-words text-muted-foreground">
+                          <span aria-hidden>Was: </span>
+                          {row.currentRemarks?.trim() ? <Was>{row.currentRemarks}</Was> : <span><span className="sr-only">was </span>no remarks</span>}
+                        </p>
+                      )}
                       {readOnly ? (
                         <p className="text-[13px] whitespace-pre-wrap text-muted-foreground">{row.proposedRemarks || 'No remarks.'}</p>
                       ) : (
                         <Textarea
                           aria-label={`Remarks for ${row.name}`}
                           aria-invalid={!!remarksError || undefined}
+                          aria-describedby={remarksError ? remarksErrorId : undefined}
                           rows={2}
                           maxLength={1000}
                           value={row.proposedRemarks ?? ''}
@@ -109,8 +126,7 @@ export function CoScholasticBody({ preview, onChange, errors, readOnly }: {
                           className="min-h-9 text-[13px]"
                         />
                       )}
-                      {remarksChanged && row.currentRemarks && <p className="mt-1 text-[12px]"><Was>{row.currentRemarks}</Was></p>}
-                      {remarksError && <p className="mt-1 text-[12.5px] text-tag-red">{remarksError}</p>}
+                      {remarksError && <p id={remarksErrorId} className="mt-1 text-[12.5px] text-tag-red">{remarksError}</p>}
                     </td>
                   </tr>
                 )}

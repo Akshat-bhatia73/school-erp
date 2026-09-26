@@ -1,6 +1,7 @@
 import type { FastifyRequest } from 'fastify'
 import { ApiError } from '@erp/contracts'
 import { CLIENT_IP_HEADER } from '../app.ts'
+import { OPERATION_HEADER, releaseRequestId, reserveRequestId } from '../http/request-ids.ts'
 import type { RouteAnswer, ToolCallContext } from './tools/types.ts'
 import type { WriteRequest } from './proposals/types.ts'
 
@@ -73,28 +74,36 @@ export type WriteAnswer =
  * The route does all its own work (lock, decision, write, audit row). Only a
  * change tool's `write` names the method, path and body, from a preview the
  * person confirmed; no header ever comes from the model.
+ *
+ * `operationId` becomes the inner request's id, and so the request id on the
+ * audit row the route writes: the proposal saved it before the write was
+ * sent, so it can find out afterwards whether the write happened.
  */
 export function routeWriter(
   request: FastifyRequest,
   schoolId: string,
-): (write: WriteRequest) => Promise<WriteAnswer> {
+): (write: WriteRequest, operationId: string) => Promise<WriteAnswer> {
   const cookie = request.headers.cookie
   const address = request.ip
-  return async (write) => {
+  return async (write, operationId) => {
     if (!safePath(write.path) || !['POST', 'PUT', 'PATCH'].includes(write.method)) {
       return { ok: false, status: 400, code: 'INVALID_REQUEST', message: null }
     }
-    const response = await request.server.inject({
-      method: write.method,
-      url: `/api/schools/${encodeURIComponent(schoolId)}${write.path}`,
-      headers: {
-        ...(cookie === undefined ? {} : { cookie }),
-        [CLIENT_IP_HEADER]: address,
-        'content-type': 'application/json',
-      },
-      payload: JSON.stringify(write.body ?? {}),
-      remoteAddress: address,
-    })
+    const ticket = reserveRequestId(operationId)
+    const response = await request.server
+      .inject({
+        method: write.method,
+        url: `/api/schools/${encodeURIComponent(schoolId)}${write.path}`,
+        headers: {
+          ...(cookie === undefined ? {} : { cookie }),
+          [CLIENT_IP_HEADER]: address,
+          [OPERATION_HEADER]: ticket,
+          'content-type': 'application/json',
+        },
+        payload: JSON.stringify(write.body ?? {}),
+        remoteAddress: address,
+      })
+      .finally(() => releaseRequestId(ticket))
     const header = response.headers['x-request-id']
     const requestId = typeof header === 'string' && header.length > 0 ? header : null
     if (response.statusCode >= 200 && response.statusCode < 300) {

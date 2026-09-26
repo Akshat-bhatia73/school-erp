@@ -326,7 +326,18 @@ export const ExamSheet = z.strictObject({
 })
 export type ExamSheet = z.infer<typeof ExamSheet>
 
-export const ExamMarkLine = z.strictObject({ studentId: Id, component: ExamComponent, value: MarkValue })
+/**
+ * `expectedRevision` is the revision of the cell the writer read (0 when it
+ * was empty). When sent, the server refuses the whole write with
+ * VERSION_CONFLICT if the cell has moved since. Optional only so an older
+ * screen still saves.
+ */
+export const ExamMarkLine = z.strictObject({
+  studentId: Id,
+  component: ExamComponent,
+  value: MarkValue,
+  expectedRevision: z.number().int().nonnegative().optional(),
+})
 export type ExamMarkLine = z.infer<typeof ExamMarkLine>
 
 /** A cell may appear once in a body. */

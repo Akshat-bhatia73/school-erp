@@ -6,7 +6,10 @@
  * that moved makes the proposal stale; expiry, discard and a double click are
  * handled; a proposal is its owner's alone; the write route's own refusal is
  * the card's outcome; the next turn tells the model where each proposal
- * stands; the nightly sweep removes old ones.
+ * stands; the nightly sweep removes old ones. The confirm protocol: the
+ * digest is of the very read the preview came from, every line carries the
+ * revision it was read at, and a confirm that never heard back is settled
+ * from the write's own audit row.
  *
  * The change tool here is a test-only one against the real attendance mark
  * route (PUT the whole roster for today), so the framework is proved apart
@@ -34,6 +37,9 @@ import { buildApp } from '../src/app.ts'
 import { open, seal } from '../src/modules/shared/crypto.ts'
 import { proposeTool, type AnyProposeTool } from '../src/assistant/proposals/types.ts'
 import { STALE_OUTCOME, REFUSED_OUTCOME } from '../src/assistant/proposals/routes.ts'
+import { matchPerson, personProblem } from '../src/assistant/proposals/match.ts'
+import { savedChanges } from '../src/assistant/proposals/store.ts'
+import { OPERATION_HEADER, requestIdFor, reserveRequestId } from '../src/http/request-ids.ts'
 import {
   adminPool,
   closeAdminPool,
@@ -63,6 +69,13 @@ const sectionC = randomUUID()
 const sectionD = randomUUID()
 /** The second teacher's own section. */
 const sectionE = randomUUID()
+/** Owner-marked sections for the protocol tests: one fresh register each. */
+const sectionF = randomUUID()
+const sectionG = randomUUID()
+const sectionH = randomUUID()
+const sectionI = randomUUID()
+const sectionJ = randomUUID()
+const sectionK = randomUUID()
 const teacherStaff = randomUUID()
 const teacher2Staff = randomUUID()
 
@@ -110,6 +123,7 @@ const registerTool = proposeTool<z.infer<typeof MarkInput>, AttendanceDayPreview
       rollNumber: row.student.rollNumber ?? null,
       current: row.mark ?? null,
       proposed: wanted.get(row.student.name.split(' ')[0]?.toLowerCase() ?? '') ?? 'present',
+      revision: row.entry?.revision ?? 0,
     }))
     const sectionName = `${day.grade.name} ${day.section.name}`
     return {
@@ -143,7 +157,13 @@ const registerTool = proposeTool<z.infer<typeof MarkInput>, AttendanceDayPreview
       : {
           method: 'PUT',
           path: `/attendance/sections/${preview.sectionId}/days/${preview.date}`,
-          body: { marks: preview.rows.map((row) => ({ studentId: row.studentId, mark: row.proposed })) },
+          body: {
+            marks: preview.rows.map((row) => ({
+              studentId: row.studentId,
+              mark: row.proposed,
+              ...(row.revision === undefined ? {} : { expectedRevision: row.revision }),
+            })),
+          },
         },
   describeDone: (preview) => {
     const absent = preview.rows.filter((row) => row.proposed === 'absent').length
@@ -151,9 +171,44 @@ const registerTool = proposeTool<z.infer<typeof MarkInput>, AttendanceDayPreview
   },
 })
 
+/**
+ * Test only: the register tool, with a hook run after its own read of the
+ * check route and before it returns, so a test can save the register in
+ * between. With `twice`, it reads the check route again after the hook.
+ */
+const RACE_TOOL = 'propose_test_race'
+let between: (() => Promise<void>) | null = null
+const raceTool = proposeTool<z.infer<typeof MarkInput> & { twice: boolean }, AttendanceDayPreview>({
+  ...registerTool,
+  name: RACE_TOOL,
+  description: 'Test only: propose a register, with something saved while it prepares.',
+  input: MarkInput.extend({ twice: z.boolean().default(false) }),
+  prepare: async (input, context) => {
+    const outcome = await registerTool.prepare(input, context)
+    await between?.()
+    if (input.twice && outcome.status === 'ok') await context.get(outcome.draft.checkPath)
+    return outcome
+  },
+})
+
+/** Test only: the register tool, but its draft names a check route it never read (the next day's). */
+const BLIND_TOOL = 'propose_test_blind'
+const blindTool = proposeTool<z.infer<typeof MarkInput>, AttendanceDayPreview>({
+  ...registerTool,
+  name: BLIND_TOOL,
+  description: 'Test only: propose a register without reading its check route.',
+  prepare: async (input, context) => {
+    const outcome = await registerTool.prepare(input, context)
+    if (outcome.status !== 'ok') return outcome
+    const next = new Date(`${context.today}T00:00:00Z`)
+    next.setUTCDate(next.getUTCDate() + 1)
+    return { ...outcome, draft: { ...outcome.draft, checkPath: `/attendance/sections/${input.sectionId}/days/${next.toISOString().slice(0, 10)}` } }
+  },
+})
+
 // ---------------------------------------------------------------------------
-// A scripted model: "PROPOSE {json}" calls the test tool with that input;
-// anything else is answered in words.
+// A scripted model: "PROPOSE {json}" calls the test tool with that input,
+// "CALL <tool> {json}" another test tool; anything else is answered in words.
 
 const usage = {
   inputTokens: { total: 5, noCache: 5, cacheRead: undefined, cacheWrite: undefined },
@@ -181,12 +236,14 @@ function proposalModel(): MockLanguageModelV4 {
       const last = options.prompt[options.prompt.length - 1]
       if (last?.role !== 'user') return words('Check the card and press Confirm.')
       const text = last.content.map((part) => (part.type === 'text' ? part.text : '')).join('')
+      const call = /^CALL (\S+) (.*)$/s.exec(text)
       const at = text.indexOf('PROPOSE ')
-      if (at < 0) return words('Noted.')
+      if (at < 0 && !call) return words('Noted.')
+      const [toolName, input] = call ? [call[1]!, call[2]!] : [TOOL, text.slice(at + 'PROPOSE '.length)]
       return {
         stream: simulateReadableStream({
           chunks: [
-            { type: 'tool-call' as const, toolCallId: `call-${randomUUID()}`, toolName: TOOL, input: text.slice(at + 'PROPOSE '.length) },
+            { type: 'tool-call' as const, toolCallId: `call-${randomUUID()}`, toolName, input },
             { type: 'finish' as const, finishReason: { unified: 'tool-calls' as const, raw: undefined }, usage },
           ],
         }),
@@ -209,8 +266,12 @@ async function startServer(): Promise<Server> {
   const auth = createAuth(config, pools.auth, delivery, pools.identity)
   const documents = createMemoryDocumentStorage()
   const model = proposalModel()
-  // Test-only dependencies: the scripted model, no read tools and the one test change tool.
-  const assistant = { assistantModel: model, assistantTools: [], assistantProposeTools: [registerTool as unknown as AnyProposeTool] }
+  // Test-only dependencies: the scripted model, no read tools and the test change tools.
+  const assistant = {
+    assistantModel: model,
+    assistantTools: [],
+    assistantProposeTools: [registerTool, raceTool, blindTool].map((tool) => tool as unknown as AnyProposeTool),
+  }
   const app = buildApp({ config, auth, delivery, pools, documents, assistant })
   await app.listen({ port: config.PORT, host: '127.0.0.1' })
   const origin = `http://127.0.0.1:${config.PORT}`
@@ -337,6 +398,14 @@ async function proposed(
   return { threadId, proposal: output.proposal }
 }
 
+/** Ask the scripted model to call one of the other test tools; returns its output. */
+async function proposeWith(client: Client, threadId: string, toolName: string, input: Record<string, unknown>): Promise<ToolOutput> {
+  const parts = await ask(client, threadId, `CALL ${toolName} ${JSON.stringify(input)}`)
+  const output = parts.find((part) => part.type === 'tool-output-available')?.output as ToolOutput | undefined
+  assert.ok(output, 'the tool answered')
+  return output
+}
+
 function confirm(client: Client, proposalId: string, preview: unknown): Promise<Response> {
   return client.fetch(path(`/proposals/${proposalId}/confirm`), send('POST', { preview }))
 }
@@ -386,6 +455,35 @@ async function writesOn(sectionId: string): Promise<{ request_id: string; actor_
     [school, sectionId],
   )
   return found.rows
+}
+
+/** How many attendance rows a section has for today: one per pupil per save. */
+async function entriesOn(sectionId: string): Promise<number> {
+  const found = await adminPool().query<{ count: string }>(
+    'SELECT count(*)::text AS count FROM attendance_entries WHERE school_id = $1 AND section_id = $2 AND date = $3',
+    [school, sectionId, today],
+  )
+  return Number(found.rows[0]?.count)
+}
+
+async function states(client: Client, threadId: string): Promise<AssistantProposal[]> {
+  return (await ok<{ items: AssistantProposal[] }>(await client.fetch(path(`/threads/${threadId}/proposals`)))).items
+}
+
+/**
+ * Put an open proposal into 'confirming' as a crash would leave it, `minutes`
+ * ago, waiting for the write with `requestId`, with its preview as confirmed.
+ */
+async function leaveConfirming(proposal: AssistantProposal, requestId: string, minutes: number): Promise<void> {
+  const key = server.config.DATA_ENCRYPTION_KEY
+  const updated = await adminPool().query(
+    `UPDATE assistant_proposals
+        SET status = 'confirming', confirming_at = now() - make_interval(mins => $3), write_request_id = $2,
+            edited = false, confirmed_preview_sealed = $4
+      WHERE id = $1 AND status = 'open'`,
+    [proposal.id, requestId, minutes, seal(JSON.stringify(proposal.preview), key)],
+  )
+  assert.equal(updated.rowCount, 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -443,6 +541,12 @@ before(async () => {
     [sectionC, 'C', null],
     [sectionD, 'D', null],
     [sectionE, 'E', teacher2Staff],
+    [sectionF, 'F', null],
+    [sectionG, 'G', null],
+    [sectionH, 'H', null],
+    [sectionI, 'I', null],
+    [sectionJ, 'J', null],
+    [sectionK, 'K', null],
   ]
   for (const [id, name, classTeacher] of sections) {
     await pool.query(
@@ -615,7 +719,7 @@ test('the proposal states read back for the thread, and the next turn tells the 
 })
 
 test('an edited mark is written as edited', async () => {
-  const { proposal } = await proposed(owner.client, sectionB, [{ pupil: 'Asha', mark: 'absent' }])
+  const { threadId, proposal } = await proposed(owner.client, sectionB, [{ pupil: 'Asha', mark: 'absent' }])
   const preview = AttendanceDayPreview.parse(proposal.preview)
   const edited = {
     ...preview,
@@ -628,6 +732,20 @@ test('an edited mark is written as edited', async () => {
   assert.equal(await markOf(sectionB, 'Asha'), 'absent')
   assert.equal(await markOf(sectionB, 'Chirag'), 'late')
   assert.equal(await markOf(sectionB, 'Bela'), 'present')
+
+  // The next turn tells the model what was saved, the person's edit included,
+  // not what it first proposed.
+  await ask(owner.client, threadId, 'What did you save for Chirag?')
+  const replay = JSON.stringify(server.model.doStreamCalls.at(-1)?.prompt)
+  const saved = [
+    { name: 'Asha PupilB', mark: 'absent' },
+    { name: 'Bela PupilB', mark: 'present' },
+    { name: 'Chirag PupilB', mark: 'late' },
+  ]
+  for (const change of saved) {
+    const text = JSON.stringify(change)
+    assert.ok(replay.includes(text) || replay.includes(JSON.stringify(text).slice(1, -1)), `${text} missing from ${replay}`)
+  }
 })
 
 test("a tool's problem with the preview is a 400 in its own words, and the proposal stays open", async () => {
@@ -726,7 +844,7 @@ test('a dismissed proposal stays dismissed and is never written', async () => {
 })
 
 test('two confirms at once write once', async () => {
-  const { proposal } = await proposed(owner.client, sectionD, [{ pupil: 'Chirag', mark: 'absent' }])
+  const { threadId, proposal } = await proposed(owner.client, sectionD, [{ pupil: 'Chirag', mark: 'absent' }])
   const [first, second] = await Promise.all([
     confirm(owner.client, proposal.id, proposal.preview),
     confirm(owner.client, proposal.id, proposal.preview),
@@ -735,9 +853,22 @@ test('two confirms at once write once', async () => {
     (await ok<{ proposal: AssistantProposal }>(first)).proposal,
     (await ok<{ proposal: AssistantProposal }>(second)).proposal,
   ]
-  assert.deepEqual(answers.map((answer) => answer.status), ['done', 'done'])
-  assert.equal((await writesOn(sectionD)).length, 1)
+  // One confirm writes; the other waited on the row and found it confirming
+  // (the write still on its way) or done. Never a second write.
+  const statuses = answers.map((answer) => answer.status).sort()
+  assert.ok(
+    (statuses[0] === 'confirming' && statuses[1] === 'done') || (statuses[0] === 'done' && statuses[1] === 'done'),
+    JSON.stringify(statuses),
+  )
+  const writes = await writesOn(sectionD)
+  assert.equal(writes.length, 1)
+  assert.equal(await entriesOn(sectionD), 3, 'one set of marks, one row per pupil')
   assert.equal(await markOf(sectionD, 'Chirag'), 'absent')
+  const stored = await row(proposal.id)
+  assert.equal(stored.status, 'done')
+  assert.equal(stored.write_request_id, writes[0]?.request_id)
+  const [state] = await states(owner.client, threadId)
+  assert.equal(state?.status, 'done')
 })
 
 test("nobody else, the owner included, can read, confirm or dismiss someone's proposal", async () => {
@@ -769,6 +900,195 @@ test('a teacher confirming for a section they do not teach is refused by the wri
   assert.equal((await confirmed(teacher2.client, own.proposal)).status, 'done')
 })
 
+// ---------------------------------------------------------------------------
+// The confirm protocol: the digest is of the read the preview came from,
+// every line carries the revision it was read at, and a confirm that never
+// heard back is settled from the write's own audit row.
+
+/** The principal marks a register on the screen: everyone present but Chirag, on leave. */
+async function principalMarks(sectionId: string): Promise<void> {
+  const ids = pupils.get(sectionId) ?? []
+  await ok(
+    await principal.client.fetch(
+      `${base}/attendance/sections/${sectionId}/days/${today}`,
+      send('PUT', { marks: ids.map((studentId, index) => ({ studentId, mark: index === 2 ? 'leave' : 'present' })) }),
+    ),
+  )
+}
+
+test('a register saved while the tool was preparing is caught: the proposal is stale, and nothing is written', async () => {
+  const threadId = await newThread(owner.client)
+  between = () => principalMarks(sectionF)
+  let output: ToolOutput
+  try {
+    output = await proposeWith(owner.client, threadId, RACE_TOOL, { sectionId: sectionF, marks: [{ pupil: 'Asha', mark: 'absent' }] })
+  } finally {
+    between = null
+  }
+  assert.equal(output.status, 'ok', JSON.stringify(output))
+  const proposal = output.proposal!
+  // The card shows the register as the tool read it, before the principal's save.
+  assert.deepEqual(AttendanceDayPreview.parse(proposal.preview).rows.map((entry) => entry.current), [null, null, null])
+
+  const stale = await confirmed(owner.client, proposal)
+  assert.equal(stale.status, 'stale')
+  assert.equal(stale.outcome, STALE_OUTCOME)
+  assert.equal(await markOf(sectionF, 'Asha'), 'present')
+  assert.equal(await markOf(sectionF, 'Chirag'), 'leave')
+  assert.deepEqual((await writesOn(sectionF)).map((entry) => entry.actor_membership_id), [principal.membershipId])
+  assert.equal((await row(proposal.id)).write_request_id, null)
+})
+
+test('a tool that never read its check route, or read it twice and got two answers, saves no proposal', async () => {
+  const threadId = await newThread(owner.client)
+  const blind = await proposeWith(owner.client, threadId, BLIND_TOOL, { sectionId: sectionK, marks: [{ pupil: 'Asha', mark: 'absent' }] })
+  assert.deepEqual(blind, { status: 'failed' })
+
+  between = () => principalMarks(sectionK)
+  let twice: ToolOutput
+  try {
+    twice = await proposeWith(owner.client, threadId, RACE_TOOL, { sectionId: sectionK, marks: [{ pupil: 'Asha', mark: 'absent' }], twice: true })
+  } finally {
+    between = null
+  }
+  assert.deepEqual(twice, { status: 'failed' })
+  const saved = await adminPool().query('SELECT 1 FROM assistant_proposals WHERE thread_id = $1', [threadId])
+  assert.equal(saved.rows.length, 0)
+  assert.deepEqual((await writesOn(sectionK)).map((entry) => entry.actor_membership_id), [principal.membershipId])
+})
+
+test('two proposals for one register: the first confirmed is written, the second is stale and overwrites nothing', async () => {
+  const first = await proposed(owner.client, sectionG, [{ pupil: 'Asha', mark: 'absent' }])
+  const second = await proposed(owner.client, sectionG, [{ pupil: 'Bela', mark: 'absent' }])
+  assert.equal((await confirmed(owner.client, first.proposal)).status, 'done')
+  const stale = await confirmed(owner.client, second.proposal)
+  assert.equal(stale.status, 'stale')
+  assert.equal((await row(second.proposal.id)).write_request_id, null)
+  assert.equal(await markOf(sectionG, 'Asha'), 'absent')
+  assert.equal(await markOf(sectionG, 'Bela'), 'present')
+  assert.equal((await writesOn(sectionG)).length, 1)
+  assert.equal(await entriesOn(sectionG), 3)
+})
+
+test("the teacher's own save on the screen after the proposal makes it stale", async () => {
+  // Section A is the teacher's own, marked earlier in this file.
+  const { proposal } = await proposed(teacher.client, sectionA, [{ pupil: 'Bela', mark: 'late' }])
+  const preview = AttendanceDayPreview.parse(proposal.preview)
+  assert.ok(preview.rows.every((entry) => (entry.revision ?? 0) >= 1), 'a saved register carries its revisions')
+  const ids = pupils.get(sectionA) ?? []
+  await ok(
+    await teacher.client.fetch(
+      `${base}/attendance/sections/${sectionA}/days/${today}`,
+      send('PUT', { marks: ids.map((studentId, index) => ({ studentId, mark: index === 2 ? 'late' : 'present' })) }),
+    ),
+  )
+  const writes = (await writesOn(sectionA)).length
+  const stale = await confirmed(teacher.client, proposal)
+  assert.equal(stale.status, 'stale')
+  assert.equal((await row(proposal.id)).write_request_id, null)
+  assert.equal(await markOf(sectionA, 'Bela'), 'present')
+  assert.equal(await markOf(sectionA, 'Chirag'), 'late')
+  assert.equal((await writesOn(sectionA)).length, writes)
+})
+
+test("a write the route refuses because a mark's revision moved is stale, and nothing is written", async () => {
+  const { proposal } = await proposed(owner.client, sectionH, [{ pupil: 'Asha', mark: 'absent' }])
+  const preview = AttendanceDayPreview.parse(proposal.preview)
+  assert.deepEqual(preview.rows.map((entry) => entry.revision), [0, 0, 0])
+  // This test tool lets the revision through on the card (the real tools do
+  // not), so the route sees a line expecting a mark that is not there.
+  const moved = { ...preview, rows: preview.rows.map((entry, index) => (index === 1 ? { ...entry, revision: 5 } : entry)) }
+  const stale = await confirmed(owner.client, proposal, moved)
+  assert.equal(stale.status, 'stale')
+  assert.equal(stale.outcome, STALE_OUTCOME)
+  assert.equal((await row(proposal.id)).write_request_id, null)
+  assert.equal((await register(owner.client, sectionH)).marked, false)
+  assert.equal(await entriesOn(sectionH), 0)
+})
+
+test('an abandoned confirm whose write has an audit row reads back as done, with its outcome', async () => {
+  const { threadId, proposal } = await proposed(owner.client, sectionI, [{ pupil: 'Asha', mark: 'absent' }])
+  // The write went through (here, the same marks saved on the screen) and
+  // then the process stopped before it could settle the proposal.
+  const preview = AttendanceDayPreview.parse(proposal.preview)
+  await ok(
+    await owner.client.fetch(
+      `${base}/attendance/sections/${sectionI}/days/${today}`,
+      send('PUT', { marks: preview.rows.map((entry) => ({ studentId: entry.studentId, mark: entry.proposed })) }),
+    ),
+  )
+  const [write] = await writesOn(sectionI)
+  assert.ok(write)
+  await leaveConfirming(proposal, write.request_id, 7)
+
+  const [state] = await states(owner.client, threadId)
+  assert.equal(state?.status, 'done')
+  assert.equal(state?.outcome, "Saved Class 9 I's register: 2 present, 1 absent.")
+  assert.ok(state?.decidedAt)
+  const stored = await row(proposal.id)
+  assert.equal(stored.status, 'done')
+  assert.equal(stored.write_request_id, write.request_id)
+  // Confirming it now writes nothing more.
+  assert.equal((await confirmed(owner.client, proposal)).status, 'done')
+  assert.equal((await writesOn(sectionI)).length, 1)
+})
+
+test('an abandoned confirm with no audit row opens again (or expires), and can then be confirmed', async () => {
+  const { threadId, proposal } = await proposed(owner.client, sectionJ, [{ pupil: 'Bela', mark: 'absent' }])
+  const lapsed = await propose(owner.client, threadId, sectionJ, [{ pupil: 'Chirag', mark: 'absent' }])
+  assert.ok(lapsed.proposal)
+  await leaveConfirming(proposal, randomUUID(), 7)
+  await leaveConfirming(lapsed.proposal, randomUUID(), 7)
+  await adminPool().query(`UPDATE assistant_proposals SET expires_at = now() - interval '1 minute' WHERE id = $1`, [lapsed.proposal.id])
+
+  const byId = new Map((await states(owner.client, threadId)).map((item) => [item.id, item]))
+  assert.equal(byId.get(proposal.id)?.status, 'open')
+  assert.equal(byId.get(proposal.id)?.decidedAt, undefined)
+  assert.equal(byId.get(lapsed.proposal.id)?.status, 'expired')
+  for (const id of [proposal.id, lapsed.proposal.id]) assert.equal((await row(id)).write_request_id, null)
+  assert.equal(await entriesOn(sectionJ), 0)
+
+  // Open again, it confirms like any other, under a new request id.
+  const done = await confirmed(owner.client, proposal)
+  assert.equal(done.status, 'done')
+  const stored = await row(proposal.id)
+  const writes = await writesOn(sectionJ)
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0]?.request_id, stored.write_request_id)
+  assert.equal(await markOf(sectionJ, 'Bela'), 'absent')
+})
+
+test('a proposal confirming for less than the lease is left alone: it reads back, confirms and dismisses as confirming', async () => {
+  const { threadId, proposal } = await proposed(owner.client, sectionH, [{ pupil: 'Bela', mark: 'absent' }])
+  const operation = randomUUID()
+  await leaveConfirming(proposal, operation, 1)
+  assert.equal((await states(owner.client, threadId))[0]?.status, 'confirming')
+  assert.equal((await confirmed(owner.client, proposal)).status, 'confirming')
+  const dismissed = await ok<{ proposal: AssistantProposal }>(await owner.client.fetch(path(`/proposals/${proposal.id}/dismiss`), send('POST')))
+  assert.equal(dismissed.proposal.status, 'confirming')
+  const stored = await row(proposal.id)
+  assert.equal(stored.status, 'confirming')
+  assert.equal(stored.write_request_id, operation)
+  assert.equal(await entriesOn(sectionH), 0)
+})
+
+test('a client cannot choose its request id, even with the operation header; only a reserved ticket can, once', async () => {
+  const madeUp = randomUUID()
+  const response = await owner.client.fetch(`${base}/attendance/sections`, { headers: { [OPERATION_HEADER]: madeUp } })
+  assert.equal(response.status, 200)
+  const id = response.headers.get('x-request-id')
+  assert.match(id ?? '', /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+  assert.notEqual(id, madeUp)
+
+  // In process: a reserved ticket names the id once, and nothing else does.
+  const ticket = reserveRequestId(madeUp)
+  const request = (header?: string) => ({ headers: header === undefined ? {} : { [OPERATION_HEADER]: header } }) as never
+  assert.notEqual(requestIdFor(request(madeUp)), madeUp)
+  assert.equal(requestIdFor(request(ticket)), madeUp)
+  assert.notEqual(requestIdFor(request(ticket)), madeUp)
+  assert.notEqual(requestIdFor(request()), madeUp)
+})
+
 test('the nightly sweep removes proposals older than 30 days', async () => {
   const key = server.config.DATA_ENCRYPTION_KEY
   const old = randomUUID()
@@ -787,4 +1107,49 @@ test('the nightly sweep removes proposals older than 30 days', async () => {
   assert.equal((await adminPool().query('SELECT 1 FROM assistant_proposals WHERE id = $1', [old])).rows.length, 0)
   // A recent one is kept.
   assert.equal((await row(teacherProposal.id)).status, 'done')
+})
+
+test('a name written in Devanagari is told to come in English letters, not that nobody has it', () => {
+  const candidates = [{ item: 'riya', name: 'Riya Sharma' }]
+  const match = matchPerson('रिया', candidates)
+  if (match.status !== 'none') throw new Error(`a Devanagari name matched: ${match.status}`)
+  const problem = personProblem('रिया', match, 'Class 9 A for 26 Sep')
+  assert.match(problem, /English letters/)
+  assert.doesNotMatch(problem, /Nobody called/)
+  // A name in English letters that is not there still reads as before.
+  assert.equal(personProblem('Zoya', { status: 'none' }, 'Class 9 A'), 'Nobody called Zoya is on Class 9 A.')
+})
+
+test('what a confirmed preview saved: changed marks, cells and grades only, by name', () => {
+  const id = () => randomUUID()
+  assert.deepEqual(
+    savedChanges({
+      kind: 'exam_marks',
+      mode: 'first_entry',
+      paperId: id(),
+      route: 'marks_sheet',
+      title: 'Half-yearly, Maths, 9 A',
+      components: [{ component: 'written', label: 'Written exam', maxMarks: 80 }],
+      rows: [
+        { studentId: id(), name: 'Riya', rollNumber: 1, cells: [{ component: 'written', current: null, proposed: 72 }] },
+        { studentId: id(), name: 'Kabir', rollNumber: 2, cells: [{ component: 'written', current: 60, proposed: 60 }] },
+        { studentId: id(), name: 'Aarav', rollNumber: 3, cells: [{ component: 'written', current: 50, proposed: null }] },
+      ],
+    }),
+    [{ name: 'Riya', part: 'Written exam', value: 72 }],
+  )
+  const grades = { work_education: 'A', art_education: 'B', health_physical_education: null, discipline: null } as const
+  assert.deepEqual(
+    savedChanges({
+      kind: 'co_scholastic',
+      sectionId: id(),
+      sectionName: '9 A',
+      card: 'term_1',
+      rows: [
+        { studentId: id(), name: 'Riya', rollNumber: 1, version: 1, current: grades, proposed: { ...grades, discipline: 'A' }, currentRemarks: null, proposedRemarks: 'Kind' },
+        { studentId: id(), name: 'Kabir', rollNumber: 2, version: 1, current: grades, proposed: grades, currentRemarks: 'Neat', proposedRemarks: 'Neat' },
+      ],
+    }),
+    [{ name: 'Riya', grades: { discipline: 'A' }, remarkChanged: true }],
+  )
 })

@@ -11,6 +11,12 @@ export function componentLabel(component: ExamComponent): string {
   return EXAM_COMPONENTS[component].label
 }
 
+/**
+ * Said when a save is refused because somebody saved these marks after the sheet was read.
+ * The sheet refetches at the same time, so the newer marks are already showing.
+ */
+export const STALE_MARKS_MESSAGE = 'Somebody else saved these marks first. The latest marks are now shown; check them and save again.'
+
 export const CARD_LABELS: Record<ReportCardKind, string> = { term_1: 'Term 1', final: 'Final' }
 
 export const STATUS_LABELS = { absent: 'Absent', medical: 'Medical', exempt: 'Exempt' } as const

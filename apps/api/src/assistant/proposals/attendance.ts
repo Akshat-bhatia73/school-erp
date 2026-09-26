@@ -10,6 +10,7 @@ import { DateInput, appPath, className, dateLabel, fetchParsed, seg } from '../t
 import { proposeTool } from './types.ts'
 import {
   countByMark,
+  expected,
   findSection,
   invalid,
   markCounts,
@@ -19,6 +20,7 @@ import {
   shortDate,
   shutOutcome,
   typedReason,
+  unaskedProblem,
   without,
 } from './match.ts'
 
@@ -41,7 +43,7 @@ const Input = z.object({
     .describe('The class and section as people say it, such as "9A", "Class 9 A" or "Nursery A", or its id.'),
   date: DateInput('The day. Leave out for today.').optional(),
   everyone: AttendanceMark.optional().describe(
-    'The mark for every pupil not named in except. Leave out to keep the marks already saved (pupils not marked yet become present).',
+    'The mark for every pupil not named in except. Leave out to keep the marks already saved. Only give it when the person said so ("everyone else present"): never guess it for pupils they did not mention.',
   ),
   except: z
     .array(
@@ -95,13 +97,21 @@ export const proposeAttendanceDay = proposeTool<Input, AttendanceDayPreview>({
     }
 
     const mode = day.window.record ? 'first_entry' : 'correction'
-    const rows = day.rows.map((row) => ({
-      studentId: row.student.id,
-      name: row.student.name,
-      rollNumber: row.student.rollNumber ?? null,
-      current: row.mark ?? null,
-      proposed: named.get(row.student.id) ?? input.everyone ?? row.mark ?? 'present',
-    }))
+    // A pupil the person did not name and nobody has marked is never given a
+    // mark on a guess. Marking the day needs everybody, so the model must ask;
+    // a correction simply leaves them as they are.
+    const unasked = input.everyone === undefined ? day.rows.filter((row) => row.mark === undefined && !named.has(row.student.id)) : []
+    if (mode === 'first_entry' && unasked.length > 0) return invalid(unaskedProblem(unasked.length, where))
+    const rows = day.rows
+      .filter((row) => !unasked.includes(row))
+      .map((row) => ({
+        studentId: row.student.id,
+        name: row.student.name,
+        rollNumber: row.student.rollNumber ?? null,
+        current: row.mark ?? null,
+        proposed: named.get(row.student.id) ?? input.everyone ?? row.mark!,
+        revision: row.entry?.revision ?? 0,
+      }))
     const changed = rows.filter((row) => row.proposed !== row.current)
     if (changed.length === 0) return invalid(`${label}'s register for ${dateLabel(date)} already has those marks.`)
 
@@ -129,6 +139,7 @@ export const proposeAttendanceDay = proposeTool<Input, AttendanceDayPreview>({
           changes: changed.length,
           counts: { present: counts.present, absent: counts.absent, late: counts.late, leave: counts.leave, halfDay: counts.half_day },
           notPresent: rows.filter((row) => row.proposed !== 'present').map((row) => ({ name: row.name, mark: row.proposed })),
+          ...(unasked.length === 0 ? {} : { leftUnmarked: unasked.length }),
         },
         href: appPath(`/attendance/sections/${seg(day.section.id)}`, { date }),
       },
@@ -146,13 +157,13 @@ export const proposeAttendanceDay = proposeTool<Input, AttendanceDayPreview>({
     const changed = preview.rows.filter((row) => row.proposed !== row.current)
     if (changed.length === 0) return { problem: 'Nothing has changed.' }
     if (preview.mode === 'first_entry') {
-      const body: AttendanceMarkRequest = { marks: preview.rows.map((row) => ({ studentId: row.studentId, mark: row.proposed })) }
+      const body: AttendanceMarkRequest = { marks: preview.rows.map((row) => ({ studentId: row.studentId, mark: row.proposed, ...expected(row) })) }
       return { method: 'PUT', path, body }
     }
     const reason = typedReason(preview.reason)
     if (reason === undefined) return { problem: 'Add a reason for changing a saved register.' }
     const body: AttendanceCorrectionRequest = {
-      marks: changed.map((row) => ({ studentId: row.studentId, mark: row.proposed })),
+      marks: changed.map((row) => ({ studentId: row.studentId, mark: row.proposed, ...expected(row) })),
       reason,
     }
     return { method: 'POST', path: `${path}/corrections`, body }

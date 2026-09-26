@@ -824,3 +824,114 @@ test('under grades a family view shows grades alone; staff still see marks', asy
     await adminPool().query('DELETE FROM exam_settings WHERE school_id = $1', [schoolA])
   }
 })
+
+// ---------------------------------------------------------------------------
+// Stale writes. A line may carry the revision of the cell its writer read (0
+// for an empty cell); a body built from a cell that has moved since is refused
+// whole. The half-yearly sheets are still open and nothing above counts them.
+
+/** A refused write: 409 VERSION_CONFLICT. */
+async function conflict(response: Response): Promise<void> {
+  const text = await response.text()
+  assert.equal(response.status, 409, text)
+  assert.equal((JSON.parse(text) as ErrorBody).error.code, 'VERSION_CONFLICT', text)
+}
+
+/** The revision of one cell as a sheet shows it, 0 when it is empty. */
+function revisionIn(sheet: Sheet, studentId: string, component: string): number {
+  const row = sheet.rows.find((entry) => entry.student.id === studentId)
+  return row?.cells.find((cell) => cell.component === component)?.revision ?? 0
+}
+
+test('a sheet save checks each line’s revision and refuses a stale body whole', async () => {
+  const paper = await paperFor('half_yearly', sectionOne, maths)
+  const read = await ok<Sheet>(await subjectTeacher.fetch(`${base()}/papers/${paper.id}`))
+  assert.equal(revisionIn(read, p1, 'notebook'), 0)
+
+  // Two saves built from the same empty sheet: the first stands.
+  const first = await ok<Sheet>(
+    await saveMarks(subjectTeacher, paper.id, {
+      entries: [{ studentId: p1, component: 'notebook', value: 4, expectedRevision: 0 }],
+    }),
+  )
+  assert.equal(revisionIn(first, p1, 'notebook'), 1)
+  const marks = await markCount()
+  const audits = (await auditRows('exams.record_marks', paper.id)).length
+  await conflict(
+    await saveMarks(subjectTeacher, paper.id, {
+      entries: [{ studentId: p1, component: 'notebook', value: 3, expectedRevision: 0 }],
+      change: { reasonKind: 'entry_error', reason: 'Typed the wrong mark.' },
+    }),
+  )
+  // A stale line refuses the body even when its own value is not changing,
+  // and even beside a line that is fine.
+  await conflict(
+    await saveMarks(subjectTeacher, paper.id, {
+      entries: [
+        { studentId: p1, component: 'notebook', value: 4, expectedRevision: 2 },
+        { studentId: p2, component: 'notebook', value: 3, expectedRevision: 0 },
+      ],
+    }),
+  )
+  assert.equal(await markCount(), marks, 'a refused save writes no mark')
+  assert.equal((await auditRows('exams.record_marks', paper.id)).length, audits, 'and no audit row')
+
+  // The revision it read saves, and a line without one saves as before.
+  const saved = await ok<Sheet>(
+    await saveMarks(subjectTeacher, paper.id, {
+      entries: [
+        { studentId: p1, component: 'notebook', value: 3, expectedRevision: 1 },
+        { studentId: p2, component: 'notebook', value: 2 },
+      ],
+      change: { reasonKind: 'entry_error', reason: 'Typed the wrong mark.' },
+    }),
+  )
+  assert.equal(revisionIn(saved, p1, 'notebook'), 2)
+  assert.equal(revisionIn(saved, p2, 'notebook'), 1)
+})
+
+test('an office correction checks each line’s revision and refuses a stale body whole', async () => {
+  const paper = await paperFor('half_yearly', sectionOne, science)
+  const read = await ok<Sheet>(await owner.fetch(`${base()}/papers/${paper.id}`))
+  const reasoned = { reasonKind: 'other', reason: 'Filled in from the answer sheets.' }
+  const first = await ok<Sheet>(
+    await correct(owner, paper.id, {
+      entries: [{ studentId: p1, component: 'written', value: 30, expectedRevision: revisionIn(read, p1, 'written') }],
+      ...reasoned,
+    }),
+    201,
+  )
+  assert.equal(revisionIn(first, p1, 'written'), 1)
+
+  const marks = await markCount()
+  const audits = (await auditRows('exams.manage', paper.id)).length
+  // Built from the read before the first correction: 0 on a cell that now has a mark.
+  await conflict(
+    await correct(owner, paper.id, {
+      entries: [{ studentId: p1, component: 'written', value: 35, expectedRevision: 0 }],
+      ...reasoned,
+    }),
+  )
+  await conflict(
+    await correct(owner, paper.id, {
+      entries: [{ studentId: p1, component: 'written', value: 30, expectedRevision: 5 }],
+      ...reasoned,
+    }),
+  )
+  assert.equal(await markCount(), marks, 'a refused correction writes no mark')
+  assert.equal((await auditRows('exams.manage', paper.id)).length, audits, 'and no audit row')
+
+  const matched = await ok<Sheet>(
+    await correct(owner, paper.id, {
+      entries: [{ studentId: p1, component: 'written', value: 35, expectedRevision: 1 }],
+      ...reasoned,
+    }),
+    201,
+  )
+  assert.equal(revisionIn(matched, p1, 'written'), 2)
+  const plain = await ok<Sheet>(
+    await correct(owner, paper.id, { entries: [{ studentId: p1, component: 'written', value: 36 }], ...reasoned }),
+    201,
+  )
+  assert.equal(revisionIn(plain, p1, 'written'), 3)
+})

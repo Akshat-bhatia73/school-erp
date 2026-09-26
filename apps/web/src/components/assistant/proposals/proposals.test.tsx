@@ -16,7 +16,7 @@ import { renderWithSession } from '@/test/session'
 import { Message } from '../message'
 import { ToolPart } from '../tool-activity'
 import { ProposalsProvider } from './context'
-import { checkPreview, countChanges } from './model'
+import { changesText, checkPreview, clockTime, countChanges, restoreDraft } from './model'
 import { ProposalCard } from './proposal-card'
 
 vi.mock('@tanstack/react-router', async (importOriginal) => {
@@ -48,6 +48,7 @@ vi.mock('@/lib/api', () => ({
 }))
 
 const SCHOOL = '10000000-0000-4000-8000-000000000001'
+const IN_HALF_AN_HOUR = new Date(Date.now() + 30 * 60_000).toISOString()
 
 const attendance: AttendanceDayPreview = {
   kind: 'attendance_day',
@@ -122,7 +123,7 @@ function proposalOf(preview: AssistantProposalPreview, extra: Partial<AssistantP
     kind: preview.kind,
     title: preview.kind === 'staff_attendance_day' ? 'Staff register for 26 Sep 2026' : 'Mark 9 A for 26 Sep 2026',
     status: 'open',
-    expiresAt: '2026-09-26T05:30:00.000Z',
+    expiresAt: IN_HALF_AN_HOUR,
     preview,
     ...extra,
   }
@@ -145,7 +146,7 @@ describe('the cards', () => {
     expect(screen.getByText('Riya Sharma')).toBeInTheDocument()
     expect(within(screen.getByRole('group', { name: 'Mark for Riya Sharma' })).getByRole('button', { name: 'A', pressed: true })).toBeInTheDocument()
     expect(screen.getByText('3 marks to save')).toBeInTheDocument()
-    expect(screen.getByText('Open for 30 minutes')).toBeInTheDocument()
+    expect(screen.getByText(`Open until ${clockTime(IN_HALF_AN_HOUR)}`)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument()
   })
@@ -168,14 +169,41 @@ describe('the cards', () => {
     expect(screen.getByText('2 changes')).toBeInTheDocument()
   })
 
-  it('draws co-scholastic grades with the old grade struck through and the remarks folded away', async () => {
+  it('draws co-scholastic grades with the old grade struck through and unchanged remarks folded away', async () => {
     const user = userEvent.setup()
-    renderCard(proposalOf(grades))
+    const unchanged: CoScholasticPreview = { ...grades, rows: [{ ...grades.rows[0]!, currentRemarks: 'Kind to others.', proposedRemarks: 'Kind to others.' }] }
+    renderCard(proposalOf(unchanged))
     expect(screen.getByLabelText('Work education for Aarav Gupta')).toHaveTextContent('A')
     expect(screen.getByText('B')).toHaveClass('line-through')
     expect(screen.queryByRole('textbox', { name: 'Remarks for Aarav Gupta' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Remarks for Aarav Gupta' }))
+    expect(screen.getByRole('textbox', { name: 'Remarks for Aarav Gupta' })).toHaveValue('Kind to others.')
+    expect(screen.getByText('1 grade change')).toBeInTheDocument()
+  })
+
+  it('opens a remark the change would alter, with the saved one above it, and counts it apart', () => {
+    const rewritten: CoScholasticPreview = {
+      ...grades,
+      rows: [
+        { ...grades.rows[0]!, currentRemarks: 'Quiet in class.', proposedRemarks: 'Works well with others.' },
+        { ...grades.rows[0]!, studentId: 'st-2', name: 'Kabir Mehta', rollNumber: 2, current: { work_education: 'B', art_education: 'B', health_physical_education: 'B', discipline: 'B' }, proposed: { work_education: 'A', art_education: 'A', health_physical_education: 'B', discipline: 'B' }, currentRemarks: null, proposedRemarks: null },
+      ],
+    }
+    renderCard(proposalOf(rewritten))
     expect(screen.getByRole('textbox', { name: 'Remarks for Aarav Gupta' })).toHaveValue('Works well with others.')
+    expect(screen.getByText('Quiet in class.')).toHaveClass('line-through')
+    expect(screen.getByRole('button', { name: 'Remarks for Aarav Gupta, changed' })).toHaveAttribute('aria-expanded', 'true')
+    // Kabir's remarks are untouched, so they stay folded.
+    expect(screen.getByRole('button', { name: 'Remarks for Kabir Mehta' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('textbox', { name: 'Remarks for Kabir Mehta' })).not.toBeInTheDocument()
+    expect(screen.getByText('3 grade changes and 1 remark change')).toBeInTheDocument()
+  })
+
+  it('a remark written where there was none says so', () => {
+    renderCard(proposalOf(grades))
+    expect(screen.getByRole('textbox', { name: 'Remarks for Aarav Gupta' })).toHaveValue('Works well with others.')
+    expect(screen.getByText('no remarks')).toBeInTheDocument()
+    expect(changesText(countChanges(grades), grades)).toBe('1 grade change and 1 remark change')
   })
 })
 
@@ -295,6 +323,7 @@ describe('editing and confirming', () => {
 
 describe('settled cards are read-only', () => {
   it.each([
+    ['confirming', 'Saving this change. It updates here in a moment.'],
     ['stale', 'This changed after the assistant read it. Ask again to get a fresh copy.'],
     ['failed', 'This day has not happened yet. The register opens on the day itself.'],
     ['expired', 'This was not confirmed in time, so nothing was saved. Ask again to get a fresh copy.'],
@@ -381,6 +410,8 @@ describe('Confirm all', () => {
     expect(await screen.findByText('Say why these marks are being changed.')).toBeInTheDocument()
     expect(screen.getByText(/Nothing was saved\. Stopped at “Correct 9 A”/)).toBeInTheDocument()
     expect(confirmProposal).not.toHaveBeenCalled()
+    // The person is taken to what stopped it.
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'Correct 9 A' })).getByLabelText('Reason')).toHaveFocus())
   })
 
   it('is not offered for a single proposal', () => {
@@ -437,5 +468,135 @@ describe('the rules', () => {
   it('refuses to send a preview with nothing in it that changes', () => {
     const result = checkPreview({ ...correction, reason: 'No change really', rows: correction.rows.map((row) => ({ ...row, proposed: row.current ?? 'present' })) })
     expect(result.ok).toBe(false)
+  })
+})
+
+describe('a card knows how its proposal stands before it offers Confirm', () => {
+  function inConversation(card: ReactNode, kept: string[]) {
+    return renderWithSession(
+      <ProposalsProvider schoolId={SCHOOL} threadId="t-1" enabled kept={new Set(kept)}>{card}</ProposalsProvider>,
+      { schoolId: SCHOOL },
+    )
+  }
+
+  it('a card from the kept history says it is checking, with nothing to press, until the states arrive', async () => {
+    let answer!: (value: { items: AssistantProposal[] }) => void
+    proposalStates.mockReturnValue(new Promise((resolve) => { answer = resolve }))
+    inConversation(<ProposalCard proposal={proposalOf(attendance)} />, ['p-attendance_day'])
+    expect(screen.getByText('Checking…')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Discard' })).not.toBeInTheDocument()
+    answer({ items: [proposalOf(attendance)] })
+    expect(await screen.findByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+    expect(screen.queryByText('Checking…')).not.toBeInTheDocument()
+  })
+
+  it('says when it could not check, and tries again', async () => {
+    const user = userEvent.setup()
+    proposalStates.mockRejectedValueOnce(new ApiRequestError({ code: 'NETWORK_ERROR', status: 0, message: 'No connection.' }))
+    proposalStates.mockResolvedValueOnce({ items: [proposalOf(attendance)] })
+    inConversation(<ProposalCard proposal={proposalOf(attendance)} />, ['p-attendance_day'])
+    expect(await screen.findByText('Could not check this change.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(await screen.findByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+    expect(proposalStates).toHaveBeenCalledTimes(2)
+  })
+
+  it('a card made in this session may act while the states are still loading', () => {
+    proposalStates.mockReturnValue(new Promise(() => {}))
+    inConversation(<ProposalCard proposal={proposalOf(attendance)} />, [])
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+    expect(screen.queryByText('Checking…')).not.toBeInTheDocument()
+  })
+
+  it('shows as expired on its own once its time is up, and offers nothing to press', async () => {
+    const soon = new Date(Date.now() + 150).toISOString()
+    renderCard(proposalOf(attendance, { expiresAt: soon }))
+    expect(screen.getByText(`Open until ${clockTime(soon)}`)).toBeInTheDocument()
+    expect(await screen.findByText('This was not confirmed in time, so nothing was saved. Ask again to get a fresh copy.')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Mark 9 A for 26 Sep 2026' })).toHaveAttribute('data-status', 'expired')
+    expect(screen.getByText('Expired')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+  })
+
+  it('a card past its time when drawn is expired at once', () => {
+    renderCard(proposalOf(attendance, { expiresAt: new Date(Date.now() - 60_000).toISOString() }))
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+    expect(screen.getByText('Expired')).toBeInTheDocument()
+  })
+})
+
+describe('labels and focus', () => {
+  it('two cards on one answer never share a reason field', () => {
+    const answer = {
+      id: 'm-2',
+      role: 'assistant',
+      parts: (['p-a', 'p-b'] as const).map((id) => ({
+        type: 'tool-propose_attendance_day', toolCallId: `call-${id}`, state: 'output-available', input: {},
+        output: { status: 'ok', proposal: { ...proposalOf(correction), id, title: `Correct ${id}` } },
+      })),
+    } as UIMessage
+    renderWithSession(<Message message={answer} />, { schoolId: SCHOOL })
+    const fields = screen.getAllByLabelText('Reason')
+    expect(fields).toHaveLength(2)
+    expect(fields[0]!.id).not.toBe(fields[1]!.id)
+    expect(within(screen.getByRole('region', { name: 'Correct p-b' })).getByLabelText('Reason')).toBe(fields[1])
+  })
+
+  it('a blocked Confirm moves focus to the field to fix, which names its message', async () => {
+    const user = userEvent.setup()
+    renderCard(proposalOf(correction))
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+    const reason = screen.getByLabelText('Reason')
+    await waitFor(() => expect(reason).toHaveFocus())
+    expect(reason).toHaveAttribute('aria-invalid', 'true')
+    expect(reason).toHaveAccessibleDescription('Say why these marks are being changed.')
+  })
+
+  it('a refused mark points to the card message saying what is wrong', async () => {
+    const user = userEvent.setup()
+    renderCard(proposalOf(marks))
+    const cell = screen.getByLabelText('Written for Aarav Gupta')
+    await user.clear(cell)
+    await user.type(cell, '92')
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(cell).toHaveFocus())
+    expect(cell).toHaveAccessibleDescription(/1 mark is not right\./)
+  })
+})
+
+describe('edits kept in the tab', () => {
+  const key = 'erp:assistant:proposal:p-attendance_day'
+
+  it('come back after the card is drawn again, and go once it settles', async () => {
+    const user = userEvent.setup()
+    const first = renderCard(proposalOf(attendance))
+    await user.click(within(screen.getByRole('group', { name: 'Mark for Kabir Mehta' })).getByRole('button', { name: 'P' }))
+    first.unmount()
+
+    renderCard(proposalOf(attendance))
+    expect(within(screen.getByRole('group', { name: 'Mark for Kabir Mehta' })).getByRole('button', { name: 'P', pressed: true })).toBeInTheDocument()
+
+    dismissProposal.mockResolvedValue({ proposal: proposalOf(attendance, { status: 'dismissed' }) })
+    await user.click(screen.getByRole('button', { name: 'Discard' }))
+    await screen.findByText('Discarded. Nothing was saved.')
+    expect(window.sessionStorage.getItem(key)).toBeNull()
+  })
+
+  it('are ignored when they no longer fit the change', () => {
+    window.sessionStorage.setItem(key, JSON.stringify({ ...attendance, rows: [{ ...attendance.rows[0]!, studentId: 'someone-else', proposed: 'late' }] }))
+    renderCard(proposalOf(attendance))
+    expect(within(screen.getByRole('group', { name: 'Mark for Aarav Gupta' })).getByRole('button', { name: 'P', pressed: true })).toBeInTheDocument()
+  })
+
+  it('only the editable fields are taken from a kept copy', () => {
+    const kept = { ...correction, sectionName: 'Tampered', reason: 'Late bus', rows: correction.rows.map((row) => ({ ...row, name: 'Someone', proposed: 'late' })) }
+    const restored = restoreDraft(correction, kept) as AttendanceDayPreview
+    expect(restored.sectionName).toBe('9 A')
+    expect(restored.reason).toBe('Late bus')
+    expect(restored.rows.map((row) => [row.name, row.proposed])).toEqual([['Aarav Gupta', 'late'], ['Kabir Mehta', 'late']])
+    expect(restoreDraft(correction, { ...kept, kind: 'staff_attendance_day' })).toBeNull()
+    expect(restoreDraft(correction, 'nonsense')).toBeNull()
   })
 })

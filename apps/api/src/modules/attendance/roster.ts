@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { sql } from 'drizzle-orm'
 import {
+  ATTENDANCE_ABSENCES_MAX,
+  AttendanceAbsencesResponse,
   AttendanceCorrectionRequest,
   AttendanceDayResponse,
   type AttendanceMark,
@@ -21,6 +23,7 @@ import {
   type ModuleDependencies,
 } from '../shared/index.ts'
 import {
+  assertExpectedRevisions,
   attendancePlans,
   readCalendarDay,
   schoolToday,
@@ -31,6 +34,7 @@ import {
 } from './figures.ts'
 import {
   decideAttendance,
+  pupilRef,
   readAttendanceDay,
   readSection,
   rosterOn,
@@ -256,7 +260,152 @@ async function readSections(
   })
 }
 
+interface AbsenceSectionRow extends Record<string, unknown> {
+  section_id: string
+  section_name: string
+  grade_id: string
+  grade_name: string
+  marked: boolean
+  absent: number
+  late: number
+  leave: number
+  half_day: number
+}
+
+interface AbsenceRow extends Record<string, unknown> {
+  id: string
+  first_name: string
+  last_name: string | null
+  admission_number: string
+  roll_number: number | null
+  section_id: string
+  section_name: string
+  grade_id: string
+  grade_name: string
+  mark: Exclude<AttendanceMark, 'present'>
+}
+
+/**
+ * Who was not present on one day: every pupil whose current mark is absent,
+ * late, leave or half day, in every section of that day's year this caller
+ * may see a register of, and the registers not marked yet. Each pupil is read
+ * exactly as their section's day is read (on the roll that day, the newest
+ * mark the caller may read), so a name is here only when that register would
+ * show it. A section with nobody on its roll that day has no register and is
+ * left out.
+ */
+async function readAbsences(
+  conn: AttendanceConnection,
+  context: RequestContext,
+  date: string,
+): Promise<AttendanceAbsencesResponse> {
+  const schoolId = context.schoolId
+  const plans = await attendancePlans(conn, context)
+  const sections = await sectionVisibility(conn, context)
+  const today = await schoolToday(conn, schoolId)
+  const day = await readCalendarDay(conn, { schoolId, date, asOf: today, holidays: plans.holidays })
+  const year = await yearContaining(conn, schoolId, date)
+  if (!year) throw new ApiFailure('INVALID_REQUEST', undefined, 'attendance_date_outside_year')
+
+  const rollCte = sql`WITH vis AS (
+        SELECT sections.id, sections.name, grades.id AS grade_id, grades.name AS grade_name, grades.sort_order
+          FROM sections
+          JOIN grades ON grades.school_id = sections.school_id AND grades.id = sections.grade_id
+         WHERE sections.school_id = ${schoolId}::uuid
+           AND sections.academic_year_id = ${year.id}::uuid
+           AND (${plans.rosters}) AND (${sections})
+      ),
+      roll AS (
+        SELECT vis.id AS section_id, vis.name AS section_name, vis.grade_id, vis.grade_name, vis.sort_order,
+               students.id, students.first_name, students.last_name, students.admission_number,
+               enrollments.roll_number, cur.mark
+          FROM vis
+          JOIN enrollments ON enrollments.school_id = ${schoolId}::uuid AND enrollments.section_id = vis.id
+           AND enrollments.joined_on <= ${date}::date
+           AND (enrollments.left_on IS NULL OR enrollments.left_on >= ${date}::date)
+          JOIN students ON students.school_id = enrollments.school_id AND students.id = enrollments.student_id
+           AND (${plans.pupils})
+          LEFT JOIN LATERAL (
+            SELECT attendance_entries.mark
+              FROM attendance_entries
+             WHERE attendance_entries.school_id = enrollments.school_id
+               AND attendance_entries.student_id = enrollments.student_id
+               AND attendance_entries.date = ${date}::date
+               AND (${plans.entries})
+             ORDER BY attendance_entries.revision DESC LIMIT 1
+          ) cur ON TRUE
+      )`
+
+  const perSection = await conn.db.execute<AbsenceSectionRow>(
+    sql`${rollCte}
+        SELECT section_id, section_name, grade_id, grade_name,
+               bool_or(mark IS NOT NULL) AS marked,
+               count(*) FILTER (WHERE mark = 'absent')::int AS absent,
+               count(*) FILTER (WHERE mark = 'late')::int AS late,
+               count(*) FILTER (WHERE mark = 'leave')::int AS leave,
+               count(*) FILTER (WHERE mark = 'half_day')::int AS half_day
+          FROM roll
+         GROUP BY section_id, section_name, grade_id, grade_name, sort_order
+         ORDER BY sort_order, section_name, section_id`,
+  )
+  // One more than the cap, so the answer can say there were more.
+  const absent = await conn.db.execute<AbsenceRow>(
+    sql`${rollCte}
+        SELECT id, first_name, last_name, admission_number, roll_number,
+               section_id, section_name, grade_id, grade_name, mark
+          FROM roll
+         WHERE mark IS NOT NULL AND mark <> 'present'
+         ORDER BY CASE mark WHEN 'absent' THEN 0 WHEN 'late' THEN 1 WHEN 'half_day' THEN 2 ELSE 3 END,
+                  sort_order, section_name, section_id, roll_number NULLS LAST, first_name, last_name, id
+         LIMIT ${ATTENDANCE_ABSENCES_MAX + 1}`,
+  )
+
+  const sum = (key: 'absent' | 'late' | 'leave' | 'half_day') =>
+    perSection.rows.reduce((total, row) => total + Number(row[key] ?? 0), 0)
+  const named = (row: { section_id: string; section_name: string; grade_id: string; grade_name: string }) => ({
+    section: { id: row.section_id, name: row.section_name },
+    grade: { id: row.grade_id, name: row.grade_name },
+  })
+
+  return AttendanceAbsencesResponse.parse({
+    date,
+    day: toCalendarDay(day),
+    academicYear: { id: year.id, name: year.name },
+    items: absent.rows.slice(0, ATTENDANCE_ABSENCES_MAX).map((row) => ({
+      student: pupilRef({
+        id: row.id,
+        name: [row.first_name, row.last_name].filter((part) => part !== null && part !== '').join(' ').slice(0, 160),
+        admissionNumber: row.admission_number,
+        rollNumber: row.roll_number === null ? null : Number(row.roll_number),
+      }),
+      ...named(row),
+      mark: row.mark,
+    })),
+    capped: absent.rows.length > ATTENDANCE_ABSENCES_MAX,
+    unmarkedSections: perSection.rows.filter((row) => !row.marked).map(named),
+    totals: {
+      sections: perSection.rows.length,
+      markedSections: perSection.rows.filter((row) => row.marked).length,
+      absent: sum('absent'),
+      late: sum('late'),
+      leave: sum('leave'),
+      halfDay: sum('half_day'),
+    },
+  })
+}
+
 export function registerAttendanceRosterRoutes(app: FastifyInstance, deps: ModuleDependencies): void {
+  protectedRoute(app, deps, {
+    method: 'GET',
+    path: '/api/schools/:schoolId/attendance/days/:date/absences',
+    permission: 'attendance.read',
+    response: AttendanceAbsencesResponse,
+    handler: async ({ context, param }) => {
+      const date = assertDateParam(param('date'))
+      return withTenantTransaction(deps.pools.runtime, context, (conn) => readAbsences(conn, context, date))
+    },
+  })
+
   protectedRoute(app, deps, {
     method: 'GET',
     path: '/api/schools/:schoolId/attendance/sections',
@@ -327,6 +476,7 @@ export function registerAttendanceRosterRoutes(app: FastifyInstance, deps: Modul
         }
 
         const current = await currentMarks(conn, context.schoolId, [...onRoll], date)
+        assertExpectedRevisions(body.marks, (line) => current.get(line.studentId)?.revision ?? 0)
         let changed = 0
         for (const pupil of roster) {
           const mark = sent.get(pupil.id)
@@ -409,6 +559,7 @@ export function registerAttendanceRosterRoutes(app: FastifyInstance, deps: Modul
           body.marks.map((line) => line.studentId),
           date,
         )
+        assertExpectedRevisions(body.marks, (line) => current.get(line.studentId)?.revision ?? 0)
         let corrected = 0
         for (const line of body.marks) {
           const now = current.get(line.studentId)

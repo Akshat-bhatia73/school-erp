@@ -15,6 +15,7 @@ import { Composer } from './composer'
 import { Conversation } from './conversation'
 import { UNAVAILABLE_TEXT } from './format'
 import { HistoryPopover } from './history-popover'
+import { clearSessionDraft, draftKeys, emptyText, noText, restoreText, useSessionDraft } from './session-draft'
 
 /** Out of questions: old conversations can still be read, only asking waits. */
 const LIMITS: ReadonlySet<AssistantUnavailableReason> = new Set(['daily_limit', 'monthly_limit'])
@@ -65,6 +66,8 @@ export function AssistantScreen({ threadId, onOpenThread }: {
   const start = useMutation({
     mutationFn: (_question: string) => api.assistant.createThread(schoolId),
     onSuccess: ({ id }, question) => {
+      // The question is on its way in the new conversation; the new-chat box starts empty next time.
+      clearSessionDraft(draftKeys.question(schoolId))
       setFresh({ threadId: id, question })
       onOpenThread(id)
       void queryClient.invalidateQueries({ queryKey: qk.assistant.threads(schoolId) })
@@ -116,7 +119,15 @@ export function AssistantScreen({ threadId, onOpenThread }: {
     <div className="flex min-h-0 flex-1 flex-col bg-card">
       <div className="flex h-12 shrink-0 items-center border-b px-2 md:h-14 md:px-3">
         {canBrowse ? (
-          <HistoryPopover title={title} threads={threads.data?.items ?? []} loading={threads.isPending} currentId={threadId} onOpen={open} />
+          <HistoryPopover
+            title={title}
+            threads={threads.data?.items ?? []}
+            loading={threads.isPending}
+            failed={threads.isError && !threads.data}
+            onRetry={() => void threads.refetch()}
+            currentId={threadId}
+            onOpen={open}
+          />
         ) : (
           <span className="flex items-center gap-1.5 px-2.5 text-[14px] font-medium">
             <Sparkles className="size-4 text-muted-foreground" />
@@ -144,7 +155,9 @@ function CentredSkeleton() {
 
 /** A new conversation: the composer in the middle, with a few questions to start from. */
 function NewConversation({ status, starting, onStart }: { status: AssistantStatus; starting: boolean; onStart: (question: string) => void }) {
-  const [draft, setDraft] = useState('')
+  const { schoolId } = useSchoolContext()
+  // Kept in the tab until the conversation it starts is created, so a failed start loses nothing.
+  const [draft, setDraft] = useSessionDraft(draftKeys.question(schoolId), { initial: noText, restore: restoreText, isEmpty: emptyText })
   const send = (text: string) => { if (!starting) onStart(text) }
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">

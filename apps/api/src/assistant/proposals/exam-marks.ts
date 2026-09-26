@@ -19,7 +19,7 @@ import {
 import type { ToolCallContext } from '../tools/types.ts'
 import { IdInput, className, clip, fetchParsed, seg } from '../tools/present.ts'
 import { proposeTool, type PrepareOutcome } from './types.ts'
-import { foldSection, invalid, listed, matchPerson, personProblem, sameJson, shutOutcome, typedReason, without } from './match.ts'
+import { expected, foldSection, invalid, listed, matchPerson, personProblem, sameJson, shutOutcome, typedReason, without } from './match.ts'
 
 /**
  * Entering or changing marks on one paper (one exam, one subject, one
@@ -213,11 +213,15 @@ export const proposeExamMarks = proposeTool<Input, ExamMarksPreview>({
       studentId: row.student.id,
       name: row.student.name,
       rollNumber: row.student.rollNumber ?? null,
-      cells: keys.map((component) => ({
-        component,
-        current: row.cells.find((cell) => cell.component === component)?.value ?? null,
-        proposed: named.get(cellKey(row.student.id, component)) ?? null,
-      })),
+      cells: keys.map((component) => {
+        const saved = row.cells.find((cell) => cell.component === component)
+        return {
+          component,
+          current: saved?.value ?? null,
+          proposed: named.get(cellKey(row.student.id, component)) ?? null,
+          revision: saved?.revision ?? 0,
+        }
+      }),
     }))
     const preview: ExamMarksPreview = {
       kind: 'exam_marks',
@@ -279,7 +283,14 @@ export const proposeExamMarks = proposeTool<Input, ExamMarksPreview>({
     }
     const touched = touchedCells(preview)
     if (touched.length === 0) return { problem: 'Nothing has changed.' }
-    const line = (studentId: string, component: ExamComponent, value: MarkValue): ExamMarkLine => ({ studentId, component, value })
+    // Every line carries the revision the preview was read at, so the route
+    // refuses the whole write if any of those cells moved since.
+    const line = (studentId: string, cell: ExamMarksPreview['rows'][number]['cells'][number], value: MarkValue): ExamMarkLine => ({
+      studentId,
+      component: cell.component,
+      value,
+      ...expected(cell),
+    })
     const reason = typedReason(preview.reason)
 
     if (preview.route === 'office_correction') {
@@ -287,7 +298,7 @@ export const proposeExamMarks = proposeTool<Input, ExamMarksPreview>({
         return { problem: 'Choose why the marks are changing and add a reason.' }
       }
       const body: ExamMarksCorrectionRequest = {
-        entries: touched.map(({ row, cell, proposed }) => line(row.studentId, cell.component, proposed)),
+        entries: touched.map(({ row, cell, proposed }) => line(row.studentId, cell, proposed)),
         reasonKind: preview.reasonKind,
         reason,
       }
@@ -298,7 +309,7 @@ export const proposeExamMarks = proposeTool<Input, ExamMarksPreview>({
     const entries = preview.rows.flatMap((row) =>
       row.cells.flatMap((cell) => {
         const value = cell.proposed ?? cell.current
-        return value === null ? [] : [line(row.studentId, cell.component, value)]
+        return value === null ? [] : [line(row.studentId, cell, value)]
       }),
     )
     const changesSaved = touched.some(({ cell }) => cell.current !== null)

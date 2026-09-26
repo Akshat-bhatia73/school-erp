@@ -993,3 +993,40 @@ test('[assistant] the words of a question and an answer are kept only sealed, an
     'the read is not in the pupil’s access history',
   )
 })
+
+// ---------------------------------------------------------------------------
+// 9. A permission taken away takes away what it once showed.
+
+test('[assistant] after a restriction, an old health result is gone from the conversation and from what the model reads again', async () => {
+  const secret = `Medsecret${suffix}`
+  await adminPool().query('UPDATE students SET medical_notes = $2 WHERE id = $1', [child, secret])
+  const principalMember = await createMember(school, ['principal'], 'Assistant Principal')
+  const head = await signInOffice(server, principalMember)
+  const threadId = await newThread(head)
+  const first = await ask(head, threadId, 'Any health notes for Ishaan?', {
+    steps: [[{ tool: 'student_health', input: { studentId: child } }]],
+  })
+  assert.ok(JSON.stringify(forModelOf(first.outputs[0], 'student_health')).includes(secret))
+
+  const version = await adminPool().query<{ access_version: number }>('SELECT access_version FROM school_memberships WHERE id = $1', [
+    principalMember.membershipId,
+  ])
+  const restricted = await owner.fetch(
+    `/api/schools/${school}/members/${principalMember.membershipId}/restrictions`,
+    postBody({ permission: 'students.read_medical', reason: 'Health notes are not for this member', expectedAccessVersion: Number(version.rows[0]?.access_version) }),
+  )
+  assert.equal(restricted.status, 201, await restricted.clone().text())
+
+  // The screen gets the call back as not available, and nothing of what it read.
+  const thread = await body<{ messages: { parts: Record<string, unknown>[] }[] }>(await head.fetch(assistant(`/threads/${threadId}`)))
+  const health = thread.messages.flatMap((message) => message.parts).filter((part) => part.type === 'tool-student_health')
+  assert.equal(health.length, 1)
+  assert.deepEqual(health[0]?.output, { status: 'not_available' })
+  assertNothingOf(JSON.stringify(thread), [secret], 'the reopened conversation')
+
+  // The model reads one plain sentence in its place.
+  const again = await ask(head, threadId, 'And now?', { steps: [] })
+  const prompt = JSON.stringify(again.modelCalls.map((call) => call.prompt))
+  assertNothingOf(prompt, [secret], 'the replayed conversation')
+  assert.ok(prompt.includes('This result is hidden because you no longer have access to it.'))
+})

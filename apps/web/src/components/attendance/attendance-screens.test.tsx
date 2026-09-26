@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { PermissionKey } from '@erp/contracts'
+import { toast } from 'sonner'
+import { ApiRequestError } from '@/lib/http'
 import { renderWithSession } from '@/test/session'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
@@ -81,7 +83,13 @@ function dayResponse(window: Record<string, unknown>, allowedActions: Permission
     day: { date: DATE, kind: 'school_day', future: false },
     window,
     marked: marks !== undefined,
-    rows: PUPILS.map((student, index) => ({ student, ...(marks?.[index] ? { mark: marks[index] } : {}) })),
+    // A marked row carries its entry; the revisions differ so a test can tell which was sent back.
+    rows: PUPILS.map((student, index) => ({
+      student,
+      ...(marks?.[index]
+        ? { mark: marks[index], entry: { id: `entry-${index + 1}`, revision: index + 2, kind: 'marking', recordedAt: `${DATE}T09:00:00.000+05:30` } }
+        : {}),
+    })),
     allowedActions,
   }
 }
@@ -117,10 +125,28 @@ describe('the day register', () => {
 
     await waitFor(() => expect(attendance.mark).toHaveBeenCalled())
     const body = attendance.mark.mock.calls[0]?.[3] as { marks: Array<{ studentId: string; mark: string }> }
+    // Nobody had a mark when the screen read the day, so each line expects revision 0.
     expect(body.marks).toEqual([
-      { studentId: 'student-1', mark: 'present' },
-      { studentId: 'student-2', mark: 'absent' },
+      { studentId: 'student-1', mark: 'present', expectedRevision: 0 },
+      { studentId: 'student-2', mark: 'absent', expectedRevision: 0 },
     ])
+  })
+
+  it('on a save somebody else beat, says so and fetches the latest marks', async () => {
+    const actions: PermissionKey[] = ['attendance.read', 'attendance.record']
+    attendance.day.mockResolvedValue(dayResponse({ record: true, correct: false }, actions, ['present', 'present']))
+    attendance.mark.mockRejectedValue(new ApiRequestError({ code: 'VERSION_CONFLICT', status: 409, message: 'Conflict.' }))
+    await renderDay(actions, ['teacher'])
+
+    expect(await screen.findByText('Aarav Sharma')).toBeInTheDocument()
+    expect(attendance.day).toHaveBeenCalledTimes(1)
+    await userEvent.click(screen.getByText('Save attendance'))
+
+    await waitFor(() => expect(attendance.mark).toHaveBeenCalled())
+    const body = attendance.mark.mock.calls[0]?.[3] as { marks: Array<{ expectedRevision?: number }> }
+    expect(body.marks.map((line) => line.expectedRevision)).toEqual([2, 3])
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Somebody else saved these marks first')))
+    await waitFor(() => expect(attendance.day).toHaveBeenCalledTimes(2))
   })
 
   it('offers Save corrections only once something changed, and sends the changed rows with a reason', async () => {
@@ -141,7 +167,7 @@ describe('the day register', () => {
 
     await waitFor(() => expect(attendance.correct).toHaveBeenCalled())
     const body = attendance.correct.mock.calls[0]?.[3] as { marks: Array<{ studentId: string }>; reason: string }
-    expect(body.marks).toEqual([{ studentId: 'student-2', mark: 'absent' }])
+    expect(body.marks).toEqual([{ studentId: 'student-2', mark: 'absent', expectedRevision: 3 }])
     expect(body.reason).toBe('Marked in the wrong class')
   })
 
@@ -214,6 +240,45 @@ describe('the staff register', () => {
 
     await waitFor(() => expect(attendance.markStaff).toHaveBeenCalled())
     const body = attendance.markStaff.mock.calls[0]?.[2] as { marks: Array<{ staffId: string }> }
-    expect(body.marks).toEqual([{ staffId: 'staff-2', mark: 'present' }])
+    expect(body.marks).toEqual([{ staffId: 'staff-2', mark: 'present', expectedRevision: 0 }])
+  })
+
+  it('sends the revision it read on a correction, and refetches when somebody saved first', async () => {
+    const staffDay = {
+      date: DATE,
+      day: { date: DATE, kind: 'school_day', future: false },
+      window: { record: false, recordBlockedBy: 'attendance_marking_window_closed', correct: true },
+      marked: true,
+      rows: [
+        {
+          staff: { id: 'staff-2', name: 'Vikram Iyer', employeeCode: 'E2' },
+          mark: 'present',
+          entry: { id: 'entry-9', revision: 4, kind: 'marking', recordedAt: `${DATE}T09:00:00.000+05:30` },
+          self: false,
+        },
+      ],
+      allowedActions: ['staff_attendance.read', 'staff_attendance.manage'] as PermissionKey[],
+    }
+    attendance.staffDay.mockResolvedValue(staffDay)
+    attendance.correctStaff.mockRejectedValue(new ApiRequestError({ code: 'VERSION_CONFLICT', status: 409, message: 'Conflict.' }))
+    const { Route } = await import('@/routes/_app/attendance/staff/index')
+    const Screen = componentOf(Route)
+    renderWithSession(<Screen />, {
+      schoolId: SCHOOL_ID,
+      capabilities: ['staff_attendance.read', 'staff_attendance.manage'],
+      roleKeys: ['admin'],
+    })
+
+    const row = await screen.findByRole('group', { name: 'Mark for Vikram Iyer' })
+    await userEvent.click(within(row).getByTitle('Late'))
+    await userEvent.click(screen.getByText('Save corrections'))
+    await userEvent.type(await screen.findByLabelText('Reason'), 'The bus was late')
+    await userEvent.click(screen.getAllByText('Save corrections').at(-1)!)
+
+    await waitFor(() => expect(attendance.correctStaff).toHaveBeenCalled())
+    const body = attendance.correctStaff.mock.calls[0]?.[2] as { marks: unknown[] }
+    expect(body.marks).toEqual([{ staffId: 'staff-2', mark: 'late', expectedRevision: 4 }])
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Somebody else saved these marks first')))
+    await waitFor(() => expect(attendance.staffDay).toHaveBeenCalledTimes(2))
   })
 })

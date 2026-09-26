@@ -81,6 +81,13 @@ async function planMarks(
   }
 
   const stored = await storedMarks(conn, context.schoolId, paper.id)
+  // A line built from a cell that has moved since refuses the whole body,
+  // whether or not its own value changed.
+  for (const line of lines) {
+    if (line.expectedRevision === undefined) continue
+    const revision = stored.get(cellKey(line.studentId, line.component))?.revision ?? 0
+    if (revision !== line.expectedRevision) throw new ApiFailure('VERSION_CONFLICT')
+  }
   const firstSaves: PlannedMark[] = []
   const changes: PlannedMark[] = []
   for (const line of lines) {
