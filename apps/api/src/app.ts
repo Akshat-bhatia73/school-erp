@@ -98,7 +98,7 @@ export interface AppDependencies {
   /** Private document bytes. Storage keys never leave the server. */
   documents: DocumentStorage
   /** Tests only: a scripted model and read tools for the assistant. Never set in production. */
-  assistant?: Pick<AssistantDependencies, 'assistantModel' | 'assistantTools'>
+  assistant?: Pick<AssistantDependencies, 'assistantModel' | 'assistantTools' | 'assistantProposeTools'>
 }
 
 /** Internal header carrying the address Fastify resolved for this request. */

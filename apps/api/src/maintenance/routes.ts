@@ -277,6 +277,8 @@ export function registerMaintenanceRoutes(
       // Assistant conversations 30 days after each message was written, the
       // conversations left empty, and the word-free usage counts after 13 months.
       ...(await sweep(deps.pools.runtime, 'assistant', 'SELECT * FROM sweep_assistant()')),
+      // The changes the assistant proposed, 30 days after each was made.
+      ...(await sweep(deps.pools.runtime, 'assistant', 'SELECT * FROM sweep_assistant_proposals()')),
     ]
 
     // The exports that were too big to build in the request that asked for

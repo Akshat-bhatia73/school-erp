@@ -23,9 +23,14 @@ CREATE TABLE assistant_proposals (
     tool_name text NOT NULL CHECK (tool_name ~ '^[a-z][a-z0-9_]{1,63}$'),
     title_sealed text NOT NULL,
     preview_sealed text NOT NULL,
+    -- The preview as the person confirmed it, when it was written; the
+    -- original above never changes.
+    confirmed_preview_sealed text,
     -- The GET route (relative to /api/schools/:schoolId) read to make it, and
     -- a SHA-256 digest of its answer at that moment.
-    check_path text NOT NULL CHECK (check_path ~ '^/[A-Za-z0-9/_.?=&%-]{1,400}$'),
+    -- (Postgres regular expressions repeat at most 255 times, so the length is
+    -- its own check.)
+    check_path text NOT NULL CHECK (check_path ~ '^/[A-Za-z0-9/_.?=&%-]+$' AND length(check_path) <= 401),
     check_digest text NOT NULL CHECK (check_digest ~ '^[0-9a-f]{64}$'),
     status text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'done', 'dismissed', 'expired', 'stale', 'failed')),
     -- Plain words about the outcome: what was saved, or why nothing was.
@@ -60,7 +65,7 @@ REVOKE ALL ON assistant_proposals FROM PUBLIC;
 GRANT SELECT, INSERT ON assistant_proposals TO erp_runtime;
 
 -- Only the outcome moves after a proposal is made; its preview never does.
-GRANT UPDATE (status, outcome, write_request_id, edited, decided_at) ON assistant_proposals TO erp_runtime;
+GRANT UPDATE (status, outcome, write_request_id, edited, confirmed_preview_sealed, decided_at) ON assistant_proposals TO erp_runtime;
 
 -- Retention: with the conversation, 30 days. A function of its own, owned by
 -- erp_maintenance like sweep_assistant (), which this migration leaves as it

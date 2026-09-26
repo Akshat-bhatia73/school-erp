@@ -1560,6 +1560,7 @@ export const assistantProposals = pgTable(
     toolName: text('tool_name').notNull(),
     titleSealed: text('title_sealed').notNull(),
     previewSealed: text('preview_sealed').notNull(),
+    confirmedPreviewSealed: text('confirmed_preview_sealed'),
     checkPath: text('check_path').notNull(),
     checkDigest: text('check_digest').notNull(),
     status: text('status').notNull().default('open'),

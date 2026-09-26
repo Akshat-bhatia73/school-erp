@@ -344,6 +344,12 @@ export const ExamMarksPreview = z.strictObject({
   kind: z.literal('exam_marks'),
   mode: AssistantProposalMode,
   paperId: Id,
+  /**
+   * Which write the marks go through: the marks sheet (the subject teacher, or
+   * the office, before the re-check deadline) or the office's correction after
+   * it, which always needs a reason kind and a reason.
+   */
+  route: z.enum(['marks_sheet', 'office_correction']),
   /** "Half-yearly, Mathematics, 9 A". */
   title: z.string().min(1).max(200),
   components: z.array(z.strictObject({
@@ -376,6 +382,8 @@ export const CoScholasticPreview = z.strictObject({
     studentId: Id,
     name: PersonName,
     rollNumber: z.number().int().min(0).nullable(),
+    /** The saved entry's version, 0 when nothing is saved: the save route's expectedVersion. */
+    version: z.number().int().nonnegative(),
     current: CoScholasticGrades,
     proposed: CoScholasticGrades,
     currentRemarks: z.string().max(1000).nullable(),
@@ -405,6 +413,8 @@ export const AssistantProposal = z.strictObject({
   outcome: z.string().max(500).optional(),
   /** Where to see the record, once done. */
   href: AppPath.optional(),
+  /** When it was confirmed, dismissed or found stale or failed. */
+  decidedAt: Timestamp.optional(),
 })
 export type AssistantProposal = z.infer<typeof AssistantProposal>
 

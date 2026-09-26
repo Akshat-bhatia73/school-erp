@@ -11,6 +11,8 @@ import { useSchoolContext } from '@/lib/session'
 import { Composer } from './composer'
 import { showsNothingYet, turnBody } from './format'
 import { Message } from './message'
+import { ProposalsProvider } from './proposals/context'
+import { holdsProposal } from './proposals/model'
 import { ActivityLine } from './tool-activity'
 
 /**
@@ -112,36 +114,38 @@ export function Conversation({ threadId, initialMessages, firstQuestion, onFirst
   const waiting = busy && showsNothingYet(last)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        ref={scroller}
-        onScroll={(e) => {
-          const el = e.currentTarget
-          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX
-        }}
-        className="min-h-0 flex-1 overflow-y-auto scrollbar-thin"
-      >
-        <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-4 pt-6 pb-8 md:px-6">
-          {messages.map((message) => <Message key={message.id} message={message} />)}
-          {waiting && <ActivityLine label="Working…" />}
-          {error && !busy && (
-            <p className="text-[13px] text-muted-foreground" role="alert">
-              {failureText(error)}{' '}
-              <button type="button" onClick={() => { stick.current = true; void regenerate() }} className="font-medium text-foreground underline-offset-4 hover:underline">
-                Try again
-              </button>
-            </p>
-          )}
+    <ProposalsProvider schoolId={schoolId} threadId={threadId} enabled={holdsProposal(messages)}>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div
+          ref={scroller}
+          onScroll={(e) => {
+            const el = e.currentTarget
+            stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX
+          }}
+          className="min-h-0 flex-1 overflow-y-auto scrollbar-thin"
+        >
+          <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-4 pt-6 pb-8 md:px-6">
+            {messages.map((message) => <Message key={message.id} message={message} />)}
+            {waiting && <ActivityLine label="Working…" />}
+            {error && !busy && (
+              <p className="text-[13px] text-muted-foreground" role="alert">
+                {failureText(error)}{' '}
+                <button type="button" onClick={() => { stick.current = true; void regenerate() }} className="font-medium text-foreground underline-offset-4 hover:underline">
+                  Try again
+                </button>
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="shrink-0 pb-4">
+          <div className="mx-auto w-full max-w-[760px] px-4 md:px-6">
+            {locked ?? (
+              <Composer value={draft} onChange={setDraft} onSend={ask} onStop={() => void stop()} busy={busy} autoFocus={!firstQuestion} />
+            )}
+          </div>
         </div>
       </div>
-      <div className="shrink-0 pb-4">
-        <div className="mx-auto w-full max-w-[760px] px-4 md:px-6">
-          {locked ?? (
-            <Composer value={draft} onChange={setDraft} onSend={ask} onStop={() => void stop()} busy={busy} autoFocus={!firstQuestion} />
-          )}
-        </div>
-      </div>
-    </div>
+    </ProposalsProvider>
   )
 }
 
