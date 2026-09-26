@@ -144,7 +144,7 @@ describe('the cards', () => {
     expect(screen.getByText('Mark 9 A for 26 Sep 2026')).toBeInTheDocument()
     expect(screen.getByText('Riya Sharma')).toBeInTheDocument()
     expect(within(screen.getByRole('group', { name: 'Mark for Riya Sharma' })).getByRole('button', { name: 'A', pressed: true })).toBeInTheDocument()
-    expect(screen.getByText('3 changes')).toBeInTheDocument()
+    expect(screen.getByText('3 marks to save')).toBeInTheDocument()
     expect(screen.getByText('Open for 30 minutes')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument()
@@ -187,8 +187,9 @@ describe('editing and confirming', () => {
     }))
     renderCard(proposalOf(attendance))
     await user.click(within(screen.getByRole('group', { name: 'Mark for Kabir Mehta' })).getByRole('button', { name: 'P' }))
-    // The saved mark beside a changed row is what is there now: nothing yet.
-    expect(screen.getAllByText('Not marked').length).toBeGreaterThan(0)
+    // A first entry has nothing saved to strike through, and only the marks that are not present stand out.
+    expect(screen.queryByText('Not marked')).toBeNull()
+    expect(document.querySelectorAll('tr[data-changed]').length).toBeGreaterThan(0)
     await user.click(screen.getByRole('button', { name: 'Confirm' }))
 
     await waitFor(() => expect(confirmProposal).toHaveBeenCalledTimes(1))

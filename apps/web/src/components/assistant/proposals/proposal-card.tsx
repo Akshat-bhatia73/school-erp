@@ -220,7 +220,7 @@ export function ProposalCard({ proposal: made }: { proposal: AssistantProposal }
           {open && needsReason(shown) && <ReasonFields preview={shown} onChange={edit} errors={errors} readOnly={busy} />}
           {open ? (
             <footer className="grid gap-2 border-t px-3.5 py-2.5">
-              <p className="text-[12.5px] text-muted-foreground">{changesText(changes)}</p>
+              <p className="text-[12.5px] text-muted-foreground">{changesText(changes, shown)}</p>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
                   <Clock className="size-3.5" />

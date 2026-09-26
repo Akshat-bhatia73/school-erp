@@ -110,8 +110,12 @@ export function countChanges(preview: AssistantProposalPreview): number {
   }
 }
 
-export function changesText(count: number): string {
+export function changesText(count: number, preview?: AssistantProposalPreview): string {
   if (count === 0) return 'Nothing changes yet'
+  // A register marked for the first time saves every mark; nothing it replaces.
+  if ((preview?.kind === 'attendance_day' || preview?.kind === 'staff_attendance_day') && preview.mode === 'first_entry') {
+    return `${count} ${count === 1 ? 'mark' : 'marks'} to save`
+  }
   return `${count} ${count === 1 ? 'change' : 'changes'}`
 }
 

@@ -78,9 +78,12 @@ export function RegisterBody({ preview, onChange, errors, readOnly }: {
           <tbody>
             {shown.map(({ line, index }) => {
               const changed = line.proposed !== line.current
+              // On a first entry every row is new, so only the marks that are not "present" stand out,
+              // which are the ones the person asked for; the old value shows only where one was saved.
+              const standsOut = line.current === null ? line.proposed !== 'present' : changed
               const invalid = errors[`rows.${index}.proposed`]
               return (
-                <tr key={line.id} className={cn(changed && CHANGED_ROW)} data-changed={changed || undefined}>
+                <tr key={line.id} className={cn(standsOut && CHANGED_ROW)} data-changed={changed || undefined}>
                   {!staff && <td className="h-10 border-b px-3 tabular-nums text-muted-foreground">{line.lead}</td>}
                   <td className={cn('h-10 border-b px-3', !staff && 'border-l')}>
                     <div className="min-w-0 truncate font-medium">{line.name}</div>
@@ -89,7 +92,7 @@ export function RegisterBody({ preview, onChange, errors, readOnly }: {
                   <td className={cn('h-10 border-b border-l px-3', invalid && 'text-tag-red')}>
                     <div className="flex items-center gap-2">
                       <MarkPicker name={line.name} value={line.proposed} readOnly={readOnly} onChange={(mark) => onChange(withMark(preview, index, mark))} />
-                      {changed && <Was>{line.current ? MARK_LABEL[line.current] : 'Not marked'}</Was>}
+                      {changed && line.current !== null && <Was>{MARK_LABEL[line.current]}</Was>}
                     </div>
                   </td>
                 </tr>
