@@ -25,10 +25,15 @@ export const READ_TOOLS: readonly AnyReadTool[] = [
   ...MESSAGE_TOOLS,
 ]
 
+/** Whether one person is offered one tool: they hold every key it names somewhere in the school. */
+export function isOffered(tool: AnyReadTool, capabilities: ReadonlySet<PermissionKey>): boolean {
+  return capabilities.has(tool.permission) && (tool.alsoRequires ?? []).every((key) => capabilities.has(key))
+}
+
 /**
- * The tools offered to one person: those whose route permission they hold
+ * The tools offered to one person: those whose permissions they hold
  * somewhere in the school. A convenience for the model, not the boundary.
  */
 export function toolsFor(capabilities: ReadonlySet<PermissionKey>): readonly AnyReadTool[] {
-  return READ_TOOLS.filter((tool) => capabilities.has(tool.permission))
+  return READ_TOOLS.filter((tool) => isOffered(tool, capabilities))
 }

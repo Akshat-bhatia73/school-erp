@@ -27,7 +27,8 @@ import {
   type PermissionKey,
 } from '@erp/contracts'
 import { fixtureIds } from '@erp/db/fixtures'
-import { READ_TOOLS, toolsFor } from '../src/assistant/tools/registry.ts'
+import { READ_TOOLS, isOffered, toolsFor } from '../src/assistant/tools/registry.ts'
+import { suggestionsFor } from '../src/assistant/prompt.ts'
 import type { AnyReadTool, ReadToolOutcome, RouteAnswer, ToolCallContext } from '../src/assistant/tools/types.ts'
 import {
   adminPool,
@@ -276,7 +277,24 @@ before(async () => {
       [randomUUID(), school, id, year, sectionId, index + 1],
     )
   }
-
+  // Riya has every restricted block filled in, so a tool that leaks one shows it.
+  await pool.query(
+    `UPDATE students SET date_of_birth = '2012-05-14', gender = 'female', admission_date = '2018-04-02',
+       category = 'General', address = to_jsonb('12 Tools Lane, Pune'::text), aadhaar_last4 = '1357',
+       blood_group = 'B+', medical_notes = 'Peanut allergy'
+     WHERE id = $1`,
+    [p1],
+  )
+  const phoned = randomUUID()
+  await pool.query(`INSERT INTO guardians(id,school_id,first_name,phone) VALUES ($1,$2,'Meera Tools','9876543210')`, [
+    phoned,
+    school,
+  ])
+  await pool.query(`INSERT INTO student_guardians(school_id,student_id,guardian_id,relation) VALUES ($1,$2,$3,'mother')`, [
+    school,
+    p1,
+    phoned,
+  ])
 
   server = await startTestServer()
   owner = await member({ roleKeys: ['owner'], label: 'owner', withMfa: true })
@@ -306,9 +324,11 @@ test('every tool has a unique stable name, an active permission, a description a
   for (const tool of READ_TOOLS) {
     assert.match(tool.name, /^[a-z][a-z0-9_]{2,63}$/, tool.name)
     assert.ok(tool.description.length >= 20 && tool.description.length <= 400, `${tool.name} description`)
-    const entry = PERMISSION_CATALOGUE[tool.permission]
-    assert.ok(entry, `${tool.name} names an unknown permission`)
-    assert.equal(entry.availability, 'active', `${tool.name} names an inactive permission`)
+    for (const key of [tool.permission, ...(tool.alsoRequires ?? [])]) {
+      const entry = PERMISSION_CATALOGUE[key]
+      assert.ok(entry, `${tool.name} names an unknown permission`)
+      assert.equal(entry.availability, 'active', `${tool.name} names an inactive permission`)
+    }
     assert.ok(tool.input instanceof z.ZodObject, `${tool.name} input is not an object schema`)
     // The model is sent JSON schema, and every field in it says what it is for.
     const schema = z.toJSONSchema(tool.input) as { properties?: Record<string, { description?: string }> }
@@ -587,4 +607,83 @@ test('a teacher is offered no fee tools and a parent no staff register or staff 
   const pupilTools = toolsFor(capabilitiesOf('student'))
   assert.deepEqual(pupilTools.filter((tool) => tool.permission.startsWith('fees.')).map((tool) => tool.name), [])
   assert.ok(toolsFor(capabilitiesOf('owner')).length === READ_TOOLS.length)
+})
+
+test('a teacher without the guardian contact key, a parent and a pupil are offered only the pupil detail tools their keys allow', () => {
+  const DETAIL = ['student_personal_details', 'student_health', 'student_guardian_contacts']
+  const detailNames = (capabilities: ReadonlySet<PermissionKey>) =>
+    toolsFor(capabilities).map((tool) => tool.name).filter((name) => DETAIL.includes(name)).sort()
+
+  assert.deepEqual(detailNames(capabilitiesOf('owner')), [...DETAIL].sort())
+  assert.deepEqual(detailNames(capabilitiesOf('teacher')), ['student_guardian_contacts'])
+  const restricted = new Set(capabilitiesOf('teacher'))
+  restricted.delete('students.read_guardian_contact')
+  assert.deepEqual(detailNames(restricted), [])
+  assert.deepEqual(detailNames(capabilitiesOf('parent')), ['student_guardian_contacts'])
+  assert.deepEqual(detailNames(capabilitiesOf('student')), [])
+  // The block's key alone is not enough: the route behind it needs read_basic too.
+  assert.equal(isOffered(toolNamed('student_health'), new Set<PermissionKey>(['students.read_medical'])), false)
+})
+
+test('the starters are only questions the person is offered a tool for', () => {
+  for (const role of Object.keys(ROLE_TEMPLATES) as (keyof typeof ROLE_TEMPLATES)[]) {
+    const starters = suggestionsFor([role], capabilitiesOf(role))
+    if (role !== 'student') assert.ok(starters.length > 0, `${role} has no starters`)
+    assert.ok(!starters.includes('Which teachers are free now?'), role)
+  }
+  const owner = suggestionsFor(['owner'], capabilitiesOf('owner'))
+  assert.ok(owner.includes('Which fees are due this month?'))
+  // An owner whose fee keys were taken away is not shown the fee question.
+  const noFees = new Set([...capabilitiesOf('owner')].filter((key) => !key.startsWith('fees.')))
+  assert.ok(!suggestionsFor(['owner'], noFees).includes('Which fees are due this month?'))
+  assert.ok(suggestionsFor(['owner'], noFees).includes('Who is absent today?'))
+  assert.deepEqual(suggestionsFor(['teacher'], new Set<PermissionKey>()), [])
+})
+
+// ---------------------------------------------------------------------------
+// The least the model needs.
+
+test('student_record carries the basic record only, even for a person who may read every block', async () => {
+  const record = assertDrawable(await run(owner, 'student_record', { studentId: p1 }), 'student_record')
+  const forModel = record.forModel as Record<string, unknown>
+  assert.equal(forModel.admissionDate, '2018-04-02')
+  assert.equal(forModel.gender, 'female')
+  for (const key of ['dateOfBirth', 'category', 'admissionType', 'address', 'aadhaarEnding', 'bloodGroup', 'medicalNotes', 'guardians']) {
+    assert.ok(!(key in forModel), `student_record gave the model ${key}`)
+  }
+  const shown = JSON.stringify(record)
+  for (const value of ['2012-05-14', 'Pune', '1357', 'B+', 'Peanut', '9876543210', 'Meera']) {
+    assert.ok(!shown.includes(value), `student_record carried ${value}`)
+  }
+})
+
+test('each pupil detail tool returns its own fields and nothing else', async () => {
+  const personal = assertDrawable(await run(owner, 'student_personal_details', { studentId: p1 }), 'personal')
+  assert.equal(personal.card?.kind, 'record')
+  const details = personal.forModel as Record<string, unknown>
+  assert.equal(details.dateOfBirth, '2012-05-14')
+  assert.equal(details.address, '12 Tools Lane, Pune')
+  assert.equal(details.aadhaarEnding, '1357')
+  assert.equal(details.category, 'General')
+  for (const value of ['B+', 'Peanut', '9876543210', 'Meera']) assert.ok(!JSON.stringify(personal).includes(value), `personal carried ${value}`)
+
+  const health = assertDrawable(await run(owner, 'student_health', { studentId: p1 }), 'health')
+  assert.deepEqual(
+    Object.keys(health.forModel as object).sort(),
+    ['bloodGroup', 'medicalNotes', 'name', 'studentId'],
+  )
+  assert.equal((health.forModel as { medicalNotes: string }).medicalNotes, 'Peanut allergy')
+  for (const value of ['2012-05-14', 'Pune', '1357', '9876543210']) assert.ok(!JSON.stringify(health).includes(value), `health carried ${value}`)
+
+  const contacts = assertDrawable(await run(owner, 'student_guardian_contacts', { studentId: p1 }), 'contacts')
+  const guardians = (contacts.forModel as { guardians: { name: string; relation: string; phone: string }[] }).guardians
+  assert.ok(guardians.some((row) => row.name === 'Meera Tools' && row.relation === 'mother' && row.phone.endsWith('9876543210')))
+  for (const value of ['2012-05-14', 'Pune', '1357', 'B+', 'Peanut']) assert.ok(!JSON.stringify(contacts).includes(value), `contacts carried ${value}`)
+
+  // The route decides: a parent asking for their own child's health block gets nothing from it.
+  const parentHealth = assertDrawable(await run(parent, 'student_health', { studentId: p1 }), 'parent health')
+  assert.equal((parentHealth.forModel as { health: string }).health, 'not_available')
+  assert.equal(parentHealth.card, undefined)
+  const parentPersonal = assertDrawable(await run(parent, 'student_personal_details', { studentId: p1 }), 'parent personal')
+  assert.equal((parentPersonal.forModel as { personalDetails: string }).personalDetails, 'not_available')
 })

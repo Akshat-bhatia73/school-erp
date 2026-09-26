@@ -33,7 +33,7 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: AssistantDep
           available: allowed.available,
           ...(allowed.reason === undefined ? {} : { reason: allowed.reason }),
           questionsLeftToday: allowed.questionsLeftToday,
-          suggestions: suggestionsFor(context.roleKeys),
+          suggestions: suggestionsFor(context.roleKeys, new Set(await deps.authz.capabilities(context))),
         }
       }),
   })

@@ -127,34 +127,23 @@ export const listStudents = readTool({
 export const studentRecord = readTool({
   name: 'student_record',
   description:
-    "One pupil's record: class, roll, status and, when you may see them, date of birth, address, health notes and guardian phone numbers.",
+    "One pupil's basic record: class, section, roll number, status and, when you may see them, admission date and gender. Use it for ordinary questions about a pupil.",
   permission: 'students.read_basic',
   input: z.object({ studentId: IdInput('The pupil id, from find_students.') }),
   async run(input, context) {
     const found = await fetchParsed(context, StudentDetailByAudience, `/students/${seg(input.studentId)}`)
     if (!found.ok) return found.outcome
-    const { student, sensitive, medical, guardianContacts } = found.body
+    // The route may also carry the sensitive, medical and guardian blocks.
+    // Only the basic record goes on: each of those has its own tool, so the
+    // model sees them only when a question is about them.
+    const { student, sensitive } = found.body
     const name = nameOf(student.firstName, student.lastName)
     const enrollment = student.enrollment
     const href = `/students/${seg(student.id)}`
     return ok(
       {
         ...pupilForModel(student),
-        ...(sensitive
-          ? {
-              dateOfBirth: sensitive.dateOfBirth,
-              gender: sensitive.gender,
-              category: sensitive.category,
-              admissionDate: sensitive.admissionDate,
-              admissionType: sensitive.admissionType,
-              address: sensitive.address,
-              aadhaarEnding: sensitive.aadhaarLast4,
-            }
-          : {}),
-        ...(medical ? { bloodGroup: medical.bloodGroup, medicalNotes: medical.medicalNotes } : {}),
-        ...(guardianContacts
-          ? { guardians: guardianContacts.map((contact) => ({ id: contact.id, name: contact.displayName, relation: contact.relation, phone: contact.phone })) }
-          : {}),
+        ...(sensitive ? { admissionDate: sensitive.admissionDate, gender: sensitive.gender } : {}),
       },
       recordCard({
         entity: 'student',
@@ -164,17 +153,8 @@ export const studentRecord = readTool({
         facts: [
           fact('Admission no', text(student.admissionNumber)),
           fact('Roll number', num(enrollment?.rollNumber)),
-          sensitive ? fact('Date of birth', date(sensitive.dateOfBirth)) : undefined,
-          sensitive ? fact('Gender', text(humanise(sensitive.gender))) : undefined,
           sensitive ? fact('Admitted on', date(sensitive.admissionDate)) : undefined,
-          sensitive ? fact('Category', text(sensitive.category)) : undefined,
-          sensitive ? fact('Address', text(sensitive.address)) : undefined,
-          sensitive?.aadhaarLast4 ? fact('Aadhaar', text(`ending ${sensitive.aadhaarLast4}`)) : undefined,
-          medical ? fact('Blood group', text(medical.bloodGroup)) : undefined,
-          medical ? fact('Health notes', text(medical.medicalNotes)) : undefined,
-          ...(guardianContacts ?? []).slice(0, 3).map((contact) =>
-            fact(`${humanise(contact.relation)}: ${contact.displayName}`, text(contact.phone)),
-          ),
+          sensitive ? fact('Gender', text(humanise(sensitive.gender))) : undefined,
         ],
         href,
       }),
@@ -183,14 +163,87 @@ export const studentRecord = readTool({
   },
 })
 
+export const studentPersonalDetails = readTool({
+  name: 'student_personal_details',
+  description:
+    "A pupil's date of birth, category, admission type, home address and the last four digits of their Aadhaar. Use it only when the question is about one of these.",
+  // Offered by the block it shows; the route decides it again for this pupil.
+  permission: 'students.read_sensitive',
+  alsoRequires: ['students.read_basic'],
+  input: z.object({ studentId: IdInput('The pupil id, from find_students.') }),
+  async run(input, context) {
+    const found = await fetchParsed(context, StudentDetailByAudience, `/students/${seg(input.studentId)}`)
+    if (!found.ok) return found.outcome
+    const { student, sensitive } = found.body
+    const name = nameOf(student.firstName, student.lastName)
+    const href = `/students/${seg(student.id)}`
+    // The route leaves the block out for somebody who may not read it.
+    if (sensitive === undefined) return ok({ studentId: student.id, name, personalDetails: 'not_available' })
+    return ok(
+      {
+        studentId: student.id,
+        name,
+        dateOfBirth: sensitive.dateOfBirth,
+        category: sensitive.category,
+        admissionType: sensitive.admissionType,
+        address: sensitive.address,
+        aadhaarEnding: sensitive.aadhaarLast4,
+      },
+      recordCard({
+        entity: 'student',
+        title: name,
+        subtitle: 'Personal details',
+        facts: [
+          fact('Date of birth', date(sensitive.dateOfBirth)),
+          fact('Category', text(sensitive.category)),
+          fact('Admission type', text(sensitive.admissionType ? humanise(sensitive.admissionType) : undefined)),
+          fact('Address', text(sensitive.address)),
+          sensitive.aadhaarLast4 ? fact('Aadhaar', text(`ending ${sensitive.aadhaarLast4}`)) : undefined,
+        ],
+        href,
+      }),
+      source(`Personal details, ${name}`, href),
+    )
+  },
+})
+
+export const studentHealth = readTool({
+  name: 'student_health',
+  description:
+    "A pupil's blood group and health notes. Use it only when the question is about the pupil's health, allergies or blood group.",
+  permission: 'students.read_medical',
+  alsoRequires: ['students.read_basic'],
+  input: z.object({ studentId: IdInput('The pupil id, from find_students.') }),
+  async run(input, context) {
+    const found = await fetchParsed(context, StudentDetailByAudience, `/students/${seg(input.studentId)}`)
+    if (!found.ok) return found.outcome
+    const { student, medical } = found.body
+    const name = nameOf(student.firstName, student.lastName)
+    const href = `/students/${seg(student.id)}`
+    if (medical === undefined) return ok({ studentId: student.id, name, health: 'not_available' })
+    return ok(
+      { studentId: student.id, name, bloodGroup: medical.bloodGroup, medicalNotes: medical.medicalNotes },
+      recordCard({
+        entity: 'student',
+        title: name,
+        subtitle: 'Health',
+        facts: [fact('Blood group', text(medical.bloodGroup)), fact('Health notes', text(medical.medicalNotes))],
+        href,
+      }),
+      source(`Health, ${name}`, href),
+    )
+  },
+})
+
 export const studentGuardianContacts = readTool({
   name: 'student_guardian_contacts',
   description:
-    "A pupil's guardians with their relation and phone number. Use it when someone asks how to reach a pupil's family.",
+    "A pupil's guardians with their relation and phone number. Use it only when someone asks how to reach a pupil's family.",
   // Offered by what it shows, not by the route it reads: the pupil record
   // route carries the contact card only for holders of this key, so a pupil
   // (who holds read_basic for their own record) is never offered it.
   permission: 'students.read_guardian_contact',
+  alsoRequires: ['students.read_basic'],
   input: z.object({ studentId: IdInput('The pupil id, from find_students.') }),
   async run(input, context) {
     const found = await fetchParsed(context, StudentDetailByAudience, `/students/${seg(input.studentId)}`)
@@ -332,6 +385,8 @@ export const STUDENT_TOOLS = toolList(
   findStudents,
   listStudents,
   studentRecord,
+  studentPersonalDetails,
+  studentHealth,
   studentGuardianContacts,
   studentGuardians,
   studentEnrolments,

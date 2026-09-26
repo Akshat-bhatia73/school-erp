@@ -1,4 +1,5 @@
-import { ROLE_TEMPLATES, type RoleKey } from '@erp/contracts'
+import { ROLE_TEMPLATES, type PermissionKey, type RoleKey } from '@erp/contracts'
+import { toolsFor } from './tools/registry.ts'
 
 /**
  * The instructions the model gets with every question. These rules make the
@@ -42,6 +43,7 @@ export function instructionsFor(facts: PromptFacts): string {
     'Which lookup answers the common questions:',
     '- who is absent or present today, attendance of all classes: attendance_sections_day; one class on one day: find_sections then section_attendance_day',
     '- a pupil by name: find_students first, then student_record, student_attendance_month, student_results or student_fee_statement',
+    '- student_record answers ordinary questions about a pupil (class, roll, status). Call student_personal_details (date of birth, address, category, Aadhaar ending), student_health (blood group, health notes) or student_guardian_contacts (family phone numbers) only when the question asks for those details',
     '- fees due, dues, pending fees, who has not paid: fee_dues; money received or payments: fee_receipts; the fee setup itself: fee_heads',
     '- timetable of a class: find_sections then section_timetable; of a teacher: find_staff then teacher_timetable; cover for an absent teacher: free_teachers',
     '- a quick look at the school today: dashboard',
@@ -59,19 +61,49 @@ export function instructionsFor(facts: PromptFacts): string {
   ].join('\n')
 }
 
-/** Suggested first questions, by role, most useful first. */
-const SUGGESTIONS: Readonly<Record<RoleKey, readonly string[]>> = {
-  owner: ['Who is absent today?', 'Which fees are due this month?', 'Which teachers are free now?'],
-  principal: ['Who is absent today?', 'Which fees are due this month?', 'Which teachers are free now?'],
-  admin: ['Who is absent today?', 'Which fees are due this month?', 'Which teachers are free now?'],
-  accountant: ['Which fees are due this month?', 'What receipts came in today?'],
-  teacher: ['Who is absent in my class today?', 'What is my timetable today?', "Show a pupil's exam results"],
-  parent: ['How is my child doing this term?', "What was my child's attendance this month?", 'What fees are due?'],
-  student: ['What is my timetable tomorrow?', 'What is my attendance this month?', 'How did I do in my exams?'],
+/** A suggested first question and the read tool that answers it. */
+interface Starter {
+  readonly question: string
+  readonly tool: string
 }
 
-export function suggestionsFor(roleKeys: readonly RoleKey[]): string[] {
+const ABSENT_TODAY: Starter = { question: 'Who is absent today?', tool: 'attendance_sections_day' }
+const FEES_DUE: Starter = { question: 'Which fees are due this month?', tool: 'fee_dues' }
+const STAFF_ABSENT: Starter = { question: 'Which staff are absent today?', tool: 'staff_attendance_day' }
+
+/** Suggested first questions, by role, most useful first. */
+const SUGGESTIONS: Readonly<Record<RoleKey, readonly Starter[]>> = {
+  owner: [ABSENT_TODAY, FEES_DUE, STAFF_ABSENT],
+  principal: [ABSENT_TODAY, FEES_DUE, STAFF_ABSENT],
+  admin: [ABSENT_TODAY, FEES_DUE, STAFF_ABSENT],
+  accountant: [FEES_DUE, { question: 'What receipts came in today?', tool: 'fee_receipts' }],
+  teacher: [
+    { question: 'Who is absent in my class today?', tool: 'attendance_sections_day' },
+    { question: 'What is my timetable today?', tool: 'teacher_timetable' },
+    { question: "Show a pupil's exam results", tool: 'student_results' },
+  ],
+  parent: [
+    { question: 'How is my child doing this term?', tool: 'student_results' },
+    { question: "What was my child's attendance this month?", tool: 'student_attendance_month' },
+    { question: 'What fees are due?', tool: 'student_fee_statement' },
+  ],
+  student: [
+    { question: 'What is my timetable tomorrow?', tool: 'section_timetable' },
+    { question: 'What is my attendance this month?', tool: 'student_attendance_month' },
+    { question: 'How did I do in my exams?', tool: 'student_results' },
+  ],
+}
+
+/**
+ * The starters for one person: those of their roles whose tool they are
+ * offered, so a member whose role was narrowed is not shown a question the
+ * assistant cannot answer for them.
+ */
+export function suggestionsFor(roleKeys: readonly RoleKey[], capabilities: ReadonlySet<PermissionKey>): string[] {
+  const offered = new Set(toolsFor(capabilities).map((tool) => tool.name))
   const seen = new Set<string>()
-  for (const role of roleKeys) for (const question of SUGGESTIONS[role]) seen.add(question)
+  for (const role of roleKeys) {
+    for (const starter of SUGGESTIONS[role]) if (offered.has(starter.tool)) seen.add(starter.question)
+  }
   return [...seen].slice(0, 6)
 }
