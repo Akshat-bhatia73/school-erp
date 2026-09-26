@@ -63,6 +63,8 @@ const usage = {
 
 /** The words that make the scripted model fail, to exercise the failure path. */
 export const FAIL_WORDS = 'please fail now'
+/** The words that make it fail the first time it is asked them, and answer after. */
+export const FAIL_ONCE_WORDS = 'please fail the first time'
 /** The words that make it answer slowly, so a test can leave halfway. */
 export const SLOW_WORDS = 'please answer slowly'
 
@@ -71,6 +73,7 @@ export const SLOW_WORDS = 'please answer slowly'
  * once it has their results it answers in words; asked FAIL_WORDS it fails.
  */
 export function scriptedModel(): MockLanguageModelV4 {
+  const failedOnce = new Set<string>()
   return new MockLanguageModelV4({
     provider: 'test',
     modelId: 'scripted',
@@ -78,6 +81,10 @@ export function scriptedModel(): MockLanguageModelV4 {
       const last = options.prompt[options.prompt.length - 1]
       const lastText = JSON.stringify(last?.content ?? '')
       if (last?.role === 'user' && lastText.includes(FAIL_WORDS)) throw new Error('scripted failure')
+      if (last?.role === 'user' && lastText.includes(FAIL_ONCE_WORDS) && !failedOnce.has(lastText)) {
+        failedOnce.add(lastText)
+        throw new Error('scripted failure')
+      }
       if (last?.role === 'user' && lastText.includes(SLOW_WORDS)) {
         return {
           stream: simulateReadableStream({

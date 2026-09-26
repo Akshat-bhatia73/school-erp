@@ -22,7 +22,7 @@ import {
   signInWithMfa,
   signInWithPassword,
 } from './harness.ts'
-import { FAIL_WORDS, SLOW_WORDS, startAssistantServer, streamParts } from './assistant-support.ts'
+import { FAIL_ONCE_WORDS, FAIL_WORDS, SLOW_WORDS, startAssistantServer, streamParts } from './assistant-support.ts'
 
 const PASSWORD = 'Fixture-Pass!42'
 const PUPIL_PASSWORD = 'Pupil-Pass!2026'
@@ -447,6 +447,41 @@ test('a turn that fails after it started still finishes its usage row and its on
   assert.equal((last?.safe_changes as { status: string }).status, 'failed')
   const usage = await adminPool().query<{ status: string }>('SELECT status FROM assistant_usage WHERE id = $1', [last?.target_id])
   assert.equal(usage.rows[0]?.status, 'failed')
+})
+
+test('Try again answers the newest question again, keeping it once; anything else is refused as a repeat', async () => {
+  const threadId = await newThread(teacher.client)
+  const first = await ask(teacher.client, threadId, 'An earlier question')
+  assert.equal(first.status, 200)
+  await first.text()
+
+  const text = `${FAIL_ONCE_WORDS} ${randomUUID()}`
+  const messageId = randomUUID()
+  const turn = (body: { messageId: string; text: string }) => teacher.client.fetch(path(`/threads/${threadId}/turns`), send('POST', body))
+  const failed = await turn({ messageId, text })
+  assert.equal(failed.status, 200)
+  assert.ok(streamParts(await failed.text()).some((part) => part.type === 'error'))
+
+  // The same words under a different question, or an older question, are not a retry.
+  assert.equal(await codeOf(await turn({ messageId, text: `${text} changed` })), 'INVALID_REQUEST')
+  const kept = await adminPool().query<{ message_key: string }>(
+    `SELECT message_key FROM assistant_messages WHERE school_id = $1 AND thread_id = $2 ORDER BY created_at, id`,
+    [school, threadId],
+  )
+  const olderKey = kept.rows[0]?.message_key as string
+  assert.equal(await codeOf(await turn({ messageId: olderKey, text: 'An earlier question' })), 'INVALID_REQUEST')
+
+  const retried = await turn({ messageId, text })
+  assert.equal(retried.status, 200)
+  const parts = streamParts(await retried.text())
+  assert.equal(parts.some((part) => part.type === 'error'), false)
+  assert.ok(parts.some((part) => part.type === 'text-delta' && part.delta === 'Here is what I found.'))
+
+  const questions = await adminPool().query<{ count: string }>(
+    `SELECT count(*) FROM assistant_messages WHERE school_id = $1 AND thread_id = $2 AND message_key = $3`,
+    [school, threadId, messageId],
+  )
+  assert.equal(Number(questions.rows[0]?.count), 1)
 })
 
 test('a person who leaves halfway stops the answer, and what was written so far is kept', async () => {

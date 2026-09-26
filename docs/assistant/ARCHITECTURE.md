@@ -416,6 +416,13 @@ uses the AI SDK's `streamText` and pipes its message stream to Fastify's reply. 
 as typed parts, and the browser parses each one through the card's contract before drawing it.
 Check the installed AI SDK 7 docs in `node_modules/ai/docs/` for the exact names when building.
 
+Every question carries an id the browser made, and the API keeps a question only once. When an
+answer fails after the question was kept, **Try again** sends the same id and words. The API
+accepts that only for the newest question in the conversation, word for word. It answers it again
+from the conversation as it stood when the question was asked, so the failed answer is not part
+of what the model reads. Any other repeat is refused. A retry counts as a question against the
+limits, because it asks the model again.
+
 ## 12. The model
 
 - **Two ways to reach the model, chosen by `ASSISTANT_PROVIDER`.** The model is held in

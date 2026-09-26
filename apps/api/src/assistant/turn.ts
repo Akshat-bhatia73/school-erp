@@ -93,6 +93,28 @@ interface TurnInput {
 }
 
 /**
+ * Where a "Try again" picks up: the index of the retried question in the
+ * kept history, when it is the newest question there and carries the same
+ * words; null for anything else, which is refused as a repeat.
+ */
+export function retryPoint(
+  history: readonly Pick<KeptMessage, 'id' | 'role' | 'parts'>[],
+  body: { readonly messageId: string; readonly text: string },
+): number | null {
+  let at = -1
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    if (history[index]!.role === 'user') {
+      at = index
+      break
+    }
+  }
+  if (at < 0) return null
+  const newest = history[at]!
+  const words = newest.parts.map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : '')).join('')
+  return newest.id === body.messageId && words === body.text ? at : null
+}
+
+/**
  * One question. The switches are read again here, the question is counted
  * before it is answered (so two at once cannot both slip under a limit), the
  * words are sealed before they are kept, and the answer is streamed as the AI
@@ -122,7 +144,12 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
       `SELECT 1 FROM assistant_messages WHERE school_id = $1 AND thread_id = $2 AND message_key = $3`,
       [context.schoolId, threadId, body.messageId],
     )
-    if (repeated.rows.length > 0) throw new ApiFailure('INVALID_REQUEST')
+    const history = await keptMessages(conn, context, threadId, key, HISTORY_MESSAGES)
+    // A question already kept may only come again as "Try again": the newest
+    // question in the conversation, word for word. It is answered afresh from
+    // the conversation as it stood when it was asked, and not kept twice.
+    const retried = repeated.rows.length > 0 ? retryPoint(history, body) : null
+    if (repeated.rows.length > 0 && retried === null) throw new ApiFailure('INVALID_REQUEST')
 
     const usage = await conn.client.query<{ id: string }>(
       `INSERT INTO assistant_usage (school_id, membership_id, role_keys, school_day, model)
@@ -132,13 +159,12 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
     const usageId = usage.rows[0]?.id
     if (!usageId) throw new ApiFailure('SERVICE_UNAVAILABLE')
 
-    const history = await keptMessages(conn, context, threadId, key, HISTORY_MESSAGES)
     // Where each proposal in the conversation stands now, for the model's copy.
     const proposals = new Map(
       (await threadProposals(conn, context, threadId)).map((row) => [row.id, forModelOf(row, key)] as const),
     )
     const question: KeptMessage = { id: body.messageId, role: 'user', parts: [{ type: 'text', text: body.text }] }
-    await keepMessage(conn, context, threadId, question, key)
+    if (retried === null) await keepMessage(conn, context, threadId, question, key)
     if (thread.title_sealed === null) {
       await conn.client.query(
         `UPDATE assistant_threads SET title_sealed = $4
@@ -162,7 +188,7 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
     return {
       usageId,
       today: allowed.schoolDay,
-      messages: [...history.map(({ id, role, parts }) => ({ id, role, parts })), question],
+      messages: [...history.slice(0, retried ?? history.length).map(({ id, role, parts }) => ({ id, role, parts })), question],
       proposals,
       schoolName: row.name,
       academicYearId: row.year_id,
