@@ -124,6 +124,42 @@ export const AttendanceSectionsResponse = z.strictObject({
 export type AttendanceSectionsResponse = z.infer<typeof AttendanceSectionsResponse>
 
 // ---------------------------------------------------------------------------
+// Who was not present on one day, across every register the caller may read.
+
+/** The most pupils one answer names; `capped` says when there were more. */
+export const ATTENDANCE_ABSENCES_MAX = 500
+
+export const AttendanceAbsence = z.strictObject({
+  student: AttendancePupil,
+  section: NamedReference,
+  grade: NamedReference,
+  /** The current mark: never present. */
+  mark: AttendanceMark.exclude(['present']),
+})
+export type AttendanceAbsence = z.infer<typeof AttendanceAbsence>
+
+export const AttendanceAbsencesResponse = z.strictObject({
+  date: CalendarDate,
+  day: AttendanceCalendarDay,
+  academicYear: NamedReference,
+  /** Absent first, then late, half day and leave; by class and roll within each. */
+  items: z.array(AttendanceAbsence).max(ATTENDANCE_ABSENCES_MAX),
+  /** True when there were more pupils than `items` holds; `totals` still counts them all. */
+  capped: z.boolean(),
+  /** The registers of that day with no mark yet, by name only. */
+  unmarkedSections: z.array(z.strictObject({ section: NamedReference, grade: NamedReference })).max(500),
+  totals: z.strictObject({
+    sections: z.number().int().nonnegative(),
+    markedSections: z.number().int().nonnegative(),
+    absent: z.number().int().nonnegative(),
+    late: z.number().int().nonnegative(),
+    leave: z.number().int().nonnegative(),
+    halfDay: z.number().int().nonnegative(),
+  }),
+})
+export type AttendanceAbsencesResponse = z.infer<typeof AttendanceAbsencesResponse>
+
+// ---------------------------------------------------------------------------
 // One section on one day: the roster and its marks.
 
 export const AttendanceRosterRow = z.strictObject({

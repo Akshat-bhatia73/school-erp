@@ -140,6 +140,7 @@ export const examOverview = readTool({
           readyToPublish: row.readyToPublish,
           incompletePapers: row.papers.filter((paper) => !paper.complete).map((paper) => ({ paperId: paper.paperId, subject: paper.subject.name, entered: paper.entered, expected: paper.expected })),
         })),
+        shown: list.items.length,
         total: list.total,
       },
       tableCard({
@@ -247,6 +248,7 @@ export const paperMarks = readTool({
           marks: Object.fromEntries(components.map((component) => [component.key, values.get(component.key) ?? null])),
           percentage: total.percentage,
         })),
+        shown: list.items.length,
         total: list.total,
       },
       tableCard({

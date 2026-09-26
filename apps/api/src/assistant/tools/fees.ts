@@ -79,7 +79,7 @@ function receiptRow(receipt: FeeReceiptSummary) {
 export const feeDues = readTool({
   name: 'fee_dues',
   description:
-    'Who owes fees and how much: by pupil, 50 at a time, what has fallen due, what is paid and what is still owed, with the totals. Use it for "fees due", "dues", "pending fees", "who has not paid" and "how much is outstanding". Filter by class, section or name.',
+    'Who owes fees and how much: by pupil, 50 at a time, what has fallen due, what is paid and what is still owed, with the totals. Sorted by balance, highest first. Use it for "fees due", "dues", "pending fees", "who has not paid" and "how much is outstanding". Filter by class, section or name.',
   permission: 'fees.read',
   input: z.object({
     onlyWithDues: z.boolean().optional().describe('Only pupils who owe something today. True by default.'),
@@ -103,8 +103,8 @@ export const feeDues = readTool({
     })
     if (!found.ok) return found.outcome
     const body = found.body
-    // Largest balance first, so the card leads with who owes most on this page.
-    const items = [...body.items].sort((a, b) => b.balancePaise - a.balancePaise)
+    // The route already sorts by balance, highest first, across every page.
+    const items = body.items
     return ok(
       {
         academicYear: body.academicYear.name,
@@ -115,6 +115,7 @@ export const feeDues = readTool({
           paidRupees: rupees(body.totals.paidPaise),
           pupilsWithDues: body.totals.studentsWithDues,
         },
+        sortedBy: 'balance, highest first',
         pupils: items.map((row) => ({
           studentId: row.student.id,
           name: row.student.name,
@@ -125,6 +126,7 @@ export const feeDues = readTool({
         })),
         total: body.total,
         page,
+        shown: body.items.length,
         morePages: page * PAGE_SIZE < body.total,
       },
       tableCard({
@@ -279,6 +281,7 @@ export const feeReceipts = readTool({
         },
         receipts: body.items.map(receiptForModel),
         page,
+        shown: body.items.length,
         morePages: page * PAGE_SIZE < body.total,
       },
       tableCard({
@@ -351,6 +354,7 @@ export const feeHeads = readTool({
     return ok(
       {
         fees: list.items.map((head) => ({ id: head.id, name: head.name, category: head.category, appliesTo: head.appliesTo, frequency: head.frequency, active: head.active })),
+        shown: list.items.length,
         total: list.total,
       },
       tableCard({
@@ -399,6 +403,7 @@ export const feeStructures = readTool({
           frequency: row.frequency,
           appliesTo: row.appliesTo,
         })),
+        shown: list.items.length,
         total: list.total,
       },
       tableCard({
