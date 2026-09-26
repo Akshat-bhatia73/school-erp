@@ -1,0 +1,5 @@
+# Seed output (working passwords and second-factor secrets) and documents.
+.work/
+# Reports hold one run's answers; keep only the README.
+reports/*
+!reports/README.md
