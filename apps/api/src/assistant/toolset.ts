@@ -7,9 +7,8 @@ import {
   type AssistantProposalToolOutput,
   type AssistantToolOutput,
 } from '@erp/contracts'
-import type { AnyReadTool, ReadToolOutcome, ToolCallContext } from './tools/types.ts'
+import type { AnyReadTool, ReadToolOutcome, RouteAnswer, ToolCallContext } from './tools/types.ts'
 import type { AnyProposeTool, PrepareOutcome, ProposalDraft } from './proposals/types.ts'
-import { getByPath } from './inject.ts'
 import { digestOf, isCheckPath } from './proposals/store.ts'
 
 /**
@@ -109,11 +108,42 @@ export type SaveProposal = (
   checkDigest: string,
 ) => Promise<AssistantProposal>
 
+/** A GET as one string, path then query in name order, so two spellings of one read compare equal. */
+function readKey(path: string, query?: Readonly<Record<string, string | number | boolean | undefined>>): string {
+  const names = Object.keys(query ?? {})
+    .filter((name) => query?.[name] !== undefined)
+    .sort()
+  if (names.length === 0) return path
+  const search = new URLSearchParams(names.map((name) => [name, String(query?.[name])]))
+  return `${path}?${search.toString()}`
+}
+
+/** The same key for a check path kept with its query in one string. */
+function checkKey(pathWithQuery: string): string {
+  const at = pathWithQuery.indexOf('?')
+  if (at < 0) return pathWithQuery
+  return readKey(pathWithQuery.slice(0, at), Object.fromEntries(new URLSearchParams(pathWithQuery.slice(at + 1))))
+}
+
+/**
+ * The digest of the check route's answer that the preview was built from.
+ * The tool's own reads are recorded while it prepares, so the digest is of
+ * the very answer the preview came from, never of a later read that could
+ * show someone else's newer save. Null when the tool never read its check
+ * route, or read it twice and got two answers.
+ */
+function digestOfRead(reads: ReadonlyMap<string, RouteAnswer[]>, checkPath: string): string | null {
+  const answers = reads.get(checkKey(checkPath)) ?? []
+  if (answers.length === 0 || answers.some((answer) => !answer.ok)) return null
+  const digests = new Set(answers.map((answer) => digestOf(answer.ok ? answer.body : null)))
+  return digests.size === 1 ? [...digests][0]! : null
+}
+
 /**
  * The AI SDK tool set for the change tools (24b). A change tool never writes:
  * `prepare` reads through the same routes as the person and returns a draft;
- * this reads the draft's check route once more, keeps a digest of its answer
- * and saves the proposal. The browser draws it as an editable card and only
+ * this keeps a digest of the check route's answer the tool read and saves the
+ * proposal. The browser draws it as an editable card and only
  * the person's Confirm makes the change. The model reads only `forModel`, or
  * one plain sentence when nothing could be proposed.
  *
@@ -143,11 +173,21 @@ export function buildProposeToolSet(
           return { status: 'failed' }
         }
         try {
+          const reads = new Map<string, RouteAnswer[]>()
+          const recording: ToolCallContext = {
+            ...context,
+            get: async (path, query) => {
+              const answer = await context.get(path, query)
+              const key = readKey(path, query)
+              reads.set(key, [...(reads.get(key) ?? []), answer])
+              return answer
+            },
+          }
           const outcome = await (
             definition as unknown as {
               prepare(input: unknown, context: ToolCallContext): Promise<PrepareOutcome<AssistantProposalPreview>>
             }
-          ).prepare(parsed.data, context)
+          ).prepare(parsed.data, recording)
           if (outcome.status === 'not_available') {
             ledger.refused += 1
             return { status: 'not_available' }
@@ -171,16 +211,12 @@ export function buildProposeToolSet(
             ledger.failed += 1
             return { status: 'failed' }
           }
-          const check = await getByPath(context.get, draft.checkPath)
-          if (!check.ok) {
-            if (check.status === 403 || check.status === 404) {
-              ledger.refused += 1
-              return { status: 'not_available' }
-            }
+          const digest = digestOfRead(reads, draft.checkPath)
+          if (digest === null) {
             ledger.failed += 1
             return { status: 'failed' }
           }
-          const proposal = await save(definition, { ...draft, preview: preview.data }, digestOf(check.body))
+          const proposal = await save(definition, { ...draft, preview: preview.data }, digest)
           return {
             status: 'ok',
             proposal,

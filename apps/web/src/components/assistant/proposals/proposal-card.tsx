@@ -14,7 +14,7 @@ import type {
 } from '@erp/contracts'
 import { ASSISTANT_PROPOSAL_MINUTES } from '@erp/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, CircleSlash, Clock, PencilLine, TriangleAlert } from 'lucide-react'
+import { CheckCircle2, CircleSlash, Clock, LoaderCircle, PencilLine, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { REASON_KIND_LABELS } from '@/components/exams/reason-dialog'
@@ -38,6 +38,7 @@ import { RegisterBody } from './register-body'
 
 /** Done needs no tag: its own line says "Saved at 10:42". */
 const STATUS_TAG: Record<Exclude<AssistantProposal['status'], 'open' | 'done'>, { label: string; color: TagColor }> = {
+  confirming: { label: 'Saving', color: 'blue' },
   stale: { label: 'Changed since', color: 'orange' },
   failed: { label: 'Not saved', color: 'red' },
   expired: { label: 'Expired', color: 'grey' },
@@ -141,7 +142,11 @@ export function ProposalCard({ proposal: made }: { proposal: AssistantProposal }
       refresh(next.status === 'done')
       if (next.status === 'done') toast.success(next.outcome ?? 'Saved')
     },
-    onError: (error) => setErrors({ [FORM_ERROR]: refusalText(error) }),
+    onError: (error) => {
+      setErrors({ [FORM_ERROR]: refusalText(error) })
+      // The save may have been cut off half way; the conversation's list says where it stands.
+      refresh(false)
+    },
   })
 
   const dismissal = useMutation({
@@ -192,7 +197,7 @@ export function ProposalCard({ proposal: made }: { proposal: AssistantProposal }
     <section
       aria-label={proposal.title}
       data-status={status}
-      className={cn('flex flex-col overflow-hidden rounded-xl border bg-card', !open && status !== 'done' && 'opacity-70')}
+      className={cn('flex flex-col overflow-hidden rounded-xl border bg-card', !open && status !== 'done' && status !== 'confirming' && 'opacity-70')}
     >
       <header className="flex items-start justify-between gap-3 border-b px-3.5 py-2.5">
         <div className="min-w-0">
@@ -235,9 +240,11 @@ export function ProposalCard({ proposal: made }: { proposal: AssistantProposal }
             </footer>
           ) : (
             <footer className="flex items-start gap-2 border-t px-3.5 py-2.5 text-[13px] text-muted-foreground">
-              {status === 'stale' || status === 'failed'
-                ? <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-                : <CircleSlash className="mt-0.5 size-3.5 shrink-0" />}
+              {status === 'confirming'
+                ? <LoaderCircle className="mt-0.5 size-3.5 shrink-0 animate-spin motion-reduce:animate-none" />
+                : status === 'stale' || status === 'failed'
+                  ? <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+                  : <CircleSlash className="mt-0.5 size-3.5 shrink-0" />}
               <span>{settledText(proposal)}</span>
             </footer>
           )}

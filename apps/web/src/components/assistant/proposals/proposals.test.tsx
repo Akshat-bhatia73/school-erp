@@ -295,6 +295,7 @@ describe('editing and confirming', () => {
 
 describe('settled cards are read-only', () => {
   it.each([
+    ['confirming', 'Saving this change. It updates here in a moment.'],
     ['stale', 'This changed after the assistant read it. Ask again to get a fresh copy.'],
     ['failed', 'This day has not happened yet. The register opens on the day itself.'],
     ['expired', 'This was not confirmed in time, so nothing was saved. Ask again to get a fresh copy.'],

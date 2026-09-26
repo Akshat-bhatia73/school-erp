@@ -53,6 +53,9 @@ export function ProposalsProvider({ schoolId, threadId, enabled, children }: {
     queryKey: qk.assistant.proposals(schoolId, threadId),
     queryFn: () => api.assistant.proposals(schoolId, threadId),
     enabled,
+    // A change being saved settles within seconds, or later from the server's
+    // own records if the save was cut off; look again until it has.
+    refetchInterval: (query) => (query.state.data?.items.some((item) => item.status === 'confirming') ? 15_000 : false),
   })
   const [settled, setSettled] = useState<Record<string, SettledProposal>>({})
   const handles = useRef(new Map<string, ConfirmHandle>())

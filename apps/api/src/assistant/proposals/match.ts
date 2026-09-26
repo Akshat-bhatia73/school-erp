@@ -99,6 +99,23 @@ export function invalid(problem: string): PrepareOutcome<never> {
   return { status: 'invalid', problem: problem.length <= 500 ? problem : `${problem.slice(0, 499)}…` }
 }
 
+/**
+ * What the model is told when marking a register would give people nobody
+ * named a mark on a guess: ask, then say it with `everyone`.
+ */
+export function unaskedProblem(count: number, where: string, who: 'pupils' | 'staff' = 'pupils'): string {
+  const people = who === 'staff' ? (count === 1 ? 'staff member' : 'staff members') : count === 1 ? 'pupil' : 'pupils'
+  return `${count} ${people} on ${where} ${count === 1 ? 'has' : 'have'} no mark yet and ${count === 1 ? 'was' : 'were'} not named. Ask whether everyone else is present, then pass everyone with their mark, or name each one.`
+}
+
+/**
+ * The revision a write expects for a row, when the preview has one, so the
+ * route refuses the write if the mark moved since it was read.
+ */
+export function expected(row: { readonly revision?: number | undefined }): { expectedRevision?: number } {
+  return row.revision === undefined ? {} : { expectedRevision: row.revision }
+}
+
 // ---------------------------------------------------------------------------
 // Matching a person on a list.
 

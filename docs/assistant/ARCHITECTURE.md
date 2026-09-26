@@ -110,10 +110,15 @@ absent".
    change tool never writes. It does three things:
    - reads the register through the same GET route a screen uses, as the teacher, and matches the
      names to the pupils on it;
-   - builds a **preview**: every pupil on the register with the mark saved now and the proposed
-     mark;
+   - builds a **preview**: every pupil on the register with the mark saved now, that mark's
+     revision, and the proposed mark;
    - saves a **proposal** row: who asked, which tool, the sealed preview, the GET route it read,
-     a digest of that route's answer, and an expiry 30 minutes away.
+     a digest of the very answer the preview was built from (the framework records the tool's own
+     reads; it never reads again), and an expiry 30 minutes away.
+
+   A pupil the teacher did not name and nobody has marked yet is never given a mark on a guess.
+   Marking the day needs every pupil, so the tool tells the model to ask "Is everyone else
+   present?" first. A correction of an earlier day just leaves those pupils as they are.
 3. **The model finishes its turn** with a short line such as "Here is the register. Check it and
    confirm." It cannot go further. There is no "confirm" tool for the model to call.
 4. **The browser draws an editable card.** For attendance this is the class register itself: every
@@ -122,22 +127,35 @@ absent".
 5. **The teacher presses Confirm.** The browser sends the preview as the teacher left it to
    `POST /api/schools/:schoolId/assistant/proposals/:proposalId/confirm`. The browser never builds
    a write; it only edits the fields a card lets it edit.
-6. **The API makes the change as the teacher.** It checks the proposal belongs to this person, is
-   still open and has not expired, and that the edited preview is the same change with only the
-   editable fields moved (same class, same day, same pupils). The tool turns the preview into the
-   one request the write route expects. The API reads the same GET route again and compares its
-   digest: if anything changed since the proposal, nothing is written. Then it calls the real
-   write route through `app.inject()` with the teacher's cookie. The write route does all its
-   usual work: locks the school, decides the record, writes the change and writes its one audit
-   row.
-7. **The outcome is saved on the proposal** (done, or the error code) and returned to the browser.
-   The browser refreshes the affected screens' data through the usual `qk` prefix.
+6. **The API makes the change as the teacher, in three short steps.**
+   - *Check and mark.* In one short transaction it locks the proposal, checks it belongs to this
+     person, is still open and has not expired, and that the edited preview is the same change
+     with only the editable fields moved (same class, same day, same pupils). The tool turns the
+     preview into the one request the write route expects. The proposal is marked **confirming**,
+     with a new operation id, and committed. A second click now finds it confirming and writes
+     nothing.
+   - *Write.* Holding no database connection, the API reads the same GET route again and compares
+     its digest: if anything changed since the proposal, nothing is written. Then it calls the real
+     write route through `app.inject()` with the teacher's cookie. The operation id becomes that
+     request's id, so it is the request id on the audit row the route writes. Every line of the
+     body carries the revision the preview was read at; the route refuses the whole write if any
+     mark moved since, checked under its own school lock, so a save that lands between the digest
+     check and the write still wins. The write route does all its usual work: locks the school,
+     decides the record, writes the change and writes its one audit row.
+   - *Settle.* The proposal becomes done, stale or failed.
+7. **The outcome is saved on the proposal** and returned to the browser. The browser refreshes the
+   affected screens' data through the usual `qk` prefix. If the process stops between the write and
+   the settling, the proposal stays confirming. Six minutes later (longer than any request can
+   run) the next look at it settles it from the audit log: a row with its operation id means the
+   change was written and the proposal is done; no row means nothing was written, and it is open
+   again.
 8. **The conversation carries on.** The next turn tells the model what happened, including any
    edits the teacher made, so it can say "Done. 9A: 38 present, 2 absent."
 
 If someone else changed the same register between the proposal and the confirm, the digest check
-fails. The card says "This changed since the assistant read it" and offers to ask again. Nothing is
-half-written.
+or the revisions in the write catch it. The card says "This changed since the assistant read it"
+and offers to ask again. Nothing is half-written. The register and marks screens send the same
+revisions, so a screen that was open while someone else saved is refused in the same way.
 
 If a change needs several route calls, for example updating three pupils, the assistant makes
 three proposals. The browser shows them together with one **Confirm all** button. It runs them in

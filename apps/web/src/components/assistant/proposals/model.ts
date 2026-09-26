@@ -229,6 +229,7 @@ export function isSettled(status: AssistantProposalStatus): boolean {
 export function settledText(proposal: Pick<AssistantProposal, 'status' | 'outcome'>): string {
   switch (proposal.status) {
     case 'open': return ''
+    case 'confirming': return 'Saving this change. It updates here in a moment.'
     case 'done': return proposal.outcome ?? 'Saved.'
     case 'stale': return 'This changed after the assistant read it. Ask again to get a fresh copy.'
     case 'failed': return proposal.outcome ?? 'This change was not saved.'

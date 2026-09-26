@@ -801,7 +801,10 @@ export const auditEvents = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index('audit_events_school_created_idx').on(t.schoolId, t.createdAt)],
+  (t) => [
+    index('audit_events_school_created_idx').on(t.schoolId, t.createdAt),
+    index('audit_events_request_idx').on(t.schoolId, t.requestId),
+  ],
 )
 export const deliveryOutbox = pgTable(
   'delivery_outbox',
@@ -1568,6 +1571,7 @@ export const assistantProposals = pgTable(
     writeRequestId: text('write_request_id'),
     edited: boolean('edited'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    confirmingAt: timestamp('confirming_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     decidedAt: timestamp('decided_at', { withTimezone: true }),
   },

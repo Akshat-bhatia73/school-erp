@@ -10,6 +10,7 @@ import { DateInput, appPath, dateLabel, fetchParsed, seg } from '../tools/presen
 import { proposeTool } from './types.ts'
 import {
   countByMark,
+  expected,
   invalid,
   markCounts,
   matchPerson,
@@ -18,6 +19,7 @@ import {
   shortDate,
   shutOutcome,
   typedReason,
+  unaskedProblem,
   without,
 } from './match.ts'
 
@@ -31,7 +33,7 @@ import {
 const Input = z.object({
   date: DateInput('The day. Leave out for today.').optional(),
   everyone: AttendanceMark.optional().describe(
-    'The mark for every staff member not named in except. Leave out to keep the marks already saved (anyone not marked yet becomes present).',
+    'The mark for every staff member not named in except. Leave out to keep the marks already saved. Only give it when the person said so ("everyone else present"): never guess it for staff they did not mention.',
   ),
   except: z
     .array(
@@ -79,13 +81,19 @@ export const proposeStaffAttendanceDay = proposeTool<Input, StaffAttendanceDayPr
     }
 
     const mode = day.window.record ? 'first_entry' : 'correction'
-    const rows = register.map((row) => ({
-      staffId: row.staff.id,
-      name: row.staff.name,
-      designation: row.staff.designation?.slice(0, 120) ?? null,
-      current: row.mark ?? null,
-      proposed: named.get(row.staff.id) ?? input.everyone ?? row.mark ?? 'present',
-    }))
+    // As on a class's register: nobody unnamed and unmarked is marked on a guess.
+    const unasked = input.everyone === undefined ? register.filter((row) => row.mark === undefined && !named.has(row.staff.id)) : []
+    if (mode === 'first_entry' && unasked.length > 0) return invalid(unaskedProblem(unasked.length, 'the staff register', 'staff'))
+    const rows = register
+      .filter((row) => !unasked.includes(row))
+      .map((row) => ({
+        staffId: row.staff.id,
+        name: row.staff.name,
+        designation: row.staff.designation?.slice(0, 120) ?? null,
+        current: row.mark ?? null,
+        proposed: named.get(row.staff.id) ?? input.everyone ?? row.mark!,
+        revision: row.entry?.revision ?? 0,
+      }))
     const changed = rows.filter((row) => row.proposed !== row.current)
     if (changed.length === 0) return invalid(`The staff register for ${dateLabel(date)} already has those marks.`)
 
@@ -106,6 +114,7 @@ export const proposeStaffAttendanceDay = proposeTool<Input, StaffAttendanceDayPr
           changes: changed.length,
           counts: { present: counts.present, absent: counts.absent, late: counts.late, leave: counts.leave, halfDay: counts.half_day },
           notPresent: rows.filter((row) => row.proposed !== 'present').map((row) => ({ name: row.name, mark: row.proposed })),
+          ...(unasked.length === 0 ? {} : { leftUnmarked: unasked.length }),
         },
         href: appPath('/attendance/staff', { date }),
       },
@@ -123,13 +132,13 @@ export const proposeStaffAttendanceDay = proposeTool<Input, StaffAttendanceDayPr
     const changed = preview.rows.filter((row) => row.proposed !== row.current)
     if (changed.length === 0) return { problem: 'Nothing has changed.' }
     if (preview.mode === 'first_entry') {
-      const body: StaffAttendanceMarkRequest = { marks: preview.rows.map((row) => ({ staffId: row.staffId, mark: row.proposed })) }
+      const body: StaffAttendanceMarkRequest = { marks: preview.rows.map((row) => ({ staffId: row.staffId, mark: row.proposed, ...expected(row) })) }
       return { method: 'PUT', path, body }
     }
     const reason = typedReason(preview.reason)
     if (reason === undefined) return { problem: 'Add a reason for changing a saved register.' }
     const body: StaffAttendanceCorrectionRequest = {
-      marks: changed.map((row) => ({ staffId: row.staffId, mark: row.proposed })),
+      marks: changed.map((row) => ({ staffId: row.staffId, mark: row.proposed, ...expected(row) })),
       reason,
     }
     return { method: 'POST', path: `${path}/corrections`, body }

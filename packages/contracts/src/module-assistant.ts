@@ -279,6 +279,12 @@ export type AssistantProposalKind = z.infer<typeof AssistantProposalKind>
 export const AssistantProposalStatus = z.enum([
   /** Waiting for the person. */
   'open',
+  /**
+   * Confirmed and being written now. It settles to done, stale or failed
+   * within seconds; one left here by a crash is settled the next time anyone
+   * looks, from the write's own audit row.
+   */
+  'confirming',
   /** Confirmed and written. */
   'done',
   /** The person discarded it. */
@@ -320,6 +326,12 @@ export const AttendanceDayPreview = z.strictObject({
     rollNumber: z.number().int().min(0).nullable(),
     current: AttendanceMark.nullable(),
     proposed: AttendanceMark,
+    /**
+     * The revision of the saved mark the preview was read from, 0 when there
+     * was none: sent with the write so a mark saved since is never
+     * overwritten. Missing only on proposals made before it existed.
+     */
+    revision: z.number().int().nonnegative().optional(),
   })).min(1).max(RowLimit),
   reason: Reason.optional(),
 })
@@ -335,6 +347,12 @@ export const StaffAttendanceDayPreview = z.strictObject({
     designation: z.string().max(120).nullable(),
     current: AttendanceMark.nullable(),
     proposed: AttendanceMark,
+    /**
+     * The revision of the saved mark the preview was read from, 0 when there
+     * was none: sent with the write so a mark saved since is never
+     * overwritten. Missing only on proposals made before it existed.
+     */
+    revision: z.number().int().nonnegative().optional(),
   })).min(1).max(500),
   reason: Reason.optional(),
 })
@@ -366,6 +384,8 @@ export const ExamMarksPreview = z.strictObject({
       current: MarkValue.nullable(),
       /** Null leaves the cell as it is. */
       proposed: MarkValue.nullable(),
+      /** The saved cell's revision, 0 when empty; as on the attendance rows. */
+      revision: z.number().int().nonnegative().optional(),
     })).min(1).max(4),
   })).min(1).max(RowLimit),
   reasonKind: ExamReasonKind.optional(),

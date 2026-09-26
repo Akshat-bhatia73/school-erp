@@ -14,9 +14,14 @@ export {
 export class DatabaseConfigurationError extends Error {}
 export class TransactionAbortedError extends Error {}
 
-/** Create a pool. Callers must only access it through the callback helpers. */
+/**
+ * Create a pool. Callers must only access it through the callback helpers.
+ * Waiting for a connection gives up after ten seconds rather than forever, so
+ * a burst that empties the pool fails one request instead of hanging it.
+ */
 export function createPool(config: PoolConfig): Pool {
   return new Pool({
+    connectionTimeoutMillis: 10_000,
     ...config,
     application_name: config.application_name ?? 'school-erp-runtime',
   })
