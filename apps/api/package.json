@@ -12,6 +12,7 @@
     "dev:totp": "tsx --env-file-if-exists=.env scripts/dev-totp.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --env-file-if-exists=.env --test --test-concurrency=1 tests/*.test.ts",
+    "eval": "tsx --env-file-if-exists=.env evals/run.ts",
     "build:vercel": "node scripts/build-vercel.mjs"
   },
   "dependencies": {

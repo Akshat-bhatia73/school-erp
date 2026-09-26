@@ -91,6 +91,7 @@ export const ErrorReason = z.enum([
   'student_login_no_guardian_phone',
   'student_login_exists',
   'student_login_missing',
+  'assistant_still_answering',
 ])
 export type ErrorReason = z.infer<typeof ErrorReason>
 

@@ -5,7 +5,7 @@
  */
 import type { AssistantProposal } from '@erp/contracts'
 import { CheckCheck } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useProposals } from './context'
 
@@ -27,7 +27,20 @@ export function ConfirmAllBar({ proposals: made }: { proposals: readonly Assista
   const [running, setRunning] = useState(false)
   const [run, setRun] = useState<Run | null>(null)
 
-  const open = made.filter((proposal) => (proposals.live(proposal.id)?.proposal ?? proposal).status === 'open')
+  // The clock moves on when the next of these changes runs out, so a lapsed one leaves the count.
+  const [now, setNow] = useState(() => Date.now())
+  const nextExpiry = Math.min(...made.map((proposal) => Date.parse(proposal.expiresAt)).filter((at) => at > now))
+  useEffect(() => {
+    if (!Number.isFinite(nextExpiry)) return
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, nextExpiry - now))
+    return () => clearTimeout(timer)
+  }, [nextExpiry, now])
+
+  // Only cards that offer their own Confirm: open, known to be open now, and not past their time.
+  const open = made.filter((proposal) => {
+    const standing = proposals.live(proposal.id)?.proposal ?? proposal
+    return standing.status === 'open' && proposals.check(proposal.id) === 'ready' && Date.parse(standing.expiresAt) > now
+  })
   if (open.length < 2 && !run) return null
 
   const confirmAll = async () => {

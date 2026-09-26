@@ -4,7 +4,7 @@
  * the registry. The real model is never called; there is no key.
  */
 import { z } from 'zod'
-import { simulateReadableStream } from 'ai'
+import { APICallError, simulateReadableStream } from 'ai'
 import { MockLanguageModelV4 } from 'ai/test'
 import { loadConfig } from '../src/config.ts'
 import { createPools } from '../src/db.ts'
@@ -51,9 +51,37 @@ export const assistantSettingsTool = readTool({
   },
 })
 
+/** What the health tool gives the model, and the title of its card: found anywhere later, it leaked. */
+export const HEALTH_FOR_MODEL = 'HEALTH-FOR-MODEL-ONLY'
+export const HEALTH_CARD_TITLE = 'HEALTH-CARD-ONLY'
+
+/** A tool behind a key an owner can take away (students.read_medical), to prove old results go with it. */
+export const healthNoteTool = readTool({
+  name: 'health_note',
+  description: 'A health note.',
+  permission: 'students.read_medical',
+  input: z.object({}),
+  run: async () => ({
+    status: 'ok',
+    card: { kind: 'figures', title: HEALTH_CARD_TITLE, items: [{ label: 'Notes', value: { type: 'number', value: 1 } }] },
+    forModel: { note: HEALTH_FOR_MODEL },
+  }),
+})
+
+/** A lookup that always fails, as a route that errors would. */
+export const brokenLookupTool = readTool({
+  name: 'broken_lookup',
+  description: 'A lookup that fails.',
+  permission: 'ai_assistant.use',
+  input: z.object({}),
+  run: async () => ({ status: 'failed' }),
+})
+
 export const TEST_TOOLS: readonly AnyReadTool[] = [
   schoolContextTool as unknown as AnyReadTool,
   assistantSettingsTool as unknown as AnyReadTool,
+  healthNoteTool as unknown as AnyReadTool,
+  brokenLookupTool as unknown as AnyReadTool,
 ]
 
 const usage = {
@@ -63,14 +91,38 @@ const usage = {
 
 /** The words that make the scripted model fail, to exercise the failure path. */
 export const FAIL_WORDS = 'please fail now'
+/** The words that make it fail the first time it is asked them, and answer after. */
+export const FAIL_ONCE_WORDS = 'please fail the first time'
 /** The words that make it answer slowly, so a test can leave halfway. */
 export const SLOW_WORDS = 'please answer slowly'
+/** The words that make it call the health tool. */
+export const HEALTH_WORDS = 'please read the health note'
+/** The words that make it call the lookup that fails. */
+export const BROKEN_WORDS = 'please try the broken lookup'
+/** The words that make the provider refuse, with PROVIDER_SECRET in its message and body. */
+export const PROVIDER_FAIL_WORDS = 'please make the provider refuse'
+/** Free text in a provider's refusal: it must never reach a log. */
+export const PROVIDER_SECRET = 'PROVIDER-FREE-TEXT-NEVER-LOGGED'
+export const PROVIDER_REQUEST_ID = 'prov-req-4711'
+
+/** One step that calls one tool. */
+function callOne(toolName: string) {
+  return {
+    stream: simulateReadableStream({
+      chunks: [
+        { type: 'tool-call' as const, toolCallId: `call-${toolName}`, toolName, input: '{}' },
+        { type: 'finish' as const, finishReason: { unified: 'tool-calls' as const, raw: undefined }, usage },
+      ],
+    }),
+  }
+}
 
 /**
  * A scripted model. On a new question it calls both test tools in one step;
  * once it has their results it answers in words; asked FAIL_WORDS it fails.
  */
 export function scriptedModel(): MockLanguageModelV4 {
+  const failedOnce = new Set<string>()
   return new MockLanguageModelV4({
     provider: 'test',
     modelId: 'scripted',
@@ -78,6 +130,25 @@ export function scriptedModel(): MockLanguageModelV4 {
       const last = options.prompt[options.prompt.length - 1]
       const lastText = JSON.stringify(last?.content ?? '')
       if (last?.role === 'user' && lastText.includes(FAIL_WORDS)) throw new Error('scripted failure')
+      if (last?.role === 'user' && lastText.includes(FAIL_ONCE_WORDS) && !failedOnce.has(lastText)) {
+        failedOnce.add(lastText)
+        throw new Error('scripted failure')
+      }
+      if (last?.role === 'user' && lastText.includes(PROVIDER_FAIL_WORDS)) {
+        throw new APICallError({
+          message: `Quota exceeded: ${PROVIDER_SECRET}`,
+          url: 'https://provider.invalid/v1/generate',
+          requestBodyValues: {},
+          statusCode: 429,
+          responseHeaders: { 'x-request-id': PROVIDER_REQUEST_ID },
+          responseBody: JSON.stringify({
+            error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: `Quota exceeded for ${PROVIDER_SECRET}` },
+          }),
+          isRetryable: false,
+        })
+      }
+      if (last?.role === 'user' && lastText.includes(HEALTH_WORDS)) return callOne('health_note')
+      if (last?.role === 'user' && lastText.includes(BROKEN_WORDS)) return callOne('broken_lookup')
       if (last?.role === 'user' && lastText.includes(SLOW_WORDS)) {
         return {
           stream: simulateReadableStream({
@@ -119,7 +190,7 @@ export function scriptedModel(): MockLanguageModelV4 {
 export async function startAssistantServer(
   overrides: Record<string, string> = {},
   model: MockLanguageModelV4 = scriptedModel(),
-): Promise<TestServer & { model: MockLanguageModelV4 }> {
+): Promise<TestServer & { model: MockLanguageModelV4; logs: string[] }> {
   const port = await freePort()
   const config = loadConfig(
     testEnv(port, {
@@ -141,6 +212,24 @@ export async function startAssistantServer(
     documents,
     assistant: { assistantModel: model, assistantTools: TEST_TOOLS },
   })
+  // Every line a request logs, as JSON, so a test can prove what never
+  // reaches a log. The logger is silent in tests; this sees each call anyway.
+  const logs: string[] = []
+  app.addHook('onRequest', async (request) => {
+    const inner = request.log
+    request.log = new Proxy(inner, {
+      get(target, property, receiver) {
+        const value = Reflect.get(target, property, receiver) as unknown
+        if (typeof property === 'string' && ['trace', 'debug', 'info', 'warn', 'error', 'fatal'].includes(property)) {
+          return (...args: unknown[]) => {
+            logs.push(JSON.stringify(args))
+            return (value as (...values: unknown[]) => void).apply(target, args)
+          }
+        }
+        return typeof value === 'function' ? (value as (...values: unknown[]) => unknown).bind(target) : value
+      },
+    })
+  })
   await app.listen({ port: config.PORT, host: '127.0.0.1' })
   const origin = `http://127.0.0.1:${config.PORT}`
   const jar = new CookieJar()
@@ -153,6 +242,7 @@ export async function startAssistantServer(
     origin,
     jar,
     model,
+    logs,
     async fetch(path, init = {}) {
       const headers = new Headers(init.headers)
       const cookie = jar.header()

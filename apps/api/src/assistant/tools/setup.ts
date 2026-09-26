@@ -154,6 +154,7 @@ export const findSections = readTool({
           classTeacher: section.classTeacher?.name,
           classTeacherId: section.classTeacherId,
         })),
+        shown: list.items.length,
         total: list.total,
       },
       tableCard({

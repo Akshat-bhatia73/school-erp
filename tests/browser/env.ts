@@ -45,4 +45,8 @@ export const apiEnv: Record<string, string> = {
   DOCUMENT_STORAGE_DIR: path.join(ROOT, 'tests/browser/.documents'),
   PORT: String(API_PORT),
   NODE_ENV: 'test',
+  // The assistant is on, with a scripted model (support/assistant-server.ts).
+  // The key is a placeholder that turns the service on; nothing is ever sent.
+  ASSISTANT_ENABLED: 'true',
+  AI_GATEWAY_API_KEY: 'browser-test-placeholder-never-used',
 }

@@ -600,6 +600,62 @@ test('a second save the same day supersedes only what changed', async () => {
   assert.equal((await auditRows('attendance.record', attSection)).length, 2)
 })
 
+interface AbsencesResponse {
+  date: string
+  day: CalendarDay
+  academicYear: NamedReference
+  items: { student: Pupil; section: NamedReference; grade: NamedReference; mark: AttendanceMark }[]
+  capped: boolean
+  unmarkedSections: { section: NamedReference; grade: NamedReference }[]
+  totals: { sections: number; markedSections: number; absent: number; late: number; leave: number; halfDay: number }
+}
+
+test('the absences of a day name each pupil not present, in the sections the caller may read', async () => {
+  // Today stands at: the first pupil late, the second absent, the third present.
+  const path = `/api/schools/${schoolA}/attendance/days/${today}/absences`
+  const office = await ok<AbsencesResponse>(await owner.fetch(path))
+  assert.equal(office.academicYear.id, attYear)
+  assert.deepEqual(
+    office.items.map((item) => [item.student.id, item.section.id, item.mark]),
+    [
+      [p2, attSection, 'absent'],
+      [p1, attSection, 'late'],
+    ],
+    'absent first, then late; the present pupil is not listed',
+  )
+  assert.equal(office.capped, false)
+  // The class next door has a roll but no mark yet: named, and nothing more.
+  assert.deepEqual(office.unmarkedSections.map((row) => row.section.id), [otherSection])
+  assert.deepEqual(office.totals, { sections: 2, markedSections: 1, absent: 1, late: 1, leave: 0, halfDay: 0 })
+
+  // The class teacher sees their own class, and not even the name of the unmarked one next door.
+  const own = await ok<AbsencesResponse>(await teacher.fetch(path))
+  assert.deepEqual(own.items.map((item) => item.student.id), [p2, p1])
+  assert.deepEqual(own.unmarkedSections, [])
+  assert.equal(own.totals.sections, 1)
+
+  // Every name on the list is on the register its detail read shows.
+  const register = await readDay(teacher, attSection, today)
+  for (const item of own.items) {
+    assert.equal(register.rows.find((row) => row.student.id === item.student.id)?.mark, item.mark)
+  }
+
+  // A parent reads their own child's line and nobody else's, as their register does.
+  const family = await ok<AbsencesResponse>(await parent.fetch(path))
+  assert.ok(family.items.every((item) => item.student.id === p1), 'a parent saw another family')
+
+  // A day outside every year is refused as the other day routes refuse it.
+  await failure(
+    await owner.fetch(`/api/schools/${schoolA}/attendance/days/1999-06-01/absences`),
+    400,
+    'attendance_date_outside_year',
+  )
+  // A path that is not a date is a path to nothing.
+  await failure(await owner.fetch(`/api/schools/${schoolA}/attendance/days/2026-13-45/absences`), 404)
+  // The accountant holds no key to the children's registers at all.
+  await failure(await accountant.fetch(path), 403)
+})
+
 test('a body that is not exactly the roll is refused and writes nothing', async () => {
   const day = await readDay(teacher, attSection, today)
   const before = await entryCount()

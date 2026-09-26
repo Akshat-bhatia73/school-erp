@@ -17,6 +17,9 @@ import { createPools } from '../../../apps/api/src/db.ts'
 import { createSandboxDelivery } from '../../../apps/api/src/delivery/index.ts'
 import { createAuth } from '../../../apps/api/src/auth/better-auth.ts'
 import {
+  ASSIST_GRADE_NAME,
+  ASSIST_PUPILS_R,
+  ASSIST_PUPILS_S,
   GRADE_A,
   SCHOOL_A,
   SCHOOL_B,
@@ -28,6 +31,7 @@ import {
   teacherAlpha,
   teacherBeta,
   teacherDual,
+  teacherDelta,
   teacherDualSchoolB,
   teacherGamma,
   type Person,
@@ -163,6 +167,101 @@ async function student(input: {
   )
 }
 
+/**
+ * The assistant's class: grade Eight with sections R and S, three pupils in
+ * each, Teacher Delta as their class teacher, and the assistant switched on
+ * for school A (the owner's settings switch, written as its row).
+ *
+ * A run starts with both registers unmarked and Delta with no conversations
+ * and no questions counted today. Attendance rows are append-only in the
+ * database, so the trigger is lifted for the one delete and put straight back.
+ */
+async function assistantFixtures(): Promise<void> {
+  await q(
+    `INSERT INTO grades (id, school_id, name, short_name, sort_order)
+     VALUES ($1, $2, $3, '8', 8) ON CONFLICT (school_id, name) DO NOTHING`,
+    [ids.gradeAssist, SCHOOL_A, ASSIST_GRADE_NAME],
+  )
+  for (const [sectionId, name] of [
+    [ids.sectionAssistR, 'R'],
+    [ids.sectionAssistS, 'S'],
+  ] as const) {
+    await q(
+      `INSERT INTO sections (id, school_id, academic_year_id, grade_id, name)
+       VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
+      [sectionId, SCHOOL_A, YEAR_A, ids.gradeAssist, name],
+    )
+  }
+  for (const [sectionId, pupils, prefix] of [
+    [ids.sectionAssistR, ASSIST_PUPILS_R, 'BR/2026-27/3'],
+    [ids.sectionAssistS, ASSIST_PUPILS_S, 'BR/2026-27/4'],
+  ] as const) {
+    for (const pupil of pupils) {
+      const [firstName = '', lastName = ''] = pupil.name.split(' ')
+      await student({
+        id: pupil.id,
+        schoolId: SCHOOL_A,
+        academicYearId: YEAR_A,
+        sectionId,
+        admissionNumber: `${prefix}${String(pupil.roll).padStart(2, '0')}`,
+        firstName,
+        lastName,
+        rollNumber: pupil.roll,
+      })
+    }
+  }
+
+  await member(SCHOOL_A, teacherDelta, teacherDelta.membershipId, ['teacher'])
+  for (const sectionId of [ids.sectionAssistR, ids.sectionAssistS]) {
+    await teaches({
+      schoolId: SCHOOL_A,
+      academicYearId: YEAR_A,
+      sectionId,
+      subjectId: ids.subjectA,
+      membershipId: teacherDelta.membershipId,
+      staffId: teacherDelta.staffId,
+      employeeCode: 'BR-E105',
+      displayName: teacherDelta.displayName,
+    })
+  }
+  await q(
+    `UPDATE sections SET class_teacher_staff_id = $3
+      WHERE school_id = $1 AND id = ANY($2::uuid[])`,
+    [SCHOOL_A, [ids.sectionAssistR, ids.sectionAssistS], teacherDelta.staffId],
+  )
+
+  await q(
+    `INSERT INTO assistant_settings (school_id, enabled) VALUES ($1, true)
+     ON CONFLICT (school_id) DO UPDATE SET enabled = true`,
+    [SCHOOL_A],
+  )
+  await q('DELETE FROM assistant_threads WHERE school_id = $1 AND membership_id = $2', [
+    SCHOOL_A,
+    teacherDelta.membershipId,
+  ])
+  await q('DELETE FROM assistant_usage WHERE school_id = $1 AND membership_id = $2', [
+    SCHOOL_A,
+    teacherDelta.membershipId,
+  ])
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query('ALTER TABLE attendance_entries DISABLE TRIGGER attendance_entries_no_change')
+    await client.query(
+      'DELETE FROM attendance_entries WHERE school_id = $1 AND section_id = ANY($2::uuid[])',
+      [SCHOOL_A, [ids.sectionAssistR, ids.sectionAssistS]],
+    )
+    await client.query('ALTER TABLE attendance_entries ENABLE TRIGGER attendance_entries_no_change')
+    await client.query('COMMIT')
+  } catch (error) {
+    await client.query('ROLLBACK')
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
 async function main(): Promise<void> {
   await seedFixtures(pool)
 
@@ -268,6 +367,8 @@ async function main(): Promise<void> {
       displayName: person.displayName,
     })
   }
+
+  await assistantFixtures()
 
   // ---- school B, so one person can hold two memberships ---------------
   await q(

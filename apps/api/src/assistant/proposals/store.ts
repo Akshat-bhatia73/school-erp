@@ -325,15 +325,64 @@ export interface ProposalForModel {
   readonly status: AssistantProposalStatus
   readonly outcome: string | null
   readonly edited?: boolean
+  /** For a done proposal: each change as it was confirmed, at most SAVED_MAX. */
+  readonly saved?: readonly SavedChange[]
+  /** How many more changes were saved than `saved` lists. */
+  readonly savedMore?: number
+}
+
+export type SavedChange =
+  | { readonly name: string; readonly mark: string }
+  | { readonly name: string; readonly part: string; readonly value: string | number }
+  | { readonly name: string; readonly grades: Readonly<Record<string, string | null>>; readonly remarkChanged: boolean }
+
+/** The most saved changes the model is told about one proposal. */
+export const SAVED_MAX = 40
+
+/**
+ * Every change a confirmed preview made, person by person: a row whose
+ * proposed value differs from what was saved before. This is what was
+ * written, the person's edits included, so the model can say what it saved.
+ */
+export function savedChanges(preview: AssistantProposalPreview): SavedChange[] {
+  switch (preview.kind) {
+    case 'attendance_day':
+    case 'staff_attendance_day':
+      return preview.rows.filter((row) => row.proposed !== row.current).map((row) => ({ name: row.name, mark: row.proposed }))
+    case 'exam_marks': {
+      const labels = new Map(preview.components.map((part) => [part.component, part.label]))
+      return preview.rows.flatMap((row) =>
+        row.cells
+          .filter((cell) => cell.proposed !== null && stableJson(cell.proposed) !== stableJson(cell.current))
+          .map((cell) => ({ name: row.name, part: labels.get(cell.component) ?? cell.component, value: cell.proposed as string | number })),
+      )
+    }
+    case 'co_scholastic':
+      return preview.rows.flatMap((row) => {
+        const grades = Object.fromEntries(
+          Object.entries(row.proposed).filter(([area, grade]) => grade !== row.current[area as keyof typeof row.current]),
+        )
+        const remarkChanged = (row.proposedRemarks ?? null) !== (row.currentRemarks ?? null)
+        return Object.keys(grades).length > 0 || remarkChanged ? [{ name: row.name, grades, remarkChanged }] : []
+      })
+  }
 }
 
 export function forModelOf(row: ProposalRow, key: string): ProposalForModel {
+  const status = row.lapsed ? 'expired' : row.status
+  const confirmed =
+    status === 'done' && row.confirmed_preview_sealed !== null
+      ? AssistantProposalPreview.safeParse(JSON.parse(open(row.confirmed_preview_sealed, key)))
+      : undefined
+  const saved = confirmed?.success ? savedChanges(confirmed.data) : undefined
   return {
     proposalId: row.id,
     title: open(row.title_sealed, key),
-    status: row.lapsed ? 'expired' : row.status,
+    status,
     outcome: row.outcome,
     ...(row.edited === null ? {} : { edited: row.edited }),
+    ...(saved === undefined ? {} : { saved: saved.slice(0, SAVED_MAX) }),
+    ...(saved !== undefined && saved.length > SAVED_MAX ? { savedMore: saved.length - SAVED_MAX } : {}),
   }
 }
 

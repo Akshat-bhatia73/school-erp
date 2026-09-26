@@ -155,13 +155,56 @@ export const teacherTimetable = readTool({
   },
 })
 
+type Schedule = z.infer<typeof BellSchedule>
+
+/**
+ * The period running at `now` (HH:MM, school time) on a weekday, from the
+ * year's bell schedule for that day. Anything else is a sentence saying why
+ * there is no lesson now, with the next period when there is one.
+ */
+function periodAt(
+  schedule: Schedule,
+  weekday: number,
+  now: string,
+): { readonly periodIndex: number } | { readonly note: string; readonly nextPeriod?: { periodIndex: number; name: string; startsAt: string } } {
+  if (!schedule.workingDays.includes(weekday)) return { note: `${DAY_NAMES[weekday]} is not a school day on the bell schedule.` }
+  let lessons = [...schedule.periods].sort((a, b) => a.startTime.localeCompare(b.startTime))
+  // On Saturday only the first few teaching periods run, when the schedule says so.
+  if (weekday === 6 && schedule.saturdayPeriodCount !== undefined) {
+    const kept = new Set(lessons.filter((period) => period.type === 'period').slice(0, schedule.saturdayPeriodCount).map((period) => period.index))
+    const last = lessons.filter((period) => kept.has(period.index)).at(-1)
+    lessons = lessons.filter((period) =>
+      period.type === 'period' ? kept.has(period.index) : last !== undefined && period.startTime < last.endTime,
+    )
+  }
+  const current = lessons.find((period) => period.startTime <= now && now < period.endTime)
+  if (current?.type === 'period') return { periodIndex: current.index }
+  const next = lessons.find((period) => period.type === 'period' && period.startTime > now)
+  const nextPeriod = next ? { periodIndex: next.index, name: next.name, startsAt: next.startTime } : undefined
+  const first = lessons.find((period) => period.type === 'period')
+  const note = current
+    ? `It is ${current.name} now (${current.startTime}–${current.endTime}), not a lesson.`
+    : first !== undefined && now < first.startTime
+      ? 'School has not started yet.'
+      : next === undefined
+        ? 'Lessons are over for the day.'
+        : 'No lesson is running now.'
+  return nextPeriod ? { note, nextPeriod } : { note }
+}
+
 export const freeTeachers = readTool({
   name: 'free_teachers',
   description:
-    'Teachers with no lesson in one period of one day, best suited first. Use it to find cover for an absent teacher.',
+    'Teachers with no lesson in one period of one day, best suited first. Use it to find cover for an absent teacher, and for "who is free now" (leave out the period).',
   permission: 'timetable.manage_entries',
   input: z.object({
-    periodIndex: z.number().int().min(0).max(60).describe('The period index, as section_timetable and teacher_timetable give it.'),
+    periodIndex: z
+      .number()
+      .int()
+      .min(0)
+      .max(60)
+      .optional()
+      .describe('The period index, as section_timetable and teacher_timetable give it. Leave out for the period running now.'),
     date: DateInput('The day. Leave out for today.').optional(),
     subjectId: IdInput('Prefer teachers of this subject.').optional(),
     academicYearId: YearInput(),
@@ -172,10 +215,22 @@ export const freeTeachers = readTool({
     const day = input.date ?? context.today
     const weekday = dayOfWeek(day)
     if (weekday === 0) return ok({ date: day, note: 'That day is a Sunday; there are no lessons.' })
+    let periodIndex = input.periodIndex
+    if (periodIndex === undefined) {
+      const askPeriod = { needs: 'periodIndex', hint: 'Say which period, or call bell_schedules for the periods.' }
+      if (day !== context.today || context.now === undefined) return ok({ date: day, ...askPeriod })
+      const schedules = await fetchParsed(context, BellScheduleList, '/timetable/bell-schedules', { academicYearId })
+      if (!schedules.ok) return schedules.outcome
+      const schedule = schedules.body.find((candidate) => candidate.workingDays.includes(weekday)) ?? schedules.body[0]
+      if (schedule === undefined) return ok({ date: day, now: context.now, note: 'The school has no bell schedule, so there is no period now.' })
+      const running = periodAt(schedule, weekday, context.now)
+      if (!('periodIndex' in running)) return ok({ date: day, now: context.now, noPeriodNow: true, ...running })
+      periodIndex = running.periodIndex
+    }
     const found = await fetchParsed(context, AvailableTeacherSuggestionList, '/timetable/free-teachers', {
       academicYearId,
       dayOfWeek: weekday,
-      periodIndex: input.periodIndex,
+      periodIndex,
       subjectId: input.subjectId,
     })
     if (!found.ok) return found.outcome
@@ -185,13 +240,15 @@ export const freeTeachers = readTool({
       {
         date: day,
         day: DAY_NAMES[weekday],
-        period: periodLabel(periods, input.periodIndex),
-        periodIndex: input.periodIndex,
+        ...(input.periodIndex === undefined ? { now: context.now } : {}),
+        period: periodLabel(periods, periodIndex),
+        periodIndex,
         teachers: list.items.map((row) => ({ staffId: row.teacher.id, name: row.teacher.name, teachesSubject: row.teachesSubject, periodsPerWeek: row.periodsPerWeek })),
+        shown: list.items.length,
         total: list.total,
       },
       tableCard({
-        title: `Free teachers, ${DAY_NAMES[weekday]}, ${periodLabel(periods, input.periodIndex)}`,
+        title: `Free teachers, ${DAY_NAMES[weekday]}, ${periodLabel(periods, periodIndex)}`,
         columns: [
           { key: 'name', label: 'Teacher' },
           { key: 'subject', label: 'Teaches the subject' },
@@ -230,6 +287,7 @@ export const substitutionsOnDay = readTool({
           substituteTeacher: row.substituteTeacher?.name ?? null,
           notified: row.notified,
         })),
+        shown: list.items.length,
         total: list.total,
       },
       tableCard({
@@ -272,6 +330,7 @@ export const teacherLoads = readTool({
     return ok(
       {
         teachers: list.items.map((row) => ({ staffId: row.teacher.id, name: row.teacher.name, periodsPerWeek: row.periodsPerWeek, sections: row.sectionsCount, subjects: row.subjectsCount })),
+        shown: list.items.length,
         total: list.total,
       },
       tableCard({

@@ -11,6 +11,7 @@ function UserMessage({ message }: { message: UIMessage }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[85%] rounded-xl bg-muted px-3.5 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap break-words">
+        <span className="sr-only">You said: </span>
         {messageText(message)}
       </div>
     </div>
@@ -28,6 +29,7 @@ function AssistantMessage({ message }: { message: UIMessage }) {
   const proposals = proposalsIn(message)
   return (
     <div className="flex flex-col gap-3">
+      <span className="sr-only">Assistant:</span>
       {text.trim() !== '' && <AnswerText text={text} />}
       {tools.map((part) => <ToolPart key={part.toolCallId} part={part} toolName={getToolName(part)} />)}
       {proposals.length > 1 && <ConfirmAllBar proposals={proposals} />}

@@ -22,7 +22,23 @@ import {
   signInWithMfa,
   signInWithPassword,
 } from './harness.ts'
-import { FAIL_WORDS, SLOW_WORDS, startAssistantServer, streamParts } from './assistant-support.ts'
+import { HIDDEN_RESULT, hideUnoffered } from '../src/assistant/threads.ts'
+import { HISTORY_TOKEN_BUDGET, trimToBudget } from '../src/assistant/turn.ts'
+import { instructionsFor } from '../src/assistant/prompt.ts'
+import {
+  BROKEN_WORDS,
+  FAIL_ONCE_WORDS,
+  FAIL_WORDS,
+  HEALTH_CARD_TITLE,
+  HEALTH_FOR_MODEL,
+  HEALTH_WORDS,
+  PROVIDER_FAIL_WORDS,
+  PROVIDER_REQUEST_ID,
+  PROVIDER_SECRET,
+  SLOW_WORDS,
+  startAssistantServer,
+  streamParts,
+} from './assistant-support.ts'
 
 const PASSWORD = 'Fixture-Pass!42'
 const PUPIL_PASSWORD = 'Pupil-Pass!2026'
@@ -274,7 +290,7 @@ test('the service switch comes first: with the deployment switched off nobody ma
 test('then the school switch, and the first save writes one audit row', async () => {
   const before = await status(teacher.client)
   assert.deepEqual([before.available, before.reason], [false, 'school_off'])
-  assert.ok(before.suggestions.includes('Who is absent in my class today?'))
+  assert.ok(!before.suggestions.includes('Who is absent in my class today?'))
 
   const stale = await owner.client.fetch(
     path('/settings'),
@@ -354,6 +370,8 @@ test('a turn streams the answer, keeps the words sealed, finishes the usage row 
   const instructions = JSON.stringify(toolTurn.prompt.filter((message) => message.role === 'system'))
   assert.ok(instructions.includes(SCHOOL_NAME))
   assert.ok(instructions.includes(`AI-${suffix}`))
+  // The model is told the time on the school's clock, so "now" means something.
+  assert.match(instructions, /the time is \d{2}:\d{2}, in the school's timezone/)
 
   // Sealed at rest: neither column holds the question.
   const stored = await adminPool().query<{ role: string; content_sealed: string }>(
@@ -370,7 +388,7 @@ test('a turn streams the answer, keeps the words sealed, finishes the usage row 
   assert.equal(open(title.rows[0]?.title_sealed as string, key), question.slice(0, 60).trimEnd() + '…')
 
   const usage = await adminPool().query(
-    `SELECT id, status, model, tool_calls, refused_calls, input_tokens, output_tokens, finished_at, role_keys
+    `SELECT id, status, model, tool_calls, refused_calls, failed_calls, input_tokens, output_tokens, finished_at, role_keys
        FROM assistant_usage WHERE school_id = $1 AND membership_id = $2`,
     [school, teacher.membershipId],
   )
@@ -381,6 +399,7 @@ test('a turn streams the answer, keeps the words sealed, finishes the usage row 
   assert.deepEqual([row.tool_calls, row.refused_calls, row.input_tokens, row.output_tokens], [2, 1, 22, 14])
   assert.notEqual(row.finished_at, null)
   assert.deepEqual(row.role_keys, ['teacher'])
+  assert.equal(row.failed_calls, 0)
 
   const audits = await auditRows('assistant_turn', teacher.membershipId)
   assert.equal(audits.length, 1)
@@ -390,6 +409,7 @@ test('a turn streams the answer, keeps the words sealed, finishes the usage row 
     tools: ['school_context', 'assistant_settings'],
     toolCalls: 2,
     refused: 1,
+    failed: 0,
     model: 'test/scripted',
     inputTokens: 22,
     outputTokens: 14,
@@ -447,6 +467,41 @@ test('a turn that fails after it started still finishes its usage row and its on
   assert.equal((last?.safe_changes as { status: string }).status, 'failed')
   const usage = await adminPool().query<{ status: string }>('SELECT status FROM assistant_usage WHERE id = $1', [last?.target_id])
   assert.equal(usage.rows[0]?.status, 'failed')
+})
+
+test('Try again answers the newest question again, keeping it once; anything else is refused as a repeat', async () => {
+  const threadId = await newThread(teacher.client)
+  const first = await ask(teacher.client, threadId, 'An earlier question')
+  assert.equal(first.status, 200)
+  await first.text()
+
+  const text = `${FAIL_ONCE_WORDS} ${randomUUID()}`
+  const messageId = randomUUID()
+  const turn = (body: { messageId: string; text: string }) => teacher.client.fetch(path(`/threads/${threadId}/turns`), send('POST', body))
+  const failed = await turn({ messageId, text })
+  assert.equal(failed.status, 200)
+  assert.ok(streamParts(await failed.text()).some((part) => part.type === 'error'))
+
+  // The same words under a different question, or an older question, are not a retry.
+  assert.equal(await codeOf(await turn({ messageId, text: `${text} changed` })), 'INVALID_REQUEST')
+  const kept = await adminPool().query<{ message_key: string }>(
+    `SELECT message_key FROM assistant_messages WHERE school_id = $1 AND thread_id = $2 ORDER BY created_at, id`,
+    [school, threadId],
+  )
+  const olderKey = kept.rows[0]?.message_key as string
+  assert.equal(await codeOf(await turn({ messageId: olderKey, text: 'An earlier question' })), 'INVALID_REQUEST')
+
+  const retried = await turn({ messageId, text })
+  assert.equal(retried.status, 200)
+  const parts = streamParts(await retried.text())
+  assert.equal(parts.some((part) => part.type === 'error'), false)
+  assert.ok(parts.some((part) => part.type === 'text-delta' && part.delta === 'Here is what I found.'))
+
+  const questions = await adminPool().query<{ count: string }>(
+    `SELECT count(*) FROM assistant_messages WHERE school_id = $1 AND thread_id = $2 AND message_key = $3`,
+    [school, threadId, messageId],
+  )
+  assert.equal(Number(questions.rows[0]?.count), 1)
 })
 
 test('a person who leaves halfway stops the answer, and what was written so far is kept', async () => {
@@ -603,4 +658,305 @@ test("a pupil's subject access export counts their conversations without their w
     [school, pupilId],
   )
   assert.equal(audit.rows[0]?.safe_changes.assistantThreadsDeleted, 1)
+})
+
+// ---------------------------------------------------------------------------
+// The turn, its conversation and its usage (hardening). These come last: they
+// add questions from people other than the one teacher the usage test counts.
+
+async function restrict(membershipId: string, permission: string): Promise<void> {
+  const version = await adminPool().query<{ access_version: number }>(
+    'SELECT access_version FROM school_memberships WHERE id = $1',
+    [membershipId],
+  )
+  const response = await owner.client.fetch(
+    `/api/schools/${school}/members/${membershipId}/restrictions`,
+    send('POST', { permission, reason: 'Taken away for the test', expectedAccessVersion: Number(version.rows[0]?.access_version) }),
+  )
+  assert.equal(response.status, 201, await response.text())
+}
+
+async function usageOf(membershipId: string) {
+  const rows = await adminPool().query<{ id: string; status: string; tool_calls: number; refused_calls: number; failed_calls: number; finished_at: Date | null }>(
+    `SELECT id, status, tool_calls, refused_calls, failed_calls, finished_at FROM assistant_usage
+      WHERE school_id = $1 AND membership_id = $2 ORDER BY created_at`,
+    [school, membershipId],
+  )
+  return rows.rows
+}
+
+test('an old result from a tool the person has lost is hidden from the screen and from the model', async () => {
+  const head = await member(['principal'], { mfa: true })
+  const threadId = await newThread(head.client)
+  const first = await ask(head.client, threadId, HEALTH_WORDS)
+  assert.equal(first.status, 200)
+  const output = streamParts(await first.text()).find((part) => part.type === 'tool-output-available')?.output as Record<string, unknown>
+  assert.equal(output.status, 'ok')
+
+  // While the key is held, the old result is shown and read again.
+  const shown = await ok<{ messages: { parts: Record<string, unknown>[] }[] }>(await head.client.fetch(path(`/threads/${threadId}`)))
+  assert.ok(JSON.stringify(shown).includes(HEALTH_CARD_TITLE))
+  await (await ask(head.client, threadId, 'And again?')).text()
+  assert.ok(JSON.stringify(server.model.doStreamCalls.at(-2)?.prompt).includes(HEALTH_FOR_MODEL))
+
+  await restrict(head.membershipId, 'students.read_medical')
+
+  const thread = await ok<{ messages: { parts: Record<string, unknown>[] }[] }>(await head.client.fetch(path(`/threads/${threadId}`)))
+  const health = thread.messages.flatMap((message) => message.parts).filter((part) => part.type === 'tool-health_note')
+  assert.equal(health.length, 1)
+  assert.deepEqual(health[0]?.output, { status: 'not_available' })
+  assert.equal(health[0]?.toolCallId, 'call-health_note')
+  assert.ok(!JSON.stringify(thread).includes(HEALTH_CARD_TITLE))
+  assert.ok(!JSON.stringify(thread).includes(HEALTH_FOR_MODEL))
+  // Other tools' results are untouched.
+  assert.ok(JSON.stringify(thread).includes('CARD-ONLY-TITLE'))
+
+  const seen = server.model.doStreamCalls.length
+  const again = await ask(head.client, threadId, 'Once more?')
+  assert.equal(again.status, 200)
+  await again.text()
+  const prompt = JSON.stringify(server.model.doStreamCalls[seen]?.prompt)
+  assert.ok(!prompt.includes(HEALTH_FOR_MODEL))
+  assert.ok(!prompt.includes(HEALTH_CARD_TITLE))
+  assert.ok(prompt.includes(HIDDEN_RESULT))
+  // The call itself stays, so the conversation is still well formed.
+  assert.ok(prompt.includes('call-health_note'))
+})
+
+test('a proposal from a change tool the person has lost comes back not available', () => {
+  const proposal = { id: randomUUID(), title: 'Mark 9 A', status: 'open' }
+  const messages = [
+    {
+      id: 'a1',
+      role: 'assistant' as const,
+      parts: [
+        { type: 'text', text: 'Here is the register.' },
+        { type: 'tool-propose_attendance_day', toolCallId: 'c1', state: 'output-available', input: {}, output: { status: 'ok', proposal, forModel: { proposalId: proposal.id } } },
+        { type: 'tool-school_context', toolCallId: 'c2', state: 'output-available', input: {}, output: { status: 'ok', forModel: { school: 'kept' } } },
+      ],
+    },
+  ]
+  const [hidden] = hideUnoffered(messages, new Set(['school_context']), { status: 'not_available' })
+  assert.deepEqual(hidden?.parts[1], { ...messages[0]!.parts[1], output: { status: 'not_available' } })
+  assert.equal(hidden?.parts[2], messages[0]!.parts[2])
+  assert.equal(hidden?.parts[0], messages[0]!.parts[0])
+  // Offered, the same messages come back as they were.
+  assert.equal(hideUnoffered(messages, new Set(['school_context', 'propose_attendance_day']), null)[0], messages[0])
+})
+
+test('a provider refusal logs its status, code and request id, never its words', async () => {
+  const threadId = await newThread(teacher.client)
+  const before = server.logs.length
+  const response = await ask(teacher.client, threadId, PROVIDER_FAIL_WORDS)
+  assert.equal(response.status, 200)
+  const error = streamParts(await response.text()).find((part) => part.type === 'error')
+  assert.equal(error?.errorText, 'The assistant is busy right now. Please try again in a few minutes.')
+  const lines = server.logs.slice(before)
+  const failed = lines.find((line) => line.includes('assistant turn failed'))
+  assert.ok(failed, lines.join('\n'))
+  const [fields] = JSON.parse(failed) as [Record<string, unknown>]
+  assert.equal(fields.providerStatus, 429)
+  assert.equal(fields.providerCode, 'RESOURCE_EXHAUSTED')
+  assert.equal(fields.providerRequestId, PROVIDER_REQUEST_ID)
+  assert.equal('providerReason' in fields, false)
+  for (const line of server.logs) assert.ok(!line.includes(PROVIDER_SECRET), line)
+})
+
+test('a failed lookup is counted on the usage row and the audit row', async () => {
+  const counted = await member(['teacher'])
+  const response = await ask(counted.client, await newThread(counted.client), BROKEN_WORDS)
+  assert.equal(response.status, 200)
+  const output = streamParts(await response.text()).find((part) => part.type === 'tool-output-available')?.output
+  assert.deepEqual(output, { status: 'failed' })
+  const [row] = await usageOf(counted.membershipId)
+  assert.deepEqual([row?.status, row?.tool_calls, row?.refused_calls, row?.failed_calls], ['answered', 1, 0, 1])
+  const [audit] = await auditRows('assistant_turn', counted.membershipId)
+  assert.equal((audit?.safe_changes as { failed: number }).failed, 1)
+})
+
+test('finishing a turn is tried again once when the first attempt fails', async () => {
+  const unlucky = await member(['teacher'])
+  const pool = adminPool()
+  // A sequence moves on even when the transaction that used it rolls back,
+  // so the trigger refuses exactly the first attempt.
+  await pool.query(`CREATE SEQUENCE finish_once_${suffix.replace(/-/g, '')}`)
+  await pool.query(
+    `CREATE FUNCTION fail_finish_once_${suffix.replace(/-/g, '')}() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+     BEGIN
+       IF NEW.membership_id = '${unlucky.membershipId}' AND NEW.status <> 'started'
+          AND nextval('finish_once_${suffix.replace(/-/g, '')}') = 1 THEN
+         RAISE EXCEPTION 'first finish refused';
+       END IF;
+       RETURN NEW;
+     END $$`,
+  )
+  await pool.query(
+    `CREATE TRIGGER fail_finish_once BEFORE UPDATE ON assistant_usage
+       FOR EACH ROW EXECUTE FUNCTION fail_finish_once_${suffix.replace(/-/g, '')}()`,
+  )
+  try {
+    const threadId = await newThread(unlucky.client)
+    const response = await ask(unlucky.client, threadId, 'Which school is this?')
+    assert.equal(response.status, 200)
+    await response.text()
+    const [row] = await usageOf(unlucky.membershipId)
+    assert.equal(row?.status, 'answered')
+    assert.equal((await auditRows('assistant_turn', unlucky.membershipId)).length, 1)
+    const kept = await pool.query<{ role: string }>('SELECT role FROM assistant_messages WHERE thread_id = $1 ORDER BY created_at', [threadId])
+    assert.deepEqual(kept.rows.map((entry) => entry.role), ['user', 'assistant'])
+    const lease = await pool.query('SELECT answering_until FROM assistant_threads WHERE id = $1', [threadId])
+    assert.equal(lease.rows[0]?.answering_until, null)
+    // The first attempt really was refused, and the second went through.
+    const tries = await pool.query<{ last_value: string }>(`SELECT last_value FROM finish_once_${suffix.replace(/-/g, '')}`)
+    assert.equal(Number(tries.rows[0]?.last_value), 2)
+  } finally {
+    await pool.query('DROP TRIGGER fail_finish_once ON assistant_usage')
+    await pool.query(`DROP FUNCTION fail_finish_once_${suffix.replace(/-/g, '')}()`)
+    await pool.query(`DROP SEQUENCE finish_once_${suffix.replace(/-/g, '')}`)
+  }
+})
+
+test("a turn settles the school's usage rows left started for more than ten minutes", async () => {
+  const pool = adminPool()
+  const insert = (minutesAgo: number) =>
+    pool.query<{ id: string }>(
+      `INSERT INTO assistant_usage(school_id,membership_id,role_keys,school_day,status,created_at)
+       VALUES ($1,$2,ARRAY['owner'],(now() AT TIME ZONE 'Asia/Kolkata')::date,'started',now() - make_interval(mins => $3))
+       RETURNING id`,
+      [school, owner.membershipId, minutesAgo],
+    )
+  const dead = (await insert(11)).rows[0]?.id
+  const running = (await insert(2)).rows[0]?.id
+  const asker = await member(['teacher'])
+  await (await ask(asker.client, await newThread(asker.client), 'Which school is this?')).text()
+  const rows = await pool.query<{ id: string; status: string; finished_at: Date | null }>(
+    'SELECT id, status, finished_at FROM assistant_usage WHERE id = ANY($1::uuid[])',
+    [[dead, running]],
+  )
+  const byId = new Map(rows.rows.map((row) => [row.id, row]))
+  assert.equal(byId.get(dead as string)?.status, 'failed')
+  assert.notEqual(byId.get(dead as string)?.finished_at, null)
+  assert.equal(byId.get(running as string)?.status, 'started')
+  assert.equal(byId.get(running as string)?.finished_at, null)
+  await pool.query('DELETE FROM assistant_usage WHERE id = ANY($1::uuid[])', [[dead, running]])
+})
+
+test('a second question in a conversation while an answer is being written is refused, and the first completes', async () => {
+  const busy = await member(['teacher'])
+  const threadId = await newThread(busy.client)
+  const response = await ask(busy.client, threadId, SLOW_WORDS)
+  assert.equal(response.status, 200)
+  const reader = response.body?.getReader()
+  assert.ok(reader)
+  let seen = ''
+  while (!seen.includes('word')) {
+    const chunk = await reader.read()
+    if (chunk.done) break
+    seen += new TextDecoder().decode(chunk.value)
+  }
+
+  const second = await ask(busy.client, threadId, 'Are you done?')
+  assert.equal(second.status, 409)
+  const refusal = ((await second.json()) as { error: { code: string; reason?: string; message: string } }).error
+  assert.deepEqual([refusal.code, refusal.reason], ['NOT_ALLOWED_YET', 'assistant_still_answering'])
+  assert.match(refusal.message, /still being written in this conversation/)
+  // Another conversation is not held.
+  const elsewhere = await ask(busy.client, await newThread(busy.client), 'Which school is this?')
+  assert.equal(elsewhere.status, 200)
+  await elsewhere.text()
+
+  for (;;) {
+    const chunk = await reader.read()
+    if (chunk.done) break
+    seen += new TextDecoder().decode(chunk.value)
+  }
+  assert.equal(seen.split('word').length - 1, 40)
+  const rows = await usageOf(busy.membershipId)
+  // The refused question was never counted.
+  assert.deepEqual(rows.map((row) => row.status).sort(), ['answered', 'answered'])
+
+  const after = await ask(busy.client, threadId, 'And now?')
+  assert.equal(after.status, 200)
+  await after.text()
+})
+
+test('the hold on a conversation is let go when a turn fails, so the next question is answered', async () => {
+  const unlucky = await member(['teacher'])
+  const threadId = await newThread(unlucky.client)
+  const failed = await ask(unlucky.client, threadId, FAIL_WORDS)
+  assert.ok(streamParts(await failed.text()).some((part) => part.type === 'error'))
+  const lease = await adminPool().query('SELECT answering_until FROM assistant_threads WHERE id = $1', [threadId])
+  assert.equal(lease.rows[0]?.answering_until, null)
+  const next = await ask(unlucky.client, threadId, 'Which school is this?')
+  assert.equal(next.status, 200)
+  assert.ok(!streamParts(await next.text()).some((part) => part.type === 'error'))
+})
+
+test('a long conversation is cut from the oldest end to fit the budget, never losing the new question', async () => {
+  const words = (count: number) => 'x'.repeat(count)
+  const message = (id: string, role: 'user' | 'assistant', text: string) => ({ id, role, parts: [{ type: 'text', text }] })
+  const quarter = HISTORY_TOKEN_BUDGET
+  const history = [
+    message('u1', 'user', words(quarter * 2)),
+    message('a1', 'assistant', words(quarter)),
+    message('u2', 'user', words(quarter)),
+    message('a2', 'assistant', words(quarter)),
+    message('u3', 'user', 'the newest question'),
+  ]
+  const cut = trimToBudget(history)
+  assert.equal(cut.trimmed, true)
+  assert.equal(cut.messages.at(-1)?.id, 'u3')
+  assert.equal(cut.messages[0]?.role, 'user')
+  assert.deepEqual(cut.messages.map((entry) => entry.id), ['u2', 'a2', 'u3'])
+  // Nothing to cut: the same messages, untouched.
+  const small = trimToBudget(history.slice(2))
+  assert.deepEqual([small.trimmed, small.messages.length], [false, 3])
+  // A new question bigger than the budget on its own still goes.
+  const alone = trimToBudget([message('u9', 'user', words(quarter * 8))])
+  assert.deepEqual([alone.trimmed, alone.messages.map((entry) => entry.id)], [false, ['u9']])
+
+  // Through a turn: the old words are left out and the model is told so.
+  const reader = await member(['teacher'])
+  const threadId = await newThread(reader.client)
+  const key = server.config.DATA_ENCRYPTION_KEY
+  const marker = `OLD-WORDS-${randomUUID()}`
+  for (const [index, role] of (['user', 'assistant'] as const).entries()) {
+    const id = randomUUID()
+    await adminPool().query(
+      `INSERT INTO assistant_messages(school_id,thread_id,membership_id,message_key,role,content_sealed,created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,now() - make_interval(mins => $7))`,
+      [school, threadId, reader.membershipId, id, role, seal(JSON.stringify(message(id, role, `${marker} ${words(quarter * 3)}`)), key), 10 - index],
+    )
+  }
+  const seen = server.model.doStreamCalls.length
+  const question = `The newest question ${randomUUID()}`
+  const response = await ask(reader.client, threadId, question)
+  assert.equal(response.status, 200)
+  await response.text()
+  const call = server.model.doStreamCalls[seen]
+  const prompt = JSON.stringify(call?.prompt)
+  assert.ok(!prompt.includes(marker))
+  assert.ok(prompt.includes(question))
+  const system = JSON.stringify(call?.prompt.filter((entry) => entry.role === 'system'))
+  assert.ok(system.includes('Earlier messages in this conversation are not shown to you.'))
+  assert.equal(call?.maxOutputTokens, 1500)
+})
+
+test('the prompt says how to name people, when an answer is incomplete and what a done proposal saved', () => {
+  const rules = instructionsFor({
+    displayName: 'Asha',
+    roleKeys: ['principal'],
+    schoolName: 'Sunrise',
+    today: '2026-09-26',
+    now: '10:05',
+    academicYearName: '2026-27',
+  })
+  assert.ok(rules.includes('Today is 2026-09-26 and the time is 10:05'))
+  assert.match(rules, /absent_pupils_day/)
+  assert.match(rules, /English letters/)
+  assert.match(rules, /not marked, say how many/)
+  assert.match(rules, /fewer rows than its total/)
+  assert.match(rules, /`saved`/)
+  // Without a clock it says the day only, and never invents a time.
+  assert.doesNotMatch(instructionsFor({ displayName: 'A', roleKeys: ['teacher'], schoolName: 'S', today: '2026-09-26', academicYearName: null }), /the time is/)
 })

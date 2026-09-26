@@ -31,7 +31,9 @@ export default defineConfig({
   projects: [{ name: 'chromium' }],
   webServer: [
     {
-      command: 'tests/browser/node_modules/.bin/tsx apps/api/src/server.ts',
+      // The API as apps/api/src/server.ts builds it, with a scripted model in
+      // place of the assistant's gateway (see support/assistant-server.ts).
+      command: 'tests/browser/node_modules/.bin/tsx tests/browser/support/assistant-server.ts',
       cwd: ROOT,
       url: `${API_ORIGIN}/api/health`,
       env: apiEnv,

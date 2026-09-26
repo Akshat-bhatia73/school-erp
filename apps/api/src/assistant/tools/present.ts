@@ -243,6 +243,36 @@ export function capped<T>(items: readonly T[]): { readonly items: readonly T[]; 
   return { items: items.slice(0, ASSISTANT_MAX_ROWS), total: items.length, more: items.length > ASSISTANT_MAX_ROWS }
 }
 
+/** "9 A, 9 B and 10 A", with "and 3 more" past `max`. */
+export function listedNames(names: readonly string[], max: number): string {
+  const shown = names.slice(0, max)
+  const rest = names.length - shown.length
+  if (rest > 0) return `${shown.join(', ')} and ${rest} more`
+  if (shown.length <= 1) return shown.join('')
+  return `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}`
+}
+
+/** A letter from outside the Latin alphabet, such as Devanagari. */
+const NOT_LATIN = /[^\P{L}\p{Script=Latin}]/u
+
+/**
+ * True when a name was written in another script. The records are in English
+ * letters, so such a name can never match them.
+ */
+export function notInEnglishLetters(said: string): boolean {
+  return NOT_LATIN.test(said)
+}
+
+/** What the model is told for a name in another script. */
+export function inEnglishLetters(said: string, what = 'the name'): string {
+  return `${said}: pass ${what} in English letters, as it is written in the school's records, not in Hindi or another script.`
+}
+
+/** What a search tool answers, without searching, for a name in another script. */
+export function englishLettersOnly(said: string): ReadToolOutcome {
+  return ok({ found: 'nothing', hint: inEnglishLetters(said) })
+}
+
 /** A person's name in a list, cut to what a list shows. */
 export function nameOf(first: string, last?: string | undefined): string {
   return last ? `${first} ${last}` : first

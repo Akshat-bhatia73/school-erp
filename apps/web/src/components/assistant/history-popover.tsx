@@ -20,10 +20,13 @@ import { groupThreads } from './format'
  * The button at the top left: "New chat" on a new conversation, the conversation's title
  * otherwise. It opens the person's past conversations grouped by day; there is no second sidebar.
  */
-export function HistoryPopover({ title, threads, loading, currentId, onOpen }: {
+export function HistoryPopover({ title, threads, loading, failed, onRetry, currentId, onOpen }: {
   title: string
   threads: readonly AssistantThreadSummary[]
   loading?: boolean
+  /** The list could not be loaded, which is not the same as there being none. */
+  failed?: boolean
+  onRetry?: () => void
   currentId?: string
   /** Open a conversation; no id starts a new one. */
   onOpen: (threadId?: string) => void
@@ -74,14 +77,20 @@ export function HistoryPopover({ title, threads, loading, currentId, onOpen }: {
               New chat
             </button>
 
-            {loading && (
+            {failed && (
+              <div className="flex items-center justify-between gap-3 px-3.5 py-3 text-[13px] text-muted-foreground" role="alert">
+                <span>Could not load your conversations.</span>
+                {onRetry && <Button size="sm" variant="outline" onClick={onRetry}>Try again</Button>}
+              </div>
+            )}
+            {loading && !failed && (
               <div className="flex flex-col gap-2 px-3.5 py-3">
                 <Skeleton className="h-3.5 w-3/4" />
                 <Skeleton className="h-3.5 w-2/3" />
                 <Skeleton className="h-3.5 w-1/2" />
               </div>
             )}
-            {!loading && threads.length === 0 && (
+            {!loading && !failed && threads.length === 0 && (
               <p className="px-3.5 py-3 text-[13px] text-muted-foreground">Your conversations of the last 30 days show here.</p>
             )}
 

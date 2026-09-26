@@ -38,11 +38,13 @@ function withCell(preview: ExamMarksPreview, r: number, c: number, proposed: Mar
   }
 }
 
-export function MarksBody({ preview, onChange, errors, readOnly }: {
+export function MarksBody({ preview, onChange, errors, readOnly, errorId }: {
   preview: ExamMarksPreview
   onChange: (next: ExamMarksPreview) => void
   errors: FieldErrors
   readOnly: boolean
+  /** The card's message that says what is wrong with the marks, which a refused cell points to. */
+  errorId?: string
 }) {
   // What each cell shows while it is typed into ("7." on the way to "7.5"); the preview holds the value.
   const [typed, setTyped] = useState<Record<string, string>>({})
@@ -81,7 +83,8 @@ export function MarksBody({ preview, onChange, errors, readOnly }: {
                   if (!cell) return <td key={component.component} className="h-10 border-b border-l px-2 text-muted-foreground/60">—</td>
                   const changed = cellChanges(cell)
                   const text = typed[`${r}:${c}`] ?? textOf(cell.proposed)
-                  const invalid = !!errors[`rows.${r}.cells.${c}.proposed`] || (text !== '' && parseCell(text, component.component) === 'invalid')
+                  const refused = !!errors[`rows.${r}.cells.${c}.proposed`]
+                  const invalid = refused || (text !== '' && parseCell(text, component.component) === 'invalid')
                   const label = `${component.label} for ${row.name}`
                   return (
                     <td key={component.component} className="h-10 border-b border-l px-1.5">
@@ -95,6 +98,7 @@ export function MarksBody({ preview, onChange, errors, readOnly }: {
                           <input
                             aria-label={label}
                             aria-invalid={invalid || undefined}
+                            aria-describedby={refused ? errorId : undefined}
                             inputMode="decimal"
                             value={isStatus(text) ? STATUS_LABELS[text] : text}
                             placeholder={cell.current === null ? undefined : markText(cell.current)}
