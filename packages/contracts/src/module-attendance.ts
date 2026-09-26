@@ -162,7 +162,19 @@ export const AttendanceDayResponse = z.strictObject({
 })
 export type AttendanceDayResponse = z.infer<typeof AttendanceDayResponse>
 
-export const AttendanceMarkLine = z.strictObject({ studentId: Id, mark: AttendanceMark })
+/**
+ * The revision of the pupil's current mark the writer read (0 when there was
+ * none). When sent, the server refuses the whole write with VERSION_CONFLICT
+ * if the mark has moved since, so a register read before somebody else saved
+ * never overwrites their marks. Optional only so an older screen still saves.
+ */
+export const ExpectedRevision = z.number().int().nonnegative()
+
+export const AttendanceMarkLine = z.strictObject({
+  studentId: Id,
+  mark: AttendanceMark,
+  expectedRevision: ExpectedRevision.optional(),
+})
 const AttendanceMarkLines = z
   .array(AttendanceMarkLine)
   .min(1)
@@ -280,7 +292,12 @@ export const StaffAttendanceDayResponse = z.strictObject({
 })
 export type StaffAttendanceDayResponse = z.infer<typeof StaffAttendanceDayResponse>
 
-export const StaffAttendanceMarkLine = z.strictObject({ staffId: Id, mark: AttendanceMark })
+/** `expectedRevision` works as on AttendanceMarkLine. */
+export const StaffAttendanceMarkLine = z.strictObject({
+  staffId: Id,
+  mark: AttendanceMark,
+  expectedRevision: ExpectedRevision.optional(),
+})
 const StaffAttendanceMarkLines = z
   .array(StaffAttendanceMarkLine)
   .min(1)

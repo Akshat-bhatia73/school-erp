@@ -37,6 +37,23 @@ export { schoolToday }
 /** The tenant transaction an attendance read or write runs on. */
 export type AttendanceConnection = AuthzConnection
 
+/**
+ * Refuses a whole write when any line was built from a mark that has since
+ * moved. `revisionOf` answers the stored revision of the line's person, or 0
+ * when they have no mark yet. A line without `expectedRevision` is not checked.
+ * Called before the first row is written, so a refused write writes nothing.
+ */
+export function assertExpectedRevisions<Line extends { readonly expectedRevision?: number | undefined }>(
+  lines: readonly Line[],
+  revisionOf: (line: Line) => number,
+): void {
+  for (const line of lines) {
+    if (line.expectedRevision !== undefined && revisionOf(line) !== line.expectedRevision) {
+      throw new ApiFailure('VERSION_CONFLICT')
+    }
+  }
+}
+
 /** The month a `YYYY-MM` string names, as its first and last day. */
 export function monthBounds(month: string): { from: string; to: string } {
   const year = Number(month.slice(0, 4))

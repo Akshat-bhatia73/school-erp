@@ -21,6 +21,7 @@ import {
   type ModuleDependencies,
 } from '../shared/index.ts'
 import {
+  assertExpectedRevisions,
   attendancePlans,
   readCalendarDay,
   schoolToday,
@@ -327,6 +328,7 @@ export function registerAttendanceRosterRoutes(app: FastifyInstance, deps: Modul
         }
 
         const current = await currentMarks(conn, context.schoolId, [...onRoll], date)
+        assertExpectedRevisions(body.marks, (line) => current.get(line.studentId)?.revision ?? 0)
         let changed = 0
         for (const pupil of roster) {
           const mark = sent.get(pupil.id)
@@ -409,6 +411,7 @@ export function registerAttendanceRosterRoutes(app: FastifyInstance, deps: Modul
           body.marks.map((line) => line.studentId),
           date,
         )
+        assertExpectedRevisions(body.marks, (line) => current.get(line.studentId)?.revision ?? 0)
         let corrected = 0
         for (const line of body.marks) {
           const now = current.get(line.studentId)

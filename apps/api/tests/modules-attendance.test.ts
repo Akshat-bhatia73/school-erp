@@ -291,7 +291,7 @@ function everyone(day: DayResponse, mark: AttendanceMark): { studentId: string; 
 async function markDay(
   client: Client,
   date: string,
-  marks: { studentId: string; mark: AttendanceMark }[],
+  marks: { studentId: string; mark: AttendanceMark; expectedRevision?: number }[],
 ): Promise<Response> {
   return client.fetch(`/api/schools/${schoolA}/attendance/sections/${attSection}/days/${date}`, put({ marks }))
 }
@@ -299,7 +299,7 @@ async function markDay(
 async function correctDay(
   client: Client,
   date: string,
-  marks: { studentId: string; mark: AttendanceMark }[],
+  marks: { studentId: string; mark: AttendanceMark; expectedRevision?: number }[],
   reason = 'The office checked the register.',
 ): Promise<Response> {
   return client.fetch(
@@ -1027,4 +1027,195 @@ test('a parent dashboard carries their child’s attendance this month', async (
   const month = await studentMonth(parent, p1, today.slice(0, 7))
   assert.equal(child.attendance?.percentage, month.summary.percentage)
   assert.equal(child.attendance?.present, month.summary.present)
+})
+
+// ---------------------------------------------------------------------------
+// Stale writes. A line may carry the revision of the mark its writer read; a
+// write built from a mark that has moved since is refused whole. These come
+// last, so the marks they add never move a figure another test counts.
+
+/** A refused write: 409 VERSION_CONFLICT. */
+async function conflict(response: Response): Promise<void> {
+  const text = await response.text()
+  assert.equal(response.status, 409, text)
+  assert.equal((JSON.parse(text) as ErrorBody).error.code, 'VERSION_CONFLICT', text)
+}
+
+type PupilLine = { studentId: string; mark: AttendanceMark; expectedRevision?: number }
+type StaffLine = { staffId: string; mark: AttendanceMark; expectedRevision?: number }
+
+/** The register as the day read it, each line carrying the revision it saw. */
+function asRead(day: DayResponse, markOf: (row: DayResponse['rows'][number]) => AttendanceMark): PupilLine[] {
+  return day.rows.map((row) => ({
+    studentId: row.student.id,
+    mark: markOf(row),
+    expectedRevision: row.entry?.revision ?? 0,
+  }))
+}
+
+function staffAsRead(day: StaffDay, markOf: (row: StaffDay['rows'][number]) => AttendanceMark): StaffLine[] {
+  return day.rows
+    .filter((row) => !row.self)
+    .map((row) => ({ staffId: row.staff.id, mark: markOf(row), expectedRevision: row.entry?.revision ?? 0 }))
+}
+
+async function putStaff(client: Client, date: string, marks: StaffLine[]): Promise<Response> {
+  return client.fetch(`/api/schools/${schoolA}/staff-attendance/days/${date}`, put({ marks }))
+}
+
+async function correctStaff(client: Client, date: string, marks: StaffLine[]): Promise<Response> {
+  return client.fetch(
+    `/api/schools/${schoolA}/staff-attendance/days/${date}/corrections`,
+    post({ marks, reason: 'The office checked the register.' }),
+  )
+}
+
+test('the register saves when every revision matches and refuses a stale one whole', async () => {
+  const read = await readDay(teacher, attSection, today)
+  // A matching revision saves, and a line whose mark did not change is checked too.
+  const saved = await ok<DayResponse>(
+    await markDay(teacher, today, asRead(read, (row) => (row.student.id === p2 ? 'present' : row.mark!))),
+  )
+  assert.equal(saved.rows.find((row) => row.student.id === p2)?.mark, 'present')
+
+  // `read` is now stale: somebody saved in between.
+  const entries = await entryCount()
+  const audits = (await auditRows('attendance.record', attSection)).length
+  await conflict(await markDay(teacher, today, asRead(read, () => 'leave')))
+  // Even when the only stale line is one whose mark is not changing.
+  await conflict(
+    await markDay(
+      teacher,
+      today,
+      asRead(saved, (row) => row.mark!).map((line) =>
+        line.studentId === p2 ? { ...line, expectedRevision: (line.expectedRevision ?? 0) - 1 } : line,
+      ),
+    ),
+  )
+  // 0 says "nobody had marked this pupil", which is no longer true.
+  await conflict(
+    await markDay(
+      teacher,
+      today,
+      asRead(saved, () => 'present').map((line) => (line.studentId === p1 ? { ...line, expectedRevision: 0 } : line)),
+    ),
+  )
+  assert.equal(await entryCount(), entries, 'a refused save writes no mark')
+  assert.equal((await auditRows('attendance.record', attSection)).length, audits, 'and no audit row')
+  assert.equal((await readDay(teacher, attSection, today)).rows.find((row) => row.student.id === p2)?.mark, 'present')
+
+  // A body without revisions saves exactly as before.
+  const plain = await ok<DayResponse>(
+    await markDay(teacher, today, saved.rows.map((row) => ({ studentId: row.student.id, mark: 'present' }))),
+  )
+  assert.ok(plain.rows.every((row) => row.mark === 'present'))
+})
+
+test('two registers built from the same unmarked read: the second is refused', async () => {
+  const read = await readDay(owner, otherSection, today)
+  assert.equal(read.marked, false)
+  const first = asRead(read, () => 'present')
+  assert.ok(first.every((line) => line.expectedRevision === 0))
+  await ok<DayResponse>(
+    await owner.fetch(`/api/schools/${schoolA}/attendance/sections/${otherSection}/days/${today}`, put({ marks: first })),
+  )
+  const entries = await entryCount()
+  await conflict(
+    await owner.fetch(
+      `/api/schools/${schoolA}/attendance/sections/${otherSection}/days/${today}`,
+      put({ marks: asRead(read, () => 'absent') }),
+    ),
+  )
+  assert.equal(await entryCount(), entries)
+  assert.equal((await readDay(owner, otherSection, today)).rows[0]?.mark, 'present', 'the first save stands')
+})
+
+test('a correction saves on a matching revision and refuses a stale one whole', async () => {
+  const date = past[2] as string
+  const read = await readDay(owner, attSection, date)
+  const p3Read = read.rows.find((row) => row.student.id === p3)
+  const saved = await ok<DayResponse>(
+    await correctDay(owner, date, [{ studentId: p3, mark: 'late', expectedRevision: p3Read?.entry?.revision ?? 0 }]),
+    201,
+  )
+  const p3Saved = saved.rows.find((row) => row.student.id === p3)
+  assert.equal(p3Saved?.mark, 'late')
+
+  const entries = await entryCount()
+  const audits = (await auditRows('attendance.manage', attSection)).length
+  // Built from the read before the save.
+  await conflict(
+    await correctDay(owner, date, [{ studentId: p3, mark: 'leave', expectedRevision: p3Read?.entry?.revision ?? 0 }]),
+  )
+  // 0 on a pupil who has a mark.
+  await conflict(await correctDay(owner, date, [{ studentId: p3, mark: 'leave', expectedRevision: 0 }]))
+  // One fresh line does not carry a stale one.
+  await conflict(
+    await correctDay(owner, date, [
+      { studentId: p1, mark: 'present', expectedRevision: read.rows.find((row) => row.student.id === p1)?.entry?.revision ?? 0 },
+      { studentId: p3, mark: 'leave', expectedRevision: (p3Saved?.entry?.revision ?? 0) + 1 },
+    ]),
+  )
+  assert.equal(await entryCount(), entries, 'a refused correction writes no mark')
+  assert.equal((await auditRows('attendance.manage', attSection)).length, audits, 'and no audit row')
+
+  // Without a revision it saves as before.
+  await ok<DayResponse>(await correctDay(owner, date, [{ studentId: p3, mark: 'leave' }]), 201)
+  assert.equal((await entriesOf(p3, date)).at(-1)?.mark, 'leave')
+})
+
+test('the staff register saves on matching revisions and refuses a stale one whole', async () => {
+  const read = await staffDay(principal, today)
+  const saved = await ok<StaffDay>(
+    await putStaff(principal, today, staffAsRead(read, (row) => (row.staff.id === teacherStaffId ? 'absent' : row.mark ?? 'present'))),
+  )
+  assert.equal(saved.rows.find((row) => row.staff.id === teacherStaffId)?.mark, 'absent')
+
+  const entries = await staffEntryCount()
+  const audits = (await auditRows('staff_attendance.record', null)).length
+  await conflict(await putStaff(principal, today, staffAsRead(read, () => 'present')))
+  await conflict(
+    await putStaff(
+      principal,
+      today,
+      staffAsRead(saved, () => 'present').map((line) =>
+        line.staffId === teacherStaffId ? { ...line, expectedRevision: 0 } : line,
+      ),
+    ),
+  )
+  assert.equal(await staffEntryCount(), entries, 'a refused save writes no mark')
+  assert.equal((await auditRows('staff_attendance.record', null)).length, audits, 'and no audit row')
+
+  const plain = await ok<StaffDay>(
+    await putStaff(
+      principal,
+      today,
+      saved.rows.filter((row) => !row.self).map((row) => ({ staffId: row.staff.id, mark: 'present' as AttendanceMark })),
+    ),
+  )
+  assert.equal(plain.rows.find((row) => row.staff.id === teacherStaffId)?.mark, 'present')
+})
+
+test('a staff correction saves on a matching revision and refuses a stale one whole', async () => {
+  const read = await staffDay(principal, today)
+  const before = read.rows.find((row) => row.staff.id === teacherStaffId)?.entry?.revision ?? 0
+  const saved = await ok<StaffDay>(
+    await correctStaff(principal, today, [{ staffId: teacherStaffId, mark: 'half_day', expectedRevision: before }]),
+    201,
+  )
+  const now = saved.rows.find((row) => row.staff.id === teacherStaffId)?.entry?.revision ?? 0
+  assert.equal(now, before + 1)
+
+  const entries = await staffEntryCount()
+  const audits = (await auditRows('staff_attendance.manage', null)).length
+  await conflict(await correctStaff(principal, today, [{ staffId: teacherStaffId, mark: 'late', expectedRevision: before }]))
+  await conflict(await correctStaff(principal, today, [{ staffId: teacherStaffId, mark: 'late', expectedRevision: 0 }]))
+  assert.equal(await staffEntryCount(), entries, 'a refused correction writes no mark')
+  assert.equal((await auditRows('staff_attendance.manage', null)).length, audits, 'and no audit row')
+
+  const plain = await ok<StaffDay>(
+    await correctStaff(principal, today, [{ staffId: teacherStaffId, mark: 'late' }]),
+    201,
+  )
+  assert.equal(plain.rows.find((row) => row.staff.id === teacherStaffId)?.mark, 'late')
 })

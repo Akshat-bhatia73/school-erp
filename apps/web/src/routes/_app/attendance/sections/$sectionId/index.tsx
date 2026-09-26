@@ -11,11 +11,12 @@ import { ClipboardCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import { DayRegister, type DayRegisterLine, type DayRegisterPerson } from '@/components/attendance/day-register'
+import { STALE_MARKS_MESSAGE } from '@/components/attendance/labels'
 import { DateChip, todayIso } from '@/components/attendance/month-chip'
 import { EmptyState, PageHeader, PageTabs, Toolbar } from '@/components/shared/page'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
-import { describeError } from '@/lib/api-errors'
+import { describeError, isApiError } from '@/lib/api-errors'
 import { allows } from '@/lib/permissions'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
@@ -43,18 +44,28 @@ function Page() {
     toast.success(message)
   }
 
+  // Somebody saved after this screen read the register: fetch their marks and say so.
+  const failed = (failure: unknown) => {
+    if (isApiError(failure, 'VERSION_CONFLICT')) {
+      void queryClient.invalidateQueries({ queryKey: [schoolId, 'attendance'] })
+      toast.error(STALE_MARKS_MESSAGE)
+      return
+    }
+    toast.error(describeError(failure))
+  }
+
   const save = useMutation({
     mutationFn: (lines: DayRegisterLine[]) =>
-      api.attendance.mark(schoolId, sectionId, date, { marks: lines.map((line) => ({ studentId: line.id, mark: line.mark })) }),
+      api.attendance.mark(schoolId, sectionId, date, { marks: lines.map((line) => ({ studentId: line.id, mark: line.mark, expectedRevision: line.expectedRevision })) }),
     onSuccess: () => done('Attendance saved'),
-    onError: (failure) => toast.error(describeError(failure)),
+    onError: failed,
   })
 
   const correct = useMutation({
     mutationFn: ({ lines, reason }: { lines: DayRegisterLine[]; reason: string }) =>
-      api.attendance.correct(schoolId, sectionId, date, { marks: lines.map((line) => ({ studentId: line.id, mark: line.mark })), reason }),
+      api.attendance.correct(schoolId, sectionId, date, { marks: lines.map((line) => ({ studentId: line.id, mark: line.mark, expectedRevision: line.expectedRevision })), reason }),
     onSuccess: () => done('Corrections saved'),
-    onError: (failure) => toast.error(describeError(failure)),
+    onError: failed,
   })
 
   const data = dayQuery.data
@@ -87,6 +98,7 @@ function Page() {
     name: row.student.name,
     sub: row.student.admissionNumber,
     mark: row.mark,
+    revision: row.entry?.revision,
     editable: true,
   }))
 

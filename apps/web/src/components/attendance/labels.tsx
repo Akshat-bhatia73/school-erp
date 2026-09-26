@@ -2,6 +2,12 @@
 import type { AttendanceMark, ErrorReason } from '@erp/contracts'
 import { Tag, type TagColor } from '@/components/shared/tag'
 
+/**
+ * Said when a save is refused because somebody saved these marks after the screen read them.
+ * The screen refetches at the same time, so the newer marks are already showing.
+ */
+export const STALE_MARKS_MESSAGE = 'Somebody else saved these marks first. The latest marks are now shown; check them and save again.'
+
 export const MARK_LABEL: Record<AttendanceMark, string> = {
   present: 'Present',
   absent: 'Absent',

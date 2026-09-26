@@ -29,6 +29,7 @@ import {
   type ModuleDependencies,
 } from '../shared/index.ts'
 import {
+  assertExpectedRevisions,
   type AttendanceConnection,
   monthBounds,
   readCalendar,
@@ -467,7 +468,7 @@ async function appendEntries(
         line.staffId,
         input.date,
         line.mark,
-        row?.revision ? Number(row.revision) + 1 : 1,
+        storedRevision(row) + 1,
         row?.entry_id ?? null,
         input.kind,
         context.membershipId,
@@ -476,6 +477,11 @@ async function appendEntries(
     changed += 1
   }
   return changed
+}
+
+/** The revision of the mark that stands on a register row, 0 when there is none. */
+function storedRevision(row: RegisterRow | undefined): number {
+  return row?.revision ? Number(row.revision) : 0
 }
 
 /** Nobody marks their own attendance, whichever way they ask. */
@@ -534,6 +540,7 @@ export function registerStaffAttendanceRoutes(app: FastifyInstance, deps: Module
           throw new ApiFailure('INVALID_REQUEST', undefined, 'staff_attendance_register_incomplete')
         }
 
+        assertExpectedRevisions(body.marks, (line) => storedRevision(current.get(line.staffId)))
         const changed = await appendEntries(conn, context, { date, kind: 'marking', lines: body.marks, current })
         await writeAudit(conn, context, {
           action: 'staff_attendance.record',
@@ -576,6 +583,7 @@ export function registerStaffAttendanceRoutes(app: FastifyInstance, deps: Module
           }
         }
 
+        assertExpectedRevisions(body.marks, (line) => storedRevision(current.get(line.staffId)))
         const corrected = await appendEntries(conn, context, {
           date,
           kind: 'correction',

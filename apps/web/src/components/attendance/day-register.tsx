@@ -25,6 +25,8 @@ export interface DayRegisterPerson {
   sub?: string
   /** The current mark the server sent, when there is one. */
   mark?: AttendanceMark
+  /** The revision of that mark, sent back on a save so a stale register is refused. */
+  revision?: number
   /** False for a row nobody may mark here, such as the caller's own staff row. */
   editable: boolean
   /** Said instead of a picker on a row that is not editable. */
@@ -33,7 +35,8 @@ export interface DayRegisterPerson {
   to?: string
 }
 
-export interface DayRegisterLine { id: string; mark: AttendanceMark }
+/** `expectedRevision` is the revision this screen read, 0 for a person with no mark yet. */
+export interface DayRegisterLine { id: string; mark: AttendanceMark; expectedRevision: number }
 
 export function DayRegister({ people, window: day, canRecord, canCorrect, isSaving, onSave, onCorrect, noun, leadLabel, nameLabel }: {
   people: DayRegisterPerson[]
@@ -74,7 +77,7 @@ export function DayRegister({ people, window: day, canRecord, canCorrect, isSavi
 
   const lines = people
     .filter((person) => person.editable)
-    .map((person) => ({ id: person.id, mark: draft[person.id] ?? person.mark ?? 'present' }))
+    .map((person) => ({ id: person.id, mark: draft[person.id] ?? person.mark ?? 'present', expectedRevision: person.revision ?? 0 }))
   const changed = lines.filter((line) => {
     const person = people.find((row) => row.id === line.id)
     return person?.mark !== line.mark
