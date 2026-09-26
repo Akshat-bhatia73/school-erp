@@ -777,7 +777,7 @@ Task 24a. A person asks questions about the school in plain words and the assist
 | `GET /status` | `ai_assistant.use` | `AssistantStatus`: available or the first reason not, questions left today, suggested questions for the person's roles |
 | `GET /threads`, `POST /threads` | `ai_assistant.use` | the caller's own conversations with a message in the last 30 days, newest first; `201 { id }` |
 | `GET /threads/:threadId`, `DELETE /threads/:threadId` | `ai_assistant.use` | `AssistantThread`, messages oldest first; `204` and one audit row (`assistant_thread`, no words) |
-| `POST /threads/:threadId/turns` | `ai_assistant.use` | the AI SDK UI message stream (`text/event-stream`) for one question, body `AssistantTurnRequest` |
+| `POST /threads/:threadId/turns` | `ai_assistant.use` | the AI SDK UI message stream (`text/event-stream`) for one question, body `AssistantTurnRequest`. A repeated message id is accepted only as Try again of the newest question, word for word; `NOT_ALLOWED_YET` (`assistant_still_answering`) while another answer in the same conversation is still being written |
 | `GET /threads/:threadId/proposals` | `ai_assistant.use` | `AssistantProposalStates`: every proposal in the caller's own thread as it stands now, oldest first (24b) |
 | `POST /proposals/:proposalId/confirm` | `ai_assistant.use` (the write route decides the change) | `ConfirmAssistantProposalResponse`, body `ConfirmAssistantProposalRequest` `{ preview }` |
 | `POST /proposals/:proposalId/dismiss` | `ai_assistant.use` | `ConfirmAssistantProposalResponse` with the proposal `dismissed` |

@@ -10,13 +10,13 @@ import {
   streamText,
   toUIMessageStream,
   type LanguageModel,
+  type SystemModelMessage,
   type UIMessage,
 } from 'ai'
 import {
   ASSISTANT_MAX_TOOL_CALLS,
   type AssistantTurnRequest,
   type AssistantUnavailableReason,
-  type PermissionKey,
 } from '@erp/contracts'
 import type { RequestContext } from '@erp/contracts/server'
 import { AuthorizationError } from '@erp/authz'
@@ -26,15 +26,23 @@ import { reportError } from '../observability.ts'
 import { seal } from '../modules/shared/crypto.ts'
 import { writeAudit } from '../modules/shared/audit.ts'
 import type { ModuleDependencies } from '../modules/shared/route.ts'
-import { READ_TOOLS, toolsFor } from './tools/registry.ts'
 import type { AnyReadTool, ToolCallContext } from './tools/types.ts'
 import { availability } from './limits.ts'
 import { instructionsFor } from './prompt.ts'
 import { assistantModel } from './model.ts'
-import { keepMessage, keptMessages, ownThread, titleFrom, type KeptMessage } from './threads.ts'
+import {
+  HIDDEN_RESULT,
+  hideUnoffered,
+  keepMessage,
+  keptMessages,
+  offeredProposeTools,
+  offeredTools,
+  ownThread,
+  titleFrom,
+  type KeptMessage,
+} from './threads.ts'
 import { buildProposeToolSet, buildToolSet, ToolLedger, type SaveProposal } from './toolset.ts'
 import { routeGetter } from './inject.ts'
-import { PROPOSE_TOOLS, proposeToolsFor } from './proposals/registry.ts'
 import type { AnyProposeTool } from './proposals/types.ts'
 import { forModelOf, replayProposals, saveProposal, threadProposals } from './proposals/store.ts'
 
@@ -50,8 +58,22 @@ export interface AssistantDependencies extends ModuleDependencies {
   readonly assistantProposeTools?: readonly AnyProposeTool[]
 }
 
-/** The messages of a thread the model sees again with a new question. */
+/** The messages of a thread the model sees again with a new question, at most. */
 const HISTORY_MESSAGES = 20
+/**
+ * And at most about this many tokens of them, counted roughly as four
+ * characters a token. The oldest go first; the new question always stays.
+ */
+export const HISTORY_TOKEN_BUDGET = 24_000
+/** The longest answer the model may write to one question, in tokens. */
+export const MAX_OUTPUT_TOKENS = 1500
+/** How long a turn holds its conversation; longer than the turn may run, so a crashed turn's hold runs out. */
+const ANSWERING_LEASE_MINUTES = 5
+/** A usage row still 'started' this long after it began belongs to a turn that died; it is settled as failed. */
+const STARTED_STALE_MINUTES = 10
+/** Told to the model, for this question only, when older messages were left out. */
+const TRIMMED_NOTE =
+  'Earlier messages in this conversation are not shown to you. If the question depends on them, ask the person to repeat what you need.'
 /** About four minutes, then the answer stops and says so. */
 const TURN_TIMEOUT_MS = 240_000
 /** What the browser shows when a turn fails. Never the error itself. */
@@ -69,19 +91,28 @@ function modelName(model: LanguageModel): string {
   return typeof model === 'string' ? model : `${model.provider}/${model.modelId}`
 }
 
-/** The tools this person is offered: those whose route permission they hold somewhere. */
-function offeredTools(deps: AssistantDependencies, capabilities: ReadonlySet<PermissionKey>): readonly AnyReadTool[] {
-  if (deps.assistantTools) return deps.assistantTools.filter((tool) => capabilities.has(tool.permission))
-  return toolsFor(capabilities)
-}
-
-/** The change tools this person is offered: those whose write permission they hold somewhere. */
-function offeredProposeTools(
-  deps: AssistantDependencies,
-  capabilities: ReadonlySet<PermissionKey>,
-): readonly AnyProposeTool[] {
-  if (deps.assistantProposeTools) return deps.assistantProposeTools.filter((tool) => capabilities.has(tool.permission))
-  return proposeToolsFor(capabilities)
+/**
+ * The messages the model reads again: the newest ones that fit
+ * HISTORY_TOKEN_BUDGET, sized roughly as their JSON length over four. The
+ * last message, the new question, always stays, and the copy starts at a
+ * question so it never opens halfway through an answer. `trimmed` says
+ * whether anything was left out.
+ */
+export function trimToBudget<T extends { readonly role: string }>(
+  messages: readonly T[],
+  budget = HISTORY_TOKEN_BUDGET,
+): { messages: T[]; trimmed: boolean } {
+  const sizes = messages.map((message) => Math.ceil(JSON.stringify(message).length / 4))
+  let start = 0
+  let total = sizes.reduce((sum, size) => sum + size, 0)
+  while (start < messages.length - 1 && total > budget) {
+    total -= sizes[start]!
+    start += 1
+  }
+  if (start > 0) {
+    while (start < messages.length - 1 && messages[start]!.role !== 'user') start += 1
+  }
+  return { messages: messages.slice(start), trimmed: start > 0 }
 }
 
 interface TurnInput {
@@ -132,11 +163,30 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
   const setup = await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
     const thread = await ownThread(conn, context, threadId)
     if (!thread) throw new ApiFailure('RESOURCE_NOT_FOUND')
+    // One answer at a time per conversation: a second tab asking while the
+    // first answer is still being written is told to wait, and nothing is
+    // counted for it. The row lock makes two starting at once take turns here.
+    const lease = await conn.client.query<{ busy: boolean }>(
+      `SELECT COALESCE(answering_until > now(), false) AS busy FROM assistant_threads
+        WHERE school_id = $1 AND membership_id = $2 AND id = $3 FOR UPDATE`,
+      [context.schoolId, context.membershipId, threadId],
+    )
+    if (lease.rows[0]?.busy) throw new ApiFailure('NOT_ALLOWED_YET', undefined, 'assistant_still_answering')
     // One question at a time per school from here to the commit, so the
     // counts below and the row that follows them cannot interleave.
     await conn.client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
       `assistant_usage:${context.schoolId}`,
     ])
+    // A turn that died before it could finish (the function was stopped, the
+    // database was unreachable twice) left its row 'started'. It still counts
+    // as a question asked; it is settled here as failed so the counts by
+    // outcome stay true.
+    await conn.client.query(
+      `UPDATE assistant_usage SET status = 'failed', finished_at = now()
+        WHERE school_id = $1 AND status = 'started'
+          AND created_at < now() - make_interval(mins => $2)`,
+      [context.schoolId, STARTED_STALE_MINUTES],
+    )
     const allowed = await availability(conn, context, deps.config)
     if (!allowed.available) throw refusalFor(allowed.reason)
 
@@ -158,6 +208,11 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
     )
     const usageId = usage.rows[0]?.id
     if (!usageId) throw new ApiFailure('SERVICE_UNAVAILABLE')
+    await conn.client.query(
+      `UPDATE assistant_threads SET answering_until = now() + make_interval(mins => $4)
+        WHERE school_id = $1 AND membership_id = $2 AND id = $3`,
+      [context.schoolId, context.membershipId, threadId, ANSWERING_LEASE_MINUTES],
+    )
 
     // Where each proposal in the conversation stands now, for the model's copy.
     const proposals = new Map(
@@ -201,54 +256,84 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
   let errored = false
   let finished = false
 
-  /** Keep the answer, finish the usage row, write the one audit row. Runs once. */
+  /** One attempt at finishing: the answer, the usage row, the hold on the conversation and the audit row. */
+  const finishOnce = (status: UsageStatus, answer?: UIMessage): Promise<void> =>
+    withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+      if (answer && answer.parts.length > 0) {
+        const id = /^[A-Za-z0-9_-]{1,128}$/.test(answer.id) ? answer.id : randomUUID()
+        await keepMessage(
+          conn,
+          context,
+          threadId,
+          { id, role: 'assistant', parts: answer.parts as unknown as Record<string, unknown>[] },
+          key,
+        )
+      }
+      await conn.client.query(
+        `UPDATE assistant_usage
+            SET status = $3, model = $4, tool_calls = $5, refused_calls = $6, failed_calls = $7,
+                input_tokens = $8, output_tokens = $9, finished_at = now()
+          WHERE school_id = $1 AND id = $2`,
+        [
+          context.schoolId,
+          setup.usageId,
+          status,
+          modelId,
+          ledger.calls,
+          ledger.refused,
+          ledger.failed,
+          tokens.input,
+          tokens.output,
+        ],
+      )
+      await conn.client.query(
+        `UPDATE assistant_threads SET answering_until = NULL
+          WHERE school_id = $1 AND membership_id = $2 AND id = $3`,
+        [context.schoolId, context.membershipId, threadId],
+      )
+      await writeAudit(conn, context, {
+        action: 'ai_assistant.use',
+        targetType: 'assistant_turn',
+        targetId: setup.usageId,
+        summary: 'Asked the assistant a question.',
+        safeChanges: {
+          tools: [...ledger.names],
+          toolCalls: ledger.calls,
+          refused: ledger.refused,
+          failed: ledger.failed,
+          model: modelId,
+          inputTokens: tokens.input,
+          outputTokens: tokens.output,
+          status,
+        },
+      })
+    })
+
+  /**
+   * Keep the answer, finish the usage row, let go of the conversation and
+   * write the one audit row, all in one transaction. Runs once, and tries that
+   * transaction a second time if the first fails.
+   */
   const finish = async (status: UsageStatus, answer?: UIMessage): Promise<void> => {
     if (finished) return
     finished = true
-    try {
-      await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
-        if (answer && answer.parts.length > 0) {
-          const id = /^[A-Za-z0-9_-]{1,128}$/.test(answer.id) ? answer.id : randomUUID()
-          await keepMessage(
-            conn,
-            context,
-            threadId,
-            { id, role: 'assistant', parts: answer.parts as unknown as Record<string, unknown>[] },
-            key,
-          )
-        }
-        await conn.client.query(
-          `UPDATE assistant_usage
-              SET status = $3, model = $4, tool_calls = $5, refused_calls = $6,
-                  input_tokens = $7, output_tokens = $8, finished_at = now()
-            WHERE school_id = $1 AND id = $2`,
-          [context.schoolId, setup.usageId, status, modelId, ledger.calls, ledger.refused, tokens.input, tokens.output],
-        )
-        await writeAudit(conn, context, {
-          action: 'ai_assistant.use',
-          targetType: 'assistant_turn',
-          targetId: setup.usageId,
-          summary: 'Asked the assistant a question.',
-          safeChanges: {
-            tools: [...ledger.names],
-            toolCalls: ledger.calls,
-            refused: ledger.refused,
-            model: modelId,
-            inputTokens: tokens.input,
-            outputTokens: tokens.output,
-            status,
-          },
-        })
-      })
-    } catch (error) {
-      // The turn id and the error's kind only: never a prompt, an answer or a
-      // tool result.
-      request.log.error({ requestId: request.id, turnId: setup.usageId }, 'assistant turn could not be finished')
-      reportError(new Error(`assistant turn ${setup.usageId} could not be finished (${errorKind(error)})`), {
-        requestId: request.id,
-        route: 'assistant turn',
-      })
+    let lastError: unknown
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await finishOnce(status, answer)
+        return
+      } catch (error) {
+        lastError = error
+      }
     }
+    // The turn id and the error's kind only: never a prompt, an answer or a
+    // tool result. The row stays 'started' and the next turn in the school
+    // settles it; the conversation's hold runs out by itself.
+    request.log.error({ requestId: request.id, turnId: setup.usageId }, 'assistant turn could not be finished')
+    reportError(new Error(`assistant turn ${setup.usageId} could not be finished (${errorKind(lastError)})`), {
+      requestId: request.id,
+      route: 'assistant turn',
+    })
   }
 
   try {
@@ -269,20 +354,35 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
       ...buildToolSet(offeredTools(deps, capabilities), { context: toolContext, ledger }),
       ...buildProposeToolSet(offeredProposeTools(deps, capabilities), { context: toolContext, ledger, save }),
     }
-    // Replaying a kept conversation needs every tool's model output, including
-    // tools this person is no longer offered, so the model reads only the
-    // trimmed part of an old result.
-    const described = {
-      ...buildToolSet(deps.assistantTools ?? READ_TOOLS),
-      ...buildProposeToolSet(deps.assistantProposeTools ?? PROPOSE_TOOLS),
-      ...offered,
-    }
     // The model's copy tells it where each earlier proposal stands now (done,
     // stale, dismissed…); what the browser keeps and gets back is unchanged.
-    const messages = await convertToModelMessages(
-      replayProposals(setup.messages, setup.proposals) as unknown as UIMessage[],
-      { tools: described, ignoreIncompleteToolCalls: true },
+    // An old result from a tool the person is no longer offered is replaced
+    // by one plain sentence, so a permission taken away also takes away what
+    // it once showed. That sentence is plain text: with no tool of that name
+    // on offer, the SDK sends it as it is.
+    const replayed = hideUnoffered(
+      replayProposals(setup.messages, setup.proposals),
+      new Set(Object.keys(offered)),
+      HIDDEN_RESULT,
     )
+    const history = trimToBudget(replayed)
+    const messages = await convertToModelMessages(history.messages as unknown as UIMessage[], {
+      tools: offered,
+      ignoreIncompleteToolCalls: true,
+    })
+    const rules = instructionsFor({
+      displayName: request.verified?.user.name ?? 'a member of the school',
+      roleKeys: context.roleKeys,
+      schoolName: setup.schoolName,
+      today: setup.today,
+      academicYearName: setup.academicYearName,
+    })
+    const instructions: string | SystemModelMessage[] = history.trimmed
+      ? [
+          { role: 'system', content: rules },
+          { role: 'system', content: TRIMMED_NOTE },
+        ]
+      : rules
 
     // Stops when the person closes the page, and after about four minutes.
     const stop = new AbortController()
@@ -293,15 +393,10 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
 
     const result = streamText({
       model,
-      instructions: instructionsFor({
-        displayName: request.verified?.user.name ?? 'a member of the school',
-        roleKeys: context.roleKeys,
-        schoolName: setup.schoolName,
-        today: setup.today,
-        academicYearName: setup.academicYearName,
-      }),
+      instructions,
       messages,
       tools: offered,
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
       stopWhen: isStepCount(ASSISTANT_MAX_TOOL_CALLS),
       // One retry, not the default two: a provider that said "too many" a
       // second ago says it again, and each retry spends the per-minute quota.
@@ -370,26 +465,40 @@ function errorKind(error: unknown): string {
   return error instanceof Error ? error.name : typeof error
 }
 
+/** A provider's own error code: one word of capitals, letters and underscores ("RESOURCE_EXHAUSTED"). */
+const PROVIDER_CODE = /^[A-Za-z][A-Za-z_]{2,39}$/
+/** A provider's request id, for asking the provider about one call. */
+const PROVIDER_REQUEST_ID = /^[A-Za-z0-9:._-]{1,128}$/
+const REQUEST_ID_HEADERS = ['x-request-id', 'x-vercel-id', 'x-goog-request-id', 'request-id'] as const
+
 /**
- * Why the model provider refused, for the log: its HTTP status and its own
- * short reason ("Quota exceeded…", "API key not valid…"). The provider's
- * error body describes the call, never the question, so no words leave here;
- * it is cut short all the same.
+ * Why the model provider refused, for the log: its HTTP status, its own error
+ * code when it is one short word, and its request id. Never its message or
+ * any other free text, which could quote what it was sent.
  */
-function providerFailure(error: unknown): { providerStatus?: number; providerReason?: string } {
+export function providerFailure(error: unknown): {
+  providerStatus?: number
+  providerCode?: string
+  providerRequestId?: string
+} {
   const last = RetryError.isInstance(error) ? error.lastError : error
   if (!APICallError.isInstance(last)) return {}
-  let reason: string | undefined
+  let code: string | undefined
   try {
-    const body = JSON.parse(last.responseBody ?? '') as { error?: { status?: unknown; message?: unknown } }
-    const status = typeof body.error?.status === 'string' ? body.error.status : ''
-    const message = typeof body.error?.message === 'string' ? body.error.message : ''
-    reason = `${status} ${message}`.trim()
+    const body = JSON.parse(last.responseBody ?? '') as { error?: { status?: unknown; code?: unknown; type?: unknown } }
+    code = [body.error?.status, body.error?.code, body.error?.type].find(
+      (value): value is string => typeof value === 'string' && PROVIDER_CODE.test(value),
+    )
   } catch {
-    reason = last.message
+    code = undefined
   }
+  const headers = last.responseHeaders ?? {}
+  const requestId = REQUEST_ID_HEADERS.map((name) => headers[name]).find(
+    (value): value is string => typeof value === 'string' && PROVIDER_REQUEST_ID.test(value),
+  )
   return {
     ...(last.statusCode === undefined ? {} : { providerStatus: last.statusCode }),
-    ...(reason ? { providerReason: reason.slice(0, 300) } : {}),
+    ...(code === undefined ? {} : { providerCode: code }),
+    ...(requestId === undefined ? {} : { providerRequestId: requestId }),
   }
 }

@@ -1513,6 +1513,8 @@ export const assistantThreads = pgTable(
     titleSealed: text('title_sealed'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
+    /** While an answer is being written in this conversation; a second one waits. */
+    answeringUntil: timestamp('answering_until', { withTimezone: true }),
   },
   (t) => [unique('assistant_threads_school_id_id_key').on(t.schoolId, t.id)],
 )
@@ -1544,6 +1546,7 @@ export const assistantUsage = pgTable('assistant_usage', {
   model: text('model'),
   toolCalls: integer('tool_calls').notNull().default(0),
   refusedCalls: integer('refused_calls').notNull().default(0),
+  failedCalls: integer('failed_calls').notNull().default(0),
   inputTokens: integer('input_tokens').notNull().default(0),
   outputTokens: integer('output_tokens').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

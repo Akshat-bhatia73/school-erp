@@ -201,7 +201,7 @@ the app is:
 | Group | Examples |
 |---|---|
 | Finding things | school search, pupil search, staff search, sections, classes, subjects, academic years |
-| Pupils | a pupil's record, enrolments, guardians' contact card, siblings |
+| Pupils | a pupil's basic record, their personal details, their health block, guardians' contact card, enrolments, siblings |
 | Staff | the staff list, a staff member's record and assignments |
 | Timetable | a section's week, a teacher's week, free teachers today, substitutions, teacher loads |
 | Attendance | a section's day, a section's month, a pupil's month, staff register |
@@ -213,6 +213,18 @@ the app is:
 
 Lists are read one page at a time, at most 50 rows, so a question about "all pupils" cannot pull
 the whole school into the model.
+
+A tool gives the model the least a question needs. When one route answers in blocks, each
+restricted block is its own tool: `student_record` carries only the basic record (class, roll,
+status, admission date and gender), and `student_personal_details` (date of birth, category,
+address, Aadhaar ending), `student_health` (blood group, health notes) and
+`student_guardian_contacts` (relation and phone) each read the same pupil route and pass on only
+their own block. Each is offered only to someone who holds the route's key and the block's key
+(`alsoRequires`), and the route still decides the block for that pupil. The prompt says to use
+them only when a question asks for those details.
+
+The suggested first questions each name the tool that answers them, and a person is shown only
+those whose tool they are offered.
 
 ### Change tools
 
@@ -311,6 +323,22 @@ the person's own membership, so no one can read another person's conversation, n
 
 The nightly sweep in `apps/api/src/maintenance` deletes what has passed its time.
 
+A usage row is written as `started` when the question starts and settled when the answer ends:
+`answered`, `failed` or `stopped`, with the tool calls made, refused and failed. Settling is tried
+twice. A turn that died before it could settle (the function was stopped, or the database could
+not be reached twice) leaves its row `started`; the next question anywhere in the school settles
+every row of that school still `started` after 10 minutes as `failed`. Such a question still counts
+against the limits: it was asked.
+
+**Old results follow today's permissions.** A kept tool result was read under the permissions the
+person held when they asked. When a conversation is opened again, or read again by the model with
+a new question, every result from a tool the person is no longer offered (read or change tool,
+decided from their permissions now) is hidden. The screen gets the call back as `not_available`,
+which it draws as nothing, so an old card or an old proposal is gone. The model reads the one
+sentence "This result is hidden because you no longer have access to it." in its place. The call
+itself stays, so the conversation is still well formed. What is kept, sealed, is unchanged, and is
+deleted with the rest after 30 days.
+
 Two more rules:
 
 - When a pupil is anonymised, their own conversations are deleted straight away. Other people's
@@ -322,8 +350,8 @@ Two more rules:
 ## 10. Audit and logs
 
 - **One audit row per question**, written after the answer: action `ai_assistant.use`, target
-  type `assistant_turn`. Its `safe_changes` hold the tool names, how many records were read, how
-  many calls were refused, the model and the token counts. **Never the question or the answer
+  type `assistant_turn`. Its `safe_changes` hold the tool names, how many calls were made, refused
+  and failed, the model, the token counts and whether it was answered, failed or stopped. **Never the question or the answer
   text.** That is free text about children and belongs only in the sealed, 30-day message row.
 - **Every read the assistant makes writes its own rows**, because it is a real route call. A
   pupil's "who opened my record" view shows reads made through the assistant exactly like reads
@@ -333,6 +361,9 @@ Two more rules:
 - **The request log** gets one line per inner call, like any request.
 - **Error reports** (Sentry) never carry prompts, answers or tool results. They carry only the
   error code and the turn id.
+- **A model provider's refusal** is logged with its HTTP status, its own error code when that is one
+  short word (`RESOURCE_EXHAUSTED`), and its request id when it sends one. Never its message or any
+  other free text, which could quote what it was sent.
 
 ## 11. The screen
 
@@ -491,6 +522,9 @@ from them is used to profile the pupil or for anything but answering.
 | Tool calls per question | 8 | fixed |
 | Rows per list tool call | 50 | fixed |
 | Longest time for one answer | about 4 minutes, then it stops and says so | fixed |
+| Longest answer | 1,500 tokens (`MAX_OUTPUT_TOKENS` in `turn.ts`) | fixed |
+| Conversation the model reads again | the last 20 messages, and of those only the newest that fit about 24,000 tokens (`HISTORY_TOKEN_BUDGET`) | fixed |
+| Answers being written in one conversation | one | fixed |
 | Money for the whole platform | a monthly budget on the Vercel AI Gateway | us |
 
 The starting values are guesses to be tuned after the first school uses it. Counters live in
@@ -499,6 +533,17 @@ school's assistant says it is unavailable, and the rest of the app carries on.
 
 The API function's `maxDuration` in `vercel.json` goes from 60 to 300 seconds so a long answer is
 not cut off. If the person closes the page, the turn stops and what was written so far is kept.
+
+The size of a conversation is counted roughly, as its length over four. When older messages do
+not fit, they are left out from the oldest end, the copy starts at a question, and the new question
+always stays; the model is told, for that question only, that earlier messages are not shown.
+
+A second tab asking in a conversation while an answer is still being written there is refused
+with a plain sentence ("An answer is still being written in this conversation…",
+`NOT_ALLOWED_YET` with the reason `assistant_still_answering`), and nothing is counted for it. The
+turn holds the conversation with `assistant_threads.answering_until`, five minutes ahead, and lets
+go when it ends however it ends, so "Try again" after a failed answer works at once. A hold left by
+a turn that died runs out by itself.
 
 ## 15. Where the code lives
 
