@@ -116,6 +116,7 @@ export const qk = {
     status: (schoolId: string) => [schoolId, 'assistant', 'status'] as const,
     threads: (schoolId: string) => [schoolId, 'assistant', 'threads'] as const,
     thread: (schoolId: string, threadId: string) => [schoolId, 'assistant', 'thread', threadId] as const,
+    proposals: (schoolId: string, threadId: string) => [schoolId, 'assistant', 'thread', threadId, 'proposals'] as const,
     settings: (schoolId: string) => [schoolId, 'assistant', 'settings'] as const,
     usage: (schoolId: string, month?: string) => [schoolId, 'assistant', 'usage', month ?? 'current'] as const,
   },

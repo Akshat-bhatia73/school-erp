@@ -130,7 +130,7 @@ The full design is in [docs/assistant/ARCHITECTURE.md](assistant/ARCHITECTURE.md
 | Part | What ships |
 |---|---|
 | 24a Foundation | The screen, conversations, streaming, every read tool, cards, sources, the audit row, 30-day keeping, the switches and limits, the pupil consent and its parent home card, Settings → Assistant. Answers only. |
-| 24b Attendance and marks | Proposals, editable cards, Confirm and Confirm all, clash handling; then changes to the attendance register, staff register, exam marks and co-scholastic grades. |
+| 24b Attendance and marks | Proposals, editable cards, Confirm and Confirm all, clash handling; then changes to the attendance register, staff register, exam marks and co-scholastic grades. Started 26 September 2026: four change tools (`propose_attendance_day`, `propose_staff_attendance_day`, `propose_exam_marks`, `propose_co_scholastic`) that take names rather than ids; the card edits a preview, never a request; Confirm re-reads the record and refuses when it changed (a digest of the GET route's answer, since attendance and marks carry no version); a change to saved attendance or marks asks for a reason on the card. Migration `0022_assistant_proposals.sql`, no new permission. |
 | 24c Messages and notices | Write, schedule, send and withdraw. |
 | 24d Fees | Record a payment, apply a concession, add an optional fee. |
 | 24e Pupil and staff records | Update details and guardians, admit a pupil, arrange a substitution. |
