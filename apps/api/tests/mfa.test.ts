@@ -74,12 +74,30 @@ async function postTwoFactor(
   })
 }
 
+/** Choose a second step through the only route that sets one up. */
+async function startSecondStep(
+  client: Client,
+  method: 'totp' | 'sms' | 'email',
+  password = PASSWORD,
+) {
+  await resetRateLimits()
+  return client.fetch('/api/account/second-step', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ method, password }),
+  })
+}
+
 async function resetTwoFactorState(): Promise<void> {
   await admin.query('DELETE FROM auth_two_factor WHERE user_id = $1', [
     ownerUserId,
   ])
   await admin.query(
-    'UPDATE auth_user SET two_factor_enabled = false WHERE id = $1',
+    `UPDATE auth_user
+        SET two_factor_enabled = false, two_factor_method = NULL,
+            two_factor_pending_method = NULL, phone_number = NULL,
+            phone_number_verified = false
+      WHERE id = $1`,
     [ownerUserId],
   )
   await admin.query('DELETE FROM auth_session WHERE user_id = $1', [
@@ -96,7 +114,7 @@ async function enrol(): Promise<{
   const client = clientFor(server)
   const signIn = await client.signIn(OWNER_EMAIL, PASSWORD)
   assert.equal(signIn.status, 200)
-  const enable = await postTwoFactor(client, 'enable', { password: PASSWORD })
+  const enable = await startSecondStep(client, 'totp')
   assert.equal(enable.status, 200)
   const body = (await enable.json()) as {
     totpURI: string
@@ -147,7 +165,7 @@ test('enrolment returns a TOTP URI and backup codes, and verifying stamps the se
   assert.equal(denied.status, 403)
   assert.equal(((await denied.json()) as ErrorBody).error.code, 'MFA_REQUIRED')
 
-  const enable = await postTwoFactor(client, 'enable', { password: PASSWORD })
+  const enable = await startSecondStep(client, 'totp')
   assert.equal(enable.status, 200)
   const body = (await enable.json()) as {
     totpURI: string
@@ -324,8 +342,8 @@ test('turning two-factor off needs the password and recent verification', async 
   assert.equal(rows.rows[0].two_factor_enabled, false)
 })
 
-test('second-factor provider routes that are not configured stay closed', async () => {
-  for (const route of ['send-otp', 'verify-otp', 'view-backup-codes']) {
+test('provider routes that skip our checks stay closed', async () => {
+  for (const route of ['enable', 'view-backup-codes']) {
     const response = await server.fetch(`/api/auth/two-factor/${route}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -442,4 +460,209 @@ test('a successful step-up clears the attempt budget', async () => {
     })
     assert.notEqual(wrong.status, 429)
   }
+})
+
+// ---------- a code by text message or email ----------
+
+const OWNER_PHONE = '+919000000071'
+
+async function givePhone(): Promise<void> {
+  await admin.query(
+    'UPDATE auth_user SET phone_number = $2, phone_number_verified = true WHERE id = $1',
+    [ownerUserId, OWNER_PHONE],
+  )
+}
+
+function lastCode(channel: 'sms' | 'email', to: string): string {
+  const found = server.delivery.outbox
+    .filter((m) => m.channel === channel && m.to === to && m.purpose === 'second_factor')
+    .at(-1)
+  assert.ok(found, `no second-step code went to ${to} by ${channel}`)
+  return found.secret
+}
+
+async function methodRow(): Promise<{ method: string | null; pending: string | null; enabled: boolean }> {
+  const { rows } = await admin.query(
+    'SELECT two_factor_method, two_factor_pending_method, two_factor_enabled FROM auth_user WHERE id = $1',
+    [ownerUserId],
+  )
+  return { method: rows[0].two_factor_method, pending: rows[0].two_factor_pending_method, enabled: rows[0].two_factor_enabled }
+}
+
+/** Sign in with the password and set up a code by text message or email. */
+async function enrolCode(channel: 'sms' | 'email'): Promise<{ client: Client; backupCodes: string[] }> {
+  if (channel === 'sms') await givePhone()
+  const client = clientFor(server)
+  assert.equal((await client.signIn(OWNER_EMAIL, PASSWORD)).status, 200)
+  const start = await startSecondStep(client, channel)
+  assert.equal(start.status, 200)
+  const body = (await start.json()) as { method: string; totpURI?: string; backupCodes?: string[]; destination?: string }
+  assert.equal(body.method, channel)
+  assert.equal(body.totpURI, undefined, 'no authenticator secret for a code step')
+  assert.ok(body.backupCodes && body.backupCodes.length >= 8)
+  assert.equal(body.destination, channel === 'sms' ? '••••••0071' : 'm•••@example.test')
+  assert.equal((await postTwoFactor(client, 'send-otp', {})).status, 200)
+  const code = lastCode(channel, channel === 'sms' ? OWNER_PHONE : OWNER_EMAIL)
+  const verify = await postTwoFactor(client, 'verify-otp', { code })
+  assert.equal(verify.status, 200)
+  return { client, backupCodes: body.backupCodes }
+}
+
+for (const channel of ['sms', 'email'] as const) {
+  test(`a code by ${channel} can be the second step, and a sign-in asks for it`, async () => {
+    const { client } = await enrolCode(channel)
+    assert.deepEqual(await methodRow(), { method: channel, pending: null, enabled: true })
+    assert.equal((await client.fetch(`/api/schools/${schoolA}/context`)).status, 200)
+    const session = (await (await client.fetch('/api/auth/get-session')).json()) as { user: { twoFactorMethod?: string } }
+    assert.equal(session.user.twoFactorMethod, channel)
+
+    const next = clientFor(server)
+    const signIn = await next.signIn(OWNER_EMAIL, PASSWORD)
+    const challenge = (await signIn.json()) as Record<string, unknown>
+    assert.equal(challenge.twoFactorRedirect, true)
+    assert.equal(challenge.twoFactorMethod, channel)
+    assert.ok(typeof challenge.twoFactorDestination === 'string')
+    assert.equal(challenge.twoFactorMethods, undefined)
+    // An authenticator code is not this person's step.
+    assert.equal((await postTwoFactor(next, 'verify-totp', { code: '123456' })).status, 400)
+
+    await admin.query("DELETE FROM auth_throttle WHERE key LIKE 'second-step-send:%'")
+    assert.equal((await postTwoFactor(next, 'send-otp', {})).status, 200)
+    const code = lastCode(channel, channel === 'sms' ? OWNER_PHONE : OWNER_EMAIL)
+    assert.equal((await postTwoFactor(next, 'verify-otp', { code: '000000' === code ? '111111' : '000000' })).status >= 400, true)
+    const verify = await postTwoFactor(next, 'verify-otp', { code })
+    assert.equal(verify.status, 200)
+    const me = (await (await next.fetch('/api/me')).json()) as { session: { assurance: string } }
+    assert.equal(me.session.assurance, 'mfa')
+  })
+}
+
+test('a person who uses an authenticator is never sent a code', async () => {
+  await enrol()
+  await givePhone()
+  const client = clientFor(server)
+  const signIn = await client.signIn(OWNER_EMAIL, PASSWORD)
+  const challenge = (await signIn.json()) as Record<string, unknown>
+  assert.equal(challenge.twoFactorMethod, 'totp')
+  const before = server.delivery.outbox.length
+  assert.equal((await postTwoFactor(client, 'send-otp', {})).status, 400)
+  assert.equal(server.delivery.outbox.length, before)
+})
+
+test('switching needs a fresh second step, and an unfinished switch changes nothing', async () => {
+  const { client, secret } = await enrol()
+  await givePhone()
+  await admin.query(
+    `UPDATE auth_session SET mfa_verified_at = now() - interval '10 minutes' WHERE user_id = $1`,
+    [ownerUserId],
+  )
+  const stale = await startSecondStep(client, 'sms')
+  assert.equal(stale.status, 403)
+  assert.equal(((await stale.json()) as ErrorBody).error.code, 'FRESH_AUTHENTICATION_REQUIRED')
+
+  assert.equal((await postTwoFactor(client, 'verify-totp', { code: await totpCode(secret) })).status, 200)
+  const same = await startSecondStep(client, 'totp')
+  assert.equal(same.status, 400)
+  const started = await startSecondStep(client, 'sms')
+  assert.equal(started.status, 200)
+  const body = (await started.json()) as { backupCodes?: string[] }
+  assert.equal(body.backupCodes, undefined, 'leaving the authenticator keeps the saved backup codes')
+  assert.deepEqual(await methodRow(), { method: 'totp', pending: 'sms', enabled: true })
+
+  // Not finished: a sign-in still asks for the authenticator, and a text
+  // message is not accepted there.
+  const other = clientFor(server)
+  const signIn = (await (await other.signIn(OWNER_EMAIL, PASSWORD)).json()) as Record<string, unknown>
+  assert.equal(signIn.twoFactorMethod, 'totp')
+  assert.equal((await postTwoFactor(other, 'send-otp', {})).status, 400)
+  assert.equal((await postTwoFactor(other, 'verify-totp', { code: await totpCode(secret) })).status, 200)
+
+  // Finished on the session that asked: the text message is now the step,
+  // the authenticator no longer works and every other session must prove the
+  // new step.
+  await admin.query("DELETE FROM auth_throttle WHERE key LIKE 'second-step-send:%'")
+  assert.equal((await postTwoFactor(client, 'send-otp', {})).status, 200)
+  assert.equal((await postTwoFactor(client, 'verify-otp', { code: lastCode('sms', OWNER_PHONE) })).status, 200)
+  assert.deepEqual(await methodRow(), { method: 'sms', pending: null, enabled: true })
+  assert.equal((await client.fetch(`/api/schools/${schoolA}/context`)).status, 200)
+  assert.equal((await other.fetch(`/api/schools/${schoolA}/context`)).status, 403)
+  assert.equal((await postTwoFactor(other, 'verify-totp', { code: await totpCode(secret) })).status, 400)
+})
+
+test('a backup code still works after switching to a code', async () => {
+  const { backupCodes } = await enrol()
+  await givePhone()
+  const client = clientFor(server)
+  await client.signIn(OWNER_EMAIL, PASSWORD)
+  assert.equal((await postTwoFactor(client, 'verify-backup-code', { code: backupCodes[0] })).status, 200)
+  assert.equal((await startSecondStep(client, 'sms')).status, 200)
+  assert.equal((await postTwoFactor(client, 'send-otp', {})).status, 200)
+  assert.equal((await postTwoFactor(client, 'verify-otp', { code: lastCode('sms', OWNER_PHONE) })).status, 200)
+  const next = clientFor(server)
+  await next.signIn(OWNER_EMAIL, PASSWORD)
+  assert.equal((await postTwoFactor(next, 'verify-backup-code', { code: backupCodes[1] })).status, 200)
+})
+
+test('a session opened with a phone code cannot use a text message as its second step', async () => {
+  await enrolCode('sms')
+  const phone = clientFor(server)
+  await resetRateLimits()
+  await admin.query("DELETE FROM auth_throttle WHERE key LIKE 'otp-send:%'")
+  const sent = await phone.fetch('/api/auth/phone-number/send-otp', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ phoneNumber: OWNER_PHONE }),
+  })
+  assert.equal(sent.status, 200)
+  const signInCode = server.delivery.outbox.filter((m) => m.to === OWNER_PHONE && m.purpose === 'otp').at(-1)
+  assert.ok(signInCode)
+  await resetRateLimits()
+  const verified = await phone.fetch('/api/auth/phone-number/verify', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ phoneNumber: OWNER_PHONE, code: signInCode.secret }),
+  })
+  assert.equal(verified.status, 200)
+  assert.equal((await phone.fetch(`/api/schools/${schoolA}/context`)).status, 403)
+  await admin.query("DELETE FROM auth_throttle WHERE key LIKE 'second-step-send:%'")
+  const before = server.delivery.outbox.length
+  assert.equal((await postTwoFactor(phone, 'send-otp', {})).status, 400)
+  assert.equal(server.delivery.outbox.length, before)
+})
+
+test('codes are sent at most once a minute', async () => {
+  const { client } = await enrolCode('email')
+  await admin.query(
+    `UPDATE auth_session SET mfa_verified_at = NULL WHERE user_id = $1`,
+    [ownerUserId],
+  )
+  await admin.query("DELETE FROM auth_throttle WHERE key LIKE 'second-step-send:%'")
+  assert.equal((await postTwoFactor(client, 'send-otp', {})).status, 200)
+  // Only the provider's own table is cleared: our budget must hold.
+  await resetProviderRateLimits()
+  const again = await client.fetch('/api/auth/two-factor/send-otp', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  })
+  assert.equal(again.status, 429)
+  assert.equal(((await again.json()) as ErrorBody).error.code, 'RATE_LIMITED')
+})
+
+test('choosing a step checks the password and that a code has somewhere to go', async () => {
+  const client = clientFor(server)
+  await client.signIn(OWNER_EMAIL, PASSWORD)
+  const noPhone = await startSecondStep(client, 'sms')
+  assert.equal(noPhone.status, 400)
+  assert.equal(((await noPhone.json()) as { error: { reason?: string } }).error.reason, 'second_step_needs_phone')
+  const wrong = await startSecondStep(client, 'email', 'not-the-password')
+  assert.equal(wrong.status, 400)
+  assert.equal(((await wrong.json()) as { error: { reason?: string } }).error.reason, 'second_step_wrong_password')
+  assert.deepEqual(await methodRow(), { method: null, pending: null, enabled: false })
+})
+
+test('turning the second step off forgets which one it was', async () => {
+  const { client } = await enrolCode('email')
+  assert.equal((await postTwoFactor(client, 'disable', { password: PASSWORD })).status, 200)
+  assert.deepEqual(await methodRow(), { method: null, pending: null, enabled: false })
 })

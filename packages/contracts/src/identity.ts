@@ -66,6 +66,35 @@ export const SchoolContextResponse = z.strictObject({
   ownStudentId: Id.optional(),
 })
 
+/**
+ * The second step a person chooses: an authenticator app, or a six digit code
+ * sent by text message or by email. A backup code always works as well.
+ */
+export const SecondStepMethod = z.enum(['totp', 'sms', 'email'])
+export type SecondStepMethod = z.infer<typeof SecondStepMethod>
+
+/** Start switching to (or first setting up) a second step. */
+export const SecondStepStartRequest = z.strictObject({
+  method: SecondStepMethod,
+  password: z.string().min(1).max(256),
+})
+export type SecondStepStartRequest = z.infer<typeof SecondStepStartRequest>
+
+/**
+ * Nothing changes until a code from the new step is accepted on this session.
+ * The authenticator's setup address and new backup codes are shown once.
+ */
+export const SecondStepStartResponse = z.strictObject({
+  method: SecondStepMethod,
+  /** Authenticator app only: the `otpauth://` address to scan. */
+  totpURI: z.string().min(1).max(1000).optional(),
+  /** Present when new backup codes were made; the old ones stop working. */
+  backupCodes: z.array(z.string().min(1).max(64)).max(20).optional(),
+  /** Text message or email only: where the code goes, mostly hidden. */
+  destination: z.string().min(1).max(200).optional(),
+})
+export type SecondStepStartResponse = z.infer<typeof SecondStepStartResponse>
+
 export const LOGIN_METHODS = {
   administration: { enabled: true, methods: ['email_password'], requiresMfa: true },
   teacher: { enabled: true, methods: ['email_password', 'phone_otp'], requiresMfa: 'when_privileged' },

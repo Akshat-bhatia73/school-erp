@@ -3,7 +3,7 @@
  * is a cookie the browser carries for us. Responses that have a published contract are validated
  * with it, so a shape change is a clear failure instead of a half-rendered screen.
  */
-import { MeResponse, MemberSummary, SchoolContextResponse, StudentSignInResponse } from '@erp/contracts'
+import { MeResponse, MemberSummary, SchoolContextResponse, SecondStepMethod, SecondStepStartResponse, StudentSignInResponse } from '@erp/contracts'
 import { z } from 'zod'
 import { request } from '@/lib/http'
 
@@ -17,6 +17,8 @@ const ProviderUser = z.looseObject({
   phoneNumber: z.string().nullish(),
   phoneNumberVerified: z.boolean().optional(),
   twoFactorEnabled: z.boolean().nullish(),
+  /** Present when two-step verification is on: the step this person chose. */
+  twoFactorMethod: SecondStepMethod.nullish(),
 })
 const ProviderSession = z.looseObject({
   id: z.string(),
@@ -35,7 +37,12 @@ export type GetSessionResponse = z.infer<typeof GetSessionResponse>
  * echoed back, so it stays optional.
  */
 const SignInResponse = z.union([
-  z.looseObject({ twoFactorRedirect: z.literal(true) }),
+  z.looseObject({
+    twoFactorRedirect: z.literal(true),
+    /** The step this person chose, and where a code goes (mostly hidden). */
+    twoFactorMethod: SecondStepMethod.optional(),
+    twoFactorDestination: z.string().optional(),
+  }),
   z.looseObject({ user: ProviderUser, session: ProviderSession.optional() }),
 ])
 
@@ -65,7 +72,6 @@ const DeviceSession = z.looseObject({
 export type DeviceSession = z.infer<typeof DeviceSession>
 const SessionListResponse = z.looseObject({ sessions: z.array(DeviceSession) })
 
-const TwoFactorEnableResponse = z.looseObject({ totpURI: z.string(), backupCodes: z.array(z.string()) })
 const TotpUriResponse = z.looseObject({ totpURI: z.string() })
 const BackupCodesResponse = z.looseObject({ backupCodes: z.array(z.string()) })
 const VerifiedResponse = z.looseObject({ user: ProviderUser, session: ProviderSession.optional() })
@@ -158,8 +164,21 @@ export function verifyPhoneOtp(input: { phoneNumber: string; code: string; share
 
 // ---------- second factor ----------
 
-export function twoFactorEnable(password: string) {
-  return request('/api/auth/two-factor/enable', { method: 'POST', body: { password }, schema: TwoFactorEnableResponse })
+/**
+ * Set up or switch the second step. Nothing changes until a code from the new step is accepted
+ * on this session; the authenticator address and any new backup codes are shown once.
+ */
+export function startSecondStep(input: { method: SecondStepMethod; password: string }) {
+  return request('/api/account/second-step', { method: 'POST', body: input, schema: SecondStepStartResponse })
+}
+
+/** Send a code by text message or email, to the step this person uses or is switching to. */
+export function twoFactorSendCode() {
+  return request('/api/auth/two-factor/send-otp', { method: 'POST', body: {}, expectAnonymous: true })
+}
+
+export function twoFactorVerifyCode(input: { code: string; sharedDevice?: boolean }) {
+  return request('/api/auth/two-factor/verify-otp', { method: 'POST', body: input, expectAnonymous: true })
 }
 
 export function twoFactorDisable(password: string) {

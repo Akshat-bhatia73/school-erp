@@ -21,13 +21,16 @@ export const ALLOWED_AUTH_ROUTES: readonly string[] = [
   'change-password',
   'phone-number/send-otp',
   'phone-number/verify',
-  // Two-factor enrolment, challenge and recovery. Listed one by one so the
-  // plugin's email/SMS second-factor routes stay closed: they are not
-  // configured and an SMS code is a login factor here, not a second factor.
-  'two-factor/enable',
+  // Two-factor challenge and recovery, listed one by one. Setting up or
+  // switching a second step goes through POST /api/account/second-step, so
+  // the provider's own enable route is closed. The text and email code pair
+  // serves only a person who chose one of those (see the before hook in
+  // better-auth.ts).
   'two-factor/disable',
   'two-factor/get-totp-uri',
   'two-factor/verify-totp',
+  'two-factor/send-otp',
+  'two-factor/verify-otp',
   'two-factor/verify-backup-code',
   'two-factor/generate-backup-codes',
 ]
@@ -48,8 +51,8 @@ export const BLOCKED_AUTH_ROUTES: readonly string[] = [
   'update-user',
   'phone-number/update',
   'sign-in/phone-number',
-  'two-factor/send-otp',
-  'two-factor/verify-otp',
+  // Skips the checks POST /api/account/second-step makes.
+  'two-factor/enable',
   'two-factor/view-backup-codes',
 ]
 

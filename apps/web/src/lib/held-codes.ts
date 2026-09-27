@@ -3,7 +3,7 @@ import { z } from 'zod'
 const HeldCodesResponse = z.object({
   messages: z.array(z.object({
     to: z.string(),
-    purpose: z.enum(['otp', 'password_reset', 'verification', 'invitation']),
+    purpose: z.enum(['otp', 'password_reset', 'verification', 'invitation', 'student_password', 'second_factor']),
     secret: z.string(),
     createdAt: z.string(),
   })),

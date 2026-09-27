@@ -61,7 +61,7 @@ export function LoginScreen({ returnTo, audience }: { returnTo: string; audience
           <EmailPanel
             returnTo={returnTo}
             seed="staff"
-            hint="For owners, principals, administrators and accountants. A second step with your authenticator app follows."
+            hint="For owners, principals, administrators and accountants. A second step follows: your authenticator app, or a code by text message or email."
           />
         </TabsContent>
         <TabsContent value="teacher" className="mt-4">
@@ -133,7 +133,8 @@ function EmailPanel({ returnTo, seed, hint, switchLink }: { returnTo: string; se
       // The password was accepted; the second step, if any, does not know which tab this was.
       rememberLoginSeed(seed)
       if (needsSecondFactor(result)) {
-        void navigate({ to: '/mfa/verify', search: { returnTo, sharedDevice: sharedDevice || undefined }, replace: true } as never)
+        const step = 'twoFactorMethod' in result ? { method: result.twoFactorMethod, to: result.twoFactorDestination } : {}
+        void navigate({ to: '/mfa/verify', search: { returnTo, sharedDevice: sharedDevice || undefined, ...step }, replace: true } as never)
         return
       }
       announceSignIn()

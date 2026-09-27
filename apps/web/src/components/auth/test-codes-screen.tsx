@@ -14,12 +14,14 @@ const PURPOSE: Record<HeldCode['purpose'], string> = {
   password_reset: 'Password reset code',
   verification: 'Verification code',
   invitation: 'Invitation',
+  student_password: 'Pupil password',
+  second_factor: 'Second-step code',
 }
 
 /**
- * Test builds only. Text messages are not sent yet, so a tester reads a parent's code here with
- * the access code they were given. The access code lives in this component and nowhere else: it
- * is never stored, so closing the tab forgets it.
+ * Test builds only. Text messages are not sent yet, so a tester reads a parent's code, or anyone's
+ * second-step code by text or email, here with the access code they were given. The access code
+ * lives in this component and nowhere else: it is never stored, so closing the tab forgets it.
  */
 export function TestCodesScreen() {
   const [draft, setDraft] = useState('')
@@ -48,7 +50,7 @@ export function TestCodesScreen() {
     <AuthLayout
       wide
       title="Test codes"
-      description="Text messages are not sent in this test build. Codes sent to a phone number appear here for ten minutes."
+      description="Text messages are not sent in this test build. Codes sent to a phone number, and second-step codes sent by email, appear here for ten minutes."
       footer={<Link to="/login" className="underline underline-offset-2">Back to sign in</Link>}
     >
       <form onSubmit={submit} className="flex items-end gap-2">

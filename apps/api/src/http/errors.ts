@@ -98,6 +98,11 @@ const REASON_MESSAGES: Record<ErrorReason, string> = {
   student_login_exists: 'This pupil already has a login.',
   student_login_missing: 'This pupil does not have a login yet.',
   assistant_still_answering: 'An answer is still being written in this conversation. Wait for it to finish, then ask again.',
+  second_step_needs_phone: 'Your account has no mobile number to send a code to. Ask your school office to add one.',
+  second_step_needs_email: 'Your account has no email address to send a code to. Ask your school office to add one.',
+  second_step_already_in_use: 'This is already your second step.',
+  second_step_phone_code_session: 'You signed in with a code sent to your phone, so a text message cannot be your second step here. Sign in with your password to switch.',
+  second_step_wrong_password: 'That password did not match.',
 }
 
 export class ApiFailure extends Error {

@@ -367,10 +367,10 @@ export async function signInWithMfa(
   const client = await signInWithPassword(server, opts.email, opts.password)
 
   await resetRateLimits()
-  const enable = await client.fetch('/api/auth/two-factor/enable', {
+  const enable = await client.fetch('/api/account/second-step', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ password: opts.password }),
+    body: JSON.stringify({ method: 'totp', password: opts.password }),
   })
   if (enable.status !== 200) {
     throw new Error(`two-factor enrolment failed with status ${enable.status}`)

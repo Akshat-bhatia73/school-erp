@@ -2678,10 +2678,10 @@ async function main(): Promise<void> {
       if (signIn.status !== 200)
         throw new Error(`${login.email}: sign-in failed with status ${signIn.status}`)
       keep(signIn)
-      const enable = await fetch(`${origin}/api/auth/two-factor/enable`, {
+      const enable = await fetch(`${origin}/api/account/second-step`, {
         method: 'POST',
         headers: headers(),
-        body: JSON.stringify({ password: PASSWORD }),
+        body: JSON.stringify({ method: 'totp', password: PASSWORD }),
       })
       if (enable.status !== 200)
         throw new Error(`${login.email}: enrolment failed with status ${enable.status}`)

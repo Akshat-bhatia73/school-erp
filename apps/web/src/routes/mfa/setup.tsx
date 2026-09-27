@@ -12,11 +12,11 @@ export const Route = createFileRoute('/mfa/setup')({
 function Page() {
   const { returnTo } = Route.useSearch()
   const panel = (
-    <AuthLayout title="Set up your second step" description="Your role needs an authenticator app as well as a password.">
+    <AuthLayout title="Set up your second step" description="Your role needs a second step as well as a password: an authenticator app, a text message or an email.">
       <MfaSetupPanel returnTo={returnTo ?? DEFAULT_RETURN_TO} />
     </AuthLayout>
   )
   // Same rule as the verify step: a typed address goes back to the app, a link from account
-  // security opens enrolment so a signed-in person can add an authenticator.
+  // security opens enrolment so a signed-in person can add or switch a second step.
   return returnTo ? panel : <RedirectWhenSignedIn>{panel}</RedirectWhenSignedIn>
 }

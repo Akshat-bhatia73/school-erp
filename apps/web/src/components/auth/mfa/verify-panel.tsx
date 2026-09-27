@@ -1,12 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
+import type { SecondStepMethod } from '@erp/contracts'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CodeField } from '@/components/auth/mfa/code-field'
 import { RedirectOnce } from '@/components/auth/app-gate'
 import { describeError, describeWait, isApiError } from '@/lib/api-errors'
-import { getSession, twoFactorVerifyBackupCode, twoFactorVerifyTotp } from '@/lib/auth-client'
+import { getSession, twoFactorSendCode, twoFactorVerifyBackupCode, twoFactorVerifyCode, twoFactorVerifyTotp } from '@/lib/auth-client'
+import { destinationFor, isCodeMethod } from '@/components/auth/mfa/methods'
 import { reloadTo } from '@/components/auth/mfa/reload-to'
 import { announceSignIn } from '@/lib/session'
 
@@ -14,15 +16,24 @@ import { announceSignIn } from '@/lib/session'
  * The second step. Reached straight after a password sign-in that asked for it, or from the gate
  * when a school needs a second factor before it will open.
  */
-export function MfaVerifyPanel({ returnTo, sharedDevice: sharedDeviceFromSignIn }: { returnTo: string; sharedDevice?: boolean }) {
-  const [mode, setMode] = useState<'totp' | 'backup'>('totp')
+export function MfaVerifyPanel({ returnTo, sharedDevice: sharedDeviceFromSignIn, method: methodFromSignIn, destination: destinationFromSignIn }: {
+  returnTo: string
+  sharedDevice?: boolean
+  /** From a password sign-in: the step this person chose, and where a code goes. */
+  method?: SecondStepMethod
+  destination?: string
+}) {
+  const [mode, setMode] = useState<'step' | 'backup'>('step')
   const [code, setCode] = useState('')
   const [sharedDevice, setSharedDevice] = useState(sharedDeviceFromSignIn ?? false)
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [retryAfter, setRetryAfter] = useState(0)
   const [signedOut, setSignedOut] = useState(false)
+  const [resendIn, setResendIn] = useState(0)
+  const [sent, setSent] = useState(false)
   const attempted = useRef<string | null>(null)
+  const autoSent = useRef(false)
 
   const hadSession = useRef(false)
 
@@ -31,6 +42,47 @@ export function MfaVerifyPanel({ returnTo, sharedDevice: sharedDeviceFromSignIn 
   useEffect(() => {
     if (account.data) hadSession.current = true
   }, [account.data])
+
+  useEffect(() => {
+    if (resendIn <= 0) return
+    const timer = window.setInterval(() => setResendIn((left) => Math.max(0, left - 1)), 1000)
+    return () => window.clearInterval(timer)
+  }, [resendIn])
+
+  // With a session the server says which step is in use; on a sign-in challenge there is no
+  // session yet, so the sign-in answer said it.
+  const user = account.data?.user
+  const method: SecondStepMethod = (user?.twoFactorEnabled ? user.twoFactorMethod : undefined) ?? methodFromSignIn ?? 'totp'
+  const destination = destinationFor(method, user) ?? destinationFromSignIn
+  const sendsCode = isCodeMethod(method)
+
+  const send = async () => {
+    setMessage(null)
+    try {
+      await twoFactorSendCode()
+      setSent(true)
+      setResendIn(60)
+    } catch (error) {
+      if (isApiError(error, 'RATE_LIMITED')) {
+        const seconds = error.retryAfterSeconds ?? 60
+        setSent(true)
+        setResendIn(seconds)
+        setMessage(`A code was sent a moment ago. ${describeWait(seconds)}`)
+      } else if (isApiError(error, 'SESSION_EXPIRED')) {
+        setSignedOut(true)
+      } else {
+        setMessage(describeError(error))
+      }
+    }
+  }
+
+  // A code step sends its code as soon as the person arrives: that is what they came here for.
+  useEffect(() => {
+    if (account.isPending || !sendsCode || autoSent.current) return
+    autoSent.current = true
+    void send()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account.isPending, sendsCode])
 
   useEffect(() => {
     if (retryAfter <= 0) return
@@ -56,8 +108,9 @@ export function MfaVerifyPanel({ returnTo, sharedDevice: sharedDeviceFromSignIn 
     setPending(true)
     setMessage(null)
     try {
-      if (mode === 'totp') await twoFactorVerifyTotp({ code: entered, sharedDevice })
-      else await twoFactorVerifyBackupCode({ code: entered, sharedDevice })
+      if (mode === 'backup') await twoFactorVerifyBackupCode({ code: entered, sharedDevice })
+      else if (sendsCode) await twoFactorVerifyCode({ code: entered, sharedDevice })
+      else await twoFactorVerifyTotp({ code: entered, sharedDevice })
       announceSignIn()
       // A page load, not a client route change: the school context has to be read again before
       // anything protected renders. See reload-to.ts.
@@ -98,10 +151,12 @@ export function MfaVerifyPanel({ returnTo, sharedDevice: sharedDeviceFromSignIn 
     >
       <p className="text-[13px] text-muted-foreground">
         Your role gives access to sensitive school records, so a second step is required.
+        {mode === 'step' && sendsCode && sent && ` We sent a 6 digit code${destination ? ` to ${destination}` : ''}.`}
       </p>
 
       <CodeField
-        mode={mode}
+        mode={mode === 'backup' ? 'backup' : 'totp'}
+        label={mode === 'step' && sendsCode ? (method === 'sms' ? 'Code from the text message' : 'Code from the email') : undefined}
         value={code}
         disabled={blocked}
         onChange={(next) => { setCode(next); if (message) setMessage(null) }}
@@ -128,18 +183,30 @@ export function MfaVerifyPanel({ returnTo, sharedDevice: sharedDeviceFromSignIn 
         {pending ? 'Checking…' : 'Verify and continue'}
       </Button>
 
-      <button
-        type="button"
-        className="justify-self-start text-[12.5px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-        onClick={() => {
-          setMode((current) => (current === 'totp' ? 'backup' : 'totp'))
-          setCode('')
-          setMessage(null)
-          attempted.current = null
-        }}
-      >
-        {mode === 'totp' ? 'Use a backup code instead' : 'Use your authenticator app instead'}
-      </button>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {mode === 'step' && sendsCode && (
+          <button
+            type="button"
+            disabled={resendIn > 0}
+            className="text-[12.5px] text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:no-underline disabled:opacity-60"
+            onClick={() => { void send() }}
+          >
+            {resendIn > 0 ? `Send a new code in ${resendIn}s` : sent ? 'Send a new code' : 'Send the code'}
+          </button>
+        )}
+        <button
+          type="button"
+          className="text-[12.5px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          onClick={() => {
+            setMode((current) => (current === 'step' ? 'backup' : 'step'))
+            setCode('')
+            setMessage(null)
+            attempted.current = null
+          }}
+        >
+          {mode === 'step' ? 'Use a backup code instead' : sendsCode ? `Use a code by ${method === 'sms' ? 'text message' : 'email'} instead` : 'Use your authenticator app instead'}
+        </button>
+      </div>
     </form>
   )
 }

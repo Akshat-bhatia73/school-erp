@@ -68,6 +68,11 @@ function compose(
         subject: 'Your sign-in code',
         text: `Your sign-in code is ${message.secret}. It stops working after a few minutes. Never share it.`,
       }
+    case 'second_factor':
+      return {
+        subject: 'Your second-step code',
+        text: `Your code to finish signing in is ${message.secret}. It stops working after 5 minutes. Never share it: the school will never ask you for it.`,
+      }
     case 'student_password':
       return {
         subject: 'Your sign-in details',
@@ -130,6 +135,10 @@ export function createProviderDelivery(
         await holdSms(options.heldSms, message)
         return
       }
+      // A test build's seeded addresses cannot receive mail, so a tester reads
+      // an email second-step code where they read a text message's.
+      if (message.purpose === 'second_factor' && options.heldSms)
+        await holdSms(options.heldSms, message)
       const email = compose(message, options.appOrigin)
       const response = await send(RESEND_ENDPOINT, {
         method: 'POST',
