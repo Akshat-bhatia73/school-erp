@@ -15,6 +15,8 @@ const client = vi.hoisted(() => ({
   getSession: vi.fn(),
   twoFactorVerifyTotp: vi.fn(),
   twoFactorVerifyBackupCode: vi.fn(),
+  twoFactorSendCode: vi.fn(),
+  twoFactorVerifyCode: vi.fn(),
 }))
 vi.mock('@/lib/auth-client', () => client)
 
@@ -25,11 +27,11 @@ vi.mock('@/components/auth/mfa/reload-to', () => ({ reloadTo }))
 
 const SESSION = { session: { id: 's1' }, user: { id: 'u1', name: 'Owner A', twoFactorEnabled: true } }
 
-function renderPanel(props: { returnTo?: string; sharedDevice?: boolean } = {}) {
+function renderPanel(props: { returnTo?: string; sharedDevice?: boolean; method?: 'totp' | 'sms' | 'email'; destination?: string } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MfaVerifyPanel returnTo={props.returnTo ?? '/dashboard'} sharedDevice={props.sharedDevice} />
+      <MfaVerifyPanel returnTo={props.returnTo ?? '/dashboard'} sharedDevice={props.sharedDevice} method={props.method} destination={props.destination} />
     </QueryClientProvider>,
   )
 }
@@ -46,6 +48,32 @@ describe('MfaVerifyPanel', () => {
     client.getSession.mockReset()
     client.twoFactorVerifyTotp.mockReset()
     client.twoFactorVerifyBackupCode.mockReset()
+    client.twoFactorSendCode.mockReset()
+    client.twoFactorVerifyCode.mockReset()
+  })
+
+  it('sends the code on a sign-in challenge and checks it', async () => {
+    // A password sign-in that asked for a second step has no session yet.
+    client.getSession.mockResolvedValue(null)
+    client.twoFactorSendCode.mockResolvedValue(undefined)
+    client.twoFactorVerifyCode.mockResolvedValue(undefined)
+    renderPanel({ method: 'email', destination: 'o•••@example.test', returnTo: '/students' })
+    expect(await screen.findByText(/We sent a 6 digit code to o•••@example.test/)).toBeInTheDocument()
+    expect(client.twoFactorSendCode).toHaveBeenCalledTimes(1)
+    await userEvent.type(screen.getByLabelText('Code from the email'), '123456')
+    await waitFor(() => expect(client.twoFactorVerifyCode).toHaveBeenCalledWith({ code: '123456', sharedDevice: false }))
+    expect(client.twoFactorVerifyTotp).not.toHaveBeenCalled()
+    await waitFor(() => expect(reloadTo).toHaveBeenCalledWith('/students'))
+  })
+
+  it('uses the step on the session for a step-up, and says when a code was just sent', async () => {
+    const { ApiRequestError } = await import('@/lib/http')
+    client.getSession.mockResolvedValue({ ...SESSION, user: { ...SESSION.user, twoFactorMethod: 'sms', phoneNumber: '+919876543210', phoneNumberVerified: true } })
+    client.twoFactorSendCode.mockRejectedValue(new ApiRequestError({ code: 'RATE_LIMITED', status: 429, message: 'slow', retryAfterSeconds: 42 }))
+    renderPanel()
+    expect(await screen.findByText('A code was sent a moment ago. Try again in 42 seconds.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Code from the text message')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Send a new code in/ })).toBeDisabled()
   })
 
   it('offers enrolment when this account has no authenticator yet', async () => {

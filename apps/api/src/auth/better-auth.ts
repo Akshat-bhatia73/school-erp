@@ -1,5 +1,5 @@
 import { betterAuth } from 'better-auth'
-import { createAuthMiddleware } from 'better-auth/api'
+import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { phoneNumber, twoFactor } from 'better-auth/plugins'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -37,6 +37,52 @@ import {
   normalizeIndianPhone,
 } from './phone-otp.ts'
 import { isStudentEmail, studentSignInScope } from './student-sign-in.ts'
+import {
+  SECOND_STEP_CODE_ATTEMPTS,
+  SECOND_STEP_CODE_MINUTES,
+  codeChannel,
+  commitPendingStep,
+  forgetSecondStep,
+  readSecondStep,
+  realEmail,
+  sessionUsedPhoneCode,
+  stepsAccepted,
+  verifiedPhone,
+} from './second-step.ts'
+
+/** Provider routes that take a second-step code or send one. */
+const SECOND_STEP_PATHS: readonly string[] = [
+  '/two-factor/send-otp',
+  '/two-factor/verify-otp',
+  '/two-factor/verify-totp',
+]
+
+/** The provider's own refusal for a step this person does not use. */
+function stepNotInUse(): APIError {
+  return new APIError('BAD_REQUEST', {
+    message: 'This second step is not in use.',
+    code: 'SECOND_STEP_NOT_IN_USE',
+  })
+}
+
+type HookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0]
+
+/**
+ * Who is answering a second-step route: the person on the session, or, on a
+ * sign-in challenge, the person the provider's signed challenge cookie names.
+ */
+async function secondStepSubject(
+  ctx: HookContext,
+): Promise<{ userId: string; sessionId: string | null } | null> {
+  const session = await getSessionFromCtx(ctx)
+  if (session) return { userId: session.user.id, sessionId: session.session.id }
+  const cookie = ctx.context.createAuthCookie('two_factor')
+  const challenge = await ctx.getSignedCookie(cookie.name, ctx.context.secret)
+  if (!challenge) return null
+  const found = await ctx.context.internalAdapter.findVerificationValue(challenge)
+  if (!found || found.expiresAt.getTime() <= Date.now()) return null
+  return { userId: found.value, sessionId: null }
+}
 
 /** A generated identifier for a phone-only adult: never a real mailbox. */
 const PLACEHOLDER_EMAIL_SUFFIX = '.invalid'
@@ -139,6 +185,13 @@ export function createAuth(
           required: false,
           input: false,
         },
+        // The second step in use. Chosen through POST /api/account/second-step,
+        // never through a provider route.
+        twoFactorMethod: {
+          type: 'string',
+          required: false,
+          input: false,
+        },
       },
     },
     session: {
@@ -192,6 +245,36 @@ export function createAuth(
        * the cooldown, so the decision here is eligibility only.
        */
       before: createAuthMiddleware(async (ctx) => {
+        // A person answers with the step they chose and no other: an
+        // authenticator code does not stand in for a text message, nor the
+        // reverse. A step being switched to counts only on their own session.
+        if (SECOND_STEP_PATHS.includes(ctx.path)) {
+          const subject = await secondStepSubject(ctx)
+          // No session and no challenge: the provider refuses on its own.
+          if (!subject) return
+          const state = await readSecondStep(authPool, subject.userId)
+          if (!state) return
+          const hasSession = subject.sessionId !== null
+          const accepted = stepsAccepted(state, hasSession)
+          if (ctx.path === '/two-factor/verify-totp') {
+            if (!accepted.includes('totp')) throw stepNotInUse()
+            return
+          }
+          const channel = codeChannel(state, hasSession)
+          if (!channel || !accepted.includes(channel)) throw stepNotInUse()
+          if (channel === 'sms') {
+            if (!verifiedPhone(state)) throw stepNotInUse()
+            // A session opened with a code sent to this phone would prove the
+            // same phone twice.
+            if (
+              subject.sessionId &&
+              (await sessionUsedPhoneCode(authPool, subject.sessionId))
+            )
+              throw stepNotInUse()
+          }
+          if (channel === 'email' && !realEmail(state)) throw stepNotInUse()
+          return
+        }
         // A locked or disabled identity never reaches the provider, and is
         // answered with the provider's own refusal for this door.
         if (ctx.path === '/sign-in/email') {
@@ -261,10 +344,13 @@ export function createAuth(
           return
         }
         if (MFA_ENROLMENT_PATHS.includes(ctx.path)) {
-          // The authenticator changed, so no earlier proof of it stands.
+          // The second step changed, so no earlier proof of it stands.
           const userId = ctx.context.session?.user.id
-          if (typeof userId === 'string' && userId.length > 0)
+          if (typeof userId === 'string' && userId.length > 0) {
             await clearUserMfaVerification(authPool, userId)
+            if (ctx.path === '/two-factor/disable')
+              await forgetSecondStep(authPool, userId)
+          }
           return
         }
         if (!MFA_VERIFY_PATHS.includes(ctx.path)) return
@@ -274,6 +360,24 @@ export function createAuth(
             ? (returned as { token?: unknown }).token
             : undefined)
         if (typeof token !== 'string' || token.length === 0) return
+        // A code from a step being switched to, accepted on the person's own
+        // session, makes it the step in use. A sign-in challenge never does.
+        const sessionUserId = ctx.context.session?.user.id
+        if (
+          typeof sessionUserId === 'string' &&
+          (ctx.path === '/two-factor/verify-totp' ||
+            ctx.path === '/two-factor/verify-otp')
+        ) {
+          const state = await readSecondStep(authPool, sessionUserId)
+          const proven =
+            ctx.path === '/two-factor/verify-totp'
+              ? 'totp'
+              : state
+                ? codeChannel(state, true)
+                : null
+          if (state && proven && state.pending === proven)
+            await commitPendingStep(authPool, sessionUserId, proven)
+        }
         await stampSessionMfaVerified(authPool, token)
       }),
     },
@@ -284,8 +388,36 @@ export function createAuth(
         // has been accepted, so a half-set-up device cannot lock anyone out.
         skipVerificationOnEnable: false,
         totpOptions: { digits: 6, period: 30 },
-        // No otpOptions.sendOTP: the second factor is an authenticator app or
-        // a backup code. An SMS code is a login factor here, not a second one.
+        // A six digit code by text message or email, for a person who chose
+        // one of those. The before hook decides who may ask; this only
+        // decides where the code goes.
+        otpOptions: {
+          digits: 6,
+          period: SECOND_STEP_CODE_MINUTES,
+          allowedAttempts: SECOND_STEP_CODE_ATTEMPTS,
+          storeOTP: 'hashed',
+          sendOTP: async ({ user, otp }, ctx) => {
+            const state = await readSecondStep(authPool, user.id)
+            if (!state) return
+            const hasSession = ctx
+              ? (await getSessionFromCtx(ctx)) !== null
+              : false
+            const channel = codeChannel(state, hasSession)
+            const to =
+              channel === 'sms'
+                ? verifiedPhone(state)
+                : channel === 'email'
+                  ? realEmail(state)
+                  : null
+            if (!channel || !to) return
+            await delivery.send({
+              channel,
+              to,
+              purpose: 'second_factor',
+              secret: otp,
+            })
+          },
+        },
       }),
       phoneNumber({
         // No signUpOnVerification: an unknown number can never create an identity.

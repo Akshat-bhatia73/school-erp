@@ -12,6 +12,7 @@ import { Facts, Panel } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
 import { Field } from '@/components/setup/field'
 import { BackupCodes } from '@/components/auth/mfa/backup-codes'
+import { METHOD_LABEL, destinationFor } from '@/components/auth/mfa/methods'
 import { RedirectOnce } from '@/components/auth/app-gate'
 import { describeError, isApiError } from '@/lib/api-errors'
 import { changePassword, listSessions, revokeOtherSessions, revokeSession, twoFactorDisable, twoFactorGenerateBackupCodes, type DeviceSession } from '@/lib/auth-client'
@@ -186,7 +187,7 @@ function TwoFactorPanel() {
       // from here, so both lead to the same offer.
       if (isApiError(caught, 'FRESH_AUTHENTICATION_REQUIRED') || isApiError(caught, 'AUTHENTICATION_REQUIRED')) {
         setNeedsFresh(true)
-        setError('Verify with your authenticator first, then check your password.')
+        setError('Confirm your second step first, then check your password.')
       } else {
         setError(isApiError(caught, 'INVALID_REQUEST') ? 'That password did not match.' : describeError(caught))
       }
@@ -195,24 +196,32 @@ function TwoFactorPanel() {
     }
   }
 
+  const description = 'A code from an authenticator app, a text message or an email, as well as your password.'
+  const openSetup = () => { void navigate({ to: '/mfa/setup', search: { returnTo: '/account/security' } } as never) }
+
   if (!session.twoFactorEnabled) {
     return (
-      <Panel title="Two-step verification" description="An authenticator app code as well as your password.">
+      <Panel title="Two-step verification" description={description}>
         <p className="mb-3 text-[13px] text-muted-foreground">Two-step verification is off. Some schools will not open without it.</p>
-        <Button className="h-11 md:h-9" onClick={() => { void navigate({ to: '/mfa/setup', search: { returnTo: '/account/security' } } as never) }}>
-          <ShieldCheck /> Set up authenticator
+        <Button className="h-11 md:h-9" onClick={openSetup}>
+          <ShieldCheck /> Set up second step
         </Button>
       </Panel>
     )
   }
 
+  const method = session.twoFactorMethod ?? 'totp'
+  const where = destinationFor(method, session.user ? { email: session.user.email, phoneNumber: session.user.phone, phoneNumberVerified: true } : null)
   return (
-    <Panel title="Two-step verification" description="An authenticator app code as well as your password.">
-      <div className="mb-3 flex items-center gap-2">
+    <Panel title="Two-step verification" description={description}>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <Tag color="green" dot>On</Tag>
-        <span className="text-[13px] text-muted-foreground">Your authenticator app is set up.</span>
+        <span className="text-[13px] text-muted-foreground">
+          {method === 'totp' ? 'Your authenticator app is set up.' : `A code by ${METHOD_LABEL[method].toLowerCase()}${where ? ` to ${where}` : ''}.`}
+        </span>
       </div>
       <div className="flex flex-wrap gap-2">
+        <Button variant="outline" className="h-11 md:h-9" onClick={openSetup}>Change second step</Button>
         <Button variant="outline" className="h-11 md:h-9" onClick={() => { setCodes(null); reset(); setCodesOpen(true) }}>Generate new backup codes</Button>
         <Button variant="outline" className="h-11 md:h-9" onClick={() => { reset(); setNeedsFresh(false); setOffOpen(true) }}>Turn off</Button>
       </div>
@@ -250,7 +259,7 @@ function TwoFactorPanel() {
             </Field>
             {needsFresh && (
               <Button variant="outline" className="h-11 justify-self-start md:h-9" onClick={() => { void navigate({ to: '/mfa/verify', search: { returnTo: '/account/security' } } as never) }}>
-                Verify with your authenticator
+                Confirm your second step
               </Button>
             )}
           </div>

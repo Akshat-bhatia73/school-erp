@@ -92,6 +92,11 @@ export const ErrorReason = z.enum([
   'student_login_exists',
   'student_login_missing',
   'assistant_still_answering',
+  'second_step_needs_phone',
+  'second_step_needs_email',
+  'second_step_already_in_use',
+  'second_step_phone_code_session',
+  'second_step_wrong_password',
 ])
 export type ErrorReason = z.infer<typeof ErrorReason>
 

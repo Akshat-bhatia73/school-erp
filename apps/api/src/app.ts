@@ -25,6 +25,14 @@ import {
 import { isFreshMfa } from './auth/assurance.ts'
 import { enforceSessionPolicy, resolveSession } from './auth/session.ts'
 import { registerSessionRoutes } from './routes/sessions.ts'
+import { registerSecondStepRoutes } from './routes/second-step.ts'
+import {
+  consumeSecondStepSend,
+  destinationFor,
+  isSecondStepMethod,
+  markPhoneCodeSignIn,
+  readSecondStep,
+} from './auth/second-step.ts'
 import { registerMembershipRoutes } from './memberships/routes.ts'
 import { registerInvitationRoutes } from './invitations/routes.ts'
 import { registerModuleRoutes } from './modules/index.ts'
@@ -38,11 +46,14 @@ import {
   mfaAttemptKey,
 } from './auth/mfa.ts'
 import { clearBucket, failureCount, recordFailure } from './auth/throttle.ts'
-import type { ErrorCode } from '@erp/contracts'
+import type { ErrorCode, SecondStepMethod } from '@erp/contracts'
+import type { Pool } from 'pg'
 
 const SEND_OTP_ROUTE = 'phone-number/send-otp'
 const VERIFY_OTP_ROUTE = 'phone-number/verify'
 const DISABLE_MFA_ROUTE = 'two-factor/disable'
+const SEND_SECOND_STEP_ROUTE = 'two-factor/send-otp'
+const SIGN_IN_EMAIL_ROUTE = 'sign-in/email'
 const CHANGE_PASSWORD_ROUTE = 'change-password'
 /**
  * Failed password changes one person may make before waiting. The provider's
@@ -59,6 +70,7 @@ export function changePasswordAttemptKey(userId: string): string {
 /** Routes whose body may carry a remember-this-device request. */
 const TRUST_DEVICE_ROUTES = [
   'two-factor/verify-totp',
+  'two-factor/verify-otp',
   'two-factor/verify-backup-code',
 ]
 
@@ -70,6 +82,8 @@ const LOGIN_ROUTES = [
   'request-password-reset',
   'reset-password',
   'two-factor/verify-totp',
+  'two-factor/send-otp',
+  'two-factor/verify-otp',
   'two-factor/verify-backup-code',
 ]
 
@@ -78,6 +92,7 @@ const SHARED_DEVICE_ROUTES = [
   'sign-in/email',
   'phone-number/verify',
   'two-factor/verify-totp',
+  'two-factor/verify-otp',
   'two-factor/verify-backup-code',
 ]
 
@@ -231,6 +246,7 @@ export function buildApp({
   registerIdentityRoutes(app, { auth, pools, authz })
   registerStudentSignInRoute(app, { config, auth, pools })
   registerSessionRoutes(app, { auth, pools })
+  registerSecondStepRoutes(app, { auth, pools })
   registerMembershipRoutes(app, { auth, pools, authz, delivery })
   registerInvitationRoutes(app, { auth, pools, authz, delivery })
   registerModuleRoutes(app, { config, auth, pools, authz, delivery, documents })
@@ -286,6 +302,38 @@ export function buildApp({
             .header('retry-after', String(MFA_ATTEMPT_WINDOW_SECONDS))
             .send(error)
         }
+        return
+      }
+
+      if (path === SEND_SECOND_STEP_ROUTE) {
+        // A code reaches a real phone or mailbox, so sending is budgeted per
+        // person (or per sign-in challenge) and per address. Without either
+        // the provider refuses the call itself.
+        const challenge = twoFactorChallengeCookie(request.headers.cookie)
+        const subject = verified
+          ? `user:${verified.user.id}`
+          : challenge
+            ? `challenge:${challenge}`
+            : undefined
+        if (!subject) return
+        const allowance = await consumeSecondStepSend(pools.auth, {
+          subject,
+          ip: request.ip,
+        })
+        if (!allowance.allowed) {
+          const { status, body } = apiError(
+            'RATE_LIMITED',
+            request.id,
+            allowance.retryAfterSeconds,
+          )
+          await reply
+            .status(status)
+            .header('retry-after', String(allowance.retryAfterSeconds))
+            .send(body)
+          return
+        }
+        const body = safeJson(request.body)
+        request.body = JSON.stringify(body ? stripTrustDeviceFlag(body) : {})
         return
       }
 
@@ -468,6 +516,24 @@ export function buildApp({
         typeof parsed?.token === 'string' ? parsed.token : undefined
       if (request.sharedDeviceRequested && token)
         await markSharedDevice(pools.auth, token)
+      // A session opened with a phone code may not use a text message as its
+      // second step: that would prove the same phone twice.
+      if (path === VERIFY_OTP_ROUTE && token)
+        await markPhoneCodeSignIn(pools.auth, token)
+      // The sign-in screen asks for the step this person chose, and says
+      // where a code went, without the provider's list of every method.
+      if (path === SIGN_IN_EMAIL_ROUTE && parsed?.twoFactorRedirect === true) {
+        const email = safeJson(request.body)?.email
+        const step =
+          typeof email === 'string'
+            ? await secondStepForEmail(pools.auth, email)
+            : undefined
+        delete parsed.twoFactorMethods
+        if (step) {
+          parsed.twoFactorMethod = step.method
+          if (step.destination) parsed.twoFactorDestination = step.destination
+        }
+      }
 
       reply.status(response.status)
       for (const [name, value] of response.headers) {
@@ -566,7 +632,38 @@ function safeUser(user: Record<string, unknown>): Record<string, unknown> {
         }
       : {}),
     twoFactorEnabled: user.twoFactorEnabled === true,
+    ...(user.twoFactorEnabled === true
+      ? { twoFactorMethod: isSecondStepMethod(user.twoFactorMethod) ? user.twoFactorMethod : 'totp' }
+      : {}),
   }
+}
+
+/** The provider's signed two-factor challenge cookie, as sent. */
+function twoFactorChallengeCookie(header: string | undefined): string | undefined {
+  if (!header) return undefined
+  for (const part of header.split(';')) {
+    const index = part.indexOf('=')
+    if (index < 0) continue
+    const name = part.slice(0, index).trim()
+    if (name.endsWith('.two_factor')) return part.slice(index + 1).trim()
+  }
+  return undefined
+}
+
+/** The step a password sign-in must now answer, found by the address typed. */
+async function secondStepForEmail(
+  pool: Pool,
+  email: string,
+): Promise<{ method: SecondStepMethod; destination?: string } | undefined> {
+  const found = await pool.query<{ id: string }>(
+    'SELECT id FROM auth_user WHERE email = $1',
+    [email.trim().toLowerCase()],
+  )
+  const userId = found.rows[0]?.id
+  if (!userId) return undefined
+  const state = await readSecondStep(pool, userId)
+  if (!state?.method) return undefined
+  return { method: state.method, destination: destinationFor(state, state.method) }
 }
 
 function safeSession(

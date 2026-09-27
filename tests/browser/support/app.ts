@@ -145,8 +145,8 @@ export async function enrolAuthenticator(
   expect(signedIn.ok(), 'the enrolment sign-in was refused').toBeTruthy()
 
   await resetRateLimits()
-  const enabled = await request.post('/api/auth/two-factor/enable', {
-    data: { password: person.password },
+  const enabled = await request.post('/api/account/second-step', {
+    data: { method: 'totp', password: person.password },
   })
   expect(enabled.ok(), 'two-factor enrolment was refused').toBeTruthy()
   const secret = secretFromTotpUri(((await enabled.json()) as { totpURI: string }).totpURI)

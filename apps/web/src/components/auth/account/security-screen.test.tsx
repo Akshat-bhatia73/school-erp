@@ -24,6 +24,7 @@ const session = vi.hoisted(() => ({
   status: 'authenticated',
   user: { id: 'u1', displayName: 'Owner A', email: 'owner@example.test', phone: undefined },
   twoFactorEnabled: false,
+  twoFactorMethod: undefined as 'totp' | 'sms' | 'email' | undefined,
   refresh: vi.fn(),
   signOut: vi.fn(),
 }))
@@ -72,7 +73,7 @@ describe('SecurityScreen', () => {
 
   it('offers enrolment when two-step verification is off', async () => {
     renderScreen()
-    expect(await screen.findByRole('button', { name: /Set up authenticator/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Set up second step/ })).toBeInTheDocument()
     expect(screen.getByText('Two-step verification is off. Some schools will not open without it.')).toBeInTheDocument()
   })
 
@@ -116,6 +117,14 @@ describe('SecurityScreen', () => {
   describe('when two-step verification is on', () => {
     beforeEach(() => { session.twoFactorEnabled = true })
 
+    it('names the step in use and offers to change it', async () => {
+      session.twoFactorMethod = 'sms'
+      renderScreen()
+      expect(await screen.findByText(/A code by text message/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Change second step' })).toBeInTheDocument()
+      session.twoFactorMethod = undefined
+    })
+
     it('shows new backup codes once the password is confirmed', async () => {
       client.twoFactorGenerateBackupCodes.mockResolvedValue({ backupCodes: ['aaaa-1111', 'bbbb-2222'] })
       renderScreen()
@@ -125,18 +134,18 @@ describe('SecurityScreen', () => {
       expect(await screen.findByText('aaaa-1111')).toBeInTheDocument()
     })
 
-    it('offers the authenticator when turning it off needs a fresh second step', async () => {
+    it('offers the second step when turning it off needs a fresh one', async () => {
       client.twoFactorDisable.mockRejectedValue(await apiError('FRESH_AUTHENTICATION_REQUIRED', 403))
       renderScreen()
       await userEvent.click(await screen.findByRole('button', { name: 'Turn off' }))
       await userEvent.type(await screen.findByLabelText('Your password'), 'fixture-password-1')
       // The panel behind the dialog is hidden from assistive tech, so this is the dialog's own button.
       fireEvent.click(screen.getByRole('button', { name: 'Turn off' }))
-      expect(await screen.findByText('Verify with your authenticator first, then check your password.')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Verify with your authenticator' })).toBeInTheDocument()
+      expect(await screen.findByText('Confirm your second step first, then check your password.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Confirm your second step' })).toBeInTheDocument()
     })
 
-    it('says the password did not match without offering the authenticator', async () => {
+    it('says the password did not match without offering the second step', async () => {
       client.twoFactorDisable.mockRejectedValue(await apiError('INVALID_REQUEST', 400))
       renderScreen()
       await userEvent.click(await screen.findByRole('button', { name: 'Turn off' }))
@@ -144,7 +153,7 @@ describe('SecurityScreen', () => {
       // The panel behind the dialog is hidden from assistive tech, so this is the dialog's own button.
       fireEvent.click(screen.getByRole('button', { name: 'Turn off' }))
       expect(await screen.findByText('That password did not match.')).toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: 'Verify with your authenticator' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Confirm your second step' })).not.toBeInTheDocument()
     })
   })
 })

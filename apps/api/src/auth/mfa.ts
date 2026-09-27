@@ -6,8 +6,9 @@ import type { Pool } from 'pg'
  *
  * Better Auth records that an identity *has* two-factor enabled, but not that
  * this particular session completed it. `auth_session.mfa_verified_at` is our
- * own column: it is stamped only after the provider itself accepted a TOTP
- * code or a backup code, and it is what every privileged route checks.
+ * own column: it is stamped only after the provider itself accepted a
+ * second-step code (authenticator, text message or email) or a backup code,
+ * and it is what every privileged route checks.
  * Checking `twoFactorEnabled` alone would let a session that never answered a
  * challenge into privileged data.
  */
@@ -15,6 +16,7 @@ import type { Pool } from 'pg'
 /** Provider paths that mean "the second factor was just proven". */
 export const MFA_VERIFY_PATHS: readonly string[] = [
   '/two-factor/verify-totp',
+  '/two-factor/verify-otp',
   '/two-factor/verify-backup-code',
 ]
 
@@ -61,17 +63,18 @@ export async function stampSessionMfaVerified(
   )
 }
 
-/** Provider paths that replace or remove the second factor itself. */
-export const MFA_ENROLMENT_PATHS: readonly string[] = [
-  '/two-factor/enable',
-  '/two-factor/disable',
-]
+/**
+ * Provider paths that remove the second factor. A new or switched step is
+ * handled when its first code is accepted (commitPendingStep in
+ * second-step.ts), so preparing one takes nothing away from the step in use.
+ */
+export const MFA_ENROLMENT_PATHS: readonly string[] = ['/two-factor/disable']
 
 /**
- * A new or removed authenticator makes every earlier proof meaningless: a
- * session stamped by the replaced device must answer the new one before it
- * enters privileged data again. The enrolling session is stamped afresh when
- * its first code is accepted.
+ * A removed or replaced second step makes every earlier proof meaningless: a
+ * session stamped by the old step must answer the new one before it enters
+ * privileged data again. The session that proved the new step is stamped
+ * afresh.
  */
 export async function clearUserMfaVerification(
   pool: Pool,

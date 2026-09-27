@@ -9,7 +9,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
-import type { MeResponse, PermissionKey, SchoolContextResponse } from '@erp/contracts'
+import type { MeResponse, PermissionKey, SchoolContextResponse, SecondStepMethod } from '@erp/contracts'
 
 type ViewerIdentity = MeResponse['user']
 type SessionSummary = MeResponse['session']
@@ -49,6 +49,8 @@ export interface Session {
   accessVersion: number | null
   context: ContextStatus
   twoFactorEnabled: boolean
+  /** The second step in use when two-step verification is on. */
+  twoFactorMethod?: SecondStepMethod | null
   /** The password was texted by the school: nothing else opens until the person chooses their own. */
   // Optional so a hand-built test session (src/test/session.tsx) reads as an adult's by default.
   passwordChangeRequired?: boolean
@@ -111,6 +113,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>('loading')
   const [identity, setIdentity] = useState<Identity | null>(null)
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
+  const [twoFactorMethod, setTwoFactorMethod] = useState<SecondStepMethod | null>(null)
   const [activeSchoolId, setActiveSchoolId] = useState<string | null>(null)
   const [ctx, setCtx] = useState<ContextState>(IDLE_CONTEXT)
   // Bumped to load the school context again once a refused context can open (a new password).
@@ -154,6 +157,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const [meResult, sessionResult] = await Promise.all([me(), getSession().catch(() => null)])
       setIdentity({ user: meResult.user, session: meResult.session, memberships: meResult.memberships })
       setTwoFactorEnabled(sessionResult?.user.twoFactorEnabled === true)
+      setTwoFactorMethod(sessionResult?.user.twoFactorEnabled === true ? sessionResult.user.twoFactorMethod ?? 'totp' : null)
       applyMemberships(meResult.memberships)
       setStatus('authenticated')
     } catch (error) {
@@ -162,6 +166,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (blocked || isApiError(error, 'AUTHENTICATION_REQUIRED') || isApiError(error, 'SESSION_EXPIRED')) {
         setIdentity(null)
         setTwoFactorEnabled(false)
+        setTwoFactorMethod(null)
         setActiveSchoolId(null)
         storeSchoolId(null)
         setCtx(IDLE_CONTEXT)
@@ -256,6 +261,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     resetCache()
     setIdentity(null)
     setTwoFactorEnabled(false)
+    setTwoFactorMethod(null)
     setActiveSchoolId(null)
     storeSchoolId(null)
     setCtx(IDLE_CONTEXT)
@@ -334,6 +340,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     accessVersion: ctx.accessVersion,
     context: ctx.status,
     twoFactorEnabled,
+    twoFactorMethod,
     passwordChangeRequired: identity?.session.passwordChangeRequired === true || ctx.status === 'password_change_required',
     isPupil: memberships.some((m) => m.kind === 'student'),
     ownStudentId: ctx.ownStudentId,
@@ -343,7 +350,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     signOut: doSignOut,
     refresh,
     generation,
-  }), [status, identity, memberships, activeMemberships, ctx, membership, roleKeys, twoFactorEnabled, selectSchool, clearSchool, doSignOut, refresh, generation])
+  }), [status, identity, memberships, activeMemberships, ctx, membership, roleKeys, twoFactorEnabled, twoFactorMethod, selectSchool, clearSchool, doSignOut, refresh, generation])
 
   return (
     <QueryClientProvider client={client}>

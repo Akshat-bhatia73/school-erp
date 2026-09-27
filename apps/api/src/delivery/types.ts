@@ -10,6 +10,7 @@ export interface DeliveryMessage {
     | 'invitation'
     | 'message'
     | 'student_password'
+    | 'second_factor'
   /**
    * The OTP, token, link or a pupil's generated password. Never log or return
    * this to a browser. Empty for a school message.
