@@ -12,6 +12,8 @@
  *   "Which sections do I look after?"         find_sections, then words
  *   "Mark Eight R ... everyone present, Ravi absent"
  *                                             propose_attendance_day, then words
+ *   "Send a notice to Eight R: <title>"       propose_message (now), then words
+ *   "Withdraw the notice <title>"             propose_message_withdraw, then words
  *   anything containing FAIL_ONCE             fails the first time, answers after
  *
  * `ai` is not a dependency of this package, so it is loaded from the API's
@@ -115,6 +117,28 @@ const model = new MockLanguageModelV4({
         })
       }
       return say(`Here is ${section.label}'s register for today. Check it and press Confirm to save it.`)
+    }
+
+    // "Send a notice to Eight R: Picnic on Friday". The title keeps its case.
+    const notice = question.match(/^send a notice to eight ([rs]): (.+)$/i)
+    if (notice) {
+      const section = notice[1]!.toLowerCase() === 's' ? ASSIST_SECTION_S : ASSIST_SECTION_R
+      if (toolsSoFar === 0) {
+        return call('propose_message', {
+          audience: section.label,
+          title: notice[2]!.trim(),
+          body: 'The school picnic is on Friday. Please send a water bottle.',
+          when: 'now',
+        })
+      }
+      return say(`Here is the notice to ${section.label}. Check it and press Send notice.`)
+    }
+
+    // "Withdraw the notice Picnic on Friday".
+    const withdraw = question.match(/^withdraw the notice (.+)$/i)
+    if (withdraw) {
+      if (toolsSoFar === 0) return call('propose_message_withdraw', { message: withdraw[1]!.trim() })
+      return say('Give the reason on the card and press Withdraw message.')
     }
 
     return say('The browser suite has no script for that question.')

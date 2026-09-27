@@ -31,6 +31,7 @@ import {
   signInWithPassword,
   startTestServer,
   type TestServer,
+  useSchoolDayTimezone,
 } from './harness.ts'
 
 const PASSWORD = 'Fixture-Pass!42'
@@ -389,8 +390,11 @@ async function insertStaff(label: string): Promise<string> {
   return id
 }
 
+let restoreTimezone: (() => Promise<void>) | undefined
+
 before(async () => {
   await seedDatabaseFixtures()
+  restoreTimezone = await useSchoolDayTimezone(schoolA)
   const pool = adminPool()
   await pool.query('UPDATE auth_user SET email = $2 WHERE id = $1', [ownerUserId, OWNER_EMAIL])
 
@@ -488,6 +492,7 @@ before(async () => {
 })
 
 after(async () => {
+  await restoreTimezone?.()
   const pool = adminPool()
   await pool.query('DELETE FROM auth_two_factor WHERE user_id = ANY($1::uuid[])', [
     [ownerUserId, ...extraUserIds],

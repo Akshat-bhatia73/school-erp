@@ -335,6 +335,7 @@ export type SavedChange =
   | { readonly name: string; readonly mark: string }
   | { readonly name: string; readonly part: string; readonly value: string | number }
   | { readonly name: string; readonly grades: Readonly<Record<string, string | null>>; readonly remarkChanged: boolean }
+  | { readonly message: string; readonly done: 'saved_as_draft' | 'sent' | 'scheduled' | 'withdrawn'; readonly sendAt?: string }
 
 /** The most saved changes the model is told about one proposal. */
 export const SAVED_MAX = 40
@@ -365,6 +366,13 @@ export function savedChanges(preview: AssistantProposalPreview): SavedChange[] {
         const remarkChanged = (row.proposedRemarks ?? null) !== (row.currentRemarks ?? null)
         return Object.keys(grades).length > 0 || remarkChanged ? [{ name: row.name, grades, remarkChanged }] : []
       })
+    case 'message': {
+      const send = preview.proposed.send
+      if (send.when === 'at') return [{ message: preview.proposed.title, done: 'scheduled', sendAt: send.sendAt }]
+      return [{ message: preview.proposed.title, done: send.when === 'now' ? 'sent' : 'saved_as_draft' }]
+    }
+    case 'message_withdraw':
+      return [{ message: preview.title, done: 'withdrawn' }]
   }
 }
 

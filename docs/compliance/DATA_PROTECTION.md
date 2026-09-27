@@ -431,6 +431,7 @@ A short assessment of the assistant (Task 24), written before it is built, as th
 
 - Nothing is written unless the person presses Confirm on a card that shows every field that will change. The write goes through the ordinary route and its one audit row.
 - High-risk actions have no path through the assistant: access changes, anonymising, deleting, consent, pupil logins.
+- Messages (24c): the model may draft a notice, but it reaches families only through the ordinary message route after the person has read the whole text on the card and pressed Confirm, and only to an audience the person may send to. The `communication` consent rule applies unchanged. The message's words are stored once on the message row, as for a notice written on screen; the proposal's copy is sealed and deleted with the conversation after 30 days.
 - One audit row per question records the tools used and how many records they returned, never the words. Every read the assistant makes is a real request, so it appears in "who opened this record" like any read from a screen.
 - Conversation text is sealed with the application key and never goes to a log, an audit row or an error report. A refusal from the model provider is logged by its status, its one-word error code and its request id only, never its message.
 - Old results follow today's permissions. When a permission is taken away, results that tools behind it read earlier are hidden from the reopened conversation and from what the model reads again, in favour of one sentence saying so.

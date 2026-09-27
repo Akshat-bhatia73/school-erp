@@ -229,8 +229,15 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
     }
 
     // The time now on the school's clock, worked out as the school day is.
-    const school = await conn.client.query<{ name: string; now: string; year_id: string | null; year_name: string | null }>(
+    const school = await conn.client.query<{
+      name: string
+      now: string
+      time_zone: string
+      year_id: string | null
+      year_name: string | null
+    }>(
       `SELECT s.name, to_char(now() AT TIME ZONE COALESCE(NULLIF(s.timezone, ''), 'Asia/Kolkata'), 'HH24:MI') AS now,
+              COALESCE(NULLIF(s.timezone, ''), 'Asia/Kolkata') AS time_zone,
               y.id AS year_id, y.name AS year_name
          FROM schools s
          LEFT JOIN LATERAL (
@@ -246,6 +253,7 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
       usageId,
       today: allowed.schoolDay,
       now: row.now,
+      timeZone: row.time_zone,
       messages: [...history.slice(0, retried ?? history.length).map(({ id, role, parts }) => ({ id, role, parts })), question],
       proposals,
       schoolName: row.name,
@@ -345,6 +353,7 @@ export async function runTurn(deps: AssistantDependencies, input: TurnInput): Pr
       schoolId: context.schoolId,
       today: setup.today,
       now: setup.now,
+      timeZone: setup.timeZone,
       academicYearId: setup.academicYearId,
       get: routeGetter(request, context.schoolId),
     }

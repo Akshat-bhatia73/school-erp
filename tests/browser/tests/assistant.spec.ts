@@ -1,8 +1,9 @@
 /**
  * The assistant, driven the way a teacher uses it: a read question answered
  * from a real read tool, a register marked from a card, a card that went
- * stale because the register was saved elsewhere, and a failed answer asked
- * again with Try again.
+ * stale because the register was saved elsewhere, a failed answer asked
+ * again with Try again, a notice to a section edited and scheduled from its
+ * card, and a withdraw card that needs its reason.
  *
  * The model is scripted (support/assistant-server.ts) and picks its reply from
  * the newest question; everything else — sessions, tools, the proposal store,
@@ -147,4 +148,77 @@ test('an answer that failed can be asked again with Try again', async ({ page })
   await failure.getByRole('button', { name: 'Try again' }).click()
   await expect(page.getByText(RETRIED_ANSWER)).toBeVisible()
   await expect(failure).toHaveCount(0)
+})
+
+/** Tomorrow on the school's clock (Asia/Kolkata), as a date box takes it. */
+function schoolTomorrow(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(Date.now() + 86_400_000))
+}
+
+test('a teacher asks for a notice to their section, edits the title, schedules it, and the Messages screen shows it scheduled', async ({ page }) => {
+  const run = Date.now().toString(36)
+  const asked = `Picnic notice ${run}`
+  const title = `Picnic moved to Saturday ${run}`
+
+  await openAssistant(page)
+  await ask(page, `Send a notice to Eight R: ${asked}`)
+
+  const card = page.getByRole('region', { name: `Send a notice to ${ASSIST_SECTION_R.label}` })
+  await expect(card).toBeVisible()
+  await expect(card.getByText(ASSIST_SECTION_R.label, { exact: true })).toBeVisible()
+  await expect(card.getByLabel('Title')).toHaveValue(asked)
+  await expect(card.getByRole('button', { name: 'Send notice' })).toBeVisible()
+
+  // The person rewrites the title and picks a time instead of sending now.
+  await card.getByLabel('Title').fill(title)
+  await card.getByRole('radio', { name: 'Schedule' }).click()
+  await card.getByLabel('Date').fill(schoolTomorrow())
+  await card.getByLabel('Time').fill('10:00')
+  await card.getByRole('button', { name: 'Schedule notice' }).click()
+
+  await expect(card).toHaveAttribute('data-status', 'done')
+  await expect(card.getByText(/^Scheduled the notice for/).first()).toBeVisible()
+
+  await page.goto('/messages?tab=sent')
+  const row = page.getByRole('row').filter({ hasText: title })
+  await expect(row).toBeVisible()
+  await expect(row).toContainText('Scheduled')
+  await expect(page.getByRole('row').filter({ hasText: asked })).toHaveCount(0)
+})
+
+test('a withdraw card asks for the reason before it takes a sent notice back', async ({ page }) => {
+  const title = `Sports day moved ${Date.now().toString(36)}`
+  await openAssistant(page)
+
+  // The teacher sent this notice from the Messages screen earlier.
+  const sent = await page.request.post(`/api/schools/${SCHOOL_A}/messages`, {
+    headers: { origin: APP_ORIGIN },
+    data: {
+      // The seed's pupils have no guardians, so the pupils themselves are the audience.
+      audience: { kind: 'section', sectionId: ASSIST_SECTION_S.id, recipients: 'students' },
+      title,
+      body: 'Sports day is on Saturday.',
+      send: { when: 'now' },
+    },
+  })
+  expect(sent.status(), `the notice was not sent: ${await sent.text()}`).toBe(201)
+  const messageId = ((await sent.json()) as { id: string }).id
+
+  await ask(page, `Withdraw the notice ${title}`)
+  const card = page.getByRole('region', { name: `Withdraw "${title}"` })
+  await expect(card).toBeVisible()
+  await expect(card.getByText(ASSIST_SECTION_S.label, { exact: true })).toBeVisible()
+
+  // Without a reason the card says so and nothing is sent.
+  await card.getByRole('button', { name: 'Withdraw message' }).click()
+  await expect(card.getByRole('alert').filter({ hasText: 'Give a reason.' })).toBeVisible()
+  await expect(card).toHaveAttribute('data-status', 'open')
+
+  await card.getByLabel('Reason').fill('The date changed.')
+  await card.getByRole('button', { name: 'Withdraw message' }).click()
+  await expect(card).toHaveAttribute('data-status', 'done')
+  await expect(card.getByText('Withdrew the message.').first()).toBeVisible()
+
+  const after = await page.request.get(`/api/schools/${SCHOOL_A}/messages/${messageId}`)
+  expect(((await after.json()) as { status: string }).status).toBe('withdrawn')
 })

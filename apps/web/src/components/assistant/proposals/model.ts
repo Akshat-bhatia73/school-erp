@@ -12,8 +12,16 @@ import {
   type CoScholasticPreview,
   type ExamMarksPreview,
   type MarkValue,
+  type MessagePreview,
+  type MessageWithdrawPreview,
+  MESSAGE_BODY_MAX,
+  MESSAGE_SCHEDULE_MAX_DAYS,
+  MESSAGE_SCHEDULE_MIN_MINUTES,
+  MESSAGE_TITLE_MAX,
+  MessageRecipients,
 } from '@erp/contracts'
 import { getToolName, isToolUIPart, type UIMessage } from 'ai'
+import { formatDateTime } from '@/components/messages/labels'
 import { FORM_ERROR, validate, type FieldErrors, type FieldLabels } from '@/lib/validation'
 
 /** Every change tool is named `propose_…`; its output is a proposal, never a card. */
@@ -94,12 +102,49 @@ export function gradesChange(row: CoScholasticPreview['rows'][number]): boolean 
   return (Object.keys(row.proposed) as Array<keyof typeof row.proposed>).some((area) => row.proposed[area] !== row.current[area])
 }
 
+/** Whether a message's "when" choice leaves it as it is now: a draft kept a draft, or a scheduled one at the same time. */
+function sameSend(preview: MessagePreview): boolean {
+  const { send } = preview.proposed
+  if (preview.currentStatus === 'draft') return send.when === 'draft'
+  if (preview.currentStatus === 'scheduled') {
+    return send.when === 'at' && preview.current?.sendAt != null && Date.parse(send.sendAt) === Date.parse(preview.current.sendAt)
+  }
+  return false
+}
+
+/**
+ * The parts of a change to an existing message that move: its title, its words, when it goes, and
+ * who among the pupils' households get it (against the proposal as it was made, when given).
+ * A new notice is one thing to do.
+ */
+export function messageChanges(preview: MessagePreview, original?: AssistantProposalPreview): number {
+  if (preview.messageId === null || preview.current === null) return 1
+  const recipientsMoved = original?.kind === 'message' && recipientsOf(original) !== recipientsOf(preview)
+  return [
+    preview.proposed.title.trim() !== preview.current.title.trim(),
+    preview.proposed.body.trim() !== preview.current.body.trim(),
+    !sameSend(preview),
+    recipientsMoved,
+  ].filter(Boolean).length
+}
+
+/** Families, pupils or both, for an audience made of pupils; nothing for staff. Left out means families. */
+export function recipientsOf(preview: MessagePreview): MessageRecipients | null {
+  return preview.audience.kind === 'staff' ? null : preview.audience.recipients ?? 'families'
+}
+
 /**
  * How many things Confirm would change: pupils or staff whose mark moves, cells of a marks sheet,
- * or pupils whose grades or remarks move.
+ * pupils whose grades or remarks move, or the parts of a message that move. Taking back a sent
+ * message is one change. `original` is the proposal as it was made, for the one edit a message
+ * card allows that its preview cannot tell apart on its own (who in the household gets it).
  */
-export function countChanges(preview: AssistantProposalPreview): number {
+export function countChanges(preview: AssistantProposalPreview, original?: AssistantProposalPreview): number {
   switch (preview.kind) {
+    case 'message':
+      return messageChanges(preview, original)
+    case 'message_withdraw':
+      return 1
     case 'attendance_day':
     case 'staff_attendance_day':
       return preview.rows.filter((row) => row.proposed !== row.current).length
@@ -125,6 +170,8 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
 
 export function changesText(count: number, preview?: AssistantProposalPreview): string {
   if (count === 0) return 'Nothing changes yet'
+  if (preview?.kind === 'message') return messageWhenText(preview)
+  if (preview?.kind === 'message_withdraw') return 'It disappears from every inbox. Emails already sent cannot be taken back.'
   if (preview?.kind === 'co_scholastic') {
     // "3 grade changes and 1 remark change": a remark the assistant wrote is said out loud.
     const { grades, remarks } = coScholasticChanges(preview)
@@ -148,7 +195,8 @@ export function changesText(count: number, preview?: AssistantProposalPreview): 
  * cell is edited, and the office's correction after the deadline always asks.
  */
 export function needsReason(preview: AssistantProposalPreview): boolean {
-  if (preview.kind === 'co_scholastic') return false
+  if (preview.kind === 'co_scholastic' || preview.kind === 'message') return false
+  if (preview.kind === 'message_withdraw') return true
   if (preview.kind === 'exam_marks') {
     return (
       preview.mode === 'correction' ||
@@ -168,7 +216,7 @@ export function initialDraft(preview: AssistantProposalPreview): AssistantPropos
 }
 
 /** Who each row is about, in order: the part of a preview a kept draft must match. */
-function rowIds(preview: AssistantProposalPreview): string[] {
+function rowIds(preview: Exclude<AssistantProposalPreview, MessagePreview | MessageWithdrawPreview>): string[] {
   switch (preview.kind) {
     case 'attendance_day': return preview.rows.map((row) => row.studentId)
     case 'staff_attendance_day': return preview.rows.map((row) => row.staffId)
@@ -188,8 +236,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * proposal. Anything else returns null and the card starts from the proposal.
  */
 export function restoreDraft(original: AssistantProposalPreview, kept: unknown): AssistantProposalPreview | null {
+  if (original.kind === 'message') return restoreMessage(original, kept)
+  if (original.kind === 'message_withdraw') {
+    if (!isRecord(kept) || kept.kind !== original.kind || kept.messageId !== original.messageId) return null
+    return { ...original, reason: typeof kept.reason === 'string' ? kept.reason : undefined }
+  }
   if (!isRecord(kept) || kept.kind !== original.kind || !Array.isArray(kept.rows)) return null
-  const keptPreview = kept as unknown as AssistantProposalPreview
+  const keptPreview = kept as unknown as typeof original
   const a = rowIds(original)
   let b: string[]
   try { b = rowIds(keptPreview) } catch { return null }
@@ -218,6 +271,75 @@ export function restoreDraft(original: AssistantProposalPreview, kept: unknown):
   }
 }
 
+/**
+ * A message card's kept words, time and recipients over the proposal, when it is the same
+ * message and each kept field has the right shape; the audience itself always comes from the proposal.
+ */
+function restoreMessage(original: MessagePreview, kept: unknown): MessagePreview | null {
+  if (!isRecord(kept) || kept.kind !== 'message' || kept.messageId !== original.messageId || !isRecord(kept.proposed)) return null
+  const { title, body, send } = kept.proposed
+  if (typeof title !== 'string' || typeof body !== 'string' || !isRecord(send)) return null
+  let when: MessagePreview['proposed']['send']
+  if (send.when === 'draft' || send.when === 'now') when = { when: send.when }
+  else if (send.when === 'at' && typeof send.sendAt === 'string') when = { when: 'at', sendAt: send.sendAt }
+  else return null
+  let audience = original.audience
+  if (original.pupilAudience && audience.kind !== 'staff' && isRecord(kept.audience)) {
+    const recipients = MessageRecipients.safeParse(kept.audience.recipients)
+    if (recipients.success) audience = { ...audience, recipients: recipients.data }
+  }
+  return { ...original, audience, proposed: { title, body, send: when } }
+}
+
+// ---------------------------------------------------------------------------
+// A message card's words
+
+/** What Confirm says on a message card, by what it will do. */
+export function messageConfirmLabel(preview: MessagePreview): string {
+  const { send } = preview.proposed
+  if (preview.messageId === null) {
+    return send.when === 'now' ? 'Send notice' : send.when === 'at' ? 'Schedule notice' : 'Save draft'
+  }
+  if (send.when === 'now') return 'Send notice'
+  if (send.when === 'draft' && preview.currentStatus === 'scheduled') return 'Take back to draft'
+  if (send.when === 'at' && preview.currentStatus === 'draft') return 'Schedule notice'
+  return 'Save changes'
+}
+
+/** The line above a message card's buttons: when it goes, in the school's time. */
+export function messageWhenText(preview: MessagePreview): string {
+  const { send } = preview.proposed
+  if (send.when === 'now') return 'It goes out as soon as you confirm.'
+  if (send.when === 'draft') return 'It stays a draft. Nobody gets it yet.'
+  const at = formatDateTime(send.sendAt)
+  return at ? `It goes out on ${at}.` : 'Choose when it goes.'
+}
+
+/** The first and last moment a notice may be scheduled for, from now. */
+export function scheduleWindow(now = Date.now()): { earliest: number; latest: number } {
+  return { earliest: now + MESSAGE_SCHEDULE_MIN_MINUTES * 60_000, latest: now + MESSAGE_SCHEDULE_MAX_DAYS * 86_400_000 }
+}
+
+/** The same sentences the message screen uses for words it cannot send, plus the time window. */
+function messageProblems(preview: MessagePreview): FieldErrors {
+  const errors: FieldErrors = {}
+  const title = preview.proposed.title.trim()
+  if (!title) errors['proposed.title'] = 'Give the message a title.'
+  else if (title.length > MESSAGE_TITLE_MAX) errors['proposed.title'] = `A title can be at most ${MESSAGE_TITLE_MAX} characters.`
+  const body = preview.proposed.body.trim()
+  if (!body) errors['proposed.body'] = 'Write the message.'
+  else if (body.length > MESSAGE_BODY_MAX) errors['proposed.body'] = `A message can be at most ${MESSAGE_BODY_MAX} characters.`
+  const { send } = preview.proposed
+  if (send.when === 'at') {
+    const at = Date.parse(send.sendAt)
+    const { earliest, latest } = scheduleWindow()
+    if (Number.isNaN(at)) errors['proposed.send'] = 'Choose the date and time it should go.'
+    else if (at < earliest) errors['proposed.send'] = `Choose a time at least ${MESSAGE_SCHEDULE_MIN_MINUTES} minutes from now.`
+    else if (at > latest) errors['proposed.send'] = `Choose a time at most ${MESSAGE_SCHEDULE_MAX_DAYS} days ahead.`
+  }
+  return errors
+}
+
 // ---------------------------------------------------------------------------
 // Checking an edited preview before it is sent
 
@@ -227,6 +349,9 @@ const LABELS: FieldLabels = {
   'rows.*.proposed': { label: 'mark', kind: 'select' },
   'rows.*.cells.*.proposed': { label: 'mark', kind: 'number' },
   'rows.*.proposedRemarks': 'remarks',
+  'proposed.title': 'title',
+  'proposed.body': 'message',
+  'proposed.send': { label: 'time', kind: 'select' },
 }
 
 /** The same sentences the register and the marks sheet use when a correction has no reason. */
@@ -261,8 +386,10 @@ function badMarks(preview: ExamMarksPreview): FieldErrors {
  * against the same `@erp/contracts` schema the server applies, plus the two rules the screens
  * check before saving: a correction says why, and a mark fits what its part is out of.
  */
-export function checkPreview(preview: AssistantProposalPreview): { ok: true; data: AssistantProposalPreview } | { ok: false; errors: FieldErrors } {
+export function checkPreview(preview: AssistantProposalPreview, original?: AssistantProposalPreview): { ok: true; data: AssistantProposalPreview } | { ok: false; errors: FieldErrors } {
   const errors: FieldErrors = {}
+  if (preview.kind === 'message_withdraw' && (preview.reason ?? '').trim().length < 3) errors.reason = 'Give a reason.'
+  if (preview.kind === 'message') Object.assign(errors, messageProblems(preview))
   if (needsReason(preview) && (preview.kind === 'exam_marks' || preview.kind === 'attendance_day' || preview.kind === 'staff_attendance_day')) {
     if ((preview.reason ?? '').trim().length < 3) errors.reason = REASON_MISSING[preview.kind === 'exam_marks' ? 'marks' : 'register']
   }
@@ -278,7 +405,7 @@ export function checkPreview(preview: AssistantProposalPreview): { ok: true; dat
     const rowProblems = Object.keys(checked.errors).filter((key) => key.startsWith('rows.')).length
     return { ok: false, errors: rowProblems > 0 && !checked.errors[FORM_ERROR] ? { ...checked.errors, [FORM_ERROR]: 'Check the highlighted rows.' } : checked.errors }
   }
-  if (countChanges(checked.data) === 0) return { ok: false, errors: { [FORM_ERROR]: 'There is nothing to change. Change a value first, or discard this.' } }
+  if (countChanges(checked.data, original) === 0) return { ok: false, errors: { [FORM_ERROR]: 'There is nothing to change. Change a value first, or discard this.' } }
   return { ok: true, data: checked.data }
 }
 
@@ -291,6 +418,8 @@ export const TOUCHES: Record<AssistantProposalKind, readonly string[]> = {
   staff_attendance_day: ['attendance', 'dashboard'],
   exam_marks: ['exams', 'reportCards', 'dashboard'],
   co_scholastic: ['reportCards'],
+  message: ['messages'],
+  message_withdraw: ['messages'],
 }
 
 /** A proposal nobody can act on any more is drawn greyed and read-only. */

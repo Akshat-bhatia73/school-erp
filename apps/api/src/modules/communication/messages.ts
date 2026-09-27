@@ -49,6 +49,7 @@ import {
   auditFacts,
   decideMessage,
   labelMessages,
+  loadMessage,
   optionalPredicate,
   readMessageDetail,
   refusedAsMissing,
@@ -62,7 +63,9 @@ import {
  * of who a message would reach, the draft itself, and sending, scheduling,
  * unscheduling and withdrawing it. Every write locks the school, decides the
  * message and its target again, and leaves exactly one audit row that names
- * the message and never its words.
+ * the message and never its words. A new message or a change may also say
+ * what happens next (`send`), in the same transaction as the save: the one
+ * step the assistant's Confirm takes.
  */
 
 /** A target the caller may send to, checked and ready to store. */
@@ -309,6 +312,74 @@ function assertEditable(row: MessageRow): void {
   if (row.status !== 'draft' && row.status !== 'scheduled') throw reasonFailure('message_not_editable')
 }
 
+/** The columns that take a scheduled message back to a draft. */
+const UNSCHEDULED = { status: 'draft', send_at: null } as const
+
+/** What a send or a schedule did, for the one audit row of the request that asked for it. */
+interface SendOutcome {
+  readonly status: 'sent' | 'scheduled'
+  readonly summary: 'Sent a message.' | 'Scheduled a message.'
+  /** The safe facts the audit row records beside the message's own. */
+  readonly facts: Record<string, unknown>
+  /** The pump is to be started once the transaction has committed. */
+  readonly sentNow: boolean
+}
+
+/**
+ * Send a saved draft or scheduled message now, or schedule it for `sendAt`
+ * (or move its time). The caller has locked the school, decided the message
+ * with the row locked, checked it may act on it and that `version` is the
+ * stored one. The send route, a new message with `send` and a change with
+ * `send` all run this, so the rules are the same whichever way it goes.
+ */
+async function sendOrSchedule(
+  conn: MessageConnection,
+  deps: ModuleDependencies,
+  context: RequestContext,
+  row: MessageRow,
+  version: number,
+  sendAt: string | undefined,
+): Promise<SendOutcome> {
+  const audience = audienceInputOf(row)
+  if (!audience) throw invalid()
+  // The target decided again: an assignment that ended since the draft
+  // was written means it cannot go now.
+  await decideTarget(conn, context, audience)
+
+  if (sendAt === undefined) {
+    const sent = await materialiseMessage(conn, deps, context.schoolId, row.id)
+    return {
+      status: 'sent',
+      summary: 'Sent a message.',
+      facts: { scheduled: false, recipients: sent.recipients, delivered: sent.delivered },
+      sentNow: true,
+    }
+  }
+
+  // The database clock decides, so the answer does not depend on the
+  // server the request landed on.
+  const window = await conn.client.query<{ too_soon: boolean; too_far: boolean }>(
+    `SELECT $1::timestamptz < now() + make_interval(mins => $2) AS too_soon,
+            $1::timestamptz > now() + make_interval(days => $3) AS too_far`,
+    [sendAt, MESSAGE_SCHEDULE_MIN_MINUTES, MESSAGE_SCHEDULE_MAX_DAYS],
+  )
+  const check = window.rows[0]
+  if (!check || check.too_soon) throw reasonFailure('message_schedule_in_past')
+  if (check.too_far) throw reasonFailure('message_schedule_too_far')
+  await bumpVersion(conn, 'messages', {
+    schoolId: context.schoolId,
+    id: row.id,
+    expectedVersion: version,
+    set: { status: 'scheduled', send_at: sendAt },
+  })
+  return {
+    status: 'scheduled',
+    summary: 'Scheduled a message.',
+    facts: { scheduled: true, rescheduled: row.status === 'scheduled' },
+    sentNow: false,
+  }
+}
+
 export function registerMessageWriteRoutes(app: FastifyInstance, deps: ModuleDependencies): void {
   protectedRoute(app, deps, {
     method: 'GET',
@@ -406,8 +477,8 @@ export function registerMessageWriteRoutes(app: FastifyInstance, deps: ModuleDep
     body: CreateMessageRequest,
     response: MessageDetail,
     successStatus: 201,
-    handler: async ({ context, body }) =>
-      withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+    handler: async ({ context, body }) => {
+      const outcome = await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
         await lockSchool(conn, context.schoolId)
         const resolved = await decideTarget(conn, context, body.audience)
         if (body.templateId !== undefined) await assertNoticeTemplate(conn, context.schoolId, body.templateId)
@@ -437,6 +508,35 @@ export function registerMessageWriteRoutes(app: FastifyInstance, deps: ModuleDep
         )
         const id = inserted.rows[0]?.id
         if (!id) throw new ApiFailure('SERVICE_UNAVAILABLE')
+        const fromTemplate = body.templateId !== undefined
+
+        // Sent or scheduled in the same step: exactly what the send route does
+        // to the draft just written, so a refusal leaves no draft behind.
+        if (body.send !== undefined && body.send.when !== 'draft') {
+          const row = await loadMessage(conn, context.schoolId, id, { forUpdate: true })
+          const sent = await sendOrSchedule(
+            conn,
+            deps,
+            context,
+            row,
+            row.version,
+            body.send.when === 'at' ? body.send.sendAt : undefined,
+          )
+          await writeAudit(conn, context, {
+            action: 'communication.send',
+            targetType: 'communication',
+            targetId: id,
+            summary: sent.summary,
+            safeChanges: await auditFacts(
+              conn,
+              context.schoolId,
+              { id, kind: 'notice', audience: resolved.target.kind, status: sent.status },
+              { ...sent.facts, fromTemplate },
+            ),
+          })
+          return { detail: await readMessageDetail(conn, context, id), sentNow: sent.sentNow }
+        }
+
         await writeAudit(conn, context, {
           action: 'communication.send',
           targetType: 'communication',
@@ -446,11 +546,15 @@ export function registerMessageWriteRoutes(app: FastifyInstance, deps: ModuleDep
             conn,
             context.schoolId,
             { id, kind: 'notice', audience: resolved.target.kind, status: 'draft' },
-            { scheduled: false, fromTemplate: body.templateId !== undefined },
+            { scheduled: false, fromTemplate },
           ),
         })
-        return readMessageDetail(conn, context, id)
-      }),
+        return { detail: await readMessageDetail(conn, context, id), sentNow: false }
+      })
+      // After the commit, so the pump sees the recipient rows it is to send.
+      if (outcome.sentNow) kickMessagePump(deps, context.schoolId)
+      return outcome.detail
+    },
   })
 
   protectedRoute(app, deps, {
@@ -461,7 +565,7 @@ export function registerMessageWriteRoutes(app: FastifyInstance, deps: ModuleDep
     response: MessageDetail,
     handler: async ({ context, body, param }) => {
       const id = assertUuidParam(param('messageId'))
-      return withTenantTransaction(deps.pools.runtime, context, async (conn) => {
+      const outcome = await withTenantTransaction(deps.pools.runtime, context, async (conn) => {
         await lockSchool(conn, context.schoolId)
         const row = await decideMessage(conn, context, 'communication.send', id, { forUpdate: true })
         assertEditable(row)
@@ -498,30 +602,79 @@ export function registerMessageWriteRoutes(app: FastifyInstance, deps: ModuleDep
           if (body.templateId !== null) await assertNoticeTemplate(conn, context.schoolId, body.templateId)
           set.template_id = body.templateId
         }
+        const changed = Object.keys(set)
+        const audienceKind = resolved?.target.kind ?? row.audience
+        const facts = (status: MessageRow['status'], extra: Record<string, unknown>) =>
+          auditFacts(conn, context.schoolId, { id, kind: row.kind, audience: audienceKind, status }, { ...extra, changed })
 
+        // Sent now or scheduled in the same step: the change is saved, then the
+        // message goes through exactly what the send route does. Nothing
+        // changed means nothing to save first.
+        if (body.send !== undefined && body.send.when !== 'draft') {
+          const version =
+            changed.length === 0
+              ? row.version
+              : await bumpVersion(conn, 'messages', {
+                  schoolId: context.schoolId,
+                  id,
+                  expectedVersion: body.expectedVersion,
+                  set,
+                })
+          const saved = await loadMessage(conn, context.schoolId, id, { forUpdate: true })
+          const sent = await sendOrSchedule(
+            conn,
+            deps,
+            context,
+            saved,
+            version,
+            body.send.when === 'at' ? body.send.sendAt : undefined,
+          )
+          await writeAudit(conn, context, {
+            action,
+            targetType: 'communication',
+            targetId: id,
+            summary:
+              changed.length === 0
+                ? sent.summary
+                : sent.status === 'sent'
+                  ? 'Changed and sent a message.'
+                  : 'Changed and scheduled a message.',
+            safeChanges: await facts(sent.status, sent.facts),
+          })
+          return { detail: await readMessageDetail(conn, context, id), sentNow: sent.sentNow }
+        }
+
+        // Back to a draft in the same step, as the unschedule route does it.
+        const unscheduled = body.send?.when === 'draft' && row.status === 'scheduled'
         await bumpVersion(conn, 'messages', {
           schoolId: context.schoolId,
           id,
           expectedVersion: body.expectedVersion,
-          set,
+          set: unscheduled ? { ...set, ...UNSCHEDULED } : set,
         })
         await writeAudit(conn, context, {
           action,
           targetType: 'communication',
           targetId: id,
-          summary: 'Changed a message.',
-          safeChanges: await auditFacts(
-            conn,
-            context.schoolId,
-            { id, kind: row.kind, audience: resolved?.target.kind ?? row.audience, status: row.status },
-            {
-              scheduled: row.status === 'scheduled',
-              changed: Object.keys(set),
-            },
-          ),
+          summary: !unscheduled
+            ? 'Changed a message.'
+            : changed.length === 0
+              ? 'Took a scheduled message back to a draft.'
+              : 'Changed a message and took it back to a draft.',
+          safeChanges: await facts(unscheduled ? 'draft' : row.status, {
+            scheduled: !unscheduled && row.status === 'scheduled',
+          }),
         })
-        return readMessageDetail(conn, context, id)
+        // A manager who took somebody else's message back to a draft is
+        // answered with it once, as the unschedule route answers.
+        return {
+          detail: await readMessageDetail(conn, context, id, unscheduled ? { justActedOn: true } : {}),
+          sentNow: false,
+        }
       })
+      // After the commit, so the pump sees the recipient rows it is to send.
+      if (outcome.sentNow) kickMessagePump(deps, context.schoolId)
+      return outcome.detail
     },
   })
 
@@ -582,58 +735,15 @@ export function registerMessageWriteRoutes(app: FastifyInstance, deps: ModuleDep
         assertEditable(row)
         const action = await assertMayAct(conn, context, row)
         assertVersion(body.expectedVersion, row.version)
-        const audience = audienceInputOf(row)
-        if (!audience) throw invalid()
-        // The target decided again: an assignment that ended since the draft
-        // was written means it cannot go now.
-        await decideTarget(conn, context, audience)
-
-        if (body.sendAt === undefined) {
-          const sent = await materialiseMessage(conn, deps, context.schoolId, id)
-          await writeAudit(conn, context, {
-            action,
-            targetType: 'communication',
-            targetId: id,
-            summary: 'Sent a message.',
-            safeChanges: await auditFacts(
-              conn,
-              context.schoolId,
-              { ...row, status: 'sent' },
-              { scheduled: false, recipients: sent.recipients, delivered: sent.delivered },
-            ),
-          })
-          return { detail: await readMessageDetail(conn, context, id), sentNow: true }
-        }
-
-        // The database clock decides, so the answer does not depend on the
-        // server the request landed on.
-        const window = await conn.client.query<{ too_soon: boolean; too_far: boolean }>(
-          `SELECT $1::timestamptz < now() + make_interval(mins => $2) AS too_soon,
-                  $1::timestamptz > now() + make_interval(days => $3) AS too_far`,
-          [body.sendAt, MESSAGE_SCHEDULE_MIN_MINUTES, MESSAGE_SCHEDULE_MAX_DAYS],
-        )
-        const check = window.rows[0]
-        if (!check || check.too_soon) throw reasonFailure('message_schedule_in_past')
-        if (check.too_far) throw reasonFailure('message_schedule_too_far')
-        await bumpVersion(conn, 'messages', {
-          schoolId: context.schoolId,
-          id,
-          expectedVersion: body.expectedVersion,
-          set: { status: 'scheduled', send_at: body.sendAt },
-        })
+        const sent = await sendOrSchedule(conn, deps, context, row, body.expectedVersion, body.sendAt)
         await writeAudit(conn, context, {
           action,
           targetType: 'communication',
           targetId: id,
-          summary: 'Scheduled a message.',
-          safeChanges: await auditFacts(
-            conn,
-            context.schoolId,
-            { ...row, status: 'scheduled' },
-            { scheduled: true, rescheduled: row.status === 'scheduled' },
-          ),
+          summary: sent.summary,
+          safeChanges: await auditFacts(conn, context.schoolId, { ...row, status: sent.status }, sent.facts),
         })
-        return { detail: await readMessageDetail(conn, context, id), sentNow: false }
+        return { detail: await readMessageDetail(conn, context, id), sentNow: sent.sentNow }
       })
       // After the commit, so the pump sees the recipient rows it is to send.
       if (outcome.sentNow) kickMessagePump(deps, context.schoolId)
@@ -658,7 +768,7 @@ export function registerMessageWriteRoutes(app: FastifyInstance, deps: ModuleDep
           schoolId: context.schoolId,
           id,
           expectedVersion: body.expectedVersion,
-          set: { status: 'draft', send_at: null },
+          set: UNSCHEDULED,
         })
         await writeAudit(conn, context, {
           action,

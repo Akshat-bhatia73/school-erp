@@ -18,6 +18,8 @@ export interface ToolCallContext {
   readonly today: string
   /** The time now in the school's timezone, HH:MM, when the turn knows it. */
   readonly now?: string
+  /** The school's timezone (IANA), when the turn knows it; India's otherwise. */
+  readonly timeZone?: string
   /** The current academic year's id, when the school has one the person can read. */
   readonly academicYearId: string | null
   /**

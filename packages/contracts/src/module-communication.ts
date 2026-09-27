@@ -245,22 +245,45 @@ export const MessageParams = z.strictObject({ schoolId: Id, messageId: Id })
 export const MessageAttachmentParams = z.strictObject({ schoolId: Id, messageId: Id, attachmentId: Id })
 export const InboxItemParams = z.strictObject({ schoolId: Id, recipientId: Id })
 
-/** Start a draft. The words may use placeholders; they are rendered when the draft is saved. */
+/**
+ * What happens to a message in the same step that saves it: kept as a draft,
+ * sent now, or scheduled for `sendAt` (MESSAGE_SCHEDULE_MIN_MINUTES to
+ * MESSAGE_SCHEDULE_MAX_DAYS away). Saving and sending are one transaction,
+ * so a refused send leaves nothing behind (Task 24c).
+ */
+export const MessageSendChoice = z.discriminatedUnion('when', [
+  z.strictObject({ when: z.literal('draft') }),
+  z.strictObject({ when: z.literal('now') }),
+  z.strictObject({ when: z.literal('at'), sendAt: Timestamp }),
+])
+export type MessageSendChoice = z.infer<typeof MessageSendChoice>
+
+/**
+ * Start a message. The words may use placeholders; they are rendered when it
+ * is saved. Without `send` it is a draft, as it was before `send` existed.
+ */
 export const CreateMessageRequest = z.strictObject({
   audience: MessageAudienceInput,
   title: MessageTitle,
   body: MessageBody,
   templateId: Id.optional(),
+  send: MessageSendChoice.optional(),
 })
 export type CreateMessageRequest = z.infer<typeof CreateMessageRequest>
 
-/** Change a draft or a scheduled message. A scheduled message changed this way stays scheduled. */
+/**
+ * Change a draft or a scheduled message. Without `send` a scheduled message
+ * changed this way stays scheduled. With it, in the same step: `draft` takes a
+ * scheduled message back to a draft (a draft stays one), `now` sends it and
+ * `at` schedules it or moves its time.
+ */
 export const UpdateMessageRequest = z.strictObject({
   expectedVersion: Version,
   audience: MessageAudienceInput.optional(),
   title: MessageTitle.optional(),
   body: MessageBody.optional(),
   templateId: Id.nullable().optional(),
+  send: MessageSendChoice.optional(),
 })
 export type UpdateMessageRequest = z.infer<typeof UpdateMessageRequest>
 

@@ -198,6 +198,25 @@ async function member(input: { roleKeys: readonly string[]; label: string; staff
     : signInWithPassword(server, email, PASSWORD)
 }
 
+/**
+ * Today's registers need today to be a school day, and a Sunday is not one.
+ * The school's own clock decides what today is, so the school is put in a
+ * timezone where it is not Sunday now: India's when it can be, else the last
+ * zone to leave Saturday or the first to reach Monday (26 hours apart, so one
+ * of them always is). A zone within an hour of its Sunday is passed over.
+ */
+async function useSchoolDayTimezone(schoolId: string): Promise<void> {
+  const found = await adminPool().query<{ tz: string }>(
+    `SELECT tz FROM unnest(ARRAY['Asia/Kolkata', 'Etc/GMT+12', 'Pacific/Kiritimati']) WITH ORDINALITY AS zone(tz, n)
+      WHERE extract(dow FROM now() AT TIME ZONE tz) <> 0
+        AND NOT (extract(dow FROM now() AT TIME ZONE tz) = 6 AND extract(hour FROM now() AT TIME ZONE tz) >= 23)
+      ORDER BY n LIMIT 1`,
+  )
+  const tz = found.rows[0]?.tz
+  assert.ok(tz, 'one of the zones is not on a Sunday')
+  await adminPool().query('UPDATE schools SET timezone = $2 WHERE id = $1', [schoolId, tz])
+}
+
 before(async () => {
   await seedDatabaseFixtures()
   const pool = adminPool()
@@ -206,6 +225,7 @@ before(async () => {
     `ai-propose-${suffix}`,
     `Propose School ${suffix}`,
   ])
+  await useSchoolDayTimezone(school)
   for (const [key, template] of Object.entries(ROLE_TEMPLATES)) {
     const role = await pool.query<{ id: string }>(
       `INSERT INTO roles(school_id,key,name,is_system) VALUES ($1,$2,$3,true) RETURNING id`,
@@ -319,10 +339,18 @@ after(async () => {
 // ---------------------------------------------------------------------------
 // The definitions.
 
-test('the four change tools are registered, each with an active write permission and described inputs', () => {
+test('the change tools are registered, each with an active write permission and described inputs', () => {
   assert.deepEqual(
     PROPOSE_TOOLS.map((definition) => definition.name),
-    ['propose_attendance_day', 'propose_staff_attendance_day', 'propose_exam_marks', 'propose_co_scholastic'],
+    [
+      'propose_attendance_day',
+      'propose_staff_attendance_day',
+      'propose_exam_marks',
+      'propose_co_scholastic',
+      'propose_message',
+      'propose_message_change',
+      'propose_message_withdraw',
+    ],
   )
   for (const definition of PROPOSE_TOOLS) {
     assert.match(definition.name, /^propose_[a-z0-9_]+$/)
@@ -337,7 +365,7 @@ test('the four change tools are registered, each with an active write permission
   const teacherKeys = new Set<PermissionKey>(ROLE_TEMPLATES.teacher.grants.map((grant) => grant.permission))
   assert.deepEqual(
     proposeToolsFor(teacherKeys).map((definition) => definition.name),
-    ['propose_attendance_day', 'propose_exam_marks', 'propose_co_scholastic'],
+    ['propose_attendance_day', 'propose_exam_marks', 'propose_co_scholastic', 'propose_message', 'propose_message_change', 'propose_message_withdraw'],
   )
   assert.deepEqual(proposeToolsFor(new Set<PermissionKey>(['ai_assistant.use'])), [])
 })

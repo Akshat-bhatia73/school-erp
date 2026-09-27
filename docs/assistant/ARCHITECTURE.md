@@ -259,6 +259,19 @@ parts:
 
 Each change tool has its own editable card in the browser (section 11).
 
+**Messages (24c).** `propose_message` writes a new notice, `propose_message_change` changes one
+of the person's drafts or scheduled messages and `propose_message_withdraw` takes back a sent one.
+The model writes the words, in the language the person asks for or else the language of the
+question, and names the audience as people say it ("9A", "Classes 6 to 8", "Kabir's family"); the
+tool matches it against the audiences the person may send to. Saving and sending is one call: the
+message routes take `send` (keep as a draft, now, or at a time in the school's own clock), so a
+Confirm never leaves a draft behind a refused send. The card edits the title, the words, when it
+goes and, for an audience of pupils, whether it goes to families, pupils or both; the audience
+itself is fixed, so a different audience is a new proposal. Withdrawing asks for the reason on the
+card. A message's delivery figures move while it is delivered, so a change tool may name the part
+of its check read that must not move (`checkView`): for a message, its version, status, words,
+time and audience.
+
 ### Never a tool
 
 Some routes stay off the assistant, even for a person who may use them on screen:
@@ -629,7 +642,7 @@ answers and fix the tools or the prompt where they go wrong.
 |---|---|
 | **24a Foundation** | the screen, conversations, streaming, every read tool, cards, sources, audit row, 30-day keeping, the switches, limits, the pupil consent and parent home card, Settings → Assistant, the security tests. Answers only. |
 | **24b Changes: attendance and marks** | proposals, editable cards, Confirm and Confirm all, clash handling, then the attendance and marks change tools |
-| **24c Messages and notices** | |
+| **24c Messages and notices** | send or schedule a new notice, save one as a draft, change a draft or scheduled message, withdraw a sent one; the message routes save and send in one step |
 | **24d Fees** | |
 | **24e Pupil and staff records** | |
 

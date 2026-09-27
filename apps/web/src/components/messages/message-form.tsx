@@ -15,6 +15,7 @@ import {
   MESSAGE_TITLE_MAX,
   MessageRecipients,
   unknownPlaceholders,
+  type MessageSendChoice,
 } from '@erp/contracts'
 import { FileText, Paperclip, Search, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -136,11 +137,16 @@ export function MessageForm({ message }: { message?: MessageRecord }) {
     return next
   }
 
-  /** Save the words: a new draft the first time, a change after that. */
-  async function persist(): Promise<MessageRecord> {
+  /**
+   * Save the words: a new message the first time, a change after that. With `send` the same call
+   * also sends or schedules it, so a refused send saves nothing. Without it a new message is a
+   * draft and a scheduled one stays scheduled.
+   */
+  async function persist(send?: MessageSendChoice): Promise<MessageRecord> {
     const input = audience!
+    const sending = send ? { send } : {}
     if (!saved) {
-      return api.messages.create(schoolId, { audience: input, title: title.trim(), body: body.trim(), ...(templateId ? { templateId } : {}) })
+      return api.messages.create(schoolId, { audience: input, title: title.trim(), body: body.trim(), ...(templateId ? { templateId } : {}), ...sending })
     }
     return api.messages.update(schoolId, saved.id, {
       expectedVersion: saved.version,
@@ -148,11 +154,12 @@ export function MessageForm({ message }: { message?: MessageRecord }) {
       title: title.trim(),
       body: body.trim(),
       templateId: templateId ?? null,
+      ...sending,
     })
   }
 
   const saveDraft = useMutation({
-    mutationFn: persist,
+    mutationFn: () => persist(),
     onSuccess: (record) => {
       setSaved(record)
       void invalidate()
@@ -163,11 +170,10 @@ export function MessageForm({ message }: { message?: MessageRecord }) {
   })
 
   const send = useMutation({
-    mutationFn: async () => {
-      const record = await persist()
-      setSaved(record)
-      const sendAt = mode === 'schedule' ? localInputToIso(when) ?? undefined : undefined
-      return api.messages.send(schoolId, record.id, { expectedVersion: record.version, ...(sendAt ? { sendAt } : {}) })
+    // One call saves the words and sends or schedules them.
+    mutationFn: () => {
+      // A time that cannot be read goes to the server as it is, to be refused, never sent at once.
+      return persist(mode === 'schedule' ? { when: 'at', sendAt: localInputToIso(when) ?? '' } : { when: 'now' })
     },
     onSuccess: (record) => {
       void invalidate()

@@ -16,6 +16,13 @@ import { AllowedActions } from './responses.ts'
 import { AttendanceMark } from './module-attendance.ts'
 import { ExamComponent, ExamReasonKind, MarkValue } from './module-exams.ts'
 import { CoScholasticGrades, ReportCardKind } from './module-report-cards.ts'
+import {
+  MESSAGE_BODY_MAX,
+  MESSAGE_TITLE_MAX,
+  MessageAudienceInput,
+  MessageRecipients,
+  MessageSendChoice,
+} from './module-communication.ts'
 
 // ---------------------------------------------------------------------------
 // Limits that never change per school.
@@ -273,6 +280,8 @@ export const AssistantProposalKind = z.enum([
   'staff_attendance_day',
   'exam_marks',
   'co_scholastic',
+  'message',
+  'message_withdraw',
 ])
 export type AssistantProposalKind = z.infer<typeof AssistantProposalKind>
 
@@ -412,11 +421,69 @@ export const CoScholasticPreview = z.strictObject({
 })
 export type CoScholasticPreview = z.infer<typeof CoScholasticPreview>
 
+/**
+ * A notice (24c): a new one, or a change to one of the person's own drafts or
+ * scheduled messages. The audience is fixed: only its `recipients` (families,
+ * pupils or both, for an audience made of pupils) may be edited, with
+ * `proposed`. To change who it is for, the person asks again. One write: the
+ * create route for a new notice, the change route for an existing one, each
+ * saving and sending (or scheduling, or keeping a draft) in one step.
+ */
+export const MessagePreview = z.strictObject({
+  kind: z.literal('message'),
+  /** Null for a new notice. */
+  messageId: Id.nullable(),
+  /** The existing message's version, sent as expectedVersion; null for a new notice. */
+  version: Version.nullable(),
+  /** What the existing message is now; null for a new notice. */
+  currentStatus: z.enum(['draft', 'scheduled']).nullable(),
+  audience: MessageAudienceInput,
+  /** "Class 9 A", "Classes 6 to 8", "The whole school", "Kabir Shah's family". */
+  audienceLabel: z.string().min(1).max(160),
+  /** True when the audience is made of pupils, so families, pupils or both may be chosen. */
+  pupilAudience: z.boolean(),
+  /** The school's time zone (IANA), the clock a scheduled time is shown on. */
+  timeZone: z.string().min(1).max(64),
+  /** The existing message as saved now; null for a new notice. */
+  current: z
+    .strictObject({
+      title: z.string().max(MESSAGE_TITLE_MAX),
+      body: z.string().max(MESSAGE_BODY_MAX),
+      sendAt: Timestamp.nullable(),
+      /** Who of the pupils it goes to now, for an audience made of pupils. */
+      recipients: MessageRecipients.nullable(),
+    })
+    .nullable(),
+  /** Editable: the words, and whether it stays a draft, goes now or goes at a time. */
+  proposed: z.strictObject({
+    title: z.string().trim().min(1).max(MESSAGE_TITLE_MAX),
+    body: z.string().trim().min(1).max(MESSAGE_BODY_MAX),
+    send: MessageSendChoice,
+  }),
+})
+export type MessagePreview = z.infer<typeof MessagePreview>
+
+/** Taking back a message the person sent (24c). Only `reason` is editable, and it is needed. */
+export const MessageWithdrawPreview = z.strictObject({
+  kind: z.literal('message_withdraw'),
+  messageId: Id,
+  version: Version,
+  title: z.string().max(MESSAGE_TITLE_MAX),
+  audienceLabel: z.string().min(1).max(160),
+  sentAt: Timestamp,
+  /** How many it reached, as the sent message's record counts them. */
+  recipients: z.number().int().nonnegative(),
+  reason: Reason.optional(),
+})
+export type MessageWithdrawPreview = z.infer<typeof MessageWithdrawPreview>
+
 export const AssistantProposalPreview = z.discriminatedUnion('kind', [
   AttendanceDayPreview,
   StaffAttendanceDayPreview,
   ExamMarksPreview,
   CoScholasticPreview,
+  MessagePreview,
+  MessageWithdrawPreview,
 ])
 export type AssistantProposalPreview = z.infer<typeof AssistantProposalPreview>
 
