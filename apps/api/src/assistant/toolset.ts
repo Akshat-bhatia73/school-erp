@@ -8,7 +8,7 @@ import {
   type AssistantToolOutput,
 } from '@erp/contracts'
 import type { AnyReadTool, ReadToolOutcome, RouteAnswer, ToolCallContext } from './tools/types.ts'
-import type { AnyProposeTool, PrepareOutcome, ProposalDraft } from './proposals/types.ts'
+import { checkedPart, type AnyProposeTool, type PrepareOutcome, type ProposalDraft } from './proposals/types.ts'
 import { digestOf, isCheckPath } from './proposals/store.ts'
 
 /**
@@ -132,10 +132,14 @@ function checkKey(pathWithQuery: string): string {
  * show someone else's newer save. Null when the tool never read its check
  * route, or read it twice and got two answers.
  */
-function digestOfRead(reads: ReadonlyMap<string, RouteAnswer[]>, checkPath: string): string | null {
+function digestOfRead(
+  reads: ReadonlyMap<string, RouteAnswer[]>,
+  checkPath: string,
+  view: (body: unknown) => unknown,
+): string | null {
   const answers = reads.get(checkKey(checkPath)) ?? []
   if (answers.length === 0 || answers.some((answer) => !answer.ok)) return null
-  const digests = new Set(answers.map((answer) => digestOf(answer.ok ? answer.body : null)))
+  const digests = new Set(answers.map((answer) => digestOf(view(answer.ok ? answer.body : null))))
   return digests.size === 1 ? [...digests][0]! : null
 }
 
@@ -211,7 +215,7 @@ export function buildProposeToolSet(
             ledger.failed += 1
             return { status: 'failed' }
           }
-          const digest = digestOfRead(reads, draft.checkPath)
+          const digest = digestOfRead(reads, draft.checkPath, (body) => checkedPart(definition, body))
           if (digest === null) {
             ledger.failed += 1
             return { status: 'failed' }

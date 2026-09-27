@@ -3,6 +3,7 @@ import type { AnyProposeTool, ProposeToolDefinition } from './types.ts'
 import { proposeAttendanceDay } from './attendance.ts'
 import { proposeCoScholastic } from './co-scholastic.ts'
 import { proposeExamMarks } from './exam-marks.ts'
+import { proposeMessage, proposeMessageChange, proposeMessageWithdraw } from './messages.ts'
 import { proposeStaffAttendanceDay } from './staff-attendance.ts'
 
 /**
@@ -21,6 +22,9 @@ export const PROPOSE_TOOLS: readonly AnyProposeTool[] = proposeToolList(
   proposeStaffAttendanceDay,
   proposeExamMarks,
   proposeCoScholastic,
+  proposeMessage,
+  proposeMessageChange,
+  proposeMessageWithdraw,
 )
 
 /** The change tools offered to one person: those whose write permission they hold somewhere. */

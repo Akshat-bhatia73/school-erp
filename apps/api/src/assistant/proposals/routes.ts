@@ -18,7 +18,7 @@ import { ownThread } from '../threads.ts'
 import { switchedOff } from '../limits.ts'
 import type { AssistantDependencies } from '../turn.ts'
 import { proposeToolNamed } from './registry.ts'
-import type { AnyProposeTool, WriteRequest } from './types.ts'
+import { checkedPart, type AnyProposeTool, type WriteRequest } from './types.ts'
 import {
   decide,
   digestOf,
@@ -86,12 +86,15 @@ interface Ready {
   readonly edited: AssistantProposalPreview
   readonly changed: boolean
   readonly describeDone: (preview: AssistantProposalPreview) => string
+  /** The part of the check route's answer the digest is of. */
+  readonly checkView: (body: unknown) => unknown
 }
 
 type ToolView = {
   sameTarget(original: AssistantProposalPreview, edited: AssistantProposalPreview): boolean
   write(preview: AssistantProposalPreview): WriteRequest | { problem: string }
   describeDone(preview: AssistantProposalPreview): string
+  checkView?(body: unknown): unknown
 }
 
 function viewOf(tool: AnyProposeTool): ToolView {
@@ -126,6 +129,7 @@ async function check(input: Checked): Promise<Ready | { row: ProposalRow }> {
     edited: edited.data,
     changed: stableJson(edited.data) !== stableJson(original.data),
     describeDone: (preview) => view.describeDone(preview),
+    checkView: (body) => checkedPart(view, body),
   }
 }
 
@@ -149,7 +153,7 @@ async function send(
     return { status: 'open' }
   }
   // Anything else is somebody else's change, which is never overwritten.
-  if (digestOf(current.body) !== row.check_digest) return { status: 'stale', outcome: STALE_OUTCOME }
+  if (digestOf(ready.checkView(current.body)) !== row.check_digest) return { status: 'stale', outcome: STALE_OUTCOME }
   const answer = await write(ready.request, operationId)
   if (!answer.ok) return refusedWrite(answer)
   return { status: 'done', outcome: ready.describeDone(ready.edited) }

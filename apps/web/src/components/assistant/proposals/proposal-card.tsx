@@ -1,7 +1,8 @@
 /**
  * One change the assistant proposes, as a card the person edits in place.
  *
- * The card edits only the preview's `proposed…`, `reason` and `reasonKind` fields. Confirm sends
+ * The card edits only the preview's `proposed…`, `reason` and `reasonKind` fields, and a notice's
+ * recipients (families, pupils or both) when it is for pupils. Confirm sends
  * the preview as the person left it; the server checks it is the same change, re-reads the record
  * and writes through the real route as the person. The answer (done, stale, failed, expired)
  * replaces the card's state; a request the server refused as it stood (a 400 with its own
@@ -14,7 +15,11 @@
 import type {
   AssistantProposal,
   AssistantProposalPreview,
+  AttendanceDayPreview,
+  ExamMarksPreview,
   ExamReasonKind,
+  MessageWithdrawPreview,
+  StaffAttendanceDayPreview,
 } from '@erp/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, CircleSlash, Clock, LoaderCircle, PencilLine, TriangleAlert } from 'lucide-react'
@@ -37,8 +42,10 @@ import { clearSessionDraft, draftKeys, useSessionDraft } from '../session-draft'
 import { CoScholasticBody } from './co-scholastic-body'
 import { useProposals, type ConfirmResult, type SettledProposal } from './context'
 import { MarksBody } from './marks-body'
-import { changesText, checkPreview, clockTime, countChanges, initialDraft, needsReason, restoreDraft, settledText, TOUCHES } from './model'
+import { MessageBody } from './message-body'
+import { changesText, checkPreview, clockTime, countChanges, initialDraft, messageConfirmLabel, needsReason, restoreDraft, settledText, TOUCHES } from './model'
 import { RegisterBody } from './register-body'
+import { WithdrawBody } from './withdraw-body'
 
 /** Done needs no tag: its own line says "Saved at 10:42". */
 const STATUS_TAG: Record<Exclude<AssistantProposal['status'], 'open' | 'done'>, { label: string; color: TagColor }> = {
@@ -72,19 +79,39 @@ function ProposalBody({ preview, onChange, errors, readOnly, idBase, errorId }: 
       return <MarksBody preview={preview} onChange={onChange} errors={errors} readOnly={readOnly} errorId={errorId} />
     case 'co_scholastic':
       return <CoScholasticBody preview={preview} onChange={onChange} errors={errors} readOnly={readOnly} idBase={idBase} />
+    case 'message':
+      return <MessageBody preview={preview} onChange={onChange} errors={errors} readOnly={readOnly} idBase={idBase} />
+    case 'message_withdraw':
+      return <WithdrawBody preview={preview} />
   }
 }
 
-/** Why saved marks or a saved register are changing, asked on the card itself before Confirm. */
+/** The kinds a card asks a reason for. */
+type ReasonPreview = AttendanceDayPreview | StaffAttendanceDayPreview | ExamMarksPreview | MessageWithdrawPreview
+
+const REASON_PLACEHOLDER: Record<ReasonPreview['kind'], string> = {
+  attendance_day: 'Some of these are already saved. Say why they are changing.',
+  staff_attendance_day: 'Some of these are already saved. Say why they are changing.',
+  exam_marks: 'Some of these are already saved. Say why they are changing.',
+  message_withdraw: 'Why is it being withdrawn?',
+}
+
+/** What Confirm says it does. A message card names the action; the others confirm the change shown. */
+function confirmLabel(preview: AssistantProposalPreview): string {
+  if (preview.kind === 'message') return messageConfirmLabel(preview)
+  if (preview.kind === 'message_withdraw') return 'Withdraw message'
+  return 'Confirm'
+}
+
+/** Why saved marks or a saved register are changing, or a sent message is taken back, asked on the card itself before Confirm. */
 function ReasonFields({ preview, onChange, errors, readOnly, idBase }: {
-  preview: AssistantProposalPreview
+  preview: ReasonPreview
   onChange: (next: AssistantProposalPreview) => void
   errors: FieldErrors
   readOnly: boolean
   /** Unique to the card, so two cards on one answer never share a label target. */
   idBase: string
 }) {
-  if (preview.kind === 'co_scholastic') return null
   const id = `${idBase}-reason`
   const errorId = `${id}-error`
   return (
@@ -109,7 +136,7 @@ function ReasonFields({ preview, onChange, errors, readOnly, idBase }: {
           readOnly={readOnly}
           aria-invalid={!!errors.reason || undefined}
           aria-describedby={errors.reason ? errorId : undefined}
-          placeholder="Some of these are already saved. Say why they are changing."
+          placeholder={REASON_PLACEHOLDER[preview.kind]}
           value={preview.reason ?? ''}
           onChange={(event) => onChange({ ...preview, reason: event.target.value === '' ? undefined : event.target.value })}
           className="min-h-14 text-[13px]"
@@ -219,7 +246,7 @@ export function ProposalCard({ proposal: made }: { proposal: AssistantProposal }
   }, [focusAsk])
 
   const confirm = useCallback(async (): Promise<ConfirmResult> => {
-    const checked = checkPreview(draft)
+    const checked = checkPreview(draft, made.preview)
     if (!checked.ok) {
       setErrors(checked.errors)
       setFocusAsk((n) => n + 1)
@@ -232,7 +259,7 @@ export function ProposalCard({ proposal: made }: { proposal: AssistantProposal }
     } catch {
       return 'blocked'
     }
-  }, [draft, confirmation])
+  }, [draft, made.preview, confirmation])
 
   // Lend this card's Confirm to "Confirm all" while it is open; the latest one, with the latest edits.
   const confirmRef = useRef(confirm)
@@ -249,7 +276,7 @@ export function ProposalCard({ proposal: made }: { proposal: AssistantProposal }
   }
 
   const shown = status === 'open' ? draft : proposal.preview
-  const changes = countChanges(shown)
+  const changes = countChanges(shown, made.preview)
   const formError = errors[FORM_ERROR]
 
   return (
@@ -282,7 +309,7 @@ export function ProposalCard({ proposal: made }: { proposal: AssistantProposal }
       ) : (
         <>
           <ProposalBody preview={shown} onChange={edit} errors={errors} readOnly={!open || busy} idBase={idBase} errorId={formErrorId} />
-          {open && needsReason(shown) && <ReasonFields preview={shown} onChange={edit} errors={errors} readOnly={busy} idBase={idBase} />}
+          {open && needsReason(shown) && shown.kind !== 'co_scholastic' && shown.kind !== 'message' && <ReasonFields preview={shown} onChange={edit} errors={errors} readOnly={busy} idBase={idBase} />}
           {open ? (
             <footer className="grid gap-2 border-t px-3.5 py-2.5">
               <p className="text-[12.5px] text-muted-foreground">{changesText(changes, shown)}</p>
@@ -293,7 +320,7 @@ export function ProposalCard({ proposal: made }: { proposal: AssistantProposal }
                 </span>
                 <div className="flex items-center gap-2">
                   <Button size="sm" variant="ghost" disabled={busy} onClick={() => dismissal.mutate()}>Discard</Button>
-                  <Button size="sm" disabled={busy} aria-describedby={formError ? formErrorId : undefined} onClick={() => void confirm()}>Confirm</Button>
+                  <Button size="sm" disabled={busy} aria-describedby={formError ? formErrorId : undefined} variant={shown.kind === 'message_withdraw' ? 'destructive' : 'default'} onClick={() => void confirm()}>{confirmLabel(shown)}</Button>
                 </div>
               </div>
               {formError && <p id={formErrorId} role="alert" className="text-[12.5px] text-tag-red">{formError}</p>}

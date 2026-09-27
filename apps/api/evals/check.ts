@@ -76,6 +76,23 @@ function strings(value: unknown): string[] {
   return []
 }
 
+/**
+ * The parts of a tool call that name records. A notice's own words (its
+ * title and body, and a reason) are written in the language the person asked
+ * for, so only the rest must be in English letters.
+ */
+const WORDS_OF: Readonly<Record<string, readonly string[]>> = {
+  propose_message: ['title', 'body'],
+  propose_message_change: ['title', 'body'],
+  propose_message_withdraw: ['reason'],
+}
+
+function namesIn(tool: string, input: unknown): string[] {
+  const words = WORDS_OF[tool]
+  if (!words || input === null || typeof input !== 'object') return strings(input)
+  return Object.entries(input).flatMap(([key, value]) => (words.includes(key) ? [] : strings(value)))
+}
+
 export interface CheckInput {
   readonly checks: Checks
   /** What the truth function read from the fixture; merged with the checks. */
@@ -156,7 +173,7 @@ export function checkTurn(input: CheckInput, turn: TurnRecord): Failure[] {
   }
   if (language !== 'en') {
     for (const call of turn.calls) {
-      if (strings(call.input).some((value) => DEVANAGARI.test(value))) {
+      if (namesIn(call.tool, call.input).some((value) => DEVANAGARI.test(value))) {
         fail('language', `${call.tool} was called with Devanagari; names in tool calls must be in English letters`)
       }
     }

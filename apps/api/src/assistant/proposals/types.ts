@@ -75,6 +75,19 @@ export interface ProposeToolDefinition<TInput, TPreview extends AssistantProposa
   write(preview: TPreview): WriteRequest | { readonly problem: string }
   /** Plain words for a done proposal: "Saved 9 A's register: 38 present, 2 absent." */
   describeDone(preview: TPreview): string
+  /**
+   * The part of the check route's answer that must not move before the write,
+   * when not all of it: a sent message's delivery figures change while it is
+   * delivered, its version and status do not. Both digests (the one kept when
+   * the proposal is made and the one on Confirm) are of what this returns.
+   * The whole answer when left out.
+   */
+  checkView?(body: unknown): unknown
+}
+
+/** What a proposal's check digest is taken of. */
+export function checkedPart(tool: { checkView?(body: unknown): unknown } | undefined, body: unknown): unknown {
+  return tool?.checkView ? tool.checkView(body) : body
 }
 
 export type AnyProposeTool = ProposeToolDefinition<never, never>
