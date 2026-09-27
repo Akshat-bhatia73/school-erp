@@ -88,6 +88,7 @@ interface Ready {
   readonly describeDone: (preview: AssistantProposalPreview) => string
   /** The part of the check route's answer the digest is of. */
   readonly checkView: (body: unknown) => unknown
+  readonly doneHref: (answer: unknown) => string | undefined
 }
 
 type ToolView = {
@@ -95,6 +96,7 @@ type ToolView = {
   write(preview: AssistantProposalPreview): WriteRequest | { problem: string }
   describeDone(preview: AssistantProposalPreview): string
   checkView?(body: unknown): unknown
+  doneHref?(answer: unknown): string | undefined
 }
 
 function viewOf(tool: AnyProposeTool): ToolView {
@@ -130,6 +132,7 @@ async function check(input: Checked): Promise<Ready | { row: ProposalRow }> {
     changed: stableJson(edited.data) !== stableJson(original.data),
     describeDone: (preview) => view.describeDone(preview),
     checkView: (body) => checkedPart(view, body),
+    doneHref: (answer) => view.doneHref?.(answer),
   }
 }
 
@@ -156,7 +159,8 @@ async function send(
   if (digestOf(ready.checkView(current.body)) !== row.check_digest) return { status: 'stale', outcome: STALE_OUTCOME }
   const answer = await write(ready.request, operationId)
   if (!answer.ok) return refusedWrite(answer)
-  return { status: 'done', outcome: ready.describeDone(ready.edited) }
+  const href = ready.doneHref(answer.body)
+  return { status: 'done', outcome: ready.describeDone(ready.edited), ...(href === undefined ? {} : { href }) }
 }
 
 /**

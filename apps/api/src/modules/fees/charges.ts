@@ -55,6 +55,11 @@ export interface FeeFiguresInput {
  *   charged_year_paise, concession_year_paise, adjustment_paise,
  *   due_to_date_paise, paid_paise, balance_paise, year_balance_paise)`: one
  *   row per pupil and head that is charged or has a ledger line.
+ * - `fee_oldest_due (student_id, fee_head_id, due_on)`: when the oldest unpaid
+ *   instalment of a head fell due. What was paid (less any fine, plus any
+ *   waiver) covers the head's instalments in date order; the first one it
+ *   does not cover is the oldest unpaid. No row when every instalment due is
+ *   covered. Postgres skips it unless a query reads it.
  *
  * Every amount is a bigint, which the driver hands back as a string: read it
  * with `toPaise`.
@@ -179,6 +184,19 @@ export function feeFiguresCte(input: FeeFiguresInput): SQL {
                + COALESCE(g.adjustment_paise, 0) - COALESCE(g.paid_paise, 0))::bigint AS year_balance_paise
         FROM fee_charges c
         FULL OUTER JOIN fee_ledger g ON g.student_id = c.student_id AND g.fee_head_id = c.fee_head_id
+    ),
+    fee_oldest_due AS (
+      SELECT r.student_id, r.fee_head_id, min(r.due_on) AS due_on
+        FROM (
+          SELECT student_id, fee_head_id, due_on,
+                 sum(amount_paise - concession_paise)
+                   OVER (PARTITION BY student_id, fee_head_id ORDER BY due_on) AS running_paise
+            FROM fee_conceded
+           WHERE due_on <= ${asOf}
+        ) r
+        LEFT JOIN fee_ledger g ON g.student_id = r.student_id AND g.fee_head_id = r.fee_head_id
+       WHERE r.running_paise > COALESCE(g.paid_paise, 0) - COALESCE(g.adjustment_paise, 0)
+       GROUP BY r.student_id, r.fee_head_id
     )`
 }
 

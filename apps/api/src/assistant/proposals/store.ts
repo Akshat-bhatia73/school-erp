@@ -3,6 +3,7 @@ import {
   ASSISTANT_PROPOSAL_MINUTES,
   AssistantProposal,
   AssistantProposalPreview,
+  splitFeePayment,
   type AssistantProposalStatus,
 } from '@erp/contracts'
 import type { RequestContext } from '@erp/contracts/server'
@@ -37,6 +38,8 @@ export interface ProposalRow {
   outcome: string | null
   write_request_id: string | null
   edited: boolean | null
+  /** Where the record a done write made lives, when it is only known after the write (a receipt). */
+  written_href: string | null
   expires_at: string
   decided_at: string | null
   /** True when the row is open and its time has passed. */
@@ -54,7 +57,7 @@ export const CONFIRM_LEASE_MINUTES = 6
 
 const ISO = `'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'`
 const COLUMNS = `id, thread_id, kind, tool_name, title_sealed, preview_sealed, confirmed_preview_sealed, check_path, check_digest,
-  status, outcome, write_request_id, edited,
+  status, outcome, write_request_id, edited, written_href,
   to_char(expires_at AT TIME ZONE 'UTC', ${ISO}) AS expires_at,
   to_char(decided_at AT TIME ZONE 'UTC', ${ISO}) AS decided_at,
   (status = 'open' AND expires_at <= now()) AS lapsed,
@@ -107,7 +110,7 @@ export function proposalOf(row: ProposalRow, key: string, shown?: AssistantPropo
     expiresAt: row.expires_at,
     preview: shown ?? (row.confirmed_preview_sealed === null ? sealed.preview : (JSON.parse(open(row.confirmed_preview_sealed, key)) as AssistantProposalPreview)),
     ...(row.outcome === null ? {} : { outcome: row.outcome }),
-    ...(row.status === 'done' && sealed.href !== undefined ? { href: sealed.href } : {}),
+    ...(row.status !== 'done' ? {} : row.written_href !== null ? { href: row.written_href } : sealed.href !== undefined ? { href: sealed.href } : {}),
     ...(row.status === 'open' || row.decided_at === null ? {} : { decidedAt: row.decided_at }),
   })
 }
@@ -175,6 +178,8 @@ export interface Decision {
   readonly edited?: boolean
   /** The preview as confirmed, sealed; only for a done proposal. */
   readonly confirmedPreviewSealed?: string
+  /** Where the record the write made lives; only for a done proposal whose tool says so. */
+  readonly href?: string
 }
 
 /** Record what happened to an open proposal. The preview is never touched. */
@@ -243,6 +248,7 @@ export async function settle(
             write_request_id = CASE WHEN $5 = 'done' THEN write_request_id ELSE NULL END,
             edited = CASE WHEN $5 = 'done' THEN edited ELSE NULL END,
             confirmed_preview_sealed = CASE WHEN $5 = 'done' THEN confirmed_preview_sealed ELSE NULL END,
+            written_href = CASE WHEN $5 = 'done' THEN $7 ELSE NULL END,
             decided_at = CASE WHEN $5 IN ('open', 'expired') THEN NULL ELSE now() END
       WHERE school_id = $1 AND membership_id = $2 AND id = $3 AND status = 'confirming' AND write_request_id = $4
       RETURNING ${COLUMNS}`,
@@ -253,6 +259,9 @@ export async function settle(
       operationId,
       decision.status,
       'outcome' in decision ? (decision.outcome?.slice(0, 500) ?? null) : null,
+      'href' in decision && decision.href !== undefined && AssistantProposal.shape.href.safeParse(decision.href).success && decision.href.length <= 300
+        ? decision.href
+        : null,
     ],
   )
   return found.rows[0] ?? null
@@ -336,6 +345,9 @@ export type SavedChange =
   | { readonly name: string; readonly part: string; readonly value: string | number }
   | { readonly name: string; readonly grades: Readonly<Record<string, string | null>>; readonly remarkChanged: boolean }
   | { readonly message: string; readonly done: 'saved_as_draft' | 'sent' | 'scheduled' | 'withdrawn'; readonly sendAt?: string }
+  | { readonly fee: string; readonly paidRupees: number; readonly mode: string }
+  | { readonly fee: string; readonly concession: string; readonly category: string }
+  | { readonly fee: string; readonly optedInFrom: string; readonly until?: string; readonly ownAmountRupees?: number }
 
 /** The most saved changes the model is told about one proposal. */
 export const SAVED_MAX = 40
@@ -373,6 +385,28 @@ export function savedChanges(preview: AssistantProposalPreview): SavedChange[] {
     }
     case 'message_withdraw':
       return [{ message: preview.title, done: 'withdrawn' }]
+    case 'fee_payment': {
+      const names = new Map(preview.dues.map((due) => [due.feeHeadId, due.name]))
+      return (splitFeePayment(preview.proposed.amountPaise, preview.dues) ?? []).map((line) => ({
+        fee: names.get(line.feeHeadId) ?? 'fee',
+        paidRupees: line.amountPaise / 100,
+        mode: preview.proposed.mode,
+      }))
+    }
+    case 'fee_concession': {
+      const { kind, percentBp, amountPaise, category } = preview.proposed
+      const concession = kind === 'percent' ? `${(percentBp ?? 0) / 100}%` : `₹${(amountPaise ?? 0) / 100} off each instalment`
+      return [{ fee: preview.head?.name ?? 'every fee', concession, category }]
+    }
+    case 'fee_opt_in': {
+      const { startsOn, endsOn, amountPaise } = preview.proposed
+      return [{
+        fee: preview.head.name,
+        optedInFrom: startsOn,
+        ...(endsOn === null ? {} : { until: endsOn }),
+        ...(amountPaise === null ? {} : { ownAmountRupees: amountPaise / 100 }),
+      }]
+    }
   }
 }
 

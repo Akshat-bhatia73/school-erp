@@ -380,6 +380,14 @@ export const FeeStatementLine = z.strictObject({
   /** Instalments charged this year, and how many of them have fallen due. */
   instalments: z.number().int().nonnegative().max(12),
   instalmentsDue: z.number().int().nonnegative().max(12),
+  /**
+   * When the oldest unpaid part of the balance fell due: the first instalment
+   * that what has been paid does not yet cover, paying instalments in date
+   * order. Absent when nothing of an instalment is owed (paid up, or only a
+   * fine is left). A payment the assistant proposes is split oldest first by
+   * it.
+   */
+  oldestDueOn: CalendarDate.optional(),
   ...FeeFigures,
 })
 export type FeeStatementLine = z.infer<typeof FeeStatementLine>

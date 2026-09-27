@@ -272,6 +272,25 @@ card. A message's delivery figures move while it is delivered, so a change tool 
 of its check read that must not move (`checkView`): for a message, its version, status, words,
 time and audience.
 
+**Fees (24d).** `propose_fee_payment` records a payment through the collect route,
+`propose_fee_concession` applies a concession and `propose_fee_opt_in` adds an optional fee such
+as transport; they are offered only to someone who holds `fees.collect` or `fees.manage`, so never
+to a parent or a pupil. The pupil is found through the dues list's own search (`GET /fees/dues?q=`),
+the same lookup the Fees screen uses and scoped by the same fee plans; two pupils who match equally
+make the tool ask which one. Everything else is read from the pupil's statement, which is also the
+check route; its `checkView` keeps only what the change depends on (each fee's balances and oldest
+due date, the receipts and their state, the optional fees and concessions), not the day it was
+read. A payment is split oldest due first: fees in the order their oldest unpaid instalment fell
+due (`oldestDueOn` on the statement), each taking what is due on it. The preview keeps the fees in
+that order and never the split itself, so the card and the server both work it out from the amount
+with `splitFeePayment`; the server does it again at Confirm and the collect route still refuses
+anything above a balance. Only what is due today can be paid this way. The card warns, without
+stopping Confirm, when a payment was recorded for that pupil today. A new receipt's id is known
+only after the write, so a change tool may read it from the write's answer (`doneHref`); the done
+card then links to the receipt. The done sentence says the amount and the method ("Recorded
+₹12,000 by UPI.") and never the pupil, the payer or the receipt number, because it is kept in a
+plain column.
+
 ### Never a tool
 
 Some routes stay off the assistant, even for a person who may use them on screen:
@@ -285,6 +304,8 @@ Some routes stay off the assistant, even for a person who may use them on screen
   1234" like every list does, never the whole number.
 - **Files:** documents, photographs, export files and the subject-access export.
 - **The audit log.**
+- **Money going back or rewritten:** refunds, cancelling a receipt, adjustments, removing a
+  concession, and the school's fee heads and structures. These stay on the Fees screen.
 
 For these, the assistant explains how to do it and links to the right screen.
 
@@ -643,7 +664,7 @@ answers and fix the tools or the prompt where they go wrong.
 | **24a Foundation** | the screen, conversations, streaming, every read tool, cards, sources, audit row, 30-day keeping, the switches, limits, the pupil consent and parent home card, Settings → Assistant, the security tests. Answers only. |
 | **24b Changes: attendance and marks** | proposals, editable cards, Confirm and Confirm all, clash handling, then the attendance and marks change tools |
 | **24c Messages and notices** | send or schedule a new notice, save one as a draft, change a draft or scheduled message, withdraw a sent one; the message routes save and send in one step |
-| **24d Fees** | |
+| **24d Fees** | record a payment (split oldest due first, warned when one was recorded today), apply a concession, add an optional fee; refunds, cancelling, adjustments and fee setup stay on the Fees screen |
 | **24e Pupil and staff records** | |
 
 Each part is one pull request with its tests, and ships on its own.

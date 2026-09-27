@@ -23,6 +23,15 @@ import {
   MessageRecipients,
   MessageSendChoice,
 } from './module-communication.ts'
+import {
+  FeeAmountPaise,
+  FeeBalancePaise,
+  FeeConcessionCategory,
+  FeeConcessionKind,
+  FeeFrequency,
+  FeePaymentMode,
+  FeeTotalPaise,
+} from './module-fees.ts'
 
 // ---------------------------------------------------------------------------
 // Limits that never change per school.
@@ -282,6 +291,9 @@ export const AssistantProposalKind = z.enum([
   'co_scholastic',
   'message',
   'message_withdraw',
+  'fee_payment',
+  'fee_concession',
+  'fee_opt_in',
 ])
 export type AssistantProposalKind = z.infer<typeof AssistantProposalKind>
 
@@ -477,6 +489,154 @@ export const MessageWithdrawPreview = z.strictObject({
 })
 export type MessageWithdrawPreview = z.infer<typeof MessageWithdrawPreview>
 
+/** The pupil and year a fee change is for (24d). Both are fixed: for another pupil, the person asks again. */
+const FeePupil = {
+  studentId: Id,
+  /** "Aarav Shah, 9 A (SPS/0012)". */
+  studentLabel: z.string().min(1).max(200),
+  academicYearId: Id,
+  academicYearName: z.string().min(1).max(60),
+}
+
+/** One fee with something due today, as a payment is split across it. */
+export const FeePaymentDue = z.strictObject({
+  feeHeadId: Id,
+  name: z.string().min(1).max(80),
+  /** What is due on it today, from the statement. */
+  balancePaise: FeeAmountPaise,
+  /** When its oldest unpaid part fell due; null when that is not an instalment (a fine). */
+  oldestDueOn: CalendarDate.nullable(),
+})
+export type FeePaymentDue = z.infer<typeof FeePaymentDue>
+
+/**
+ * A fee payment (24d): one receipt through the collect route. The split is
+ * never stored in the preview: it follows from `dues` (already in the order
+ * money goes to them, oldest due first) and the proposed amount, through
+ * splitFeePayment, on the card and again on the server at Confirm. Only
+ * what is due today can be taken here; paying ahead is done on the Fees
+ * screen.
+ */
+export const FeePaymentPreview = z.strictObject({
+  kind: z.literal('fee_payment'),
+  ...FeePupil,
+  /** The day the payment is recorded on: today on the school's calendar. */
+  receivedOn: CalendarDate,
+  dues: z.array(FeePaymentDue).min(1).max(30),
+  /** The statement's whole balance today, before this payment (fees paid ahead count against it). */
+  balancePaise: FeeBalancePaise,
+  /** Payments already recorded for this pupil today: the card warns, and does not stop Confirm. */
+  paidToday: z.array(z.strictObject({
+    receiptNumber: z.string().min(1).max(60),
+    amountPaise: FeeAmountPaise,
+    mode: FeePaymentMode.optional(),
+  })).max(20),
+  /** Editable: how much, how it was paid, its reference and who paid. */
+  proposed: z.strictObject({
+    amountPaise: FeeAmountPaise,
+    mode: FeePaymentMode,
+    /** Needed for every mode but cash, as on the counter screen. */
+    reference: z.string().trim().min(1).max(80).nullable(),
+    payerName: z.string().trim().min(1).max(120).nullable(),
+  }),
+})
+export type FeePaymentPreview = z.infer<typeof FeePaymentPreview>
+
+/**
+ * How a payment is split across what is due: each fee in turn, in the order
+ * given, takes what is due on it until the amount runs out. Null when the
+ * amount is more than everything due today.
+ */
+export function splitFeePayment(
+  amountPaise: number,
+  dues: readonly Pick<FeePaymentDue, 'feeHeadId' | 'balancePaise'>[],
+): { feeHeadId: string; amountPaise: number }[] | null {
+  let left = amountPaise
+  const lines: { feeHeadId: string; amountPaise: number }[] = []
+  for (const due of dues) {
+    if (left <= 0) break
+    const take = Math.min(left, due.balancePaise)
+    if (take > 0) lines.push({ feeHeadId: due.feeHeadId, amountPaise: take })
+    left -= take
+  }
+  return left > 0 ? null : lines
+}
+
+/**
+ * The order money goes to what is due: the fee whose oldest unpaid part fell
+ * due first, then by name. A fee owing only a fine comes last.
+ */
+export function oldestDueFirst<T extends Pick<FeePaymentDue, 'feeHeadId' | 'name' | 'oldestDueOn'>>(dues: readonly T[]): T[] {
+  return [...dues].sort(
+    (a, b) =>
+      (a.oldestDueOn ?? '9999-12-31').localeCompare(b.oldestDueOn ?? '9999-12-31') ||
+      a.name.localeCompare(b.name) ||
+      a.feeHeadId.localeCompare(b.feeHeadId),
+  )
+}
+
+/**
+ * A concession (24d) on one fee, or on every fee for a percentage, through the
+ * concessions route. The fee is fixed; the category, the percentage or amount
+ * and the reason are the card's to change. The reason goes to the audit note
+ * only, as the route keeps it.
+ */
+export const FeeConcessionPreview = z.strictObject({
+  kind: z.literal('fee_concession'),
+  ...FeePupil,
+  /** Null for a percentage off every fee. */
+  head: z.strictObject({ id: Id, name: z.string().min(1).max(80) }).nullable(),
+  /** The fees it would come off, with what they charge for the year, so the card can show the effect. */
+  fees: z.array(z.strictObject({
+    feeHeadId: Id,
+    name: z.string().min(1).max(80),
+    chargedYearPaise: FeeTotalPaise,
+    instalments: z.number().int().nonnegative().max(12),
+  })).max(30),
+  /** Concessions the pupil has this year already, so the card can say they add up. */
+  existing: z.array(z.strictObject({
+    headName: z.string().min(1).max(80).nullable(),
+    category: FeeConcessionCategory,
+    kind: FeeConcessionKind,
+    percentBp: z.number().int().min(1).max(10_000).nullable(),
+    amountPaise: FeeAmountPaise.nullable(),
+  })).max(100),
+  /** Editable. Exactly one of percentBp (basis points: 2500 is 25%) and amountPaise (off every instalment), by kind. */
+  proposed: z.strictObject({
+    category: FeeConcessionCategory,
+    kind: FeeConcessionKind,
+    percentBp: z.number().int().min(1).max(10_000).nullable(),
+    amountPaise: FeeAmountPaise.nullable(),
+  }),
+  /** Needed: the card asks for it. */
+  reason: Reason.optional(),
+})
+export type FeeConcessionPreview = z.infer<typeof FeeConcessionPreview>
+
+/**
+ * An optional fee (24d), such as transport, taken by one pupil from a day,
+ * through the opt-ins route. The fee is fixed; the pupil's own amount, the
+ * start and the end are the card's to change.
+ */
+export const FeeOptInPreview = z.strictObject({
+  kind: z.literal('fee_opt_in'),
+  ...FeePupil,
+  /** The year's first and last day: the start must fall inside it. */
+  yearStartsOn: CalendarDate,
+  yearEndsOn: CalendarDate,
+  head: z.strictObject({ id: Id, name: z.string().min(1).max(80) }),
+  frequency: FeeFrequency,
+  /** What the pupil's class is charged per instalment for it; null when the school set no amount. */
+  structureAmountPaise: FeeAmountPaise.nullable(),
+  /** Editable. A null amount takes the class's; one is needed when the class has none. */
+  proposed: z.strictObject({
+    amountPaise: FeeAmountPaise.nullable(),
+    startsOn: CalendarDate,
+    endsOn: CalendarDate.nullable(),
+  }),
+})
+export type FeeOptInPreview = z.infer<typeof FeeOptInPreview>
+
 export const AssistantProposalPreview = z.discriminatedUnion('kind', [
   AttendanceDayPreview,
   StaffAttendanceDayPreview,
@@ -484,6 +644,9 @@ export const AssistantProposalPreview = z.discriminatedUnion('kind', [
   CoScholasticPreview,
   MessagePreview,
   MessageWithdrawPreview,
+  FeePaymentPreview,
+  FeeConcessionPreview,
+  FeeOptInPreview,
 ])
 export type AssistantProposalPreview = z.infer<typeof AssistantProposalPreview>
 
