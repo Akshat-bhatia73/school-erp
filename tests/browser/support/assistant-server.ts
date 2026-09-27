@@ -14,6 +14,8 @@
  *                                             propose_attendance_day, then words
  *   "Send a notice to Eight R: <title>"       propose_message (now), then words
  *   "Withdraw the notice <title>"             propose_message_withdraw, then words
+ *   "Record a payment of <n> rupees for <pupil>"
+ *                                             propose_fee_payment (cash), then words
  *   anything containing FAIL_ONCE             fails the first time, answers after
  *
  * `ai` is not a dependency of this package, so it is loaded from the API's
@@ -139,6 +141,13 @@ const model = new MockLanguageModelV4({
     if (withdraw) {
       if (toolsSoFar === 0) return call('propose_message_withdraw', { message: withdraw[1]!.trim() })
       return say('Give the reason on the card and press Withdraw message.')
+    }
+
+    // "Record a payment of 500 rupees for Farah Feerun". The name keeps its case.
+    const paying = question.match(/^record a payment of (\d+) rupees for (.+?)\.?$/i)
+    if (paying) {
+      if (toolsSoFar === 0) return call('propose_fee_payment', { pupil: paying[2]!.trim(), amountRupees: Number(paying[1]) })
+      return say('Here is the payment. Check it and press Record payment.')
     }
 
     return say('The browser suite has no script for that question.')

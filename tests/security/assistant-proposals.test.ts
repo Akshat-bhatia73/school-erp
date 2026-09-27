@@ -814,7 +814,7 @@ test('[proposals] a confirm whose preview was swapped to another class is refuse
 // ---------------------------------------------------------------------------
 // 3. Who is offered a change tool at all.
 
-test('[proposals] parents and pupils are offered no change tool, an accountant none of these four', async () => {
+test('[proposals] parents and pupils are offered no change tool, an accountant only the three fee tools', async () => {
   const offeredTo = async (client: Client): Promise<Set<string>> => offered(await askOnce(client, [], 'Hello'))
   const changeTools = (names: Set<string>) => [...names].filter((name) => name.startsWith('propose_')).sort()
 
@@ -829,8 +829,15 @@ test('[proposals] parents and pupils are offered no change tool, an accountant n
 
   const accountantNames = await offeredTo(accountant)
   assert.ok(accountantNames.size > 0, 'the accountant was offered no tools at all')
-  assert.deepEqual(changeTools(accountantNames), [], 'the accountant was offered a change tool')
-  for (const definition of PROPOSE_TOOLS) assert.ok(!accountantNames.has(definition.name), definition.name)
+  // Fees are theirs (24d); nothing else that changes a record is.
+  assert.deepEqual(
+    changeTools(accountantNames),
+    ['propose_fee_concession', 'propose_fee_opt_in', 'propose_fee_payment'],
+    'the accountant was offered a change tool outside fees',
+  )
+  for (const definition of PROPOSE_TOOLS) {
+    if (!definition.name.startsWith('propose_fee_')) assert.ok(!accountantNames.has(definition.name), definition.name)
+  }
 
   // A teacher gets exactly the ones their keys allow (the three message tools
   // among them, since they write to their own sections), the owner all.
