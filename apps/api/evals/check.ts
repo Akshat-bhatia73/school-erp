@@ -85,6 +85,7 @@ const WORDS_OF: Readonly<Record<string, readonly string[]>> = {
   propose_message: ['title', 'body'],
   propose_message_change: ['title', 'body'],
   propose_message_withdraw: ['reason'],
+  propose_fee_concession: ['reason'],
 }
 
 function namesIn(tool: string, input: unknown): string[] {

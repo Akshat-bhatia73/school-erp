@@ -2,7 +2,8 @@
  * One change the assistant proposes, as a card the person edits in place.
  *
  * The card edits only the preview's `proposed…`, `reason` and `reasonKind` fields, and a notice's
- * recipients (families, pupils or both) when it is for pupils. Confirm sends
+ * recipients (families, pupils or both) when it is for pupils; a fee card's pupil, year and fee
+ * are never touched, so the server's same-change check accepts it. Confirm sends
  * the preview as the person left it; the server checks it is the same change, re-reads the record
  * and writes through the real route as the person. The answer (done, stale, failed, expired)
  * replaces the card's state; a request the server refused as it stood (a 400 with its own
@@ -18,6 +19,7 @@ import type {
   AttendanceDayPreview,
   ExamMarksPreview,
   ExamReasonKind,
+  FeeConcessionPreview,
   MessageWithdrawPreview,
   StaffAttendanceDayPreview,
 } from '@erp/contracts'
@@ -41,6 +43,9 @@ import { AppLink } from '../app-link'
 import { clearSessionDraft, draftKeys, useSessionDraft } from '../session-draft'
 import { CoScholasticBody } from './co-scholastic-body'
 import { useProposals, type ConfirmResult, type SettledProposal } from './context'
+import { FeeConcessionBody } from './fee-concession-body'
+import { FeeOptInBody } from './fee-opt-in-body'
+import { FeePaymentBody } from './fee-payment-body'
 import { MarksBody } from './marks-body'
 import { MessageBody } from './message-body'
 import { changesText, checkPreview, clockTime, countChanges, initialDraft, messageConfirmLabel, needsReason, restoreDraft, settledText, TOUCHES } from './model'
@@ -83,24 +88,45 @@ function ProposalBody({ preview, onChange, errors, readOnly, idBase, errorId }: 
       return <MessageBody preview={preview} onChange={onChange} errors={errors} readOnly={readOnly} idBase={idBase} />
     case 'message_withdraw':
       return <WithdrawBody preview={preview} />
+    case 'fee_payment':
+      return <FeePaymentBody preview={preview} onChange={onChange} errors={errors} readOnly={readOnly} idBase={idBase} />
+    case 'fee_concession':
+      return <FeeConcessionBody preview={preview} onChange={onChange} errors={errors} readOnly={readOnly} idBase={idBase} />
+    case 'fee_opt_in':
+      return <FeeOptInBody preview={preview} onChange={onChange} errors={errors} readOnly={readOnly} idBase={idBase} />
   }
 }
 
 /** The kinds a card asks a reason for. */
-type ReasonPreview = AttendanceDayPreview | StaffAttendanceDayPreview | ExamMarksPreview | MessageWithdrawPreview
+type ReasonPreview = AttendanceDayPreview | StaffAttendanceDayPreview | ExamMarksPreview | MessageWithdrawPreview | FeeConcessionPreview
 
 const REASON_PLACEHOLDER: Record<ReasonPreview['kind'], string> = {
   attendance_day: 'Some of these are already saved. Say why they are changing.',
   staff_attendance_day: 'Some of these are already saved. Say why they are changing.',
   exam_marks: 'Some of these are already saved. Say why they are changing.',
   message_withdraw: 'Why is it being withdrawn?',
+  fee_concession: 'Why is this concession given? Kept in the audit log only.',
 }
 
-/** What Confirm says it does. A message card names the action; the others confirm the change shown. */
+function asksReason(preview: AssistantProposalPreview): preview is ReasonPreview {
+  return preview.kind in REASON_PLACEHOLDER && needsReason(preview)
+}
+
+/** What Confirm says it does. A message or fee card names the action; the others confirm the change shown. */
 function confirmLabel(preview: AssistantProposalPreview): string {
-  if (preview.kind === 'message') return messageConfirmLabel(preview)
-  if (preview.kind === 'message_withdraw') return 'Withdraw message'
-  return 'Confirm'
+  switch (preview.kind) {
+    case 'message': return messageConfirmLabel(preview)
+    case 'message_withdraw': return 'Withdraw message'
+    case 'fee_payment': return 'Record payment'
+    case 'fee_concession': return 'Apply concession'
+    case 'fee_opt_in': return 'Add fee'
+    default: return 'Confirm'
+  }
+}
+
+/** The done card's link: a payment's goes to the receipt it made (or, settled later, the statement). */
+function openLabel(href: string): string {
+  return href.startsWith('/fees/receipts/') ? 'Open receipt' : 'Open'
 }
 
 /** Why saved marks or a saved register are changing, or a sent message is taken back, asked on the card itself before Confirm. */
@@ -303,13 +329,13 @@ export function ProposalCard({ proposal: made }: { proposal: AssistantProposal }
           <span className="font-medium">{(proposal.decidedAt ?? current.savedAt) ? `Saved at ${clockTime(proposal.decidedAt ?? current.savedAt ?? '')}` : 'Saved'}</span>
           <span className="min-w-0 flex-1 text-muted-foreground">{settledText(proposal)}</span>
           {proposal.href && (
-            <AppLink href={proposal.href} className="shrink-0 text-[12.5px] font-medium link-dotted">Open</AppLink>
+            <AppLink href={proposal.href} className="shrink-0 text-[12.5px] font-medium link-dotted">{openLabel(proposal.href)}</AppLink>
           )}
         </div>
       ) : (
         <>
           <ProposalBody preview={shown} onChange={edit} errors={errors} readOnly={!open || busy} idBase={idBase} errorId={formErrorId} />
-          {open && needsReason(shown) && shown.kind !== 'co_scholastic' && shown.kind !== 'message' && <ReasonFields preview={shown} onChange={edit} errors={errors} readOnly={busy} idBase={idBase} />}
+          {open && asksReason(shown) && <ReasonFields preview={shown} onChange={edit} errors={errors} readOnly={busy} idBase={idBase} />}
           {open ? (
             <footer className="grid gap-2 border-t px-3.5 py-2.5">
               <p className="text-[12.5px] text-muted-foreground">{changesText(changes, shown)}</p>

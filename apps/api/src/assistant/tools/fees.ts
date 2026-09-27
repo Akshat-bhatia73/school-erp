@@ -242,7 +242,7 @@ export const studentFeeStatement = readTool({
 export const feeReceipts = readTool({
   name: 'fee_receipts',
   description:
-    'Fee receipts, 50 at a time, for a period, a pupil, a payment mode or a kind, with the collected, refunded and net totals over every match.',
+    'Fee receipts already recorded, 50 at a time, for a period, a pupil, a payment mode or a kind, with the collected, refunded and net totals over every match. It only reads: to record a new payment use propose_fee_payment.',
   permission: 'fees.read',
   input: z.object({
     from: DateInput('First day.').optional(),

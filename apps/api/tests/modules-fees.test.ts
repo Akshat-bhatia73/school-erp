@@ -97,6 +97,7 @@ interface StatementLine {
   frequency: string
   instalments: number
   instalmentsDue: number
+  oldestDueOn?: string
   chargedYearPaise: number
   concessionYearPaise: number
   adjustmentPaise: number
@@ -994,4 +995,45 @@ test('the accountant dashboard money card matches the register for today', async
   )
   assert.equal(fees.outstandingPaise, dues.totals.outstandingPaise)
   assert.equal(fees.studentsWithDues, dues.totals.studentsWithDues)
+})
+
+// ---------------------------------------------------------------------------
+// The oldest unpaid instalment (24d). Last, on a pupil of its own, so no figure
+// asserted above moves.
+
+test('each statement line says when its oldest unpaid instalment fell due, and nothing once it is paid up', async () => {
+  const p5 = randomUUID()
+  const pool = adminPool()
+  await pool.query(
+    `INSERT INTO students(id,school_id,admission_number,first_name,status) VALUES ($1,$2,$3,'Oldest Due','active')`,
+    [p5, schoolA, `FEE/${suffix}/5`],
+  )
+  await pool.query(
+    `INSERT INTO enrollments(id,school_id,student_id,academic_year_id,section_id,roll_number,joined_on)
+     VALUES ($1,$2,$3,$4,$5,5,$6)`,
+    [randomUUID(), schoolA, p5, feeYear, feeSection, YEAR_START],
+  )
+  const due = monthsDueBy(today)
+  assert.ok(due >= 2, 'the test needs two monthly instalments due')
+
+  const fresh = await statementOf(owner, p5)
+  // Nothing paid: the first month of tuition, and the one-time and yearly fees due on the first day.
+  assert.equal(lineFor(fresh, tuitionHead).oldestDueOn, YEAR_START)
+  assert.equal(lineFor(fresh, admissionHead).oldestDueOn, YEAR_START)
+  assert.equal(lineFor(fresh, roundHead).oldestDueOn, YEAR_START)
+
+  // A month and a half of tuition covers April and half of May: May is the oldest unpaid.
+  assert.equal((await collect(p5, tuitionHead, TUITION_THIS_CLASS + TUITION_THIS_CLASS / 2)).status, 201)
+  assert.equal((await collect(p5, admissionHead, ADMISSION)).status, 201)
+  const part = await statementOf(owner, p5)
+  assert.equal(lineFor(part, tuitionHead).oldestDueOn, '2026-05-01')
+  // The admission fee is paid in full, so it has no oldest unpaid instalment.
+  assert.equal(lineFor(part, admissionHead).oldestDueOn, undefined)
+  assert.equal(lineFor(part, roundHead).oldestDueOn, YEAR_START)
+
+  // Paying the rest of what has fallen due clears it.
+  assert.equal((await collect(p5, tuitionHead, lineFor(part, tuitionHead).balancePaise)).status, 201)
+  const paid = await statementOf(owner, p5)
+  assert.equal(lineFor(paid, tuitionHead).balancePaise, 0)
+  assert.equal(lineFor(paid, tuitionHead).oldestDueOn, undefined)
 })

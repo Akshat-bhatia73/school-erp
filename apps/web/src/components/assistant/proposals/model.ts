@@ -11,6 +11,12 @@ import {
   type AssistantProposalStatus,
   type CoScholasticPreview,
   type ExamMarksPreview,
+  FeeConcessionCategory,
+  FeeConcessionKind,
+  type FeeConcessionPreview,
+  type FeeOptInPreview,
+  FeePaymentMode,
+  type FeePaymentPreview,
   type MarkValue,
   type MessagePreview,
   type MessageWithdrawPreview,
@@ -19,9 +25,11 @@ import {
   MESSAGE_SCHEDULE_MIN_MINUTES,
   MESSAGE_TITLE_MAX,
   MessageRecipients,
+  splitFeePayment,
 } from '@erp/contracts'
 import { getToolName, isToolUIPart, type UIMessage } from 'ai'
 import { formatDateTime } from '@/components/messages/labels'
+import { formatDate, formatPaise } from '@/lib/utils'
 import { FORM_ERROR, validate, type FieldErrors, type FieldLabels } from '@/lib/validation'
 
 /** Every change tool is named `propose_…`; its output is a proposal, never a card. */
@@ -152,6 +160,11 @@ export function countChanges(preview: AssistantProposalPreview, original?: Assis
       return preview.rows.reduce((sum, row) => sum + row.cells.filter(cellChanges).length, 0)
     case 'co_scholastic':
       return preview.rows.filter(gradesChange).length
+    // A receipt, a concession or an optional fee is one new thing, whatever its figures.
+    case 'fee_payment':
+    case 'fee_concession':
+    case 'fee_opt_in':
+      return 1
   }
 }
 
@@ -172,6 +185,9 @@ export function changesText(count: number, preview?: AssistantProposalPreview): 
   if (count === 0) return 'Nothing changes yet'
   if (preview?.kind === 'message') return messageWhenText(preview)
   if (preview?.kind === 'message_withdraw') return 'It disappears from every inbox. Emails already sent cannot be taken back.'
+  if (preview?.kind === 'fee_payment') return `One receipt, dated ${formatDate(preview.receivedOn)}.`
+  if (preview?.kind === 'fee_concession') return 'One concession to apply.'
+  if (preview?.kind === 'fee_opt_in') return 'One fee to add.'
   if (preview?.kind === 'co_scholastic') {
     // "3 grade changes and 1 remark change": a remark the assistant wrote is said out loud.
     const { grades, remarks } = coScholasticChanges(preview)
@@ -195,8 +211,9 @@ export function changesText(count: number, preview?: AssistantProposalPreview): 
  * cell is edited, and the office's correction after the deadline always asks.
  */
 export function needsReason(preview: AssistantProposalPreview): boolean {
-  if (preview.kind === 'co_scholastic' || preview.kind === 'message') return false
-  if (preview.kind === 'message_withdraw') return true
+  if (preview.kind === 'co_scholastic' || preview.kind === 'message' || preview.kind === 'fee_payment' || preview.kind === 'fee_opt_in') return false
+  // A concession always says why, as the Fees screen's own sheet asks.
+  if (preview.kind === 'message_withdraw' || preview.kind === 'fee_concession') return true
   if (preview.kind === 'exam_marks') {
     return (
       preview.mode === 'correction' ||
@@ -216,7 +233,7 @@ export function initialDraft(preview: AssistantProposalPreview): AssistantPropos
 }
 
 /** Who each row is about, in order: the part of a preview a kept draft must match. */
-function rowIds(preview: Exclude<AssistantProposalPreview, MessagePreview | MessageWithdrawPreview>): string[] {
+function rowIds(preview: Exclude<AssistantProposalPreview, MessagePreview | MessageWithdrawPreview | FeePreview>): string[] {
   switch (preview.kind) {
     case 'attendance_day': return preview.rows.map((row) => row.studentId)
     case 'staff_attendance_day': return preview.rows.map((row) => row.staffId)
@@ -241,6 +258,7 @@ export function restoreDraft(original: AssistantProposalPreview, kept: unknown):
     if (!isRecord(kept) || kept.kind !== original.kind || kept.messageId !== original.messageId) return null
     return { ...original, reason: typeof kept.reason === 'string' ? kept.reason : undefined }
   }
+  if (isFeePreview(original)) return restoreFee(original, kept)
   if (!isRecord(kept) || kept.kind !== original.kind || !Array.isArray(kept.rows)) return null
   const keptPreview = kept as unknown as typeof original
   const a = rowIds(original)
@@ -289,6 +307,126 @@ function restoreMessage(original: MessagePreview, kept: unknown): MessagePreview
     if (recipients.success) audience = { ...audience, recipients: recipients.data }
   }
   return { ...original, audience, proposed: { title, body, send: when } }
+}
+
+/** A fee change: a payment, a concession or an optional fee (24d). */
+export type FeePreview = FeePaymentPreview | FeeConcessionPreview | FeeOptInPreview
+
+export function isFeePreview(preview: AssistantProposalPreview): preview is FeePreview {
+  return preview.kind === 'fee_payment' || preview.kind === 'fee_concession' || preview.kind === 'fee_opt_in'
+}
+
+const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+const isText = (value: unknown): value is string | null => value === null || typeof value === 'string'
+
+/**
+ * A fee card's kept figures over the proposal, when it is the same pupil, year and fee and each
+ * kept field has the right shape. Only `proposed` (and a concession's reason) come from the tab.
+ */
+function restoreFee(original: FeePreview, kept: unknown): FeePreview | null {
+  if (!isRecord(kept) || kept.kind !== original.kind || kept.studentId !== original.studentId || kept.academicYearId !== original.academicYearId) return null
+  const proposed = kept.proposed
+  if (!isRecord(proposed)) return null
+  switch (original.kind) {
+    case 'fee_payment': {
+      const mode = FeePaymentMode.safeParse(proposed.mode)
+      const { amountPaise, reference, payerName } = proposed
+      if (!isNumber(amountPaise) || !mode.success || !isText(reference) || !isText(payerName)) return null
+      return { ...original, proposed: { amountPaise, mode: mode.data, reference, payerName } }
+    }
+    case 'fee_concession': {
+      const head = isRecord(kept.head) ? kept.head.id : kept.head
+      if (head !== (original.head?.id ?? null)) return null
+      const category = FeeConcessionCategory.safeParse(proposed.category)
+      const kind = FeeConcessionKind.safeParse(proposed.kind)
+      const { percentBp, amountPaise } = proposed
+      if (!category.success || !kind.success) return null
+      if (!(percentBp === null || isNumber(percentBp)) || !(amountPaise === null || isNumber(amountPaise))) return null
+      // A fixed amount is only ever off a named fee.
+      if (kind.data === 'amount' && original.head === null) return null
+      const reason = typeof kept.reason === 'string' ? kept.reason : undefined
+      return { ...original, reason, proposed: { category: category.data, kind: kind.data, percentBp, amountPaise } }
+    }
+    case 'fee_opt_in': {
+      if (!isRecord(kept.head) || kept.head.id !== original.head.id) return null
+      const { amountPaise, startsOn, endsOn } = proposed
+      if (!(amountPaise === null || isNumber(amountPaise)) || typeof startsOn !== 'string' || !isText(endsOn)) return null
+      return { ...original, proposed: { amountPaise, startsOn, endsOn } }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// A fee card's figures
+
+/** What is due today in all, across the fees a payment can go to. */
+export function dueToday(preview: FeePaymentPreview): number {
+  return preview.dues.reduce((sum, due) => sum + due.balancePaise, 0)
+}
+
+/** The sentence for an amount above everything due today. */
+export function overDueText(preview: FeePaymentPreview): string {
+  return `Only ${formatPaise(dueToday(preview))} is due today. To take fees ahead, use the Fees screen.`
+}
+
+/**
+ * Roughly what a concession takes off this year, in paise: a percentage of what each fee charges
+ * for the year, or a fixed amount off each instalment (never more than the instalment itself).
+ */
+export function concessionEstimate(preview: FeeConcessionPreview): number {
+  const { kind, percentBp, amountPaise } = preview.proposed
+  return preview.fees.reduce((sum, fee) => {
+    if (kind === 'percent') return sum + (percentBp && percentBp > 0 ? Math.floor((fee.chargedYearPaise * percentBp) / 10_000) : 0)
+    if (!amountPaise || amountPaise <= 0 || fee.instalments === 0) return sum
+    return sum + Math.min(amountPaise, Math.floor(fee.chargedYearPaise / fee.instalments)) * fee.instalments
+  }, 0)
+}
+
+/** "12.5" as basis points (1250), or null when it is not a percentage with at most two decimals. */
+export function percentToBp(text: string): number | null {
+  const match = /^(\d{1,3})(?:\.(\d{0,2}))?$/.exec(text.replace(/[\s%]/g, ''))
+  if (!match) return null
+  return Number(match[1]) * 100 + Number((match[2] ?? '').padEnd(2, '0'))
+}
+
+/** Basis points back as the percentage a person types: 1250 is "12.5". */
+export function bpToPercentText(bp: number): string {
+  const whole = Math.floor(bp / 100)
+  const rest = bp % 100
+  return rest === 0 ? String(whole) : `${whole}.${String(rest).padStart(2, '0').replace(/0$/, '')}`
+}
+
+/** The fee cards' own sentences for figures they cannot send, before the contract's. */
+function feeProblems(preview: FeePreview): FieldErrors {
+  const errors: FieldErrors = {}
+  switch (preview.kind) {
+    case 'fee_payment': {
+      const { amountPaise, mode, reference } = preview.proposed
+      if (amountPaise <= 0) errors['proposed.amountPaise'] = 'Enter the amount in rupees.'
+      else if (splitFeePayment(amountPaise, preview.dues) === null) errors['proposed.amountPaise'] = overDueText(preview)
+      if (mode !== 'cash' && (reference ?? '').trim() === '') errors['proposed.reference'] = 'Enter the reference number.'
+      break
+    }
+    case 'fee_concession': {
+      const { kind, percentBp, amountPaise } = preview.proposed
+      if (kind === 'percent' && (percentBp === null || percentBp < 1 || percentBp > 10_000)) errors['proposed.percentBp'] = 'Enter a percentage above 0 and up to 100, with at most two decimals.'
+      if (kind === 'amount' && (amountPaise === null || amountPaise <= 0)) errors['proposed.amountPaise'] = 'Enter the amount in rupees.'
+      if ((preview.reason ?? '').trim().length < 3) errors.reason = 'Give a reason.'
+      break
+    }
+    case 'fee_opt_in': {
+      const { amountPaise, startsOn, endsOn } = preview.proposed
+      if (amountPaise !== null && amountPaise <= 0) errors['proposed.amountPaise'] = 'Enter the amount in rupees.'
+      else if (amountPaise === null && preview.structureAmountPaise === null) errors['proposed.amountPaise'] = 'Enter the amount. The class has no amount set for this fee.'
+      if (startsOn === '') errors['proposed.startsOn'] = 'Choose the day it starts.'
+      else if (startsOn < preview.yearStartsOn || startsOn > preview.yearEndsOn) {
+        errors['proposed.startsOn'] = `Choose a day from ${formatDate(preview.yearStartsOn)} to ${formatDate(preview.yearEndsOn)}.`
+      }
+      if (endsOn !== null && startsOn !== '' && endsOn < startsOn) errors['proposed.endsOn'] = 'The end cannot be before the start.'
+      break
+    }
+  }
+  return errors
 }
 
 // ---------------------------------------------------------------------------
@@ -352,6 +490,15 @@ const LABELS: FieldLabels = {
   'proposed.title': 'title',
   'proposed.body': 'message',
   'proposed.send': { label: 'time', kind: 'select' },
+  'proposed.amountPaise': { label: 'amount', kind: 'number' },
+  'proposed.mode': { label: 'method', kind: 'select' },
+  'proposed.reference': 'reference',
+  'proposed.payerName': 'name',
+  'proposed.category': { label: 'kind of concession', kind: 'select' },
+  'proposed.kind': { label: 'how it is worked out', kind: 'select' },
+  'proposed.percentBp': { label: 'percentage', kind: 'number' },
+  'proposed.startsOn': { label: 'start date', kind: 'date' },
+  'proposed.endsOn': { label: 'end date', kind: 'date' },
 }
 
 /** The same sentences the register and the marks sheet use when a correction has no reason. */
@@ -390,6 +537,7 @@ export function checkPreview(preview: AssistantProposalPreview, original?: Assis
   const errors: FieldErrors = {}
   if (preview.kind === 'message_withdraw' && (preview.reason ?? '').trim().length < 3) errors.reason = 'Give a reason.'
   if (preview.kind === 'message') Object.assign(errors, messageProblems(preview))
+  if (isFeePreview(preview)) Object.assign(errors, feeProblems(preview))
   if (needsReason(preview) && (preview.kind === 'exam_marks' || preview.kind === 'attendance_day' || preview.kind === 'staff_attendance_day')) {
     if ((preview.reason ?? '').trim().length < 3) errors.reason = REASON_MISSING[preview.kind === 'exam_marks' ? 'marks' : 'register']
   }
@@ -420,6 +568,10 @@ export const TOUCHES: Record<AssistantProposalKind, readonly string[]> = {
   co_scholastic: ['reportCards'],
   message: ['messages'],
   message_withdraw: ['messages'],
+  // As the Fees screen's own sheets do after a save: every fee screen and the dashboard's fee cards.
+  fee_payment: ['fees', 'dashboard'],
+  fee_concession: ['fees', 'dashboard'],
+  fee_opt_in: ['fees', 'dashboard'],
 }
 
 /** A proposal nobody can act on any more is drawn greyed and read-only. */
