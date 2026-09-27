@@ -1,5 +1,6 @@
 import type { Scenario } from '../types.ts'
 import { ACCESS } from './access.ts'
+import { FEES } from './fees.ts'
 import { HINDI } from './hindi.ts'
 import { MESSAGES } from './messages.ts'
 import { READS } from './reads.ts'
@@ -10,9 +11,9 @@ import { WRITES } from './writes.ts'
  * its question or checks change, so two reports are only compared like for
  * like. Reports carry it.
  */
-export const SCENARIO_SET_VERSION = '2026-09-27.1'
+export const SCENARIO_SET_VERSION = '2026-09-27.2'
 
-export const SCENARIOS: readonly Scenario[] = [...READS, ...ACCESS, ...WRITES, ...MESSAGES, ...HINDI]
+export const SCENARIOS: readonly Scenario[] = [...READS, ...ACCESS, ...WRITES, ...MESSAGES, ...FEES, ...HINDI]
 
 const ids = new Set<string>()
 for (const scenario of SCENARIOS) {

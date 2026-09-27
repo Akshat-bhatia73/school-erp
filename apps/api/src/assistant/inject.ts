@@ -65,7 +65,7 @@ export function getByPath(get: ToolCallContext['get'], pathWithQuery: string): P
 
 /** What a write route answered, with the request id its audit row carries. */
 export type WriteAnswer =
-  | { readonly ok: true; readonly status: number; readonly requestId: string | null }
+  | { readonly ok: true; readonly status: number; readonly requestId: string | null; readonly body: unknown }
   | { readonly ok: false; readonly status: number; readonly code: string; readonly message: string | null }
 
 /**
@@ -106,14 +106,14 @@ export function routeWriter(
       .finally(() => releaseRequestId(ticket))
     const header = response.headers['x-request-id']
     const requestId = typeof header === 'string' && header.length > 0 ? header : null
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      return { ok: true, status: response.statusCode, requestId }
-    }
     let body: unknown = null
     try {
       body = response.body.length > 0 ? JSON.parse(response.body) : null
     } catch {
       body = null
+    }
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return { ok: true, status: response.statusCode, requestId, body }
     }
     const parsed = ApiError.safeParse(body)
     return parsed.success

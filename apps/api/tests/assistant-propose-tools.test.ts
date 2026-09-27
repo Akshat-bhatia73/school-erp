@@ -350,6 +350,9 @@ test('the change tools are registered, each with an active write permission and 
       'propose_message',
       'propose_message_change',
       'propose_message_withdraw',
+      'propose_fee_payment',
+      'propose_fee_concession',
+      'propose_fee_opt_in',
     ],
   )
   for (const definition of PROPOSE_TOOLS) {

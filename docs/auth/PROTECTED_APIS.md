@@ -227,7 +227,7 @@ Task 23. A pupil's own login; the behaviour is in [student login](#student-login
 | `DELETE /fees/opt-ins/:optInId` | `fees.manage` | refused with `fee_opt_in_has_payments`; give it an end date instead | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `POST /fees/students/:studentId/concessions` | `fees.manage` | the pupil decided again; year and head in this school; the reason goes to the audit note only | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `POST /fees/concessions/:concessionId/remove` | `fees.manage` | `expectedVersion`; the reason goes to the audit note only | 204 | `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
-| `GET /fees/students/:studentId/statement` | `fees.read` | the pupil through the fee account plan and the `students.read_basic` plan; the class through `sections.read`; audited through `auditRead` | 200 | `RESOURCE_NOT_FOUND` |
+| `GET /fees/students/:studentId/statement` | `fees.read` | the pupil through the fee account plan and the `students.read_basic` plan; the class through `sections.read`; audited through `auditRead`; each line carries `oldestDueOn`, when its oldest unpaid instalment fell due (from `fee_oldest_due` in the charges CTE) | 200 | `RESOURCE_NOT_FOUND` |
 | `GET /fees/dues` | `fees.read` | the same two plans; filters, paging and totals in SQL | 200 | `INVALID_REQUEST` |
 | `GET /fees/receipts` | `fees.read` | ledger plan predicate and the two pupil plans; totals follow the filters | 200 | `INVALID_REQUEST` |
 | `GET /fees/receipts/:receiptId` | `fees.read` | the same; audited through `auditRead` | 200 | `RESOURCE_NOT_FOUND` |

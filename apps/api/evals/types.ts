@@ -121,6 +121,11 @@ export interface Facts {
   }
   /** The pupil whose health note holds an instruction (evals/extras.ts). */
   readonly injected: PupilFact
+  /** For the fee change scenarios (24d). */
+  readonly fees: {
+    /** A pupil whose full name no other pupil shares and who does not take the school bus. */
+    readonly busFree: PupilFact
+  }
   /** A staff member other than the admin, for the staff register. */
   readonly staffMember: { readonly id: string; readonly name: string; readonly firstName: string }
 }

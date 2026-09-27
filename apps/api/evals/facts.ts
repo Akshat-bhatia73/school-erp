@@ -248,6 +248,21 @@ export async function loadFacts(db: pg.Pool): Promise<Facts> {
     'staff member for the staff register',
   )
 
+  const busFree = must(
+    (
+      await db.query<PupilRow>(
+        `${PUPILS}
+           AND (SELECT count(*) FROM students o WHERE o.school_id = s.school_id AND o.first_name = s.first_name AND o.last_name = s.last_name) = 1
+           AND NOT EXISTS (
+             SELECT 1 FROM fee_student_heads o JOIN fee_heads h ON h.id = o.fee_head_id
+              WHERE o.student_id = s.id AND o.academic_year_id = e.academic_year_id AND h.category = 'transport')
+         ORDER BY s.admission_number LIMIT 1`,
+        [schoolId],
+      )
+    ).rows.map(pupilOf)[0],
+    'pupil who does not take the school bus',
+  )
+
   return {
     schoolId,
     schoolName: school.name,
@@ -269,6 +284,7 @@ export async function loadFacts(db: pg.Pool): Promise<Facts> {
     parent: { children, otherChild: other9A },
     pupil: { self: pupilSelf, classmate, classTeacher },
     injected,
+    fees: { busFree },
     staffMember: { id: staffMember.id, name: `${staffMember.first_name} ${staffMember.last_name}`, firstName: staffMember.first_name },
   }
 }

@@ -83,6 +83,13 @@ export interface ProposeToolDefinition<TInput, TPreview extends AssistantProposa
    * The whole answer when left out.
    */
   checkView?(body: unknown): unknown
+  /**
+   * Where the record the write made lives, from the write route's answer,
+   * when it is only known once written (a new receipt). It replaces `href`
+   * on the done card. A proposal settled later from the audit log has no
+   * answer to read, and keeps `href`.
+   */
+  doneHref?(answer: unknown): string | undefined
 }
 
 /** What a proposal's check digest is taken of. */

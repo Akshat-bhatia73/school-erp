@@ -170,6 +170,7 @@ interface StatementLineRow extends Record<string, unknown> {
   paid_paise: string
   balance_paise: string
   year_balance_paise: string
+  oldest_due_on: string | null
 }
 
 /**
@@ -221,9 +222,11 @@ export async function readStatement(
                f.due_to_date_paise::text AS due_to_date_paise,
                f.paid_paise::text AS paid_paise,
                f.balance_paise::text AS balance_paise,
-               f.year_balance_paise::text AS year_balance_paise
+               f.year_balance_paise::text AS year_balance_paise,
+               to_char(o.due_on, 'YYYY-MM-DD') AS oldest_due_on
           FROM fee_figures f
           JOIN fee_heads h ON h.school_id = ${schoolId}::uuid AND h.id = f.fee_head_id
+          LEFT JOIN fee_oldest_due o ON o.student_id = f.student_id AND o.fee_head_id = f.fee_head_id
          WHERE f.student_id = ${studentId}::uuid
          ORDER BY h.name, h.id`,
   )
@@ -235,6 +238,7 @@ export async function readStatement(
     frequency: row.frequency as FeeStatementLine['frequency'],
     instalments: Number(row.instalments),
     instalmentsDue: Number(row.instalments_due),
+    ...(row.oldest_due_on === null ? {} : { oldestDueOn: row.oldest_due_on }),
     chargedYearPaise: toPaise(row.charged_year_paise),
     concessionYearPaise: toPaise(row.concession_year_paise),
     adjustmentPaise: toPaise(row.adjustment_paise),

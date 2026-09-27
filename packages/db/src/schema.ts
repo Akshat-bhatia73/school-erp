@@ -1573,6 +1573,7 @@ export const assistantProposals = pgTable(
     outcome: text('outcome'),
     writeRequestId: text('write_request_id'),
     edited: boolean('edited'),
+    writtenHref: text('written_href'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     confirmingAt: timestamp('confirming_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),

@@ -136,6 +136,8 @@ export interface PersonCandidate<T> {
   /** Admission number or employee code. */
   readonly code?: string | undefined
   readonly rollNumber?: number | undefined
+  /** How the person is named when two could be meant, when not by name and number: "Aarav Shah, Class 9 A (SPS/0012)". */
+  readonly label?: string | undefined
 }
 
 export type PersonMatch<T> =
@@ -144,6 +146,7 @@ export type PersonMatch<T> =
   | { readonly status: 'many'; readonly names: readonly string[] }
 
 function described<T>(candidate: PersonCandidate<T>): string {
+  if (candidate.label !== undefined) return candidate.label
   if (candidate.rollNumber !== undefined) return `${candidate.name} (roll ${candidate.rollNumber})`
   if (candidate.code !== undefined) return `${candidate.name} (${candidate.code})`
   return candidate.name
