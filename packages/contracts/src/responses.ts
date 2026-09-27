@@ -76,6 +76,9 @@ export const StaffDirectory = z.strictObject({
   anonymised: z.boolean(),
   hasPhoto: z.boolean(),
   photoUpdatedAt: Timestamp.optional(),
+  // Only on the directory page, and only for a person whose employment the caller
+  // may read: the subjects they teach this year, by name.
+  subjects: z.array(z.string().max(160)).max(30).optional(),
 })
 export const StaffEmployment = z.strictObject({
   employeeCode: z.string().max(100), joiningDate: CalendarDate,

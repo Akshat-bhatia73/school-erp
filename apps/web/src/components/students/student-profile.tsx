@@ -7,12 +7,13 @@ import { AnonymiseRequest, CONSENT_PURPOSES, ConsentMethod, UnlinkGuardianReques
 import { UserAvatar } from '@/components/shared/avatar'
 import { EmptyState, Facts, Panel } from '@/components/shared/page'
 import { PhotoField } from '@/components/shared/photo-field'
-import { colorFor, StatusDot, Tag, type TagColor } from '@/components/shared/tag'
+import { StatusDot, Tag, type TagColor } from '@/components/shared/tag'
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -25,7 +26,6 @@ import { allows } from '@/lib/permissions'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
 import { formatDate, fullName, humanize } from '@/lib/utils'
-import { ExportRecordButton } from './export-record-button'
 import { GuardianSheet, type GuardianSheetEditing } from './guardian-sheet'
 import { classLabel } from './student-columns'
 
@@ -78,18 +78,23 @@ function RevealField({ masked, canReveal, read }: { masked: string; canReveal: b
 }
 
 /**
- * The student's photograph. A photo may only be held while the family has said yes to it, so when
- * this screen can see the consent answers and none of them is a yes, the controls are replaced by
- * a plain sentence. Somebody who cannot read consents still sees the controls: the server checks
- * the same rule and refuses.
+ * The student's photograph, opened from the avatar in the page header. A photo may only be held
+ * while the family has said yes to it, so when this screen can see the consent answers and none of
+ * them is a yes, the controls are replaced by a plain sentence. Somebody who cannot read consents
+ * still sees the controls: the server checks the same rule and refuses.
  */
-function StudentPhotoPanel({ student, canReadConsents }: { student: StudentDetail['student']; canReadConsents: boolean }) {
+export function StudentPhotoDialog({ student, canReadConsents, open, onOpenChange }: {
+  student: StudentDetail['student']
+  canReadConsents: boolean
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
   const { schoolId } = useSchoolContext()
   const queryClient = useQueryClient()
   const consents = useQuery({
     queryKey: qk.studentConsents(schoolId, student.id),
     queryFn: () => api.students.consents(schoolId, student.id),
-    enabled: canReadConsents,
+    enabled: open && canReadConsents,
   })
 
   const answers = (consents.data?.items ?? []).filter((row) => row.purpose === 'photographs')
@@ -98,67 +103,44 @@ function StudentPhotoPanel({ student, canReadConsents }: { student: StudentDetai
   const refresh = () => queryClient.invalidateQueries({ queryKey: [schoolId, 'students'] })
 
   return (
-    <Panel title="Photo" description="Shown on the class list and on this record.">
-      <PhotoField
-        name={fullName(student)}
-        src={student.hasPhoto ? api.students.photoUrl(schoolId, student.id, student.photoUpdatedAt) : undefined}
-        note={known && !photographsGranted ? 'Photo upload needs the photographs consent from the parent.' : undefined}
-        onUpload={async (file) => {
-          await api.students.uploadPhoto(schoolId, student.id, file, student.version)
-          await refresh()
-        }}
-        onRemove={async () => {
-          await api.students.removePhoto(schoolId, student.id, student.version)
-          await refresh()
-        }}
-      />
-    </Panel>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Photo</DialogTitle>
+          <DialogDescription>Shown on the class list and on this record.</DialogDescription>
+        </DialogHeader>
+        <PhotoField
+          name={fullName(student)}
+          src={student.hasPhoto ? api.students.photoUrl(schoolId, student.id, student.photoUpdatedAt) : undefined}
+          note={known && !photographsGranted ? 'Photo upload needs the photographs consent from the parent.' : undefined}
+          onUpload={async (file) => {
+            await api.students.uploadPhoto(schoolId, student.id, file, student.version)
+            await refresh()
+          }}
+          onRemove={async () => {
+            await api.students.removePhoto(schoolId, student.id, student.version)
+            await refresh()
+          }}
+        />
+      </DialogContent>
+    </Dialog>
   )
 }
 
 /**
- * Everything the server chose to send about this student. A block it left out (sensitive,
- * medical, guardian contacts) is simply not rendered: there is no placeholder for private data.
+ * Everything the server chose to send about this student beyond what the page header shows. A
+ * block it left out (sensitive, medical, guardian contacts) is simply not rendered: there is no
+ * placeholder for private data.
  */
 export function OverviewTab({ detail, showGuardianContacts }: { detail: StudentDetail; showGuardianContacts: boolean }) {
-  const { schoolId, hasPermission } = useSchoolContext()
+  const { schoolId } = useSchoolContext()
   const { student, sensitive, medical, guardianContacts, allowedActions } = detail
+  const contacts = showGuardianContacts && guardianContacts && guardianContacts.length > 0 ? guardianContacts : undefined
+  if (!sensitive && !medical && !contacts) {
+    return <p className="text-[13px] text-muted-foreground">There are no more details on this record for you.</p>
+  }
   return (
     <div className="grid gap-4">
-      <Panel
-        title="Student"
-        actions={
-          <div className="flex items-center gap-2">
-            {hasPermission('fees.read') && (
-              <Button asChild size="sm" variant="outline">
-                <Link to="/fees/students/$studentId" params={{ studentId: student.id }}>Fee statement</Link>
-              </Button>
-            )}
-            {hasPermission('attendance.read') && (
-              <Button asChild size="sm" variant="outline">
-                <Link to="/attendance/students/$studentId" params={{ studentId: student.id }}>Attendance</Link>
-              </Button>
-            )}
-            <ExportRecordButton studentId={student.id} admissionNumber={student.admissionNumber} allowedActions={allowedActions} />
-          </div>
-        }
-      >
-        <Facts
-          columns={3}
-          items={[
-            { label: 'Name', value: fullName(student) },
-            { label: 'Admission number', value: <span className="font-mono">{student.admissionNumber}</span> },
-            { label: 'Status', value: <span className="capitalize">{student.status}</span> },
-            { label: 'Class', value: classLabel(student) },
-            { label: 'Roll number', value: student.enrollment?.rollNumber },
-            { label: 'Academic year', value: student.enrollment?.academicYear.name },
-          ]}
-        />
-      </Panel>
-
-      {allows(allowedActions, 'students.update_basic') && (
-        <StudentPhotoPanel student={student} canReadConsents={allows(allowedActions, 'students.read_consents')} />
-      )}
 
       {sensitive && (
         <Panel title="Personal details">
@@ -206,14 +188,14 @@ export function OverviewTab({ detail, showGuardianContacts }: { detail: StudentD
         </Panel>
       )}
 
-      {showGuardianContacts && guardianContacts && guardianContacts.length > 0 && (
+      {contacts && (
         <Panel title="Who to call" description="The contacts the school may share with staff.">
           <ul className="divide-y">
-            {guardianContacts.map((contact) => (
+            {contacts.map((contact) => (
               <li key={contact.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
                 <UserAvatar name={contact.displayName} size="sm" />
                 <span className="min-w-0 flex-1 truncate">{contact.displayName}</span>
-                <Tag color={colorFor(contact.relation)}>{humanize(contact.relation)}</Tag>
+                <Tag>{humanize(contact.relation)}</Tag>
                 <span className="font-mono text-[12.5px] text-muted-foreground">{contact.phone}</span>
               </li>
             ))}
@@ -416,7 +398,7 @@ export function SiblingsTab({ studentId }: { studentId: string }) {
               <Link to="/students/$studentId" params={{ studentId: sibling.id }} className="flex items-center gap-3 py-2.5 hover:bg-accent/50">
                 <UserAvatar name={fullName(sibling)} size="sm" />
                 <span className="link-dotted min-w-0 flex-1 truncate font-medium">{fullName(sibling)}</span>
-                {classLabel(sibling) && <Tag color={colorFor(sibling.enrollment!.grade.name)}>{classLabel(sibling)}</Tag>}
+                {classLabel(sibling) && <Tag>{classLabel(sibling)}</Tag>}
                 <span className="font-mono text-[12px] text-muted-foreground">{sibling.admissionNumber}</span>
               </Link>
             </li>

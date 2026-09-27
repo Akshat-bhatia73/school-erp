@@ -122,7 +122,7 @@ export function TimetableGrid({ bell, cells, mode, onCellClick, highlightFree, d
 function CellBody({ cell, mode, onClick }: { cell: TimetableCellRecord; mode: 'section' | 'staff'; onClick?: () => void }) {
   const top = mode === 'section'
     ? <Tag color={colorFor(cell.subject.id)}>{cell.subject.name}</Tag>
-    : <Tag color={colorFor(cell.section.id)}>{cell.section.name}</Tag>
+    : <Tag>{cell.section.name}</Tag>
   const bottom = mode === 'section'
     ? (cell.teacher
         ? <span className="flex items-center gap-1.5 truncate"><UserAvatar name={cell.teacher.name} size="xs" />{cell.teacher.name}</span>

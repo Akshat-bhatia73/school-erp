@@ -53,18 +53,6 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
   // The role also reads classes, subjects and holidays for their own record, which is no reason
   // to show them the office's setup screens.
   const isPupil = audience === 'student'
-  // Counts live under the module prefixes so the writes that change them refresh these badges too.
-  const office = audience === 'office'
-  const { data: studentCount } = useQuery({
-    queryKey: qk.studentCount(schoolId, { status: 'active' }),
-    queryFn: () => api.students.count(schoolId, { status: 'active' }),
-    enabled: office && hasPermission('students.read_basic'),
-  })
-  const { data: staffCount } = useQuery({
-    queryKey: qk.staffCount(schoolId),
-    queryFn: () => api.staff.count(schoolId),
-    enabled: office && hasPermission('staff.read_directory'),
-  })
   // The unread badge. Asked every minute and when the window comes back; the same read starts
   // the school's message pump on the server.
   const { data: unread } = useQuery({
@@ -78,8 +66,8 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
 
   const primary: NavItem[] = [
     { label: isParent ? 'My children' : isPupil ? 'Home' : 'Dashboard', to: '/dashboard', icon: <LayoutDashboard />, exact: true },
-    { label: 'Students', to: '/students', icon: <GraduationCap />, count: studentCount?.count, permission: 'students.read_basic' },
-    { label: 'Staff', to: '/staff', icon: <Users />, count: staffCount?.count, permission: 'staff.read_directory' },
+    { label: 'Students', to: '/students', icon: <GraduationCap />, permission: 'students.read_basic' },
+    { label: 'Staff', to: '/staff', icon: <Users />, permission: 'staff.read_directory' },
     { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
     { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
     { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read'] },

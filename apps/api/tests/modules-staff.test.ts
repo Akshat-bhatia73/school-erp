@@ -185,7 +185,7 @@ test('an office reader sees the directory and nothing beyond the contract', asyn
   assert.equal(ids.includes(staffBId), false)
   for (const item of body.items) {
     assert.deepEqual(
-      Object.keys(item).filter((key) => !['id', 'schoolId', 'version', 'displayName', 'designation', 'department', 'anonymised', 'hasPhoto', 'photoUpdatedAt'].includes(key)),
+      Object.keys(item).filter((key) => !['id', 'schoolId', 'version', 'displayName', 'designation', 'department', 'anonymised', 'hasPhoto', 'photoUpdatedAt', 'subjects'].includes(key)),
       [],
     )
   }
@@ -502,6 +502,14 @@ test('assignments are managed, listed by staff and by section, and removed', asy
   const bySection = await owner.fetch(`/api/schools/${schoolA}/sections/${sectionA}/assignments`)
   assert.equal(bySection.status, 200)
   assert.equal(((await bySection.json()) as unknown[]).length, 1)
+
+  // The directory names what each person teaches this year, for a reader of their employment.
+  type DirectoryRow = { id: string; subjects?: string[] }
+  const officeRows = ((await (await owner.fetch(`/api/schools/${schoolA}/staff?pageSize=100`)).json()) as { items: DirectoryRow[] }).items
+  assert.equal(officeRows.find((row) => row.id === staffA)?.subjects?.length, 1)
+  assert.equal(officeRows.find((row) => row.id === colleagueId)?.subjects, undefined)
+  const ownRows = ((await (await teacher.fetch(`/api/schools/${schoolA}/staff?pageSize=100`)).json()) as { items: DirectoryRow[] }).items
+  assert.equal(ownRows.find((row) => row.id === staffA)?.subjects?.length, 1)
 
   // A teacher who is not assigned anywhere cannot read a colleague's load.
   const colleagueLoad = await teacher.fetch(`/api/schools/${schoolA}/staff/${colleagueId}/assignments`)

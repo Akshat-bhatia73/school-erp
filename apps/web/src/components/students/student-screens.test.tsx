@@ -121,7 +121,7 @@ describe('Student roster', () => {
 
     expect(await screen.findByText('Aarav Sharma')).toBeInTheDocument()
     expect(screen.getByText('Class 6 - A')).toBeInTheDocument()
-    expect(screen.getByText('1 students in view')).toBeInTheDocument()
+    expect(screen.getByText('1 active student')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /admit/i }).length).toBeGreaterThan(0)
     // No academicYearId: the server matches it against the current enrolment, so sending the
     // running year would hide every student whose latest enrolment is elsewhere.
@@ -381,14 +381,16 @@ describe('Student profile export', () => {
     students.get.mockResolvedValue({ student: STUDENT, allowedActions: ['students.read_basic'] })
     const withoutExport = renderWithSession(<Screen />, { capabilities: ['students.read_basic'] })
     expect(await screen.findByRole('heading', { name: /Aarav/ })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /export pdf/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^export/i })).not.toBeInTheDocument()
     withoutExport.unmount()
 
     students.get.mockResolvedValue({ student: STUDENT, allowedActions: ['students.read_basic', 'students.export'] })
     const user = userEvent.setup()
     renderWithSession(<Screen />, { capabilities: ['students.read_basic', 'students.export'] })
 
-    await user.click(await screen.findByRole('button', { name: /export pdf/i }))
+    // Both exports sit in one menu at the top of the page.
+    await user.click(await screen.findByRole('button', { name: /^export/i }))
+    await user.click(await screen.findByRole('menuitem', { name: /export pdf/i }))
     await waitFor(() => expect(students.exportProfile).toHaveBeenCalledWith(SCHOOL_ID, 'student-1'))
   })
 })
@@ -517,6 +519,8 @@ describe('Photo and identity numbers', () => {
     const Screen = componentOf(Route)
     renderWithSession(<Screen />, { capabilities: ['students.read_basic', 'students.update_basic'] })
 
+    // The photo opens from the header avatar.
+    await user.click(await screen.findByRole('button', { name: 'Edit photo' }))
     const picker = await screen.findByLabelText('Add photo')
     await user.upload(picker, new File([new Uint8Array([1])], 'aarav.png', { type: 'image/png' }))
 
@@ -540,6 +544,8 @@ describe('Photo and identity numbers', () => {
     const Screen = componentOf(Route)
     renderWithSession(<Screen />, { capabilities: ['students.read_basic', 'students.update_basic'] })
 
+    // The photo opens from the header avatar.
+    await user.click(await screen.findByRole('button', { name: 'Edit photo' }))
     const picker = await screen.findByLabelText('Add photo')
     await user.upload(picker, new File([new Uint8Array([1])], 'aarav.webp', { type: 'image/webp' }))
 
@@ -561,6 +567,7 @@ describe('Photo and identity numbers', () => {
     const Screen = componentOf(Route)
     renderWithSession(<Screen />, { capabilities: ['students.read_basic', 'students.update_basic'] })
 
+    await user.click(await screen.findByRole('button', { name: 'Edit photo' }))
     await user.upload(await screen.findByLabelText('Add photo'), new File([new Uint8Array([1])], 'aarav.png', { type: 'image/png' }))
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('Choose a photo smaller than 1 MB.'))
@@ -573,9 +580,11 @@ describe('Photo and identity numbers', () => {
       allowedActions: ['students.read_basic', 'students.update_basic', 'students.read_consents'],
     })
     students.consents.mockResolvedValue({ items: [{ ...CONSENT_ROW, status: 'withdrawn' as const }], allowedActions: [] })
+    const user = userEvent.setup()
     const { Route } = await import('@/routes/_app/students/$studentId')
     const Screen = componentOf(Route)
     renderWithSession(<Screen />, { capabilities: ['students.read_basic', 'students.update_basic'] })
+    await user.click(await screen.findByRole('button', { name: 'Edit photo' }))
 
     expect(await screen.findByText('Photo upload needs the photographs consent from the parent.')).toBeInTheDocument()
     expect(screen.queryByLabelText('Add photo')).not.toBeInTheDocument()

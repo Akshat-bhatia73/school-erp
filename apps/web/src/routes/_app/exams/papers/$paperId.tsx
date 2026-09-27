@@ -16,7 +16,7 @@ import { cellKey, draftFromSheet, MarksGrid, parseCell, type Draft } from '@/com
 import { ReasonDialog } from '@/components/exams/reason-dialog'
 import { useExportDownload } from '@/components/shared/export-download'
 import { EmptyState, PageHeader } from '@/components/shared/page'
-import { colorFor, Tag } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
@@ -182,7 +182,7 @@ function Page() {
           <h1 className="text-[16px] font-semibold">{paper.subject.name}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[12.5px] text-muted-foreground">
             <span>{examLabel(paper.exam.kind)}</span>
-            <Tag color={colorFor(classLabel)}>{classLabel}</Tag>
+            <Tag>{classLabel}</Tag>
             <PaperStatusTag state={window.state} published={paper.published} />
             <span>Re-check deadline {formatDate(paper.exam.recheckDeadline)}</span>
           </div>

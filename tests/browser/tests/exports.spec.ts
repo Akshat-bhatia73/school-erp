@@ -44,7 +44,8 @@ test('an owner exports the selected roster rows to a spreadsheet and one record 
   await expect(page.getByText(STUDENT_ALPHA.name).filter({ visible: true }).first()).toBeVisible()
 
   const document = page.waitForEvent('download', { timeout: 30_000 })
-  await page.getByRole('button', { name: 'Export PDF' }).first().click()
+  await page.getByRole('button', { name: 'Export', exact: true }).first().click()
+  await page.getByRole('menuitem', { name: 'Export PDF' }).click()
   const profile = await document
   expect(profile.suggestedFilename()).toMatch(/\.pdf$/)
   expect(await profile.failure()).toBeNull()

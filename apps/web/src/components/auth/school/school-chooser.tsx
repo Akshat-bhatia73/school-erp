@@ -8,7 +8,7 @@ import { Check, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
-import { Tag, colorFor } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import { AccessUnavailable } from '@/components/auth/school/access-unavailable'
 import { RedirectOnce } from '@/components/auth/app-gate'
 import { ServerUnreachable } from '@/components/auth/school/server-unreachable'
@@ -63,7 +63,7 @@ export function SchoolChooser({ returnTo }: { returnTo?: string }) {
                   </span>
                   <span className="mt-1 flex flex-wrap items-center gap-1.5">
                     <span className="text-[12.5px] text-muted-foreground">{membership.school.code}</span>
-                    {membership.roleKeys.map((key) => <Tag key={key} color={colorFor(key)}>{roleLabel(key)}</Tag>)}
+                    {membership.roleKeys.map((key) => <Tag key={key}>{roleLabel(key)}</Tag>)}
                   </span>
                 </span>
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground" />

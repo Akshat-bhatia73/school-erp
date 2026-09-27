@@ -53,7 +53,7 @@ beforeEach(() => {
 })
 
 describe('Sidebar', () => {
-  it('shows every allowed destination and the office counts', async () => {
+  it('shows every allowed destination and leaves the counts to the list footers', async () => {
     const { Sidebar } = await import('./sidebar')
     renderWithSession(<Sidebar onOpenQuickActions={() => {}} />, {
       roleKeys: ['owner'],
@@ -62,12 +62,10 @@ describe('Sidebar', () => {
 
     expect(screen.getByText('Students')).toBeInTheDocument()
     expect(screen.getByText('Audit log')).toBeInTheDocument()
-    expect(await screen.findByText('16')).toBeInTheDocument()
-    expect(await screen.findByText('29')).toBeInTheDocument()
-    // The counts come from the module prefixes so student and staff writes refresh them.
-    expect(studentCount).toHaveBeenCalledWith(SCHOOL, { status: 'active' })
-    expect(staffCount).toHaveBeenCalledWith(SCHOOL)
     expect(await screen.findByText(/2026-27/)).toBeInTheDocument()
+    // Each list says its own count once, in its footer; the sidebar does not repeat it.
+    expect(studentCount).not.toHaveBeenCalled()
+    expect(staffCount).not.toHaveBeenCalled()
   })
 
   it('drops a destination and its section label when the capability is missing', async () => {

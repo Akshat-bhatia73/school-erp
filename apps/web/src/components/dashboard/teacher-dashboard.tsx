@@ -140,7 +140,7 @@ function lessonPills(timeline: DashboardTimelineSlot[]): ReactNode {
         return (
           <HeroPill
             key={slot.periodIndex}
-            tag={<Tag color={cover ? 'orange' : colorFor(lesson.section.id)}>{lesson.section.name}</Tag>}
+            tag={<Tag color={cover ? 'orange' : undefined}>{lesson.section.name}</Tag>}
           >
             {[cover ? 'Cover' : null, timeLabel(slot.startTime), lesson.subject.name].filter(Boolean).join(' · ')}
           </HeroPill>
@@ -451,10 +451,10 @@ export function TeacherDashboard({ data, isLoading, error }: { data?: TeacherDas
                     {sectionList.map(([id, name]) =>
                       canOpenTimetable ? (
                         <Link key={id} to="/timetable" search={{ sectionId: id }}>
-                          <Tag color={colorFor(id)}>{name}</Tag>
+                          <Tag>{name}</Tag>
                         </Link>
                       ) : (
-                        <Tag key={id} color={colorFor(id)}>{name}</Tag>
+                        <Tag key={id}>{name}</Tag>
                       ),
                     )}
                   </div>

@@ -14,7 +14,7 @@ import { api } from '@/lib/api'
 import type { TeachingAssignment } from '@/lib/api/staff'
 import { DataTable } from '@/components/shared/data-table'
 import { EmptyState, Panel } from '@/components/shared/page'
-import { Tag, colorFor } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
@@ -64,7 +64,7 @@ export function TeachingTab({ staffId, staffVersion, canManage }: TeachingTabPro
         id: 'class',
         header: 'Class',
         size: 140,
-        cell: ({ row }) => <Tag color={colorFor(row.original.section.name)}>{row.original.section.name}</Tag>,
+        cell: ({ row }) => <Tag>{row.original.section.name}</Tag>,
       },
       { id: 'subject', header: 'Subject', cell: ({ row }) => row.original.subject.name },
       { id: 'from', header: 'From', size: 120, cell: ({ row }) => formatDate(row.original.validFrom) },

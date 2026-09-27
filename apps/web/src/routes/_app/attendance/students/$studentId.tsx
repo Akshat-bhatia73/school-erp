@@ -10,7 +10,7 @@ import { useMonthRange } from '@/components/attendance/use-month-range'
 import { UserAvatar } from '@/components/shared/avatar'
 import { useExportDownload } from '@/components/shared/export-download'
 import { EmptyState, PageHeader, Panel } from '@/components/shared/page'
-import { colorFor, Tag } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
@@ -88,7 +88,7 @@ function Page() {
         <div className="min-w-0">
           <h1 className="text-[17px] font-semibold md:text-xl">{data.student.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {classLabel && <Tag color={colorFor(classLabel)}>{classLabel}</Tag>}
+            {classLabel && <Tag>{classLabel}</Tag>}
             <MonthChip
               month={month}
               min={range.min}

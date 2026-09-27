@@ -10,7 +10,7 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { EmptyState, Facts, PageHeader, Panel } from '@/components/shared/page'
 import { useExportDownload } from '@/components/shared/export-download'
-import { Tag, colorFor } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import { UserAvatar } from '@/components/shared/avatar'
 import { PhotoField } from '@/components/shared/photo-field'
 import { Button } from '@/components/ui/button'
@@ -129,7 +129,7 @@ function Page() {
             <h1 className="text-[17px] font-semibold md:text-[20px]">{staff.displayName}</h1>
             <p className="mt-0.5 text-[13.5px] text-muted-foreground">{staff.designation}</p>
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-              {staff.department && <Tag color={colorFor(staff.department)}>{staff.department}</Tag>}
+              {staff.department && <Tag>{staff.department}</Tag>}
               {employment && <Tag>{employmentLabel[employment.employmentType]}</Tag>}
               {employment && <StaffStatusTag status={employment.status} />}
               {staff.anonymised && <Tag>Anonymised</Tag>}

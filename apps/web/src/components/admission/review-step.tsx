@@ -1,6 +1,6 @@
 import { UserAvatar } from '@/components/shared/avatar'
 import { Facts, Panel } from '@/components/shared/page'
-import { colorFor, Tag } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import { useSectionOptions } from '@/components/students/use-section-options'
 import { Button } from '@/components/ui/button'
 import { METHOD_LABEL, PURPOSE_LABEL } from '@/lib/consent'
@@ -43,7 +43,7 @@ export function ReviewStep({ draft, onEdit, academicYearId, yearName, photo = nu
           <div className="min-w-0">
             <p className="text-[16px] font-semibold">{name}</p>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              {section && <Tag color={colorFor(section.label)}>{section.label}</Tag>}
+              {section && <Tag>{section.label}</Tag>}
               {draft.admissionType && <Tag color="grey">{humanize(draft.admissionType)}</Tag>}
             </div>
           </div>

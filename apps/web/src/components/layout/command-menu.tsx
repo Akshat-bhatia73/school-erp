@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, LogOut, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus, CalendarClock, ClipboardCheck, NotebookPen, Mail, Sparkles } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
-import { Tag, colorFor } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from '@/components/ui/command'
 import { api } from '@/lib/api'
 import { describeError } from '@/lib/api-errors'
@@ -128,7 +128,7 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
                   <UserAvatar name={fullName(s)} size="sm" />
                   <span className="min-w-0 flex-1 truncate">{fullName(s)}</span>
                   <span className="text-[11.5px] text-muted-foreground tabular-nums">{s.admissionNumber}</span>
-                  {s.enrollment && <Tag color={colorFor(s.enrollment.grade.name)}>{s.enrollment.grade.name}-{s.enrollment.section.name}</Tag>}
+                  {s.enrollment && <Tag>{s.enrollment.grade.name}-{s.enrollment.section.name}</Tag>}
                 </CommandItem>
               ))}
             </CommandGroup>

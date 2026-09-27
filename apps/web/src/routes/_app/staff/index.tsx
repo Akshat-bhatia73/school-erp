@@ -11,7 +11,7 @@ import { DataTable, EntityCell } from '@/components/shared/data-table'
 import { FilterChip } from '@/components/shared/filter-chip'
 import { EmptyState, PageHeader, Toolbar } from '@/components/shared/page'
 import { StaffBulkBar } from '@/components/staff/staff-bulk-bar'
-import { Tag, colorFor } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -72,6 +72,7 @@ function Page() {
   const hasFilters = Boolean(search.q || search.department)
   const clearFilters = () => { setSelection({}); void navigate({ search: { page: 1 } }) }
 
+  const showSubjects = rows.some((row) => row.subjects?.length)
   const columns = useMemo<ColumnDef<StaffRow, any>[]>(() => [
     {
       id: 'name',
@@ -90,15 +91,24 @@ function Page() {
         />
       ),
     },
-    { id: 'designation', header: 'Designation', cell: ({ row }) => row.original.designation },
+    { id: 'designation', header: 'Designation', size: 200, cell: ({ row }) => row.original.designation },
     {
       id: 'department',
       header: 'Department',
+      size: 180,
       cell: ({ row }) => (row.original.department
-        ? <Tag color={colorFor(row.original.department)}>{row.original.department}</Tag>
+        ? <Tag>{row.original.department}</Tag>
         : <span className="text-muted-foreground/60">—</span>),
     },
-  ], [schoolId])
+    // Sent only for people whose employment the caller may read, so a reader who gets none sees no column.
+    ...(showSubjects ? [{
+      id: 'subjects',
+      header: 'Subjects taught',
+      cell: ({ row }) => (row.original.subjects?.length
+        ? <span className="truncate">{row.original.subjects.join(', ')}</span>
+        : <span className="text-muted-foreground/60">—</span>),
+    } satisfies ColumnDef<StaffRow, any>] : []),
+  ], [schoolId, showSubjects])
 
   if (isApiError(staffQuery.error, 'ACCESS_DENIED')) {
     return (
@@ -124,7 +134,6 @@ function Page() {
     <>
       <PageHeader
         crumbs={[{ label: 'Staff', icon: <Users /> }]}
-        badge={<Tag className="ml-2">{total}</Tag>}
         actions={
           hasPermission('staff.create')
             ? <Button size="sm" onClick={() => void navigate({ to: '/staff/new' })}><Plus />Add staff</Button>
@@ -168,7 +177,7 @@ function Page() {
           mobileRow={(row: StaffRow) => ({
             title: row.displayName,
             subtitle: row.designation,
-            trailing: row.department ? <Tag color={colorFor(row.department)}>{row.department}</Tag> : undefined,
+            trailing: row.department ? <Tag>{row.department}</Tag> : undefined,
           })}
           emptyState={
             <EmptyState
@@ -178,13 +187,8 @@ function Page() {
               action={hasFilters ? <Button variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button> : undefined}
             />
           }
-          pagination={{ page: search.page, pageSize: PAGE_SIZE, total, onPageChange: setPage }}
-          footer={
-            <>
-              <span>{rows.length} staff in view</span>
-              <span>{total} in total</span>
-            </>
-          }
+          pagination={{ page: search.page, pageSize: PAGE_SIZE, total, onPageChange: setPage, rangeOnly: true }}
+          footer={staffQuery.data ? <span>{total} staff</span> : undefined}
         />
         {canExport && <StaffBulkBar ids={selectedIds} onClear={() => setSelection({})} />}
       </div>

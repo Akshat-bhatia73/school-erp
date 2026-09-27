@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull, sql, type SQL } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, sql, type SQL } from 'drizzle-orm'
 import { planPredicate, scopedTableFor, type AuthzConnection, type ScopedTable } from '@erp/authz'
 import type { PermissionKey } from '@erp/contracts'
 import type { RequestContext } from '@erp/contracts/server'
@@ -119,12 +119,59 @@ export async function listStaff(
     .select({ total: sql<number>`count(*)::int` })
     .from(staff)
     .where(where)
+  const taught = await subjectsTaught(conn, context, rows.map((row) => row.id))
   return {
-    items: rows.map((row) => toDirectory(row as StaffRow)),
+    items: rows.map((row) => {
+      const subjectNames = taught.get(row.id)
+      return { ...toDirectory(row as StaffRow), ...(subjectNames ? { subjects: subjectNames } : {}) }
+    }),
     total: counted[0]?.total ?? 0,
     page: query.page,
     pageSize: query.pageSize,
   }
+}
+
+/**
+ * The subjects each person on the page teaches in the current year. Assignments
+ * are employment detail, so a person is only included when the caller may read
+ * their employment; everyone else keeps the plain directory row.
+ */
+async function subjectsTaught(
+  conn: AuthzConnection,
+  context: RequestContext,
+  staffIds: readonly string[],
+): Promise<Map<string, string[]>> {
+  const taught = new Map<string, string[]>()
+  if (staffIds.length === 0) return taught
+  const rows = await conn.db
+    .selectDistinct({ staffId: teachingAssignments.staffId, name: subjects.name })
+    .from(teachingAssignments)
+    .innerJoin(
+      staff,
+      and(eq(staff.schoolId, teachingAssignments.schoolId), eq(staff.id, teachingAssignments.staffId)),
+    )
+    .innerJoin(
+      subjects,
+      and(eq(subjects.schoolId, teachingAssignments.schoolId), eq(subjects.id, teachingAssignments.subjectId)),
+    )
+    .innerJoin(
+      academicYears,
+      and(eq(academicYears.schoolId, teachingAssignments.schoolId), eq(academicYears.id, teachingAssignments.academicYearId)),
+    )
+    .where(and(
+      eq(teachingAssignments.schoolId, context.schoolId),
+      inArray(teachingAssignments.staffId, [...staffIds]),
+      eq(academicYears.status, 'current'),
+      sql`(${teachingAssignments.effectiveTo} IS NULL OR ${teachingAssignments.effectiveTo} >= current_date)`,
+      await staffScope(conn, context, 'staff.read_employment'),
+    ))
+    .orderBy(asc(subjects.name))
+  for (const row of rows) {
+    const names = taught.get(row.staffId) ?? []
+    if (names.length < 30) names.push(row.name.slice(0, 160))
+    taught.set(row.staffId, names)
+  }
+  return taught
 }
 
 export async function countStaff(conn: AuthzConnection, context: RequestContext): Promise<number> {
