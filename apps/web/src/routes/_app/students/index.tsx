@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { DataTable } from '@/components/shared/data-table'
 import { FilterChip, ToolbarButton } from '@/components/shared/filter-chip'
 import { EmptyState, PageHeader, Toolbar } from '@/components/shared/page'
-import { colorFor, Tag } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import { GiveStudentLoginsDialog } from '@/components/students/student-login-panel'
 import { StudentBulkBar } from '@/components/students/student-bulk-bar'
 import { classLabel, studentColumns } from '@/components/students/student-columns'
@@ -37,6 +37,11 @@ export const Route = createFileRoute('/_app/students/')({
 })
 
 const PAGE_SIZE = 25
+
+/** The one count on the page, named by the status chip: "106 active students". */
+function countLabel(total: number, status: StudentSearch['status']) {
+  return `${total} ${status} ${total === 1 ? 'student' : 'students'}`
+}
 const SORT_LABEL: Record<StudentSearch['sort'], string> = { name: 'Name', admission: 'Admission no', roll: 'Roll number' }
 
 function Page() {
@@ -87,7 +92,6 @@ function Page() {
   const header = (
     <PageHeader
       crumbs={[{ label: 'Students', icon: <Users /> }]}
-      badge={roster.data ? <Tag className="ml-2">{roster.data.total}</Tag> : undefined}
       actions={
         <>
           {canGiveLogins && <Button variant="outline" size="sm" onClick={() => setGiveLogins(true)}>Give student logins</Button>}
@@ -193,7 +197,7 @@ function Page() {
           mobileRow={(row) => ({
             title: fullName(row),
             subtitle: `${row.admissionNumber} · Roll ${row.enrollment?.rollNumber ?? '—'}`,
-            trailing: row.enrollment ? <Tag color={colorFor(row.enrollment.grade.name)}>{classLabel(row)}</Tag> : undefined,
+            trailing: row.enrollment ? <Tag>{classLabel(row)}</Tag> : undefined,
           })}
           emptyState={
             <EmptyState
@@ -203,13 +207,8 @@ function Page() {
               action={hasFilters ? <Button variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button> : undefined}
             />
           }
-          footer={
-            <>
-              <span>{rows.length} students in view</span>
-              <span>{roster.data?.total ?? 0} in total</span>
-            </>
-          }
-          pagination={{ page: search.page, pageSize: PAGE_SIZE, total: roster.data?.total ?? 0, onPageChange: setPage }}
+          footer={roster.data ? <span>{countLabel(roster.data.total, search.status)}</span> : undefined}
+          pagination={{ page: search.page, pageSize: PAGE_SIZE, total: roster.data?.total ?? 0, onPageChange: setPage, rangeOnly: true }}
         />
         {canExport && <StudentBulkBar ids={selectedIds} onClear={() => setRowSelection({})} />}
       </div>

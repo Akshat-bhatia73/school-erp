@@ -118,7 +118,7 @@ export function Page() {
         return <span>{periodNameFor(bell, row.original.periodIndex)}<span className="ml-2 text-[12px] tabular-nums text-muted-foreground">{p ? `${p.startTime}–${p.endTime}` : ''}</span></span>
       },
     },
-    { id: 'class', header: 'Class', size: 140, accessorFn: (r) => r.section.name, cell: ({ row }) => <Tag color={colorFor(row.original.section.id)}>{row.original.section.name}</Tag> },
+    { id: 'class', header: 'Class', size: 140, accessorFn: (r) => r.section.name, cell: ({ row }) => <Tag>{row.original.section.name}</Tag> },
     { id: 'subject', header: 'Subject', size: 160, accessorFn: (r) => r.subject.name, cell: ({ row }) => <Tag color={colorFor(row.original.subject.id)}>{row.original.subject.name}</Tag> },
     { id: 'absent', header: 'Absent', accessorFn: (r) => r.absentTeacher.name, cell: ({ row }) => <span className="flex items-center gap-2"><UserAvatar name={row.original.absentTeacher.name} size="xs" />{row.original.absentTeacher.name}</span> },
     { id: 'substitute', header: 'Substitute', accessorFn: (r) => r.substituteTeacher?.name ?? '', cell: ({ row }) => row.original.substituteTeacher ? <span className="flex items-center gap-2"><UserAvatar name={row.original.substituteTeacher.name} size="xs" />{row.original.substituteTeacher.name}</span> : <Tag>Free period</Tag> },

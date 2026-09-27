@@ -22,6 +22,31 @@ function saveJson(record: SubjectAccess, fileName: string) {
 }
 
 /**
+ * The subject-access export behind "Export this record", for a screen that puts it in a menu.
+ * `permitted` is false when the person may not use it, and the screen then shows nothing.
+ */
+export function useExportRecord({ studentId, admissionNumber, allowedActions }: {
+  studentId: string
+  admissionNumber: string
+  allowedActions?: readonly PermissionKey[] | undefined
+}) {
+  const { schoolId, hasPermission } = useSchoolContext()
+  const exportRecord = useMutation({
+    mutationFn: () => api.students.subjectAccess(schoolId, studentId),
+    onSuccess: (record) => {
+      saveJson(record, `${admissionNumber}-record.json`)
+      toast.success('Record downloaded')
+    },
+    onError: (error) => toast.error(describeError(error)),
+  })
+  const permitted =
+    allowedActions === undefined
+      ? hasPermission('students.export_subject')
+      : allows(allowedActions, 'students.export_subject')
+  return { permitted, pending: exportRecord.isPending, run: () => exportRecord.mutate() }
+}
+
+/**
  * "Export this record": one audited read of everything the school holds about a student, saved as
  * a JSON file. The answer is never cached, so every click asks the server again and the record
  * only ever lives in the file the person chose to keep.
@@ -38,25 +63,12 @@ export function ExportRecordButton({ studentId, admissionNumber, allowedActions,
   label?: string
   variant?: 'outline' | 'ghost'
 }) {
-  const { schoolId, hasPermission } = useSchoolContext()
-  const exportRecord = useMutation({
-    mutationFn: () => api.students.subjectAccess(schoolId, studentId),
-    onSuccess: (record) => {
-      saveJson(record, `${admissionNumber}-record.json`)
-      toast.success('Record downloaded')
-    },
-    onError: (error) => toast.error(describeError(error)),
-  })
-
-  const permitted =
-    allowedActions === undefined
-      ? hasPermission('students.export_subject')
-      : allows(allowedActions, 'students.export_subject')
-  if (!permitted) return null
+  const exportRecord = useExportRecord({ studentId, admissionNumber, allowedActions })
+  if (!exportRecord.permitted) return null
 
   return (
-    <Button size="sm" variant={variant} disabled={exportRecord.isPending} onClick={() => exportRecord.mutate()}>
-      <Download />{exportRecord.isPending ? 'Preparing…' : label}
+    <Button size="sm" variant={variant} disabled={exportRecord.pending} onClick={exportRecord.run}>
+      <Download />{exportRecord.pending ? 'Preparing…' : label}
     </Button>
   )
 }

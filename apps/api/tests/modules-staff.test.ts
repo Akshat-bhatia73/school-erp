@@ -52,6 +52,34 @@ interface ErrorBody {
   error: { code: string; requestId: string }
 }
 
+/**
+ * Runs `check` with the fixture year as the school's current year. Earlier files in
+ * the shared database may have made another year current, and the directory names
+ * only this year's subjects. The year state is put back whatever happens.
+ */
+async function withFixtureYearCurrent(check: () => Promise<void>): Promise<void> {
+  const pool = adminPool()
+  const years = (await pool.query<{ id: string; status: string }>(
+    'SELECT id, status FROM academic_years WHERE school_id = $1', [schoolA],
+  )).rows
+  const pinned = (await pool.query<{ current_academic_year_id: string | null }>(
+    'SELECT current_academic_year_id FROM schools WHERE id = $1', [schoolA],
+  )).rows[0]?.current_academic_year_id ?? null
+  await pool.query(`UPDATE academic_years SET status = 'closed' WHERE school_id = $1 AND status = 'current'`, [schoolA])
+  await pool.query(`UPDATE academic_years SET status = 'current' WHERE school_id = $1 AND id = $2`, [schoolA, yearA])
+  await pool.query('UPDATE schools SET current_academic_year_id = $2 WHERE id = $1', [schoolA, yearA])
+  try {
+    await check()
+  } finally {
+    // Close first, then reopen, so two years are never current at once.
+    await pool.query(`UPDATE academic_years SET status = 'closed' WHERE school_id = $1 AND status = 'current'`, [schoolA])
+    for (const year of years) {
+      await pool.query('UPDATE academic_years SET status = $3 WHERE school_id = $1 AND id = $2', [schoolA, year.id, year.status])
+    }
+    await pool.query('UPDATE schools SET current_academic_year_id = $2 WHERE id = $1', [schoolA, pinned])
+  }
+}
+
 async function codeOf(response: Response): Promise<string> {
   return ((await response.json()) as ErrorBody).error.code
 }
@@ -185,7 +213,7 @@ test('an office reader sees the directory and nothing beyond the contract', asyn
   assert.equal(ids.includes(staffBId), false)
   for (const item of body.items) {
     assert.deepEqual(
-      Object.keys(item).filter((key) => !['id', 'schoolId', 'version', 'displayName', 'designation', 'department', 'anonymised', 'hasPhoto', 'photoUpdatedAt'].includes(key)),
+      Object.keys(item).filter((key) => !['id', 'schoolId', 'version', 'displayName', 'designation', 'department', 'anonymised', 'hasPhoto', 'photoUpdatedAt', 'subjects'].includes(key)),
       [],
     )
   }
@@ -502,6 +530,16 @@ test('assignments are managed, listed by staff and by section, and removed', asy
   const bySection = await owner.fetch(`/api/schools/${schoolA}/sections/${sectionA}/assignments`)
   assert.equal(bySection.status, 200)
   assert.equal(((await bySection.json()) as unknown[]).length, 1)
+
+  // The directory names what each person teaches this year, for a reader of their employment.
+  type DirectoryRow = { id: string; subjects?: string[] }
+  await withFixtureYearCurrent(async () => {
+    const officeRows = ((await (await owner.fetch(`/api/schools/${schoolA}/staff?pageSize=100`)).json()) as { items: DirectoryRow[] }).items
+    assert.deepEqual(officeRows.find((row) => row.id === staffA)?.subjects, ['Science'])
+    assert.equal(officeRows.find((row) => row.id === colleagueId)?.subjects, undefined)
+    const ownRows = ((await (await teacher.fetch(`/api/schools/${schoolA}/staff?pageSize=100`)).json()) as { items: DirectoryRow[] }).items
+    assert.deepEqual(ownRows.find((row) => row.id === staffA)?.subjects, ['Science'])
+  })
 
   // A teacher who is not assigned anywhere cannot read a colleague's load.
   const colleagueLoad = await teacher.fetch(`/api/schools/${schoolA}/staff/${colleagueId}/assignments`)

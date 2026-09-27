@@ -1,5 +1,5 @@
 /**
- * The subject-access export control, on the student profile and on the parent home.
+ * The subject-access export control, in the student page's Export menu and on the parent home.
  *
  * The control exists only when the record itself says so, every click asks the server again, and
  * the answer leaves as a file named by admission number instead of landing in the query cache.
@@ -78,21 +78,20 @@ beforeEach(() => {
 
 describe('Export this record', () => {
   it('is not rendered when the record does not allow it', async () => {
-    const { OverviewTab } = await import('./student-profile')
+    const { ExportRecordButton } = await import('./export-record-button')
     renderWithSession(
-      <OverviewTab detail={{ student: STUDENT, allowedActions: ['students.read_basic'] } as never} showGuardianContacts={false} />,
+      <ExportRecordButton studentId="st-1" admissionNumber={STUDENT.admissionNumber} allowedActions={['students.read_basic']} />,
       { capabilities: ['students.read_basic'] },
     )
 
-    expect(screen.getByText('Aarav Sharma')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /export this record/i })).not.toBeInTheDocument()
   })
 
   it('fetches the export on click and saves it as a file named by admission number', async () => {
     const user = userEvent.setup()
-    const { OverviewTab } = await import('./student-profile')
+    const { ExportRecordButton } = await import('./export-record-button')
     renderWithSession(
-      <OverviewTab detail={{ student: STUDENT, allowedActions: ['students.read_basic', 'students.export_subject'] } as never} showGuardianContacts={false} />,
+      <ExportRecordButton studentId="st-1" admissionNumber={STUDENT.admissionNumber} allowedActions={['students.read_basic', 'students.export_subject']} />,
       { capabilities: ['students.read_basic', 'students.export_subject'] },
     )
 
@@ -108,9 +107,9 @@ describe('Export this record', () => {
 
   it('asks the server again on every click and never caches the answer', async () => {
     const user = userEvent.setup()
-    const { OverviewTab } = await import('./student-profile')
+    const { ExportRecordButton } = await import('./export-record-button')
     renderWithSession(
-      <OverviewTab detail={{ student: STUDENT, allowedActions: ['students.export_subject'] } as never} showGuardianContacts={false} />,
+      <ExportRecordButton studentId="st-1" admissionNumber={STUDENT.admissionNumber} allowedActions={['students.export_subject']} />,
       { capabilities: ['students.export_subject'] },
     )
 
@@ -124,9 +123,9 @@ describe('Export this record', () => {
   it('says one sentence when the export is refused and saves nothing', async () => {
     subjectAccess.mockRejectedValue(new ApiRequestError({ code: 'ACCESS_DENIED', status: 403, message: 'no' }))
     const user = userEvent.setup()
-    const { OverviewTab } = await import('./student-profile')
+    const { ExportRecordButton } = await import('./export-record-button')
     renderWithSession(
-      <OverviewTab detail={{ student: STUDENT, allowedActions: ['students.export_subject'] } as never} showGuardianContacts={false} />,
+      <ExportRecordButton studentId="st-1" admissionNumber={STUDENT.admissionNumber} allowedActions={['students.export_subject']} />,
       { capabilities: ['students.export_subject'] },
     )
 

@@ -39,7 +39,8 @@ export interface DataTableProps<T> {
   emptyState?: ReactNode
   /** Footer summary like "20 Companies in view" */
   footer?: ReactNode
-  pagination?: { page: number; pageSize: number; total: number; onPageChange: (p: number) => void }
+  /** `rangeOnly` shows "1–25" without "of N", for a footer that already names the total. */
+  pagination?: { page: number; pageSize: number; total: number; onPageChange: (p: number) => void; rangeOnly?: boolean }
   className?: string
   dense?: boolean
 }
@@ -232,7 +233,7 @@ export function DataTable<T>({ columns, data, isLoading, selectable, rowSelectio
           <div className="flex min-w-0 items-center gap-x-4 overflow-hidden whitespace-nowrap max-md:[&>*:not(:first-child)]:hidden [&>*]:shrink-0 md:divide-x md:[&>*:not(:first-child)]:pl-4">{footer}</div>
           {pagination && pagination.total > pagination.pageSize && (
             <div className="flex shrink-0 items-center gap-2">
-              <span className="tabular-nums" aria-live="polite">{(pagination.page - 1) * pagination.pageSize + 1}–{Math.min(pagination.page * pagination.pageSize, pagination.total)} of {pagination.total}</span>
+              <span className="tabular-nums" aria-live="polite">{(pagination.page - 1) * pagination.pageSize + 1}–{Math.min(pagination.page * pagination.pageSize, pagination.total)}{pagination.rangeOnly ? '' : ` of ${pagination.total}`}</span>
               <button type="button" aria-label="Previous page" disabled={pagination.page <= 1} onClick={() => pagination.onPageChange(pagination.page - 1)} className="rounded-md border p-1.5 hover:bg-accent disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none md:p-1"><ChevronLeft className="size-4" /></button>
               <button type="button" aria-label="Next page" disabled={pagination.page * pagination.pageSize >= pagination.total} onClick={() => pagination.onPageChange(pagination.page + 1)} className="rounded-md border p-1.5 hover:bg-accent disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none md:p-1"><ChevronRight className="size-4" /></button>
             </div>

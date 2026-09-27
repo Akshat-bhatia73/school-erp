@@ -12,7 +12,7 @@ import { DayTimeline } from '@/components/dashboard/blocks/timeline'
 import { CalendarTile, SimpleList } from '@/components/dashboard/blocks/list'
 import { ReportCardLink } from '@/components/exams/dashboard-cards'
 import { Facts, SectionLabel } from '@/components/shared/page'
-import { Tag, colorFor } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDate, fullName } from '@/lib/utils'
@@ -49,7 +49,7 @@ function MeCard({ me, day }: { me: Me; day: StudentDashboardData['day'] }) {
           <span className="flex min-w-0 flex-col gap-2">
             <span className="truncate text-[17px] font-semibold leading-tight">{name}</span>
             <span className="flex flex-wrap items-center gap-2">
-              {enrollment && <Tag color={colorFor(enrollment.grade.name)}>{classLabel(enrollment)}</Tag>}
+              {enrollment && <Tag>{classLabel(enrollment)}</Tag>}
               {enrollment?.rollNumber !== undefined && <Tag color="grey">Roll {enrollment.rollNumber}</Tag>}
             </span>
             <span className="truncate font-mono text-[13px] font-normal text-muted-foreground">{student.admissionNumber}</span>

@@ -70,7 +70,7 @@ export function DayTimeline({ slots, nowIndex, mode = 'staff', className }: {
                 <span className="flex flex-wrap items-center gap-1.5">
                   {mode === 'section'
                     ? <Tag color={colorFor(lesson.subject.id)}>{lesson.subject.name}</Tag>
-                    : <Tag color={colorFor(lesson.section.id)}>{lesson.section.name}</Tag>}
+                    : <Tag>{lesson.section.name}</Tag>}
                   {lesson.cover && <Tag color="orange">Cover</Tag>}
                   {isNow && <Tag color="blue">Now</Tag>}
                 </span>

@@ -86,7 +86,7 @@ export function AbsentTeacherPanel({ staffId, staffName, date, dayOfWeek, academ
                     <div className="font-medium">{periodNameFor(bell, p.periodIndex)}</div>
                     {period && <div className="text-[12px] tabular-nums text-muted-foreground">{period.startTime}–{period.endTime}</div>}
                   </td>
-                  <td className="h-12 border-b border-l px-3"><Tag color={colorFor(p.section.id)}>{p.section.name}</Tag></td>
+                  <td className="h-12 border-b border-l px-3"><Tag>{p.section.name}</Tag></td>
                   <td className="h-12 border-b border-l px-3"><Tag color={colorFor(p.subject.id)}>{p.subject.name}</Tag></td>
                   <td className="h-12 border-b border-l px-3">
                     <ArrangementCell

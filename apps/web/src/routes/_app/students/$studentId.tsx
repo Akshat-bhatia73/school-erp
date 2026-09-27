@@ -1,19 +1,20 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
-import { ArrowRightLeft, ChevronDown, FileDown, Pencil, UserMinus, Users } from 'lucide-react'
+import { ArrowRightLeft, CalendarCheck, ChevronDown, Download, FileDown, IndianRupee, Pencil, UserMinus, Users } from 'lucide-react'
 import { useState } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
 import { EmptyState, PageHeader } from '@/components/shared/page'
 import { useExportDownload } from '@/components/shared/export-download'
-import { colorFor, Tag } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import { MarkLeftDialog, MoveSectionDialog } from '@/components/students/student-dialogs'
 import { classLabel, StudentStatusTag } from '@/components/students/student-columns'
 import { StudentLoginPanel } from '@/components/students/student-login-panel'
 import { StudentBasicSheet, StudentSensitiveSheet } from '@/components/students/student-edit-sheet'
-import { AnonymisePanel, ConsentsTab, DocumentsTab, EnrollmentsTab, GuardiansTab, OverviewTab, SiblingsTab } from '@/components/students/student-profile'
+import { useExportRecord } from '@/components/students/export-record-button'
+import { AnonymisePanel, ConsentsTab, DocumentsTab, EnrollmentsTab, GuardiansTab, OverviewTab, SiblingsTab, StudentPhotoDialog } from '@/components/students/student-profile'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api } from '@/lib/api'
@@ -32,6 +33,8 @@ function Page() {
   const [editSensitive, setEditSensitive] = useState(false)
   const [move, setMove] = useState(false)
   const [markLeft, setMarkLeft] = useState(false)
+  const [photo, setPhoto] = useState(false)
+  const navigate = useNavigate()
   const exportFile = useExportDownload()
 
   const startExport = useMutation({
@@ -43,6 +46,12 @@ function Page() {
   const detailQuery = useQuery({
     queryKey: qk.student(schoolId, studentId),
     queryFn: () => api.students.get(schoolId, studentId),
+  })
+  const exportRecord = useExportRecord({
+    studentId,
+    admissionNumber: detailQuery.data?.student.admissionNumber ?? '',
+    // Nothing is offered until the record itself has answered.
+    allowedActions: detailQuery.data?.allowedActions ?? [],
   })
 
   if (detailQuery.isError) {
@@ -85,7 +94,20 @@ function Page() {
   const canAnonymise = allows(allowedActions, 'students.anonymise')
   const canExport = allows(allowedActions, 'students.export')
   const canManageLogin = hasPermission('students.manage_login')
-  const hasActions = canEditBasic || canEditSensitive || canManageEnrollment || canExport
+  const canReadFees = hasPermission('fees.read')
+  const canReadAttendance = hasPermission('attendance.read')
+  const hasExport = canExport || exportRecord.permitted
+  const hasActions = canEditBasic || canEditSensitive || canManageEnrollment || hasExport || canReadFees || canReadAttendance
+  const photoSrc = student.hasPhoto ? api.students.photoUrl(schoolId, student.id, student.photoUpdatedAt) : undefined
+  const openFees = () => void navigate({ to: '/fees/students/$studentId', params: { studentId: student.id } })
+  const openAttendance = () => void navigate({ to: '/attendance/students/$studentId', params: { studentId: student.id } })
+
+  const exportItems = (
+    <>
+      {canExport && <DropdownMenuItem disabled={startExport.isPending} onClick={() => startExport.mutate()}><FileDown />Export PDF</DropdownMenuItem>}
+      {exportRecord.permitted && <DropdownMenuItem disabled={exportRecord.pending} onClick={exportRecord.run}><Download />Export this record</DropdownMenuItem>}
+    </>
+  )
 
   const menuItems = (
     <>
@@ -102,10 +124,25 @@ function Page() {
         actions={
           hasActions ? (
             <>
-              {canExport && (
-                <Button size="sm" variant="outline" disabled={startExport.isPending} onClick={() => startExport.mutate()}>
-                  <FileDown />{startExport.isPending ? 'Preparing…' : 'Export PDF'}
+              {canReadFees && (
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/fees/students/$studentId" params={{ studentId: student.id }}><IndianRupee />Fee statement</Link>
                 </Button>
+              )}
+              {canReadAttendance && (
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/attendance/students/$studentId" params={{ studentId: student.id }}><CalendarCheck />Attendance</Link>
+                </Button>
+              )}
+              {hasExport && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline" disabled={startExport.isPending || exportRecord.pending}>
+                      <FileDown />{startExport.isPending || exportRecord.pending ? 'Preparing…' : 'Export'}<ChevronDown />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-52">{exportItems}</DropdownMenuContent>
+                </DropdownMenu>
               )}
               {canEditBasic && <Button size="sm" variant="outline" onClick={() => setEditBasic(true)}><Pencil />Edit name</Button>}
               {(canEditSensitive || canManageEnrollment) && (
@@ -126,7 +163,10 @@ function Page() {
                 <Button size="sm" variant="outline" className="h-9">Actions<ChevronDown /></Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-52">
-                {canExport && <DropdownMenuItem disabled={startExport.isPending} onClick={() => startExport.mutate()}><FileDown />Export PDF</DropdownMenuItem>}
+                {canReadFees && <DropdownMenuItem onClick={openFees}><IndianRupee />Fee statement</DropdownMenuItem>}
+                {canReadAttendance && <DropdownMenuItem onClick={openAttendance}><CalendarCheck />Attendance</DropdownMenuItem>}
+                {exportItems}
+                {(canReadFees || canReadAttendance || hasExport) && (canEditBasic || canEditSensitive || canManageEnrollment) && <DropdownMenuSeparator />}
                 {canEditBasic && <DropdownMenuItem onClick={() => setEditBasic(true)}><Pencil />Edit name</DropdownMenuItem>}
                 {menuItems}
               </DropdownMenuContent>
@@ -136,22 +176,31 @@ function Page() {
       />
 
       <div className="flex items-start gap-3 border-b p-3 md:gap-4 md:p-5">
-        <UserAvatar
-          name={name}
-          src={student.hasPhoto ? api.students.photoUrl(schoolId, student.id, student.photoUpdatedAt) : undefined}
-          size="xl"
-          className="size-12 md:size-16"
-        />
+        {/* Whoever may edit the record changes the photo from the avatar itself. */}
+        {canEditBasic ? (
+          <button
+            type="button"
+            onClick={() => setPhoto(true)}
+            aria-label="Edit photo"
+            title={student.hasPhoto ? 'Change photo' : 'Add photo'}
+            className="shrink-0 rounded-lg transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <UserAvatar name={name} src={photoSrc} size="xl" className="size-12 md:size-16" />
+          </button>
+        ) : (
+          <UserAvatar name={name} src={photoSrc} size="xl" className="size-12 md:size-16" />
+        )}
         <div className="min-w-0">
           <h1 className="text-[17px] font-semibold md:text-xl">{name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {student.enrollment && <Tag color={colorFor(student.enrollment.grade.name)}>{classLabel(student)}</Tag>}
+            {student.enrollment && <Tag>{classLabel(student)}</Tag>}
             {student.enrollment?.rollNumber !== undefined && <Tag>Roll {student.enrollment.rollNumber}</Tag>}
             <StudentStatusTag status={student.status} />
             {student.anonymised && <Tag color="grey">Anonymised</Tag>}
           </div>
           <p className="mt-2 text-[13px] text-muted-foreground">
             <span className="font-mono">{student.admissionNumber}</span>
+            {student.enrollment && <> · {student.enrollment.academicYear.name}</>}
           </p>
           {exportFile.status}
         </div>
@@ -184,6 +233,9 @@ function Page() {
         </Tabs>
       </div>
 
+      {canEditBasic && (
+        <StudentPhotoDialog student={student} canReadConsents={canReadConsents} open={photo} onOpenChange={setPhoto} />
+      )}
       {canEditBasic && (
         <StudentBasicSheet key={`basic:${student.version}`} open={editBasic} onOpenChange={setEditBasic} student={student} />
       )}

@@ -8,7 +8,7 @@ import { BentoGrid, Cell, DashboardCard } from './blocks/card'
 import { ReportCardLink } from '@/components/exams/dashboard-cards'
 import { DayTimeline } from './blocks/timeline'
 import { EmptyState, Facts, SectionLabel } from '@/components/shared/page'
-import { Tag, colorFor } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import { UserAvatar } from '@/components/shared/avatar'
 import { StudentStatusTag } from '@/components/students/student-columns'
 import { Button } from '@/components/ui/button'
@@ -154,7 +154,7 @@ function ChildCard({ child, day }: { child: ParentChild; day: ParentDashboardDat
           <span className="flex min-w-0 flex-col gap-2">
             <span className="truncate text-[17px] font-semibold leading-tight">{name}</span>
             <span className="flex flex-wrap items-center gap-2">
-              {enrollment && <Tag color={colorFor(enrollment.grade.name)}>{classLabel(enrollment)}</Tag>}
+              {enrollment && <Tag>{classLabel(enrollment)}</Tag>}
               {enrollment?.rollNumber !== undefined && <Tag color="grey">Roll {enrollment.rollNumber}</Tag>}
               <StudentStatusTag status={student.status} />
             </span>
@@ -323,7 +323,7 @@ function ClassCard({ enrollment }: { enrollment: NonNullable<ParentChild['enroll
   return (
     <DashboardCard title="Class" description="What the school has on the roll this year." tone="blue" icon={<GraduationCap />}>
       <div className="flex flex-col gap-3">
-        <Tag color={colorFor(enrollment.grade.name)}>{classLabel(enrollment)}</Tag>
+        <Tag>{classLabel(enrollment)}</Tag>
         <Facts
           columns={1}
           items={[

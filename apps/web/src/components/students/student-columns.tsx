@@ -2,7 +2,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { UserAvatar } from '@/components/shared/avatar'
 import { api } from '@/lib/api'
 import { EntityCell } from '@/components/shared/data-table'
-import { colorFor, Tag } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import type { StudentSummary } from '@/lib/api/students'
 import { fullName } from '@/lib/utils'
 
@@ -50,19 +50,13 @@ export const studentColumns = (schoolId: string): ColumnDef<StudentSummary, any>
     ),
   },
   {
-    id: 'admissionNumber',
-    header: 'Admission no',
-    size: 150,
-    cell: ({ row }) => <span className="font-mono text-[12.5px]">{row.original.admissionNumber}</span>,
-  },
-  {
     id: 'class',
     header: 'Class',
     size: 120,
     cell: ({ row }) => {
       const label = classLabel(row.original)
       if (!label) return <span className="text-muted-foreground/60">—</span>
-      return <Tag color={colorFor(row.original.enrollment!.grade.name)}>{label}</Tag>
+      return <Tag>{label}</Tag>
     },
   },
   {

@@ -27,9 +27,9 @@ export function Tag({ color = 'grey', className, children, dot }: { color?: TagC
   )
 }
 
-/** Stable colour for an arbitrary string, so the same class/department always gets the same colour */
+/** Stable colour for a subject, so the same subject always gets the same colour. Red is left out: it reads as an error. Classes and departments stay grey. */
 export function colorFor(key: string): TagColor {
-  const palette: TagColor[] = ['orange', 'blue', 'teal', 'purple', 'pink', 'green', 'indigo', 'cyan', 'yellow', 'red']
+  const palette: TagColor[] = ['orange', 'blue', 'teal', 'purple', 'pink', 'green', 'indigo', 'cyan', 'yellow']
   let h = 0
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0
   return palette[h % palette.length]!

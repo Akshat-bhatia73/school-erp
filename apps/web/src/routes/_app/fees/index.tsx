@@ -11,7 +11,7 @@ import { DataTable, EntityCell } from '@/components/shared/data-table'
 import { useExportDownload } from '@/components/shared/export-download'
 import { FilterChip } from '@/components/shared/filter-chip'
 import { EmptyState, PageHeader, Toolbar } from '@/components/shared/page'
-import { colorFor, Tag } from '@/components/shared/tag'
+import { Tag } from '@/components/shared/tag'
 import { useSectionOptions } from '@/components/students/use-section-options'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -114,7 +114,7 @@ function Page() {
       cell: ({ row }) => {
         const label = classLabel(row.original)
         if (!label) return <span className="text-muted-foreground/60">—</span>
-        return <Tag color={colorFor(row.original.student.grade!.name)}>{label}</Tag>
+        return <Tag>{label}</Tag>
       },
     },
     { id: 'charged', header: 'Fee for the year', size: 140, cell: ({ row }) => <Money paise={row.original.chargedYearPaise} /> },
