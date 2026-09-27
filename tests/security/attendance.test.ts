@@ -22,6 +22,7 @@ import {
   seedDatabaseFixtures,
   startTestServer,
   type TestServer,
+  useSchoolDayTimezone,
 } from '../../apps/api/tests/harness.ts'
 import {
   body,
@@ -179,8 +180,11 @@ async function insertStaff(schoolId: string, label: string, joinedOn: string): P
   return id
 }
 
+let restoreTimezone: (() => Promise<void>) | undefined
+
 before(async () => {
   await seedDatabaseFixtures()
+  restoreTimezone = await useSchoolDayTimezone(schoolA)
   server = await startTestServer()
   const pool = adminPool()
 
@@ -346,6 +350,7 @@ before(async () => {
 
 after(async () => {
   await server.close()
+  await restoreTimezone?.()
   await closeAdminPool()
 })
 

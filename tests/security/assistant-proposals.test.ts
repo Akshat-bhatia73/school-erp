@@ -44,6 +44,7 @@ import {
   resetRateLimits,
   seedDatabaseFixtures,
   setFixturePassword,
+  useSchoolDayTimezone,
 } from '../../apps/api/tests/harness.ts'
 import {
   body,
@@ -505,6 +506,8 @@ before(async () => {
         [school, role.rows[0]?.id, grant.permission, grant.scope],
       )
   }
+  // Its own school, so its timezone is never put back.
+  await useSchoolDayTimezone(school)
   const found = await pool.query<{ today: string }>(
     `SELECT to_char((now() AT TIME ZONE timezone)::date, 'YYYY-MM-DD') AS today FROM schools WHERE id = $1`,
     [school],
@@ -829,8 +832,16 @@ test('[proposals] parents and pupils are offered no change tool, an accountant n
   assert.deepEqual(changeTools(accountantNames), [], 'the accountant was offered a change tool')
   for (const definition of PROPOSE_TOOLS) assert.ok(!accountantNames.has(definition.name), definition.name)
 
-  // A teacher gets exactly the three their keys allow, the owner all four.
-  assert.deepEqual(changeTools(await offeredTo(teacher)), ['propose_attendance_day', 'propose_co_scholastic', 'propose_exam_marks'])
+  // A teacher gets exactly the ones their keys allow (the three message tools
+  // among them, since they write to their own sections), the owner all.
+  assert.deepEqual(changeTools(await offeredTo(teacher)), [
+    'propose_attendance_day',
+    'propose_co_scholastic',
+    'propose_exam_marks',
+    'propose_message',
+    'propose_message_change',
+    'propose_message_withdraw',
+  ])
   assert.deepEqual(changeTools(await offeredTo(owner)), PROPOSE_TOOLS.map((definition) => definition.name).sort())
 })
 

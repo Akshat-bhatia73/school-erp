@@ -390,3 +390,30 @@ export async function signInWithMfa(
   }
   return client
 }
+
+/**
+ * Registers are only open on a school day, and a Sunday has none. The
+ * school's own clock decides what today is, so a suite that marks today's
+ * register puts its school in a timezone where it is not Sunday now: India's
+ * when it can be, else the last zone to leave Saturday or the first to reach
+ * Monday (26 hours apart, so one of them always is). A zone within an hour of
+ * its Sunday is passed over, so the run cannot cross into one. Returns a
+ * function that puts the school's own timezone back.
+ */
+export async function useSchoolDayTimezone(schoolId: string): Promise<() => Promise<void>> {
+  const pool = adminPool()
+  const before = await pool.query<{ timezone: string }>('SELECT timezone FROM schools WHERE id = $1', [schoolId])
+  const found = await pool.query<{ tz: string }>(
+    `SELECT tz FROM unnest(ARRAY['Asia/Kolkata', 'Etc/GMT+12', 'Pacific/Kiritimati']) WITH ORDINALITY AS zone(tz, n)
+      WHERE extract(dow FROM now() AT TIME ZONE tz) <> 0
+        AND NOT (extract(dow FROM now() AT TIME ZONE tz) = 6 AND extract(hour FROM now() AT TIME ZONE tz) >= 23)
+      ORDER BY n LIMIT 1`,
+  )
+  const tz = found.rows[0]?.tz
+  if (!tz) throw new Error('one of the zones is not on a Sunday')
+  await pool.query('UPDATE schools SET timezone = $2 WHERE id = $1', [schoolId, tz])
+  const original = before.rows[0]?.timezone
+  return async () => {
+    if (original !== undefined) await adminPool().query('UPDATE schools SET timezone = $2 WHERE id = $1', [schoolId, original])
+  }
+}
