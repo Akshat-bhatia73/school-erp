@@ -56,8 +56,8 @@ export function leaveRange(startsOn: string, endsOn: string): string {
   return startsOn === endsOn ? formatDate(startsOn) : `${formatDate(startsOn)} to ${formatDate(endsOn)}`
 }
 
-/** A leave write changes the registers and the dashboard figures, so all three prefixes go. */
-function useLeaveRefresh() {
+/** A leave write (or a decision on an application) changes the registers and the dashboard figures, so all three prefixes go. */
+export function useLeaveRefresh() {
   const { schoolId } = useSchoolContext()
   const queryClient = useQueryClient()
   return () => {

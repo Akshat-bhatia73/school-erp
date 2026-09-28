@@ -40,4 +40,28 @@ describe('leave paths', () => {
     await api.leave.cancelStaff(SCHOOL, 'l2', { expectedVersion: 1, reason: 'Back early' })
     expect(lastCall().path).toBe(`${PREFIX}/staff-attendance/leave/l2/cancel`)
   })
+
+  it('lists, applies, decides and withdraws pupil leave applications', async () => {
+    await api.leave.applications.pupils.list(SCHOOL, { status: 'pending' })
+    expect(lastCall().path).toBe(`${PREFIX}/leave-applications/pupils?status=pending`)
+    await api.leave.applications.pupils.apply(SCHOOL, { studentId: 's1', startsOn: '2026-09-28', endsOn: '2026-09-29', reason: 'Fever' })
+    expect(lastCall().path).toBe(`${PREFIX}/leave-applications/pupils`)
+    expect(lastCall().options.method).toBe('POST')
+    await api.leave.applications.pupils.decide(SCHOOL, 'a 1', { expectedVersion: 2, decision: 'refuse', note: 'Exams that week' })
+    expect(lastCall().path).toBe(`${PREFIX}/leave-applications/pupils/a%201/decide`)
+    expect(lastCall().options.body).toEqual({ expectedVersion: 2, decision: 'refuse', note: 'Exams that week' })
+    await api.leave.applications.pupils.withdraw(SCHOOL, 'a1', { expectedVersion: 3 })
+    expect(lastCall().path).toBe(`${PREFIX}/leave-applications/pupils/a1/withdraw`)
+  })
+
+  it('lists, applies, decides and withdraws staff leave applications', async () => {
+    await api.leave.applications.staff.list(SCHOOL, { mine: 'true' })
+    expect(lastCall().path).toBe(`${PREFIX}/leave-applications/staff?mine=true`)
+    await api.leave.applications.staff.apply(SCHOOL, { leaveType: 'sick', startsOn: '2026-09-28', endsOn: '2026-09-28', reason: 'Fever' })
+    expect(lastCall().options.body).toEqual({ leaveType: 'sick', startsOn: '2026-09-28', endsOn: '2026-09-28', reason: 'Fever' })
+    await api.leave.applications.staff.decide(SCHOOL, 'b1', { expectedVersion: 1, decision: 'approve' })
+    expect(lastCall().path).toBe(`${PREFIX}/leave-applications/staff/b1/decide`)
+    await api.leave.applications.staff.withdraw(SCHOOL, 'b1', { expectedVersion: 1 })
+    expect(lastCall().path).toBe(`${PREFIX}/leave-applications/staff/b1/withdraw`)
+  })
 })

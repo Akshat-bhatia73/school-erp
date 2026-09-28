@@ -57,7 +57,7 @@ const TABS: Tab[] = [
   { label: 'Staff', to: '/staff', icon: <Users />, permission: 'staff.read_directory' },
   { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
   { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
-  { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read'] },
+  { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read', 'leave_applications.read'] },
   // Staff reach Messages from the drawer; a parent's or pupil's bar is short, so it sits here for them.
   { label: 'Messages', to: '/messages', icon: <Mail />, permission: 'communication.read', parentOnly: true },
 ]

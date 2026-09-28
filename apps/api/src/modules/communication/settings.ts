@@ -37,6 +37,7 @@ const COLUMNS: Readonly<Record<keyof CommunicationSettingsValues, string>> = {
   feeOverdueEveryDays: 'fee_overdue_every_days',
   birthdaysPupilsEnabled: 'birthdays_pupils_enabled',
   birthdaysStaffEnabled: 'birthdays_staff_enabled',
+  leaveDecisionsEnabled: 'leave_decisions_enabled',
   dailySendHour: 'daily_send_hour',
 }
 

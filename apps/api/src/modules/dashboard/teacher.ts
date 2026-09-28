@@ -24,7 +24,7 @@ import {
   optionalBlock,
 } from './calendar.ts'
 import { loadSchedules, scheduleForGrade, type Schedule } from './bell.ts'
-import { enrollmentScope, substitutionScope } from './office.ts'
+import { countLeaveApplicationsPending, enrollmentScope, substitutionScope } from './office.ts'
 import { attendancePlans } from '../attendance/figures.ts'
 import { marksToEnter } from './exams.ts'
 
@@ -265,12 +265,17 @@ export async function teacherDashboard(
   const calendar = await buildCalendar(conn, holidayPlan, date)
   const facts = await loadRelationshipFactsFor(conn, context.schoolId, context.membershipId, context.now)
   const year = await currentAcademicYear(conn, context.schoolId)
+  // Their class's pupil applications waiting for them; absent without the
+  // decide key, which for a teacher is the class-teacher post.
+  const leaveApplicationsPending = await countLeaveApplicationsPending(conn, context, 'student')
+  const waiting = leaveApplicationsPending === undefined ? {} : { leaveApplicationsPending }
 
   if (facts.selfStaffId === null || year === null) {
     return {
       audience: 'teacher',
       day: calendar.day,
       staffLinked: facts.selfStaffId !== null,
+      ...waiting,
       academicYearId: year?.id ?? null,
       timeline: [],
       timelineDate: null,
@@ -353,6 +358,7 @@ export async function teacherDashboard(
     audience: 'teacher',
     day: calendar.day,
     staffLinked: true,
+    ...waiting,
     academicYearId: year.id,
     timeline,
     timelineDate: timeline.length === 0 ? null : timelineDate,

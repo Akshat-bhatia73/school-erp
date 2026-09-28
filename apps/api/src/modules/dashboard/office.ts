@@ -226,6 +226,28 @@ async function countStaffWithoutLogin(
   return row?.total ?? 0
 }
 
+/**
+ * Leave applications waiting for somebody the caller may decide them as: the
+ * whole school for the office. Absent without the decide key anywhere.
+ */
+export async function countLeaveApplicationsPending(
+  conn: AuthzConnection,
+  context: RequestContext,
+  personKind?: 'student',
+): Promise<number | undefined> {
+  const decision = await decideSchoolAction(conn, context, 'leave_applications.decide')
+  if (!decision.allowed) return undefined
+  const plan = await optionalBlock(() => readPlan(conn, context, 'leave_applications.decide', 'leave_application'))
+  if (plan === undefined) return undefined
+  const kind = personKind === undefined ? sql`TRUE` : sql`leave_applications.person_kind = ${personKind}`
+  const [row] = await rows<{ total: number }>(
+    conn,
+    sql`SELECT count(*)::int AS total FROM leave_applications
+         WHERE ${predicateFor(plan)} AND leave_applications.status = 'pending' AND ${kind}`,
+  )
+  return row?.total ?? 0
+}
+
 /** Every count the caller may read, in the order the screen lists them. */
 async function attentionItems(
   conn: AuthzConnection,
@@ -261,6 +283,7 @@ async function attentionItems(
     await optionalBlock(() => countEmptyTimetableSlots(conn, context, year)),
   )
   add('staff_without_login', await countStaffWithoutLogin(conn, context))
+  add('leave_applications_pending', await countLeaveApplicationsPending(conn, context))
   return items
 }
 

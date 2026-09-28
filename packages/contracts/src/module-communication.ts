@@ -217,11 +217,11 @@ export const DEFAULT_MESSAGE_WORDING: Readonly<Record<AutomaticMessageKind, { re
   },
   leave_decision_pupil: {
     title: 'Leave for {pupil_first_name} {decision}',
-    body: 'Dear parent,\n\nYour application for leave for {pupil_name}, {class}, for {leave_dates} has been {decision}.\n{decision_note}\n\n{school}',
+    body: 'Dear parent,\n\nYour application for leave for {pupil_name}, {class}, for {leave_dates} was {decision}.\n{decision_note}\n\n{school}',
   },
   leave_decision_staff: {
-    title: 'Your leave {decision}',
-    body: 'Dear {staff_first_name},\n\nYour application for leave for {leave_dates} has been {decision}.\n{decision_note}\n\n{school}',
+    title: 'Your leave application was {decision}',
+    body: 'Dear {staff_first_name},\n\nYour application for leave for {leave_dates} was {decision}.\n{decision_note}\n\n{school}',
   },
 }
 

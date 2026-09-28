@@ -14,7 +14,9 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
   return {
     ...actual,
     createFileRoute: () => (options: unknown) => options,
-    Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
+    Link: ({ children, to, search }: { children: ReactNode; to: string; search?: unknown }) => (
+      <a href={to} data-search={search ? JSON.stringify(search) : undefined}>{children}</a>
+    ),
     useNavigate: () => vi.fn(),
   }
 })
@@ -163,5 +165,26 @@ describe('teacher dashboard, the rest of the screen', () => {
     renderAt('09:00')
     expect(screen.getByText('8:00 am · Mathematics')).toBeInTheDocument()
     expect(screen.getByText('Cover · 9:30 am · Science')).toBeInTheDocument()
+  })
+})
+
+describe('teacher dashboard, leave requests', () => {
+  const myClass = { section: SIX_A, strength: 30, birthdaysThisWeek: [] }
+
+  it('shows the waiting count in My class with a way to the requests', () => {
+    renderAt('09:00', teacher({ myClass, leaveApplicationsPending: 2 }))
+    expect(screen.getByText('2 leave requests waiting')).toBeInTheDocument()
+    const link = screen.getByText('Open requests').closest('a')
+    expect(link).toHaveAttribute('href', '/attendance/leave')
+    expect(link).toHaveAttribute('data-search', JSON.stringify({ view: 'requests' }))
+  })
+
+  it('says nothing is waiting at zero, and nothing at all without the count', () => {
+    const { unmount } = renderAt('09:00', teacher({ myClass, leaveApplicationsPending: 0 }))
+    expect(screen.getByText('No leave requests waiting')).toBeInTheDocument()
+    expect(screen.queryByText('Open requests')).not.toBeInTheDocument()
+    unmount()
+    renderAt('09:00', teacher({ myClass }))
+    expect(screen.queryByText(/leave requests? waiting/)).not.toBeInTheDocument()
   })
 })

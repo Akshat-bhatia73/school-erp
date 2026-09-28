@@ -62,6 +62,9 @@ export const REASON_TEXT: Partial<Record<ErrorReason, string>> = {
   leave_overlaps: 'This person already has leave on some of these days.',
   leave_already_cancelled: 'This leave was already cancelled.',
   leave_person_not_active: 'Leave can only be recorded for somebody who is still at the school.',
+  leave_application_not_pending: 'Somebody has already decided this request, or it was withdrawn.',
+  leave_application_too_far_back: 'Leave can start at most 7 days ago. Ask the office to correct older days.',
+  leave_application_no_staff_record: 'Your login is not linked to a staff record. Ask the office.',
 }
 
 /** A refused attendance or leave write in one sentence: ours for a reason we know, else the usual one. */

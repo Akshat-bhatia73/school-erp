@@ -68,6 +68,16 @@ describe('Sidebar', () => {
     expect(staffCount).not.toHaveBeenCalled()
   })
 
+  it('shows Attendance to somebody who holds only the leave application keys', async () => {
+    const { Sidebar } = await import('./sidebar')
+    renderWithSession(<Sidebar onOpenQuickActions={() => {}} />, {
+      roleKeys: ['accountant'],
+      capabilities: ['leave_applications.read', 'leave_applications.apply'],
+    })
+
+    expect(screen.getByText('Attendance').closest('a')).toHaveAttribute('href', '/attendance')
+  })
+
   it('drops a destination and its section label when the capability is missing', async () => {
     const { Sidebar } = await import('./sidebar')
     renderWithSession(<Sidebar onOpenQuickActions={() => {}} />, {

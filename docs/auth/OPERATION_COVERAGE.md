@@ -229,6 +229,14 @@ The attendance module (Task 20) added these. Every one is a `protectedRoute` und
 | `attendance.recordLeave`, `attendance.cancelLeave` | `attendance.manage` / school; privileged; no overlap; the cancel reason is an audit note | `StudentLeaveRecord` | Recorded leave |
 | `attendance.staffLeaveList` | `staff_attendance.read` / school or self | `StaffLeaveListResponse` | Recorded leave |
 | `attendance.recordStaffLeave`, `attendance.cancelStaffLeave` | `staff_attendance.manage` / school; privileged; no overlap; the cancel reason is an audit note | `StaffLeaveRecord` | Recorded leave |
+| `leave.applications.pupils.list` | `leave_applications.read` / school, the class-teacher post (through the pupil's current enrolment) or own children (every year) | `StudentLeaveApplicationList` | Leave applications (0029) |
+| `leave.applications.pupils.apply` | `leave_applications.apply` / own children; the pupil active; at most 7 days back; no overlap with a waiting application or active leave | `StudentLeaveApplication` | Leave applications (0029) |
+| `leave.applications.pupils.decide` | `leave_applications.decide` / school (privileged) or the class-teacher post; pending only; `expectedVersion`; an approval writes and links the leave record in the same transaction and the same audit row; a refusal needs a note | `StudentLeaveApplication` | Leave applications (0029) |
+| `leave.applications.pupils.withdraw` | `leave_applications.apply` / own children; the applying membership only; pending only; `expectedVersion` | `StudentLeaveApplication` | Leave applications (0029) |
+| `leave.applications.staff.list` | `leave_applications.read` / school or self | `StaffLeaveApplicationList` | Leave applications (0029) |
+| `leave.applications.staff.apply` | `leave_applications.apply` / self: the caller's own linked staff record, never one the body names; the same date and overlap rules | `StaffLeaveApplication` | Leave applications (0029) |
+| `leave.applications.staff.decide` | `leave_applications.decide` / school; privileged; as the pupil decide | `StaffLeaveApplication` | Leave applications (0029) |
+| `leave.applications.staff.withdraw` | `leave_applications.apply` / self; the applying membership only; pending only | `StaffLeaveApplication` | Leave applications (0029) |
 
 The exams and report cards modules (Task 21) added these. Every one is a `protectedRoute` under
 `/exams` or `/report-cards` except the three logo byte routes, registered by hand like a
