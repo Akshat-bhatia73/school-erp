@@ -13,6 +13,7 @@ import {
   createReadPlan,
   examScopedTable,
   feeScopedTable,
+  leaveApplicationScopedTable,
   planPredicate,
   reportCardScopedTable,
   scopedGet,
@@ -1238,7 +1239,9 @@ let examRows: Promise<{
   parent: Membership
   child: string
   subjectTeacher: Membership
+  subjectStaff: string
   classTeacher: Membership
+  classStaff: string
   endedTeacher: Membership
   sectionOne: string
   sectionTwo: string
@@ -1462,7 +1465,9 @@ async function seedExamRows(): Promise<NonNullable<Awaited<typeof examRows>>> {
       parent,
       child,
       subjectTeacher,
+      subjectStaff,
       classTeacher,
+      classStaff,
       endedTeacher,
       sectionOne,
       sectionTwo,
@@ -1757,4 +1762,167 @@ test('a pupil\'s plans list exactly the pupil and what the pupil\'s current clas
     () => authz.scopeQuery(context, 'staff.read_directory', 'staff'),
     (error: Error & { code?: string }) => error.code === 'ACCESS_DENIED',
   )
+})
+
+// ---------------------------------------------------------------------------
+// Leave applications: one resource type with three faces, the application,
+// the pupil a parent applies for and the staff member who applies for
+// themselves. They are laid over the exam rows above (school B): the parent's
+// child and pupil one sit in section one, whose class teacher teaches nothing;
+// the subject teacher teaches maths there. Applications are never deleted, so
+// nothing is registered for cleanup.
+
+let leaveRows: Promise<{
+  exam: Awaited<ReturnType<typeof seedExamRows>>
+  childApplication: string
+  pupilOneApplication: string
+  pupilTwoApplication: string
+  classStaffApplication: string
+  subjectStaffApplication: string
+}> | null = null
+
+async function seedLeaveApplications(): Promise<NonNullable<Awaited<typeof leaveRows>>> {
+  leaveRows ??= (async () => {
+    const exam = await seedExamRows()
+    // Every row names the fixture owner as the applicant: the memberships
+    // this file makes are removed after it, and an application outlives them.
+    const apply = async (_appliedBy: string, person: { studentId?: string; staffId?: string }) =>
+      (
+        await migrator.query<{ id: string }>(
+          `INSERT INTO leave_applications(school_id,person_kind,student_id,staff_id,leave_type,starts_on,ends_on,reason,
+                                          applied_by_membership_id)
+           VALUES ($1,$2,$3,$4,$5,'2026-10-05','2026-10-06','Family function',$6) RETURNING id`,
+          [
+            schoolB,
+            person.studentId === undefined ? 'staff' : 'student',
+            person.studentId ?? null,
+            person.staffId ?? null,
+            person.staffId === undefined ? null : 'casual',
+            fx('ownerB'),
+          ],
+        )
+      ).rows[0]!.id
+    return {
+      exam,
+      childApplication: await apply(exam.parent.membershipId, { studentId: exam.child }),
+      pupilOneApplication: await apply(fx('ownerB'), { studentId: exam.pupilOne }),
+      pupilTwoApplication: await apply(fx('ownerB'), { studentId: exam.pupilTwo }),
+      classStaffApplication: await apply(exam.classTeacher.membershipId, { staffId: exam.classStaff }),
+      subjectStaffApplication: await apply(exam.subjectTeacher.membershipId, { staffId: exam.subjectStaff }),
+    }
+  })()
+  return leaveRows
+}
+
+const LEAVE_APPLICATION_FACES = [
+  ['application', 'leave_applications'],
+  ['pupil', 'students'],
+  ['person', 'staff'],
+] as const
+
+/** Lists every face, checks each candidate's single decision agrees, and returns what the list selected. */
+async function leaveAgree(
+  name: string,
+  context: RequestContext,
+  permission: PermissionKey,
+  candidates: readonly string[],
+): Promise<string[]> {
+  const plan = await authz.scopeQuery(context, permission, 'leave_application')
+  const listed = new Set<string>()
+  for (const [face, table] of LEAVE_APPLICATION_FACES) {
+    const rows = await withRuntime(context, (conn) =>
+      conn.db.execute<{ id: string }>(
+        sql`SELECT ${sql.raw(table)}.id FROM ${sql.raw(table)}
+             WHERE ${sql.raw(table)}.school_id = ${schoolB}::uuid
+               AND ${planPredicate(plan, leaveApplicationScopedTable(face))}`,
+      ),
+    )
+    for (const row of rows.rows) listed.add(row.id)
+  }
+  for (const id of candidates) {
+    const decision = await authz.authorize(context, permission, { schoolId: schoolB, resourceType: 'leave_application', id })
+    assert.equal(listed.has(id), decision.allowed, `${name}: ${permission} list and decision disagree on ${id}`)
+  }
+  return candidates.filter((id) => listed.has(id)).sort()
+}
+
+function leaveCandidates(rows: Awaited<ReturnType<typeof seedLeaveApplications>>): string[] {
+  return [
+    rows.childApplication,
+    rows.pupilOneApplication,
+    rows.pupilTwoApplication,
+    rows.classStaffApplication,
+    rows.subjectStaffApplication,
+    rows.exam.child,
+    rows.exam.pupilOne,
+    rows.exam.pupilTwo,
+    rows.exam.classStaff,
+    rows.exam.subjectStaff,
+  ]
+}
+
+test('a parent reaches the leave applications of their own child and nothing else', async () => {
+  const rows = await seedLeaveApplications()
+  const parent = contextFor({
+    schoolId: schoolB,
+    membershipId: rows.exam.parent.membershipId,
+    roleKeys: ['parent'],
+    assurance: 'single_factor',
+  })
+  const expected = sorted([rows.childApplication, rows.exam.child])
+  assert.deepEqual(await leaveAgree('parent', parent, 'leave_applications.read', leaveCandidates(rows)), expected)
+  assert.deepEqual(await leaveAgree('parent', parent, 'leave_applications.apply', leaveCandidates(rows)), expected)
+  await assert.rejects(authz.scopeQuery(parent, 'leave_applications.decide', 'leave_application'), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, 'ACCESS_DENIED')
+    return true
+  })
+})
+
+test('the class teacher decides their class alone; a subject teacher and another section never', async () => {
+  const rows = await seedLeaveApplications()
+  const classTeacher = examTeacher(rows.exam.classTeacher)
+  assert.deepEqual(
+    await leaveAgree('class teacher', classTeacher, 'leave_applications.decide', leaveCandidates(rows)),
+    sorted([rows.childApplication, rows.pupilOneApplication, rows.exam.child, rows.exam.pupilOne]),
+    'not section two, and never a staff application, not even their own',
+  )
+  assert.deepEqual(
+    await leaveAgree('class teacher', classTeacher, 'leave_applications.read', leaveCandidates(rows)),
+    sorted([
+      rows.childApplication,
+      rows.pupilOneApplication,
+      rows.exam.child,
+      rows.exam.pupilOne,
+      rows.classStaffApplication,
+      rows.exam.classStaff,
+    ]),
+    'their class, plus their own application through self',
+  )
+  const subjectTeacher = examTeacher(rows.exam.subjectTeacher)
+  assert.deepEqual(
+    await leaveAgree('subject teacher', subjectTeacher, 'leave_applications.decide', leaveCandidates(rows)),
+    [],
+    'teaching maths in the class is not looking after it',
+  )
+  assert.deepEqual(
+    await leaveAgree('subject teacher', subjectTeacher, 'leave_applications.read', leaveCandidates(rows)),
+    sorted([rows.subjectStaffApplication, rows.exam.subjectStaff]),
+  )
+  assert.deepEqual(
+    await leaveAgree('subject teacher', subjectTeacher, 'leave_applications.apply', leaveCandidates(rows)),
+    sorted([rows.subjectStaffApplication, rows.exam.subjectStaff]),
+    'a staff member applies for themselves only',
+  )
+})
+
+test('the office reads and decides every leave application of the school', async () => {
+  const rows = await seedLeaveApplications()
+  const owner = contextFor({ schoolId: schoolB, membershipId: fx('ownerB'), roleKeys: ['owner'] })
+  for (const permission of ['leave_applications.read', 'leave_applications.decide'] as const) {
+    assert.deepEqual(
+      await leaveAgree('owner', owner, permission, leaveCandidates(rows)),
+      sorted(leaveCandidates(rows)),
+      permission,
+    )
+  }
 })

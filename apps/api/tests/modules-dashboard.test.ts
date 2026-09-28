@@ -785,6 +785,7 @@ test('the office attention list carries every key the owner may read', async () 
       'sections_without_class_teacher',
       'empty_timetable_slots',
       'staff_without_login',
+      'leave_applications_pending',
     ],
   )
   assert.ok(body.attention.every((item) => Number.isInteger(item.count) && item.count >= 0))

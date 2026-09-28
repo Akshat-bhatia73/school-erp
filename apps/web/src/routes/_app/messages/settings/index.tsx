@@ -41,7 +41,15 @@ const KINDS: Array<{ kind: AutomaticMessageKind; title: string; description: str
   { kind: 'fee_overdue', title: 'Fee dues', description: 'Reminds the family when fees are past their due date.', enabled: 'feeRemindersEnabled' },
   { kind: 'birthday_pupil', title: 'Pupil birthdays', description: 'Wishes a pupil a happy birthday.', enabled: 'birthdaysPupilsEnabled' },
   { kind: 'birthday_staff', title: 'Staff birthdays', description: 'Wishes a staff member a happy birthday.', enabled: 'birthdaysStaffEnabled' },
+  { kind: 'leave_decision_pupil', title: 'Leave decisions', description: 'Tells whoever applied whether their leave was approved. These are the words a family reads about a pupil\'s leave.', enabled: 'leaveDecisionsEnabled' },
+  { kind: 'leave_decision_staff', title: 'Staff leave decisions', description: 'The words a staff member reads about their own leave.', enabled: 'leaveDecisionsEnabled' },
 ]
+
+/** Kinds that share another kind's switch, with the sentence that says so. */
+const SHARED_SWITCH: Partial<Record<AutomaticMessageKind, string>> = {
+  fee_overdue: 'Goes out while fee reminders are on.',
+  leave_decision_staff: 'Goes out while leave decisions are on.',
+}
 
 const HOURS = [6, 7, 8, 9, 10, 11, 12]
 const hourLabel = (hour: number) => (hour === 12 ? '12 noon' : `${hour} am`)
@@ -57,6 +65,7 @@ function valuesOf(settings: SettingsRecord): CommunicationSettingsValues {
     feeOverdueEveryDays: settings.feeOverdueEveryDays,
     birthdaysPupilsEnabled: settings.birthdaysPupilsEnabled,
     birthdaysStaffEnabled: settings.birthdaysStaffEnabled,
+    leaveDecisionsEnabled: settings.leaveDecisionsEnabled,
     dailySendHour: settings.dailySendHour,
   }
 }
@@ -136,12 +145,12 @@ function Page() {
                 key={kind}
                 title={title}
                 description={description}
-                actions={kind === 'fee_overdue' ? undefined : (
+                actions={SHARED_SWITCH[kind] ? undefined : (
                   <Switch aria-label={`${title} on or off`} checked={on} disabled={!canManage} onCheckedChange={(checked) => set({ [enabled]: checked })} />
                 )}
               >
                 <div className="space-y-4">
-                  {kind === 'fee_overdue' && <p className="text-[12.5px] text-muted-foreground">Goes out while fee reminders are on.</p>}
+                  {SHARED_SWITCH[kind] && <p className="text-[12.5px] text-muted-foreground">{SHARED_SWITCH[kind]}</p>}
                   {options[kind]}
                   {wording && <WordingEditor kind={kind} wording={wording} canManage={canManage} />}
                 </div>

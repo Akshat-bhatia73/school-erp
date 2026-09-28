@@ -366,6 +366,116 @@ async function staffBirthdayCandidates(
   }))
 }
 
+/** 'approved' or 'not approved', as the decision placeholder reads. */
+function decisionWord(status: string): string {
+  return status === 'approved' ? 'approved' : 'not approved'
+}
+
+/** '29 Sep 2026 to 1 Oct 2026', or the one date when leave is a single day. */
+export function formatLeaveDates(startsOn: string, endsOn: string): string {
+  return startsOn === endsOn
+    ? formatMessageDate(startsOn)
+    : `${formatMessageDate(startsOn)} to ${formatMessageDate(endsOn)}`
+}
+
+function decisionValues(row: {
+  status: string
+  starts_on: string
+  ends_on: string
+  decision_note: string | null
+}): Partial<Record<MessagePlaceholder, string>> {
+  return {
+    leave_dates: formatLeaveDates(row.starts_on, row.ends_on),
+    decision: decisionWord(row.status),
+    decision_note: row.decision_note ?? '',
+  }
+}
+
+interface DecisionRow {
+  application_id: string
+  status: string
+  starts_on: string
+  ends_on: string
+  decision_note: string | null
+}
+
+/**
+ * A pupil's leave application approved or refused since automatic messages
+ * started and in the last three days: one message to the family per
+ * application and decision. The pupil must still be here, in a class of the
+ * current year, which is where a family message is addressed.
+ */
+async function pupilLeaveDecisionCandidates(
+  conn: AuthzConnection,
+  schoolId: string,
+  yearId: string,
+  since: string,
+  limit: number,
+): Promise<Candidate[]> {
+  const result = await conn.client.query<PupilRow & DecisionRow>(
+    `SELECT la.id AS application_id, la.status, to_char(la.starts_on, 'YYYY-MM-DD') AS starts_on,
+            to_char(la.ends_on, 'YYYY-MM-DD') AS ends_on, la.decision_note,
+            st.id AS student_id, st.first_name, st.last_name, ce.section_id, ce.academic_year_id,
+            gr.name || ' ' || sec.name AS class_label
+       FROM leave_applications la
+       JOIN students st ON st.school_id = la.school_id AND st.id = la.student_id
+       ${CURRENT_CLASS}
+      WHERE la.school_id = $1 AND la.person_kind = 'student'
+        AND la.status IN ('approved', 'refused')
+        AND la.decided_at >= now() - interval '3 days'
+        AND la.decided_at >= $3::timestamptz
+        AND st.status = 'active' AND st.anonymised_at IS NULL
+        AND ${notSent(`'leave_decision:' || la.id || ':' || la.status`)}
+      ORDER BY la.decided_at, la.id
+      LIMIT $4`,
+    [schoolId, yearId, since, limit],
+  )
+  return result.rows.map((row) =>
+    pupilCandidate(row, `leave_decision:${row.application_id}:${row.status}`, decisionValues(row)),
+  )
+}
+
+/** The same for a staff member's own application, to the staff member. */
+async function staffLeaveDecisionCandidates(
+  conn: AuthzConnection,
+  schoolId: string,
+  since: string,
+  limit: number,
+): Promise<Candidate[]> {
+  const result = await conn.client.query<
+    DecisionRow & { staff_id: string; first_name: string; last_name: string | null }
+  >(
+    `SELECT la.id AS application_id, la.status, to_char(la.starts_on, 'YYYY-MM-DD') AS starts_on,
+            to_char(la.ends_on, 'YYYY-MM-DD') AS ends_on, la.decision_note,
+            s.id AS staff_id, s.first_name, s.last_name
+       FROM leave_applications la
+       JOIN staff s ON s.school_id = la.school_id AND s.id = la.staff_id
+      WHERE la.school_id = $1 AND la.person_kind = 'staff'
+        AND la.status IN ('approved', 'refused')
+        AND la.decided_at >= now() - interval '3 days'
+        AND la.decided_at >= $2::timestamptz
+        AND s.status IN ('active', 'on_leave') AND s.anonymised_at IS NULL
+        AND ${notSent(`'leave_decision:' || la.id || ':' || la.status`)}
+      ORDER BY la.decided_at, la.id
+      LIMIT $3`,
+    [schoolId, since, limit],
+  )
+  return result.rows.map((row) => ({
+    dedupeKey: `leave_decision:${row.application_id}:${row.status}`,
+    staffId: row.staff_id,
+    values: {
+      staff_name: [row.first_name, row.last_name].filter(Boolean).join(' '),
+      staff_first_name: row.first_name,
+      ...decisionValues(row),
+    },
+  }))
+}
+
+/** The kinds addressed to one staff member rather than to a pupil's family. */
+function toStaffMember(kind: AutomaticMessageKind): boolean {
+  return kind === 'birthday_staff' || kind === 'leave_decision_staff'
+}
+
 /**
  * Insert the messages of one kind and send each. Returns how many were made;
  * a key already taken (another runner, or a message made since the query)
@@ -395,7 +505,7 @@ async function writeAndSend(
       [
         schoolId,
         kind,
-        kind === 'birthday_staff' ? 'staff_member' : 'pupil',
+        toStaffMember(kind) ? 'staff_member' : 'pupil',
         candidate.studentId ?? null,
         candidate.staffId ?? null,
         candidate.sectionId ?? null,
@@ -406,7 +516,7 @@ async function writeAndSend(
         candidate.dedupeKey,
         // To the family, except a birthday wish, which the pupil also gets in
         // the app when their login is on; a staff member's has no recipients.
-        kind === 'birthday_staff' ? null : kind === 'birthday_pupil' ? 'both' : 'families',
+        toStaffMember(kind) ? null : kind === 'birthday_pupil' ? 'both' : 'families',
       ],
     )
     const id = inserted.rows[0]?.id
@@ -452,6 +562,14 @@ export async function createAutomaticMessages(
       absenceCandidates(conn, schoolId, clock.today, settings.absenceDelayMinutes, since, limit),
     )
   if (settings.resultsEnabled) await run('result', (limit) => resultCandidates(conn, schoolId, since, limit))
+  // A leave decision goes out as soon as it is made, whatever the hour.
+  if (settings.leaveDecisionsEnabled) {
+    if (yearId !== null)
+      await run('leave_decision_pupil', (limit) =>
+        pupilLeaveDecisionCandidates(conn, schoolId, yearId, since, limit),
+      )
+    await run('leave_decision_staff', (limit) => staffLeaveDecisionCandidates(conn, schoolId, since, limit))
+  }
   if (yearId !== null) {
     if (settings.reportCardsEnabled)
       await run('report_card', (limit) => reportCardCandidates(conn, schoolId, yearId, since, limit))

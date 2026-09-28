@@ -145,7 +145,7 @@ export function matchesScope(scope: AccessScope, facts: RelationshipFacts, resou
     case 'assigned_sections': {
       const looksAfter = facts.classTeacherSections ?? []
       if (classTeacherOnly(resourceFacts.resourceType)) {
-        // Exams and report cards: the class-teacher post alone. A teaching
+        // Exams, report cards and leave applications: the class-teacher post alone. A teaching
         // assignment in the section is reached through assigned_subjects,
         // one subject at a time, so a maths teacher never reads science.
         if (resourceFacts.aggregate === true) return looksAfter.length > 0
@@ -209,7 +209,7 @@ export function studentKindConsistent(context: RequestContext): boolean {
 
 /** Resource types whose assigned_sections scope is the class-teacher post alone. */
 function classTeacherOnly(resourceType: ResourceType): boolean {
-  return resourceType === 'exam' || resourceType === 'report_card'
+  return resourceType === 'exam' || resourceType === 'report_card' || resourceType === 'leave_application'
 }
 
 /** Resource types a family scope reaches only once they are published. */

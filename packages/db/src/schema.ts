@@ -1197,6 +1197,38 @@ export const leaveRecords = pgTable(
 )
 
 /**
+ * A leave application (migration 0029): a parent for their child or a staff
+ * member for themselves. Approving it writes the leave record and links it.
+ */
+export const leaveApplications = pgTable(
+  'leave_applications',
+  {
+    id: id(),
+    schoolId: tenant(),
+    personKind: text('person_kind').notNull(),
+    studentId: uuid('student_id'),
+    staffId: uuid('staff_id'),
+    leaveType: text('leave_type'),
+    startsOn: date('starts_on').notNull(),
+    endsOn: date('ends_on').notNull(),
+    reason: text('reason').notNull(),
+    status: text('status').notNull().default('pending'),
+    appliedByMembershipId: uuid('applied_by_membership_id').notNull(),
+    decidedByMembershipId: uuid('decided_by_membership_id'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    leaveRecordId: uuid('leave_record_id'),
+    version: integer('version').notNull().default(1),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('leave_applications_school_id_id_key').on(t.schoolId, t.id),
+    unique('leave_applications_school_id_leave_record_id_key').on(t.schoolId, t.leaveRecordId),
+    index('leave_applications_status_idx').on(t.schoolId, t.status, t.startsOn),
+  ],
+)
+
+/**
  * Task 21. One row per academic year and exam of the fixed CBSE pattern; the
  * pattern itself (components and maximums) is a constant in @erp/contracts.
  */
@@ -1408,6 +1440,8 @@ export const communicationSettings = pgTable('communication_settings', {
   feeOverdueEveryDays: integer('fee_overdue_every_days').notNull().default(7),
   birthdaysPupilsEnabled: boolean('birthdays_pupils_enabled').notNull().default(true),
   birthdaysStaffEnabled: boolean('birthdays_staff_enabled').notNull().default(true),
+  /** Tell whoever applied for leave what was decided (migration 0029). */
+  leaveDecisionsEnabled: boolean('leave_decisions_enabled').notNull().default(true),
   dailySendHour: integer('daily_send_hour').notNull().default(8),
   automaticSince: timestamp('automatic_since', { withTimezone: true }).notNull().defaultNow(),
   version: integer('version').notNull().default(1),
@@ -1666,6 +1700,7 @@ export const schoolTables = [
   attendanceEntries,
   staffAttendanceEntries,
   leaveRecords,
+  leaveApplications,
   exams,
   examPapers,
   examMarks,

@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { BookOpen, Cake, CalendarClock, CalendarDays, CalendarRange, Clock, Coffee, PartyPopper, School, Users } from 'lucide-react'
+import { BookOpen, Cake, CalendarCheck, CalendarClock, CalendarDays, CalendarRange, Clock, Coffee, PartyPopper, School, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { DashboardHoliday, DashboardTimelineSlot, TeacherDashboard as TeacherDashboardData } from '@erp/contracts'
 import { BentoGrid, Cell, DashboardCard } from '@/components/dashboard/blocks/card'
@@ -280,6 +280,21 @@ export function TeacherDashboard({ data, isLoading, error }: { data?: TeacherDas
   // No periods at all means no timetable yet, whatever the bell schedules say.
   const weekBell = data.periods.length === 0 ? undefined : bell
 
+  // Pupil leave applications waiting for this class teacher; absent without the decide key.
+  const pendingLeave = data.leaveApplicationsPending
+  const leaveLine = pendingLeave === undefined ? null : (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-[13px] text-muted-foreground">
+        {pendingLeave === 0 ? 'No leave requests waiting' : `${pendingLeave} leave ${pendingLeave === 1 ? 'request' : 'requests'} waiting`}
+      </p>
+      {pendingLeave > 0 && (
+        <Link to="/attendance/leave" search={{ view: 'requests' }} className="text-[13px] text-muted-foreground hover:text-foreground">
+          Open requests
+        </Link>
+      )}
+    </div>
+  )
+
   const myClassCard = data.myClass ? (
     <DashboardCard
       title="My class"
@@ -315,6 +330,7 @@ export function TeacherDashboard({ data, isLoading, error }: { data?: TeacherDas
             </Link>
           </div>
         )}
+        {leaveLine}
         {data.myClass.birthdaysThisWeek === undefined ? undefined : data.myClass.birthdaysThisWeek.length === 0 ? (
           <p className="text-[13px] text-muted-foreground">No birthdays in your class this week.</p>
         ) : (
@@ -350,6 +366,14 @@ export function TeacherDashboard({ data, isLoading, error }: { data?: TeacherDas
       {myClassCard && (
         <Cell col={4} rows={2}>
           {myClassCard}
+        </Cell>
+      )}
+
+      {!myClassCard && pendingLeave !== undefined && pendingLeave > 0 && (
+        <Cell col={12} rows={1}>
+          <DashboardCard title="Leave requests" tone="orange" icon={<CalendarCheck />} error={error}>
+            {leaveLine}
+          </DashboardCard>
         </Cell>
       )}
 

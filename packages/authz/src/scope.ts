@@ -19,6 +19,7 @@ import {
   grades,
   guardians,
   holidays,
+  leaveApplications,
   messageRecipients,
   messages,
   reportCardEntries,
@@ -57,7 +58,7 @@ interface PlanInternals {
   readonly allows: readonly ResourceAccessRule[]
   readonly denies: readonly ResourceAccessRule[]
   readonly pairs: readonly AssignedPair[]
-  /** The sections the member is class teacher of, alone: assigned_sections for exams and report cards. */
+  /** The sections the member is class teacher of, alone: assigned_sections for exams, report cards and leave applications. */
   readonly classTeacherPairs: readonly AssignedPair[]
   readonly triples: readonly AssignedTriple[]
   readonly subjectIds: readonly string[]
@@ -354,6 +355,35 @@ export function communicationScopedTable(kind: CommunicationTableKind): ScopedTa
   return COMMUNICATION_TABLES[kind]
 }
 
+/**
+ * The tables a `leave_application` plan can be laid over: the application
+ * itself, the pupil a parent applies for (`pupil`) and the staff member who
+ * applies for themselves (`person`). An application answers own_children
+ * through its pupil, for every year, assigned_sections through the pupil's
+ * current enrolment (the class-teacher post alone for this type) and self
+ * through its staff member. A staff member's application names no pupil, so
+ * neither family scope nor assigned_sections ever reaches it; a pupil's names
+ * no staff member, so self never does.
+ */
+const LEAVE_APPLICATION_TABLES = {
+  application: {
+    table: leaveApplications,
+    schoolId: leaveApplications.schoolId,
+    id: leaveApplications.id,
+    studentId: leaveApplications.studentId,
+    staffId: leaveApplications.staffId,
+  },
+  pupil: { table: students, schoolId: students.schoolId, id: students.id, studentId: students.id },
+  person: { table: staff, schoolId: staff.schoolId, id: staff.id, staffId: staff.id },
+} as const satisfies Record<string, ScopedTable>
+
+export type LeaveApplicationTableKind = keyof typeof LEAVE_APPLICATION_TABLES
+
+/** The descriptor of one leave application table, for planPredicate with a `leave_application` plan. */
+export function leaveApplicationScopedTable(kind: LeaveApplicationTableKind): ScopedTable {
+  return LEAVE_APPLICATION_TABLES[kind]
+}
+
 const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
   student: { table: students, schoolId: students.schoolId, id: students.id },
   staff: { table: staff, schoolId: staff.schoolId, id: staff.id },
@@ -438,6 +468,9 @@ const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
   // A bare communication plan lists messages; the recipient rows come from
   // communicationScopedTable.
   communication: COMMUNICATION_TABLES.message,
+  // A bare leave application plan lists the applications; the pupil and the
+  // staff member faces come from leaveApplicationScopedTable.
+  leave_application: LEAVE_APPLICATION_TABLES.application,
 }
 
 /** The table a plan of this resource type lists, or null when there is none. */
@@ -619,6 +652,13 @@ function assignedSectionsTerm(plan: AuthorizedReadPlan, table: ScopedTable, pair
       return table.studentId === undefined
         ? FALSE
         : enrollmentExists(table.studentId, table.schoolId, enrolledPairs)
+    case 'leave_application':
+      // The caller passes the class-teacher pairs alone. An application and
+      // the pupil face reach through the pupil's current enrolment; a staff
+      // member's application names no pupil and is never reached this way.
+      return table.studentId === undefined
+        ? FALSE
+        : enrollmentExists(table.studentId, table.schoolId, enrolledPairs)
     case 'communication':
       // A message and a recipient row carry the section and year of a
       // section message or a message about one pupil; any other audience
@@ -706,7 +746,8 @@ function selfTerm(plan: AuthorizedReadPlan, table: ScopedTable, selfStaffId: str
     plan.resourceType !== 'timetable' &&
     plan.resourceType !== 'substitution' &&
     plan.resourceType !== 'teaching_assignment' &&
-    plan.resourceType !== 'staff_attendance'
+    plan.resourceType !== 'staff_attendance' &&
+    plan.resourceType !== 'leave_application'
   ) {
     return FALSE
   }
@@ -729,6 +770,10 @@ function ownChildrenTerm(plan: AuthorizedReadPlan, table: ScopedTable, childIds:
     case 'exam':
     case 'report_card':
       return ownPupilTerm(table, childIds)
+    case 'leave_application':
+      // An application and the pupil face answer through the pupil, for every
+      // year the child was here. A staff application names no pupil.
+      return table.studentId === undefined ? FALSE : idInTerm(table.studentId, childIds)
     case 'fee':
       // A fee row answers through the pupil it belongs to. A head or a
       // structure belongs to the school and names no pupil, so it never does.
@@ -821,11 +866,14 @@ function scopeTerm(plan: AuthorizedReadPlan, table: ScopedTable, scope: AccessSc
     case 'self':
       return selfTerm(plan, table, parts.selfStaffId)
     case 'assigned_sections':
-      // For exams and report cards this is the class-teacher post alone.
+      // For exams, report cards and leave applications this is the
+      // class-teacher post alone.
       return assignedSectionsTerm(
         plan,
         table,
-        plan.resourceType === 'exam' || plan.resourceType === 'report_card' ? parts.classTeacherPairs : parts.pairs,
+        plan.resourceType === 'exam' || plan.resourceType === 'report_card' || plan.resourceType === 'leave_application'
+          ? parts.classTeacherPairs
+          : parts.pairs,
       )
     case 'assigned_subjects':
       if (plan.resourceType === 'subject') return idInTerm(table.id, parts.subjectIds)

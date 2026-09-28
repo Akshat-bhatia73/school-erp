@@ -14,7 +14,9 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
   return {
     ...actual,
     createFileRoute: () => (options: unknown) => options,
-    Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
+    Link: ({ children, to, search }: { children: ReactNode; to: string; search?: unknown }) => (
+      <a href={to} data-search={search ? JSON.stringify(search) : undefined}>{children}</a>
+    ),
     useNavigate: () => vi.fn(),
   }
 })
@@ -93,6 +95,13 @@ describe('office dashboard, needs attention', () => {
     expect(cover.closest('a')).toHaveAttribute('href', '/timetable/substitutions')
     expect(screen.getByText('4 students without a guardian phone').closest('a')).toHaveAttribute('href', '/students')
     expect(screen.queryByText(/class teacher/)).not.toBeInTheDocument()
+  })
+
+  it('counts the leave requests waiting and opens the Requests view', () => {
+    renderOffice(office({ attention: [{ key: 'leave_applications_pending', count: 3 }] }))
+    const link = screen.getByText('3 leave requests waiting').closest('a')
+    expect(link).toHaveAttribute('href', '/attendance/leave')
+    expect(link).toHaveAttribute('data-search', JSON.stringify({ view: 'requests' }))
   })
 
   it('says all clear when every key the office may read is at zero', () => {

@@ -73,7 +73,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
     // The periods page lives under Timetable's path but is a School setup screen.
     { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read', except: ['/timetable/periods'] },
     { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
-    { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read'] },
+    { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read', 'leave_applications.read'] },
     { label: 'Exams', to: '/exams', icon: <NotebookPen />, permissions: ['exams.read', 'report_cards.read'] },
     { label: 'Messages', to: '/messages', icon: <Mail />, count: unread?.unread ? unread.unread : undefined, permission: 'communication.read' },
     { label: 'Assistant', to: '/assistant', icon: <Sparkles />, permission: 'ai_assistant.use' },

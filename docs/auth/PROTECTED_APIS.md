@@ -275,6 +275,21 @@ Task 23. A pupil's own login; the behaviour is in [student login](#student-login
 | `POST /staff-attendance/leave` | `staff_attendance.manage` | school locked; the person decided again and `active` or `on_leave`; no overlap | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `POST /staff-attendance/leave/:leaveId/cancel` | `staff_attendance.manage` | as the pupil cancel | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 
+### Leave applications
+
+Paths under `/api/schools/:schoolId/leave-applications`. See "Leave applications" below.
+
+| Method and path | Permission | Extra checks | Success | Error codes |
+|---|---|---|---|---|
+| `GET /leave-applications/pupils` | `leave_applications.read` | pupil applications through the caller's `leave_application` plan (`application` face); `?status=`, `?mine=true`, `?from=&to=` overlap; waiting ones first; the class on the first day through `students.read_enrollments` and `sections.read`; list `allowedActions` carries `apply` when the caller may apply for some pupil and `decide` when they may decide about some pupil; at most 500 | 200 | `INVALID_REQUEST` |
+| `POST /leave-applications/pupils` | `leave_applications.apply` | school locked; `apply` decided on the pupil (`pupil` face: own children only); the pupil `active` (`leave_person_not_active`); start no more than 7 days before today (`leave_application_too_far_back`); no waiting application or active leave record of the pupil shares a day (`leave_overlaps`) | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `ACCESS_DENIED` |
+| `POST /leave-applications/pupils/:applicationId/decide` | `leave_applications.decide` | school locked; decided on the application (class teacher of the pupil's current section, or the office); `pending` (`leave_application_not_pending`); `expectedVersion`; approving checks the pupil is active and no active record overlaps, then writes and links the leave record; refusing needs `note` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `ACCESS_DENIED`, `VERSION_CONFLICT` |
+| `POST /leave-applications/pupils/:applicationId/withdraw` | `leave_applications.apply` | school locked; `apply` decided on the application; the caller's own membership applied (`ACCESS_DENIED` otherwise); `pending`; `expectedVersion` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `ACCESS_DENIED`, `VERSION_CONFLICT` |
+| `GET /leave-applications/staff` | `leave_applications.read` | staff applications through the same plan; the same query; list `apply` when the caller has a working staff record, `decide` when they may decide about some staff member (the office) | 200 | `INVALID_REQUEST` |
+| `POST /leave-applications/staff` | `leave_applications.apply` | school locked; the staff record is the one the caller's membership is linked to (`leave_application_no_staff_record` without one), never one the body names; `apply` decided on it (`person` face: self); `active` or `on_leave`; the same date and overlap rules; `leaveType` required | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /leave-applications/staff/:applicationId/decide` | `leave_applications.decide` | as the pupil decide; only the school scope reaches a staff application | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `ACCESS_DENIED`, `VERSION_CONFLICT` |
+| `POST /leave-applications/staff/:applicationId/withdraw` | `leave_applications.apply` | as the pupil withdraw | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `ACCESS_DENIED`, `VERSION_CONFLICT` |
+
 ### Exams
 
 | Method and path | Permission | Extra checks | Success | Error codes |
@@ -380,7 +395,7 @@ Blocks and the permission each one needs:
 |---|---|---|
 | all | `day` (school day, holiday or Sunday, and the next school day) | none beyond `dashboard.read`; the holidays it is built from come through the `holidays.read` plan, so it is built from Sundays alone when `holidays.read` is not held |
 | office | `today` (teachers away, periods without cover) | `timetable.read`, through the substitution plan |
-| office | `attention` rows | per key: `periods_without_cover` `timetable.read`; `students_absent_three_days` `attendance.read` (pupils whose current mark is absent on the last three school days up to the date); `invitations_expiring` `members.invite`; `students_without_guardian_phone` `students.read_guardian_contact`; `students_without_consent` `students.read_consents`; `sections_without_class_teacher` `sections.read`; `empty_timetable_slots` `sections.read` and `timetable.read`; `staff_without_login` `staff.read_directory` and `members.read` |
+| office | `attention` rows | per key: `periods_without_cover` `timetable.read`; `students_absent_three_days` `attendance.read` (pupils whose current mark is absent on the last three school days up to the date); `invitations_expiring` `members.invite`; `students_without_guardian_phone` `students.read_guardian_contact`; `students_without_consent` `students.read_consents`; `sections_without_class_teacher` `sections.read`; `empty_timetable_slots` `sections.read` and `timetable.read`; `staff_without_login` `staff.read_directory` and `members.read`; `leave_applications_pending` `leave_applications.decide` (waiting applications under that plan) |
 | office, accountant | `glance.students.total` (the roll) | `students.read_basic` |
 | office, accountant | `glance.mix`, `glance.admittedThisMonth`, `glance.leftThisMonth` | `students.read_sensitive`: gender, admission date and the date a child left are the sensitive block of a student record, so the mix and the movements are absent without it |
 | office | `studentsPerTeacher` | `students.read_basic` and `staff.read_directory`; omitted when the school has no teaching staff |
@@ -398,6 +413,7 @@ Blocks and the permission each one needs:
 | parent | `feesDuePaise` on each child | `fees.read` over their own children |
 | office | `attendance` (registers marked of total, pupils absent today) | `attendance.read`; sections and marks counted through the caller's own plans; absent on a day that is not a school day |
 | teacher | `myClass.attendanceToday` | `attendance.read` on that section; absent on a day that is not a school day |
+| teacher | `leaveApplicationsPending` | `leave_applications.decide`: the waiting pupil applications of the class they look after; absent when they may decide nothing |
 | parent | `attendance` on each child (this month's percentage so far) | `attendance.read` over their own children, through the same figures as the calendar screen |
 
 Three rules hold across all of it:
@@ -553,7 +569,7 @@ Task 20. One mark per pupil per school day, marked by the class teacher for the 
 
 ## Recorded leave
 
-Migration 0028. The office writes down ahead of time that a pupil or a staff member will be away for a stretch of days (at most 180, with an optional reason), and may cancel it. Source: [modules/attendance/leave.ts](../../apps/api/src/modules/attendance/leave.ts). Applications by parents and teachers are a later task.
+Migration 0028. The office writes down ahead of time that a pupil or a staff member will be away for a stretch of days (at most 180, with an optional reason), and may cancel it. Source: [modules/attendance/leave.ts](../../apps/api/src/modules/attendance/leave.ts). A record is also written when somebody approves a leave application (next section).
 
 **A plan, not a mark.** A leave record writes nothing to the register. The day's register row carries `onLeave: true` so the screen pre-selects "leave"; a pupil's month and a staff member's own month carry `onLeave` on the days it covers. In `att_pupil_days` and `sta_days` an `on_leave` column says whether an active record covers the day, and the figures count an unmarked school day inside leave as `leave`, not `unmarked`. A mark somebody saved always wins. Because every screen, file, report card and dashboard figure reads those common table expressions, they all agree.
 
@@ -562,6 +578,26 @@ Migration 0028. The office writes down ahead of time that a pupil or a staff mem
 **Writes.** Both lock the school and decide the person again; an id of another school, a section id or a made-up id is a missing record. The person must still be here (a pupil `active`, staff `active` or `on_leave`, else `leave_person_not_active`), and two active records of one person may not share a day (`leave_overlaps`, checked under the lock). Both are `INVALID_REQUEST` with the reason: the error codes have no conflict code apart from versions. A record is never deleted or edited: cancelling needs `expectedVersion`, stamps `cancelled_at` and who did it through `bumpVersion`, and is refused a second time (`leave_already_cancelled`). Each write leaves exactly one audit row under the manage key, target type `leave_record`, with the person, the dates and the day count; the cancel reason is the audit note, like a correction's. The record's own reason stays on the record.
 
 **Dashboard.** The office dashboard's `leaveToday` counts who is on leave that day and names up to ten of each, over the caller's own plans; each half is left out without its read key. A teaching staff member on leave that day counts in `today.teachersAway` unless their saved mark that day is present or late.
+
+## Leave applications
+
+Migration 0029. A parent applies for leave for their own child and a staff member for themselves; somebody decides; an approval becomes a leave record. Source: [modules/attendance/leave-applications.ts](../../apps/api/src/modules/attendance/leave-applications.ts).
+
+**The resource.** Applications are the `leave_application` resource type with the keys `leave_applications.read`, `.apply` and `.decide`, over three faces (`leaveApplicationScopedTable('application' | 'pupil' | 'person')`): the application, the pupil a parent applies for, and the staff member who applies for themselves. `own_children` reaches an application through its pupil, for every year the child was here. `self` reaches it through its staff member. `assigned_sections` is the class-teacher post alone, as for exams and report cards, reached through the pupil's current enrolment. A staff application names no pupil, so no family scope and no section ever reaches it; a pupil application names no staff member, so `self` never does. The single decision (`loadResourceFacts`) and the list predicate say the same, face by face (`packages/authz/tests/scope.test.ts`).
+
+**Who does what.** A parent (`apply` and `read` at `own_children`) applies for their child with dates and a reason, and reads their child's applications. A staff member (`apply` and `read` at `self`) applies for themselves with a type (sick, casual, other) and a reason; the server finds their staff record through the membership's staff link. The class teacher (`read` and `decide` at `assigned_sections`) reads and decides their class's pupil applications and reads their own. The office (`read` and `decide` at school, `apply` at self) reads and decides everything. The first one to act wins: a decided application is refused to everybody after (`leave_application_not_pending`). Deciding at school scope needs the second factor; a class teacher decides on a single factor. A teacher with no staff record holds `apply` nowhere and is refused at the gate; somebody who holds it only for a child and calls the staff route gets `leave_application_no_staff_record`. There are no yearly balances.
+
+**Rules.** At most 180 days, starting no more than 7 days (`LEAVE_APPLY_DAYS_BACK`) before today in the school's timezone (`leave_application_too_far_back`). The pupil must be `active`, staff `active` or `on_leave` (`leave_person_not_active`). An application may not share a day with a waiting application or an active leave record of the same person (`leave_overlaps`, checked under the school lock). All three are `INVALID_REQUEST` with the reason.
+
+**Deciding.** Approve or refuse, with `expectedVersion`; a refusal needs a note, which the applicant reads. Approving checks again under the lock that the person is still here and no active record overlaps, writes the leave record (recorded by the decider, the application's dates and reason) through the same insert the Leave screen uses, and links it (`leave_record_id`). The leave record then works exactly like one the office recorded: the register pre-selects leave, the figures count it, and the office cancels it on the Leave screen, which leaves the application as it was. Withdrawing is the applying membership's own, only while it waits.
+
+**Reads.** Both lists read through the caller's own plan; `mine` says the caller made it. Who applied is named through the staff directory, or for a guardian by the guardian's name when the caller may read the pupil's guardian contact; who decided through the staff directory. Item `allowedActions` carries `read`, `decide` while it waits and the caller may decide it, and `apply` while it waits and the caller made it (which is withdrawing).
+
+**Audit.** One row per write: `leave_applications.apply` for applying and withdrawing, `leave_applications.decide` for a decision. An approval's row carries the new leave record's id; the record's creation writes no row of its own. The reason and the note stay on the application, not in the audit log.
+
+**Telling people.** The automatic messages `leave_decision_pupil` (to the pupil's family) and `leave_decision_staff` (to the staff member) tell the applicant what was decided (see "Communication"). A decision kicks the message pump after its commit (at most once a minute per school, like a sent notice), so the message goes out at once rather than on the next inbox read. A withdrawal tells nobody.
+
+**Dashboard.** The office attention list carries `leave_applications_pending`: waiting applications under the caller's `decide` plan, absent without it. The teacher dashboard carries `leaveApplicationsPending`: waiting pupil applications of the class they look after, absent without the key anywhere.
 
 ## Exams and report cards
 
@@ -604,7 +640,7 @@ Task 22. A message is one announcement from the school: a notice somebody wrote,
 **Who it goes to** is worked out when it goes out, never when it is written, and recorded as one row per person in `message_recipients`.
 
 - Families. The pupils are the active, not anonymised pupils enrolled in the current academic year (`status = 'current'`): in the section, in the grade's sections, anywhere in the school, or the one pupil. Each pupil's guardians (not anonymised) are the people, one row per guardian however many of their children are in the audience. A guardian receives the message when, for at least one of those pupils, the newest `communication` consent row for that pupil and guardian is `given` and `student_guardians.receives_notifications` is true. Otherwise the row says `no_consent` (or `not_receiving` when the consent is there and the office has switched notifications off) and nothing goes: no app, no email. No consent row means no consent.
-- Staff. Every staff member whose status is `active` or `on_leave` and who is not anonymised, or the one staff member of a birthday. Staff need no consent.
+- Staff. Every staff member whose status is `active` or `on_leave` and who is not anonymised, or the one staff member of a birthday or a leave decision. Staff need no consent.
 - In the app: a guardian's active membership through `membership_guardian_links`, when the guardian's portal access (`guardian_student_access`, approved and not revoked) covers at least one of the pupils that let the message through; a staff member's active membership through `membership_staff_links`. By email: the guardian's or staff member's own address, else the sign-in email of that membership (read through the auth pool), when it can receive mail. Reserved names (`.invalid`, `.test`, `.example`, `example.com` and the like) never can, and the seeded schools use them. A person reached by neither is `no_contact`.
 - `student_id` on a family row is the first pupil by name through whom the message was let through, so a delivery list can say "Parent of Aarav Sharma". A section message and a message about one pupil copy their section and year onto every row.
 
@@ -625,6 +661,8 @@ Task 22. A message is one announcement from the school: a notice somebody wrote,
 | `fee_overdue` | from `daily_send_hour`, while fee reminders are on and `fee_overdue_every_days` is not 0: the pupil owes something already due, and no overdue reminder went to the pupil in the last that many days | `fee_overdue:<pupil>:<today>` |
 | `birthday_pupil` | from `daily_send_hour`: an active pupil born on this day and month (29 February on 28 February in other years) | `birthday_pupil:<pupil>:<year>` |
 | `birthday_staff` | the same for a working staff member, to the staff member | `birthday_staff:<staff>:<year>` |
+| `leave_decision_pupil` | a pupil's leave application approved or refused in the last three days, while the pupil is active and in a class of the current year; to the family; `decision` reads "approved" or "not approved", `leave_dates` "29 Sep 2026 to 1 Oct 2026" (one date when the leave is one day), `decision_note` the note or nothing; any hour; both leave kinds follow the one switch `leaveDecisionsEnabled` (`leave_decisions_enabled`) | `leave_decision:<application>:<approved or refused>` |
+| `leave_decision_staff` | the same for a working staff member's own application, to the staff member | `leave_decision:<application>:<approved or refused>` |
 
 Money in a fee message comes from `feeFiguresCte`, the same figures every fee screen shows.
 

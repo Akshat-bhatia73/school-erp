@@ -1,7 +1,7 @@
 /** One pupil's month: the figures, the calendar behind them, and the same month as a document. */
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { ClipboardCheck, Download } from 'lucide-react'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { CalendarOff, ClipboardCheck, Download } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import { currentMonth, MonthChip } from '@/components/attendance/month-chip'
@@ -26,7 +26,7 @@ function Page() {
   const { studentId } = Route.useParams()
   const search = Route.useSearch()
   const navigate = useNavigate()
-  const { schoolId } = useSchoolContext()
+  const { schoolId, hasPermission, ownStudentId } = useSchoolContext()
   const month = search.month ?? currentMonth()
   const range = useMonthRange(studentId)
   const exportFile = useExportDownload({ className: 'px-4 pb-2' })
@@ -49,7 +49,15 @@ function Page() {
   const header = (
     <PageHeader
       crumbs={[{ label: 'Attendance', to: '/attendance', icon: <ClipboardCheck /> }, { label: data?.student.name ?? 'Loading…' }]}
-      actions={<Button size="sm" variant="outline" disabled={startExport.isPending} onClick={() => startExport.mutate()}><Download />Download PDF</Button>}
+      actions={(
+        <>
+          {/* A parent applies for leave from here; a pupil's own login holds no leave key. */}
+          {!ownStudentId && hasPermission('leave_applications.read') && (
+            <Button asChild size="sm" variant="outline"><Link to="/attendance/leave"><CalendarOff />Leave</Link></Button>
+          )}
+          <Button size="sm" variant="outline" disabled={startExport.isPending} onClick={() => startExport.mutate()}><Download />Download PDF</Button>
+        </>
+      )}
     />
   )
 

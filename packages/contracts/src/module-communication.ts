@@ -21,6 +21,9 @@ export const MessageKind = z.enum([
   'fee_overdue',
   'birthday_pupil',
   'birthday_staff',
+  // The answer to a leave application (migration 0029).
+  'leave_decision_pupil',
+  'leave_decision_staff',
 ])
 export type MessageKind = z.infer<typeof MessageKind>
 export const MESSAGE_KINDS = MessageKind.options
@@ -39,6 +42,8 @@ export const MESSAGE_KIND_LABELS: Readonly<Record<MessageKind, string>> = {
   fee_overdue: 'Fee dues',
   birthday_pupil: 'Birthday',
   birthday_staff: 'Staff birthday',
+  leave_decision_pupil: 'Leave decision',
+  leave_decision_staff: 'Staff leave decision',
 }
 
 /**
@@ -158,6 +163,9 @@ export const MESSAGE_PLACEHOLDERS = {
   due_date: 'The date it falls due',
   staff_name: 'The staff member\'s full name',
   staff_first_name: 'The staff member\'s first name',
+  leave_dates: 'The days of leave, such as 29 Sep 2026 to 1 Oct 2026',
+  decision: 'approved or not approved',
+  decision_note: 'What the person who decided wrote, or nothing',
 } as const
 export type MessagePlaceholder = keyof typeof MESSAGE_PLACEHOLDERS
 
@@ -173,6 +181,8 @@ export const PLACEHOLDERS_BY_KIND: Readonly<Record<MessageKind, readonly Message
   fee_overdue: [...PUPIL_PLACEHOLDERS, 'amount'],
   birthday_pupil: PUPIL_PLACEHOLDERS,
   birthday_staff: ['school', 'staff_name', 'staff_first_name'],
+  leave_decision_pupil: [...PUPIL_PLACEHOLDERS, 'leave_dates', 'decision', 'decision_note'],
+  leave_decision_staff: ['school', 'staff_name', 'staff_first_name', 'leave_dates', 'decision', 'decision_note'],
 }
 
 /** The words an automatic message uses until the school saves its own. */
@@ -204,6 +214,14 @@ export const DEFAULT_MESSAGE_WORDING: Readonly<Record<AutomaticMessageKind, { re
   birthday_staff: {
     title: 'Happy birthday, {staff_first_name}!',
     body: 'Dear {staff_first_name},\n\nEveryone at {school} wishes you a very happy birthday. Thank you for all you do.\n\n{school}',
+  },
+  leave_decision_pupil: {
+    title: 'Leave for {pupil_first_name} {decision}',
+    body: 'Dear parent,\n\nYour application for leave for {pupil_name}, {class}, for {leave_dates} was {decision}.\n{decision_note}\n\n{school}',
+  },
+  leave_decision_staff: {
+    title: 'Your leave application was {decision}',
+    body: 'Dear {staff_first_name},\n\nYour application for leave for {leave_dates} was {decision}.\n{decision_note}\n\n{school}',
   },
 }
 
@@ -575,6 +593,8 @@ export const CommunicationSettingsValues = z.strictObject({
   feeOverdueEveryDays: z.number().int().min(0).max(60),
   birthdaysPupilsEnabled: z.boolean(),
   birthdaysStaffEnabled: z.boolean(),
+  /** Tell whoever applied for leave what was decided. */
+  leaveDecisionsEnabled: z.boolean(),
   /** The hour, in the school's timezone, from which birthday wishes and fee reminders go out. */
   dailySendHour: z.number().int().min(6).max(12),
 })
@@ -590,6 +610,7 @@ export const DEFAULT_COMMUNICATION_SETTINGS: CommunicationSettingsValues = {
   feeOverdueEveryDays: 7,
   birthdaysPupilsEnabled: true,
   birthdaysStaffEnabled: true,
+  leaveDecisionsEnabled: true,
   dailySendHour: 8,
 }
 

@@ -93,6 +93,14 @@ export const qk = {
   leave: {
     students: (schoolId: string, params?: Params) => [schoolId, 'leave', 'students', params ?? {}] as const,
     staff: (schoolId: string, params?: Params) => [schoolId, 'leave', 'staff', params ?? {}] as const,
+    /**
+     * Leave applications. Apply and withdraw invalidate `[schoolId, 'leave']` and the dashboard;
+     * a decision the attendance prefix too, because an approval writes a leave record.
+     */
+    applications: {
+      pupils: (schoolId: string, params?: Params) => [schoolId, 'leave', 'applications', 'pupils', params ?? {}] as const,
+      staff: (schoolId: string, params?: Params) => [schoolId, 'leave', 'applications', 'staff', params ?? {}] as const,
+    },
   },
 
   exams: (schoolId: string, params?: Params) => [schoolId, 'exams', 'list', params ?? {}] as const,

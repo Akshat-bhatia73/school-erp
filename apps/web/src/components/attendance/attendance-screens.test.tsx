@@ -207,6 +207,27 @@ describe("one pupil's month", () => {
 
     expect(await screen.findByText('94.2%')).toBeInTheDocument()
     expect(screen.getAllByText('Download PDF').length).toBeGreaterThan(0)
+    // Without the leave application keys there is no way to leave from here.
+    expect(screen.queryByRole('link', { name: 'Leave' })).not.toBeInTheDocument()
+  })
+
+  it('offers a parent the way to their leave applications', async () => {
+    attendance.studentMonth.mockResolvedValue({
+      student: PUPILS[0],
+      academicYear: YEAR,
+      month: '2026-09',
+      section: SECTION,
+      grade: GRADE,
+      days: [],
+      summary: { schoolDays: 0, present: 0, absent: 0, late: 0, leave: 0, halfDay: 0, unmarked: 0, percentage: null },
+      allowedActions: ['attendance.read'],
+    })
+    search = { month: '2026-09' }
+    const { Route } = await import('@/routes/_app/attendance/students/$studentId')
+    const Screen = componentOf(Route)
+    renderWithSession(<Screen />, { schoolId: SCHOOL_ID, capabilities: ['attendance.read', 'leave_applications.read', 'leave_applications.apply'], roleKeys: ['parent'] })
+
+    expect((await screen.findAllByRole('link', { name: 'Leave' })).length).toBeGreaterThan(0)
   })
 })
 

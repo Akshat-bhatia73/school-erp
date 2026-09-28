@@ -57,12 +57,12 @@ import { decideAttendance, pupilRef, sectionVisibility } from './reads.ts'
 const ISO_TIMESTAMP = `'YYYY-MM-DD"T"HH24:MI:SS.MSOF:00'`
 
 /** Calendar days from one date to another, both ends included. */
-function dayCount(startsOn: string, endsOn: string): number {
+export function dayCount(startsOn: string, endsOn: string): number {
   return Math.round((Date.parse(`${endsOn}T00:00:00Z`) - Date.parse(`${startsOn}T00:00:00Z`)) / 86_400_000) + 1
 }
 
 /** A plan the caller does not hold at all reads as FALSE, not as an error. */
-async function predicateOrFalse(build: () => Promise<SQL>): Promise<SQL> {
+export async function predicateOrFalse(build: () => Promise<SQL>): Promise<SQL> {
   try {
     return await build()
   } catch (error) {
@@ -174,7 +174,7 @@ async function listActions(
 }
 
 /** A person must still be here for leave to be recorded against them. */
-function assertActive(status: string | undefined, active: readonly string[]): void {
+export function assertActive(status: string | undefined, active: readonly string[]): void {
   if (status === undefined) throw new ApiFailure('RESOURCE_NOT_FOUND')
   if (!active.includes(status)) throw new ApiFailure('INVALID_REQUEST', undefined, 'leave_person_not_active')
 }
@@ -182,8 +182,9 @@ function assertActive(status: string | undefined, active: readonly string[]): vo
 /**
  * Two active records of one person may not share a day. Checked under the
  * school lock, so two office members saving at once cannot both get through.
+ * An approved leave application (leave-applications.ts) goes through here too.
  */
-async function assertNoOverlap(
+export async function assertNoOverlap(
   conn: AttendanceConnection,
   schoolId: string,
   person: { readonly column: 'student_id' | 'staff_id'; readonly id: string },
@@ -227,7 +228,8 @@ async function readStored(
   return row
 }
 
-async function insertLeave(
+/** The one statement that writes a leave record; an approved application uses it too. */
+export async function insertLeave(
   conn: AttendanceConnection,
   context: RequestContext,
   input: {

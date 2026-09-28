@@ -853,6 +853,29 @@ export async function loadResourceFacts(
         ...(found.members === null ? {} : { membershipIds: found.members }),
       })
     }
+    case 'leave_application': {
+      // Three faces: an application, the pupil a parent applies for and the
+      // staff member who applies for themselves. Ids are random uuids, so at
+      // most one matches. An application names its pupil or its staff member,
+      // never both; a pupil answers assigned_sections through their current
+      // sections, exactly as a student does, whichever face it is reached by.
+      const row = await conn.client.query<{ student_id: string | null; staff_id: string | null }>(
+        `SELECT student_id, staff_id FROM leave_applications WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT id, NULL::uuid FROM students WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT NULL::uuid, id FROM staff WHERE school_id = $1 AND id = $2
+         LIMIT 1`,
+        [schoolId, id],
+      )
+      const found = row.rows[0]
+      if (!found) return null
+      if (found.student_id !== null) {
+        const sections = await currentSectionsOfStudent(conn, schoolId, found.student_id)
+        return facts(resource, { studentId: found.student_id, ...sections })
+      }
+      return facts(resource, found.staff_id === null ? {} : { staffId: found.staff_id })
+    }
     case 'dashboard':
       // The dashboard is computed from the whole authorized dataset, so it has
       // no row of its own and relationship scopes answer for any relationship.

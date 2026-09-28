@@ -5,6 +5,7 @@ import {
   BellRing,
   Cake,
   CalendarDays,
+  CalendarCheck,
   CalendarHeart,
   CalendarOff,
   CalendarX,
@@ -514,6 +515,7 @@ const ATTENTION: Record<DashboardAttentionKey, { one: string; many: string; to: 
   sections_without_class_teacher: { one: 'section without a class teacher', many: 'sections without a class teacher', to: '/setup/classes', hint: 'Open classes and sections', tone: 'teal', icon: <UserCog /> },
   empty_timetable_slots: { one: 'empty timetable slot', many: 'empty timetable slots', to: '/timetable', hint: 'Open the timetable', tone: 'indigo', icon: <CalendarX /> },
   staff_without_login: { one: 'staff member without a login', many: 'staff without a login', to: '/settings/users', hint: 'Open users and logins', tone: 'pink', icon: <KeyRound /> },
+  leave_applications_pending: { one: 'leave request waiting', many: 'leave requests waiting', to: '/attendance/leave', hint: 'Open leave requests', tone: 'blue', icon: <CalendarCheck /> },
 }
 
 function attentionItems(data: OfficeDashboardData): AttentionListItem[] {
@@ -527,7 +529,9 @@ function attentionItems(data: OfficeDashboardData): AttentionListItem[] {
       tone: shape.tone,
       icon: shape.icon,
       to: shape.to,
-      search: item.key === 'periods_without_cover' ? { date: data.day.date } : undefined,
+      search: item.key === 'periods_without_cover'
+        ? { date: data.day.date }
+        : item.key === 'leave_applications_pending' ? { view: 'requests' } : undefined,
     }
   })
 }

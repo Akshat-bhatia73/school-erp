@@ -97,6 +97,9 @@ const attendanceOffice: readonly RoleGrant[] = [
   grant('attendance.manage', 'school'), grant('attendance.export', 'school'),
   grant('staff_attendance.read', 'school'), grant('staff_attendance.record', 'school'),
   grant('staff_attendance.manage', 'school'), grant('staff_attendance.export', 'school'),
+  // Leave applications: read and decide any, and apply for one's own leave.
+  grant('leave_applications.read', 'school'), grant('leave_applications.decide', 'school'),
+  grant('leave_applications.apply', 'self'),
 ]
 
 export const ROLE_TEMPLATES = {
@@ -185,6 +188,8 @@ export const ROLE_TEMPLATES = {
       grant('staff_attendance.read', 'school'),
       // Their own inbox: staff notices and the school's birthday wishes.
       grant('communication.read', 'self'),
+      // Their own leave applications.
+      grant('leave_applications.read', 'self'), grant('leave_applications.apply', 'self'),
       grant('ai_assistant.use', 'self'),
     ],
   },
@@ -219,6 +224,10 @@ export const ROLE_TEMPLATES = {
       // reads their own inbox and what they wrote.
       grant('communication.read', 'self'), grant('communication.read', 'assigned_sections'),
       grant('communication.send', 'assigned_sections'),
+      // Their own leave applications, and, as class teacher, their class's:
+      // assigned_sections is the class-teacher post alone for these.
+      grant('leave_applications.read', 'self'), grant('leave_applications.apply', 'self'),
+      grant('leave_applications.read', 'assigned_sections'), grant('leave_applications.decide', 'assigned_sections'),
       grant('ai_assistant.use', 'self'),
     ],
   },
@@ -244,6 +253,8 @@ export const ROLE_TEMPLATES = {
       // What the school addressed to this parent, and nothing addressed to
       // another guardian of the same child.
       grant('communication.read', 'self'),
+      // Leave for their own child: apply, withdraw while it waits, and read.
+      grant('leave_applications.read', 'own_children'), grant('leave_applications.apply', 'own_children'),
       grant('ai_assistant.use', 'self'),
     ],
   },

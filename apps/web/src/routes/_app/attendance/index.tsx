@@ -48,7 +48,7 @@ function StaffOnly() {
 
 /** A parent has no register to mark: they get a card per child. */
 function ParentChildren() {
-  const { schoolId } = useSchoolContext()
+  const { schoolId, hasPermission } = useSchoolContext()
   const params = { status: 'active' as const, pageSize: 50 }
   const childrenQuery = useQuery({
     queryKey: qk.students(schoolId, params),
@@ -57,7 +57,10 @@ function ParentChildren() {
   const children = childrenQuery.data?.items ?? []
   return (
     <>
-      <PageHeader crumbs={[{ label: 'Attendance', icon: <ClipboardCheck /> }]} />
+      <PageHeader
+        crumbs={[{ label: 'Attendance', icon: <ClipboardCheck /> }]}
+        actions={hasPermission('leave_applications.read') ? <Button asChild size="sm" variant="outline"><Link to="/attendance/leave">Leave</Link></Button> : undefined}
+      />
       <div className="min-h-0 flex-1 overflow-y-auto p-3 scrollbar-thin md:p-4">
         {childrenQuery.isError ? (
           <EmptyState icon={<ClipboardCheck />} title="Attendance is not available" description={describeError(childrenQuery.error)} />
@@ -125,6 +128,8 @@ function Registers() {
     { id: 'saved', header: 'Last saved', size: 150, cell: ({ row }) => <span className="text-muted-foreground">{row.original.lastRecordedAt ? formatDate(row.original.lastRecordedAt) : '—'}</span> },
   ], [])
 
+  // Somebody who reads nothing here but leave applications has one screen: leave.
+  if (!canReadAttendance && !canReadStaff && hasPermission('leave_applications.read')) return <Navigate to="/attendance/leave" replace />
   if (!canReadAttendance) return canReadStaff ? <StaffOnly /> : <EmptyState icon={<ClipboardCheck />} title="Attendance is not available" description="You do not have access to the registers." />
   if (audienceFor(roleKeys) === 'parent') return <ParentChildren />
 

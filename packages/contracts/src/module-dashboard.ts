@@ -68,6 +68,8 @@ export const DashboardAttentionKey = z.enum([
   'sections_without_class_teacher',
   'empty_timetable_slots',
   'staff_without_login',
+  // Leave applications waiting for the office (migration 0029).
+  'leave_applications_pending',
 ])
 
 export const DashboardAttentionItem = z.strictObject({
@@ -262,6 +264,8 @@ export const TeacherDashboard = z.strictObject({
   audience: z.literal('teacher'),
   day: DashboardDay,
   staffLinked: z.boolean(),
+  /** Pupil leave applications waiting for this class teacher; absent without the decide key. */
+  leaveApplicationsPending: z.number().int().nonnegative().optional(),
   academicYearId: Id.nullable(),
   timeline: z.array(DashboardTimelineSlot),
   timelineDate: CalendarDate.nullable(),

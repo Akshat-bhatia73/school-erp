@@ -559,3 +559,41 @@ test('the student role reads its own learning record and nothing financial or ad
     assert.equal(decide(permission).allowed, false, permission)
   }
 })
+
+test('leave applications: parent own child, class teacher alone, staff self, never a staff row by section', () => {
+  const pupilRow: ResourceFacts = {
+    resourceType: 'leave_application',
+    id: 'application-1',
+    studentId: 'pupil-1',
+    sectionIds: ['section-1'],
+    academicYearId: 'year-1',
+  }
+  const staffRow: ResourceFacts = { resourceType: 'leave_application', id: 'application-2', staffId: 'staff-9' }
+  const parentFacts: RelationshipFacts = { selfStaffId: null, assignments: [], ownChildStudentIds: ['pupil-1'] }
+  assert.equal(matchesScope('own_children', parentFacts, pupilRow), true)
+  assert.equal(matchesScope('own_children', parentFacts, { ...pupilRow, academicYearId: 'year-0' }), true, 'any year')
+  assert.equal(matchesScope('own_children', parentFacts, { ...pupilRow, studentId: 'pupil-2' }), false)
+  assert.equal(matchesScope('own_children', parentFacts, staffRow), false)
+
+  const classTeacher: RelationshipFacts = {
+    selfStaffId: 'staff-1',
+    assignments: [],
+    classTeacherSections: [{ sectionId: 'section-1', academicYearId: 'year-1' }],
+    ownChildStudentIds: [],
+  }
+  const subjectTeacher: RelationshipFacts = {
+    selfStaffId: 'staff-2',
+    assignments: [{ sectionId: 'section-1', subjectId: 'subject-1', academicYearId: 'year-1' }],
+    ownChildStudentIds: [],
+  }
+  assert.equal(matchesScope('assigned_sections', classTeacher, pupilRow), true)
+  assert.equal(matchesScope('assigned_sections', classTeacher, { ...pupilRow, sectionIds: ['section-2'] }), false)
+  assert.equal(matchesScope('assigned_sections', subjectTeacher, pupilRow), false, 'teaching a subject is not the class')
+  assert.equal(matchesScope('assigned_sections', classTeacher, staffRow), false, 'a staff row is never reached by section')
+  assert.equal(matchesScope('assigned_sections', classTeacher, { ...staffRow, staffId: 'staff-1' }), false)
+
+  assert.equal(matchesScope('self', { ...classTeacher, selfStaffId: 'staff-9' }, staffRow), true)
+  assert.equal(matchesScope('self', classTeacher, staffRow), false)
+  assert.equal(matchesScope('self', classTeacher, pupilRow), false, 'a pupil row names no staff member')
+  assert.equal(matchesScope('school', classTeacher, staffRow), true)
+})

@@ -27,6 +27,7 @@ export type VersionedTable =
   | 'messages'
   | 'message_templates'
   | 'leave_records'
+  | 'leave_applications'
 
 /** The caller edited a record someone else has already changed. */
 export function assertVersion(expected: number, actual: number): void {
