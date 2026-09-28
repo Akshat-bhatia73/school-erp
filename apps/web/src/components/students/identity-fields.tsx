@@ -21,7 +21,7 @@ export function cleanPan(value: string): string {
   return value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 10)
 }
 
-export function IdentityField({ label, value, onChange, onFile, error, optional = true, kind }: {
+export function IdentityField({ label, value, onChange, onFile, error, optional = true, kind, removal }: {
   label: string
   value: string
   onChange: (v: string) => void
@@ -30,9 +30,23 @@ export function IdentityField({ label, value, onChange, onFile, error, optional 
   error?: string
   optional?: boolean
   kind: 'aadhaar' | 'pan'
+  /** When given, a number on file can also be removed; the form sends null for it on save. */
+  removal?: { removed: boolean; onChange: (removed: boolean) => void }
 }) {
   const [replacing, setReplacing] = useState(false)
   const showBox = replacing || !onFile
+
+  if (onFile && removal?.removed) {
+    return (
+      <div className="min-w-0 space-y-1.5">
+        <Label className="text-[12.5px] text-muted-foreground">{label}</Label>
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] text-muted-foreground">Removed when you save</span>
+          <Button type="button" size="sm" variant="ghost" onClick={() => removal.onChange(false)}>Keep it</Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-w-0 space-y-1.5">
@@ -50,6 +64,9 @@ export function IdentityField({ label, value, onChange, onFile, error, optional 
         <div className="flex items-center gap-2">
           <span className="font-mono text-[13px]">ending {onFile}</span>
           <Button type="button" size="sm" variant="ghost" onClick={() => setReplacing(true)}>Replace</Button>
+          {removal && (
+            <Button type="button" size="sm" variant="ghost" onClick={() => { onChange(''); removal.onChange(true) }}>Remove</Button>
+          )}
         </div>
       )}
       {error

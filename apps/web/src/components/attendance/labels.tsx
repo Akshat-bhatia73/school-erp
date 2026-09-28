@@ -1,6 +1,7 @@
 /** The words, the short letters and the colours every attendance screen shares. */
 import type { AttendanceMark, ErrorReason } from '@erp/contracts'
 import { Tag, type TagColor } from '@/components/shared/tag'
+import { describeError, isApiError } from '@/lib/api-errors'
 
 /**
  * Said when a save is refused because somebody saved these marks after the screen read them.
@@ -58,6 +59,23 @@ export const REASON_TEXT: Partial<Record<ErrorReason, string>> = {
   staff_attendance_own_record: 'Nobody marks their own attendance. A colleague in the office does it.',
   staff_attendance_not_on_register: 'This person was not on the staff register on this day.',
   staff_attendance_register_incomplete: 'Everybody on the register has to be marked in one go.',
+  leave_overlaps: 'This person already has leave on some of these days.',
+  leave_already_cancelled: 'This leave was already cancelled.',
+  leave_person_not_active: 'Leave can only be recorded for somebody who is still at the school.',
+}
+
+/** A refused attendance or leave write in one sentence: ours for a reason we know, else the usual one. */
+export function describeAttendanceError(error: unknown): string {
+  if (isApiError(error) && error.reason) {
+    const text = REASON_TEXT[error.reason]
+    if (text) return text
+  }
+  return describeError(error)
+}
+
+/** The small tag on a register row whose person has leave recorded for the day. */
+export function OnLeaveTag() {
+  return <Tag color="blue">On leave</Tag>
 }
 
 /** The sentence for a shut window, or nothing when the server gave no reason. */

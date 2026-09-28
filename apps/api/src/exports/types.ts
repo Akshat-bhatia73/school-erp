@@ -9,6 +9,11 @@ import type { DocumentStorage } from '../files/storage.ts'
  */
 export interface ProducerIo {
   readonly documents: DocumentStorage
+  /**
+   * The data encryption key. Only the list exports use it, to open a whole
+   * Aadhaar number for a row that passes the export identity key.
+   */
+  readonly encryptionKey: string
 }
 
 /**

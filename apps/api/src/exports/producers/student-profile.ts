@@ -173,6 +173,8 @@ async function produce(
         ...fact('Admission type', sensitive.admissionType),
         ...fact('Admission date', formatPdfDate(sensitive.admissionDate)),
         ...fact('APAAR id', sensitive.apaarMasked),
+        ...fact('PEN (UDISE+)', sensitive.pen),
+        ...fact('SRN', sensitive.srn),
         // The same four digits the screen shows, and never more than that.
         ...fact(
           'Aadhaar',

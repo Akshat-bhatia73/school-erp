@@ -58,6 +58,8 @@ export function registerStaffLifecycleRoutes(app: FastifyInstance, deps: ModuleD
             monthly_salary: null,
             bank_account_last4: null,
             pan_last4: null,
+            aadhaar_ciphertext: null,
+            aadhaar_last4: null,
             qualification: null,
             photo_storage_key: null,
             photo_content_type: null,

@@ -38,6 +38,7 @@ import {
   staffAttendancePlans,
   type StaffAttendancePlans,
   staffFiguresCte,
+  staffOnLeave,
   toCalendarDay,
   toSummary,
   yearOfMonth,
@@ -172,6 +173,8 @@ interface RegisterRow extends Record<string, unknown> {
   revision: number | null
   entry_kind: 'marking' | 'correction' | null
   recorded_at: string | null
+  /** Only on a day's register: an active leave record covers the person that day. */
+  on_leave?: boolean | null
 }
 
 function staffMemberOf(row: {
@@ -190,9 +193,10 @@ function staffMemberOf(row: {
 }
 
 /**
- * Everybody on the register that day, with the mark that stands, in employee
- * code order. Who is on it is `sta_people`: joined on or before the day and
- * not yet left, narrowed by the caller's own plan over the staff record.
+ * Everybody on the register that day, with the mark that stands and whether
+ * recorded leave covers them, in employee code order. Who is on it is
+ * `sta_people`: joined on or before the day and not yet left, narrowed by the
+ * caller's own plan over the staff record.
  */
 async function registerRows(
   conn: AttendanceConnection,
@@ -214,7 +218,8 @@ async function registerRows(
     sql`${cte}
         SELECT p.staff_id, s.employee_code, s.first_name, s.last_name, s.designation,
                c.mark, c.id AS entry_id, c.revision, c.kind AS entry_kind,
-               to_char(c.created_at, 'YYYY-MM-DD"T"HH24:MI:SS.MSOF:00') AS recorded_at
+               to_char(c.created_at, 'YYYY-MM-DD"T"HH24:MI:SS.MSOF:00') AS recorded_at,
+               ${staffOnLeave(schoolId, sql`p.staff_id`, sql`${date}::date`)} AS on_leave
           FROM sta_people p
           JOIN staff s ON s.school_id = ${schoolId}::uuid AND s.id = p.staff_id
           LEFT JOIN sta_current c ON c.staff_id = p.staff_id AND c.date = ${date}::date
@@ -253,6 +258,7 @@ export async function readStaffDay(
           },
         }),
     self: selfStaffId !== null && row.staff_id === selfStaffId,
+    onLeave: row.on_leave === true,
   }))
 
   return {
@@ -279,6 +285,7 @@ interface MonthMarkRow extends Record<string, unknown> {
   day: string
   mark: AttendanceMark | null
   corrected: boolean | null
+  on_leave: boolean | null
 }
 
 interface FiguresRow extends Record<string, unknown> {
@@ -292,16 +299,17 @@ interface FiguresRow extends Record<string, unknown> {
   unmarked: number
 }
 
-/** One day of somebody's month: on the register or not, and the mark. */
+/** One day of somebody's month: on the register or not, the mark, and any leave. */
 function monthDay(
   day: AttendanceCalendarDay,
   found: MonthMarkRow | undefined,
-): { date: string; onRegister: boolean; mark?: AttendanceMark; corrected?: boolean } {
+): { date: string; onRegister: boolean; mark?: AttendanceMark; corrected?: boolean; onLeave?: boolean } {
   return {
     date: day.date,
     onRegister: found !== undefined,
     ...(found?.mark ? { mark: found.mark } : {}),
     ...(found?.corrected ? { corrected: true } : {}),
+    ...(found?.on_leave ? { onLeave: true } : {}),
   }
 }
 
@@ -327,7 +335,7 @@ async function readMonthFor(
 
   const markRows = await conn.db.execute<MonthMarkRow>(
     sql`${cte}
-        SELECT staff_id, to_char(day, 'YYYY-MM-DD') AS day, mark, corrected FROM sta_days`,
+        SELECT staff_id, to_char(day, 'YYYY-MM-DD') AS day, mark, corrected, on_leave FROM sta_days`,
   )
   const figureRows = await conn.db.execute<FiguresRow>(
     sql`${cte}

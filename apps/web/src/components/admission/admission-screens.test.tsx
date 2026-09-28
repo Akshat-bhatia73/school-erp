@@ -27,7 +27,7 @@ vi.mock('@/components/shared/photo-field', async (importOriginal) => {
 const { ClassStep } = await import('./class-step')
 const { StudentStep } = await import('./student-step')
 const { ReviewStep } = await import('./review-step')
-const { ConsentStep } = await import('./consent-step')
+const { GuardiansStep } = await import('./guardians-step')
 const { ImportReview } = await import('./import-review')
 const { emptyDraft, emptyGuardian } = await import('./admit-state')
 
@@ -95,8 +95,43 @@ describe('admit form', () => {
     expect(screen.queryByText(/345678901234/)).not.toBeInTheDocument()
   })
 
+  it('names the APAAR id by its ending and shows the PEN and SRN whole on the review step', async () => {
+    const draft = { ...filledDraft(), apaarId: '123456789012', pen: '27123456789', srn: 'RJ/2026/004512' }
+    renderWithSession(
+      <ReviewStep draft={draft} onEdit={() => {}} academicYearId="year-1" yearName="2026-27" />,
+      { capabilities: [...CAPABILITIES] },
+    )
+
+    expect(await screen.findByText('ending 9012')).toBeInTheDocument()
+    expect(screen.queryByText(/123456789012/)).not.toBeInTheDocument()
+    expect(screen.getByText('27123456789')).toBeInTheDocument()
+    expect(screen.getByText('RJ/2026/004512')).toBeInTheDocument()
+  })
+
+  it('offers the APAAR id, PEN and SRN on the student step, all optional', () => {
+    renderWithSession(
+      <StudentStep draft={filledDraft()} set={() => {}} errors={{ pen: 'Enter the 11 digit PEN' }} photo={null} onPhoto={() => {}} />,
+      { capabilities: [...CAPABILITIES] },
+    )
+    expect(screen.getByLabelText('APAAR id')).toBeInTheDocument()
+    expect(screen.getByLabelText('PEN (UDISE+)')).toBeInTheDocument()
+    expect(screen.getByLabelText('SRN')).toBeInTheDocument()
+    expect(screen.getByText('Enter the 11 digit PEN')).toBeInTheDocument()
+  })
+
+  it('says the signed admission form on the review step when the one box is ticked', async () => {
+    const draft = { ...filledDraft(), consentSigned: true, consentFormReference: 'Form 12' }
+    renderWithSession(
+      <ReviewStep draft={draft} onEdit={() => {}} academicYearId="year-1" yearName="2026-27" />,
+      { capabilities: [...CAPABILITIES] },
+    )
+
+    expect(await screen.findByText('Consent section signed: every purpose, as a signed form')).toBeInTheDocument()
+    expect(screen.getByText('Form 12')).toBeInTheDocument()
+  })
+
   it('lists what each guardian agreed to on the review step', async () => {
-    const draft = filledDraft()
+    const draft = { ...filledDraft(), consentMode: 'each' as const }
     draft.guardians = [{ ...draft.guardians[0]!, consentPurposes: ['photographs'], consentMethod: 'signed_form' }]
     renderWithSession(
       <ReviewStep draft={draft} onEdit={() => {}} academicYearId="year-1" yearName="2026-27" />,
@@ -109,13 +144,39 @@ describe('admit form', () => {
   })
 })
 
-describe('consent step', () => {
-  it('starts with nothing ticked and records the purpose the office ticked', async () => {
+describe('consent on the guardians step', () => {
+  it('starts with the one box unticked and records the signed form when ticked', async () => {
     const set = vi.fn()
     const user = userEvent.setup()
-    renderWithSession(<ConsentStep draft={filledDraft()} set={set} errors={{}} />, { capabilities: [...CAPABILITIES] })
+    renderWithSession(<GuardiansStep draft={filledDraft()} set={set} errors={{}} canAttachExisting={false} />, { capabilities: [...CAPABILITIES] })
 
-    expect(screen.getByText('Photographs')).toBeInTheDocument()
+    const box = screen.getByRole('checkbox', { name: 'The family signed the consent section of the admission form' })
+    expect(box).not.toBeChecked()
+    // The purposes one by one stay closed until asked for.
+    expect(screen.queryByRole('checkbox', { name: /Photographs for Rakesh/ })).not.toBeInTheDocument()
+
+    await user.click(box)
+    expect(set).toHaveBeenCalledWith({ consentSigned: true })
+  })
+
+  it('opens the purposes one by one from the link', async () => {
+    const set = vi.fn()
+    const user = userEvent.setup()
+    renderWithSession(<GuardiansStep draft={filledDraft()} set={set} errors={{}} canAttachExisting={false} />, { capabilities: [...CAPABILITIES] })
+
+    await user.click(screen.getByRole('button', { name: 'Choose purposes one by one' }))
+    expect(set).toHaveBeenCalledWith({ consentMode: 'each' })
+  })
+
+  it('records the purpose the office ticked one by one', async () => {
+    const set = vi.fn()
+    const user = userEvent.setup()
+    renderWithSession(
+      <GuardiansStep draft={{ ...filledDraft(), consentMode: 'each' }} set={set} errors={{}} canAttachExisting={false} />,
+      { capabilities: [...CAPABILITIES] },
+    )
+
+    expect(screen.queryByRole('checkbox', { name: 'The family signed the consent section of the admission form' })).not.toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: /Photographs for Rakesh/ })).not.toBeChecked()
 
     await user.click(screen.getByRole('checkbox', { name: /Photographs for Rakesh/ }))
@@ -236,10 +297,19 @@ describe('admission photograph', () => {
   })
 
   it('says nothing more on the review step once a guardian agreed to photographs', async () => {
-    const draft = filledDraft()
+    const draft = { ...filledDraft(), consentMode: 'each' as const }
     draft.guardians = [{ ...draft.guardians[0]!, consentPurposes: ['photographs'] }]
     renderWithSession(
       <ReviewStep draft={draft} onEdit={() => {}} academicYearId="year-1" yearName="2026-27" photo={PHOTO} />,
+      { capabilities: [...CAPABILITIES] },
+    )
+    expect(await screen.findByText('Chosen')).toBeInTheDocument()
+    expect(screen.queryByText('The photograph will not be saved without consent for photographs.')).not.toBeInTheDocument()
+  })
+
+  it('says nothing more on the review step once the signed admission form is ticked', async () => {
+    renderWithSession(
+      <ReviewStep draft={{ ...filledDraft(), consentSigned: true }} onEdit={() => {}} academicYearId="year-1" yearName="2026-27" photo={PHOTO} />,
       { capabilities: [...CAPABILITIES] },
     )
     expect(await screen.findByText('Chosen')).toBeInTheDocument()

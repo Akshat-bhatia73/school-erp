@@ -29,6 +29,8 @@ const LABELS: FieldLabels = {
   address: 'address',
   aadhaar: 'Aadhaar number',
   apaarId: 'APAAR id',
+  pen: 'PEN',
+  srn: 'SRN',
   bloodGroup: { label: 'blood group', kind: 'select' },
   medicalNotes: 'medical notes',
 }
@@ -118,6 +120,16 @@ export function StudentBasicSheet({ open, onOpenChange, student }: {
   )
 }
 
+/**
+ * A number the record may carry whole: unchanged travels as nothing, emptied travels as null so
+ * the server clears it, anything else is the new value.
+ */
+const clearedToNull = (value: string, initial: string | undefined) => {
+  const next = value.trim()
+  if (next === (initial ?? '')) return undefined
+  return next === '' ? null : next
+}
+
 const GENDERS = ['male', 'female', 'other'] as const
 
 /**
@@ -142,6 +154,9 @@ export function StudentSensitiveSheet({ open, onOpenChange, student, sensitive, 
   // empty and an untouched box changes nothing.
   const [aadhaar, setAadhaar] = useState('')
   const [apaarId, setApaarId] = useState('')
+  // PEN and SRN are shown whole, so they start filled and emptying one clears it.
+  const [pen, setPen] = useState(sensitive?.pen ?? '')
+  const [srn, setSrn] = useState(sensitive?.srn ?? '')
   const [bloodGroup, setBloodGroup] = useState(medical?.bloodGroup ?? '')
   const [medicalNotes, setMedicalNotes] = useState(medical?.medicalNotes ?? '')
   const [errors, setErrors] = useState<FieldErrors>({})
@@ -166,6 +181,8 @@ export function StudentSensitiveSheet({ open, onOpenChange, student, sensitive, 
       address: cleared(address, sensitive?.address),
       aadhaar: trimmed(aadhaar),
       apaarId: trimmed(apaarId),
+      pen: clearedToNull(pen, sensitive?.pen),
+      srn: clearedToNull(srn, sensitive?.srn),
       ...(medical
         ? { bloodGroup: cleared(bloodGroup, medical.bloodGroup), medicalNotes: cleared(medicalNotes, medical.medicalNotes) }
         : {}),
@@ -205,6 +222,12 @@ export function StudentSensitiveSheet({ open, onOpenChange, student, sensitive, 
               hint={sensitive?.apaarMasked ? `On file: ${sensitive.apaarMasked}. Type the full id to replace it.` : undefined}
             >
               <Input value={apaarId} onChange={(e) => setApaarId(e.target.value)} />
+            </Field>
+            <Field label="PEN (UDISE+)" error={errors.pen} hint="11 digits. Empty the box to remove it.">
+              <Input value={pen} inputMode="numeric" aria-label="PEN (UDISE+)" onChange={(e) => setPen(e.target.value.replace(/\D/g, '').slice(0, 11))} />
+            </Field>
+            <Field label="SRN" error={errors.srn} hint="As the state portal shows it.">
+              <Input value={srn} aria-label="SRN" onChange={(e) => setSrn(e.target.value)} />
             </Field>
             <Field label="Address" error={errors.address} className="col-span-2"><Textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} /></Field>
           </div>

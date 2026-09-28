@@ -100,6 +100,7 @@ function Page() {
     mark: row.mark,
     revision: row.entry?.revision,
     editable: true,
+    onLeave: row.onLeave,
   }))
 
   return (

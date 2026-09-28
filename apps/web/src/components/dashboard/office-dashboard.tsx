@@ -6,6 +6,7 @@ import {
   Cake,
   CalendarDays,
   CalendarHeart,
+  CalendarOff,
   CalendarX,
   Check,
   CheckCircle2,
@@ -31,7 +32,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
-import type { DashboardAttentionKey, DashboardBirthday, OfficeDashboard as OfficeDashboardData } from '@erp/contracts'
+import type { DashboardAttentionKey, DashboardBirthday, DashboardLeaveToday, OfficeDashboard as OfficeDashboardData } from '@erp/contracts'
 import { AttentionList, type AttentionListItem } from '@/components/dashboard/blocks/attention-list'
 import { MonthBarChart } from '@/components/dashboard/blocks/bar-chart'
 import { BentoGrid, Cell, DashboardCard, ToneBadge, type Tone } from '@/components/dashboard/blocks/card'
@@ -109,6 +110,12 @@ export function OfficeDashboard({ data, isLoading, error }: { data?: OfficeDashb
               <StatTile size="sm" label="Absent today" value={data.attendance.absent} tone="orange" icon={<UserMinus />} />
             </StatRow>
           </DashboardCard>
+        </Cell>
+      )}
+
+      {data?.leaveToday && (data.leaveToday.staff || data.leaveToday.students) && (
+        <Cell col={4} rows={3}>
+          <LeaveTodayCard leave={data.leaveToday} />
         </Cell>
       )}
 
@@ -307,6 +314,60 @@ function ComingUp({ data }: { data: OfficeDashboardData }) {
               {birthdaysWeek.length > 6 && (
                 <p className="pt-2 text-[12.5px] text-muted-foreground">and {birthdaysWeek.length - 6} more this week</p>
               )}
+            </div>
+          )}
+        </div>
+      )}
+    </DashboardCard>
+  )
+}
+
+/** Who the office recorded leave for today: staff first, then pupils, a few names each. */
+function LeaveTodayCard({ leave }: { leave: DashboardLeaveToday }) {
+  const { staff, students } = leave
+  const nobody = (staff?.count ?? 0) === 0 && (students?.count ?? 0) === 0
+  return (
+    <DashboardCard
+      title="On leave today"
+      description="Leave the office recorded"
+      tone="blue"
+      icon={<CalendarOff />}
+      action={(
+        <Link to="/attendance/leave" search={{ when: 'today' }} className="text-[12.5px] text-muted-foreground link-dotted hover:text-foreground">
+          View all
+        </Link>
+      )}
+      empty={{ icon: <CalendarOff />, title: 'Nobody on leave', description: 'Nobody has leave recorded for today.' }}
+    >
+      {nobody ? undefined : (
+        <div className="flex flex-col gap-3">
+          {staff && staff.count > 0 && (
+            <div>
+              <Heading>{plural(staff.count, 'staff member', 'staff')}</Heading>
+              <SimpleList
+                items={staff.names.map((person) => ({
+                  key: person.id,
+                  leading: <UserAvatar name={person.name} size="sm" />,
+                  primary: person.name,
+                  right: `until ${formatDate(person.endsOn)}`,
+                }))}
+              />
+              {staff.count > staff.names.length && <p className="pt-2 text-[12.5px] text-muted-foreground">and {staff.count - staff.names.length} more</p>}
+            </div>
+          )}
+          {students && students.count > 0 && (
+            <div>
+              <Heading>{plural(students.count, 'student', 'students')}</Heading>
+              <SimpleList
+                items={students.names.map((pupil) => ({
+                  key: pupil.id,
+                  leading: <UserAvatar name={pupil.name} size="sm" />,
+                  primary: pupil.name,
+                  secondary: pupil.section,
+                  right: `until ${formatDate(pupil.endsOn)}`,
+                }))}
+              />
+              {students.count > students.names.length && <p className="pt-2 text-[12.5px] text-muted-foreground">and {students.count - students.names.length} more</p>}
             </div>
           )}
         </div>

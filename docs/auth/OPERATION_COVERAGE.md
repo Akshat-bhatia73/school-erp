@@ -85,6 +85,7 @@ Owner or permission changed:
 | `/attendance/staff` | `staff_attendance.read` / school or self; save uses `staff_attendance.record`, corrections `staff_attendance.manage` | `StaffAttendanceDayResponse` | Task 20 |
 | `/attendance/staff/month` | `staff_attendance.read` / school or self; export uses `staff_attendance.export` | `StaffAttendanceMonthResponse` | Task 20 |
 | `/attendance/staff/:staffId` | `staff_attendance.read` / matched record scope | `StaffAttendanceMemberMonthResponse` | Task 20 |
+| `/attendance/leave` | `attendance.read` or `staff_attendance.read` / matched record scope; record and cancel use `attendance.manage` / `staff_attendance.manage` | `StudentLeaveListResponse`, `StaffLeaveListResponse` | Admin feedback (0028) |
 | `/exams` | `exams.read` / school, assigned subjects, the class-teacher post or own children (the office sees the year's exams, a teacher their own marks sheets, a parent is sent to their child's results) | `ExamListResponse`, `ExamPapersResponse` | Task 21 |
 | `/exams/:examId` | `exams.read` / school (the exam's own row); publishing uses `exams.publish` | `ExamOverview` | Task 21 |
 | `/exams/papers/:paperId` | `exams.read` / matched record scope (the paper); save uses `exams.record_marks` until the re-check deadline, corrections `exams.manage` | `ExamSheet` | Task 21 |
@@ -224,6 +225,10 @@ The attendance module (Task 20) added these. Every one is a `protectedRoute` und
 | `attendance.markStaff`, `attendance.correctStaff` | `staff_attendance.record`, `staff_attendance.manage` / school; privileged; never the caller's own row | `StaffAttendanceDayResponse` | Task 20 |
 | `attendance.staffMemberMonth` | `staff_attendance.read` / matched record scope; every read audited | `StaffAttendanceMemberMonthResponse` | Task 20 |
 | `attendance.exportStaffMonth` | `staff_attendance.export` / school; privileged | `AttendanceExportJob` | Task 20 |
+| `attendance.leaveList` | `attendance.read` / school, assigned sections or own children, through the pupil | `StudentLeaveListResponse` | Recorded leave |
+| `attendance.recordLeave`, `attendance.cancelLeave` | `attendance.manage` / school; privileged; no overlap; the cancel reason is an audit note | `StudentLeaveRecord` | Recorded leave |
+| `attendance.staffLeaveList` | `staff_attendance.read` / school or self | `StaffLeaveListResponse` | Recorded leave |
+| `attendance.recordStaffLeave`, `attendance.cancelStaffLeave` | `staff_attendance.manage` / school; privileged; no overlap; the cancel reason is an audit note | `StaffLeaveRecord` | Recorded leave |
 
 The exams and report cards modules (Task 21) added these. Every one is a `protectedRoute` under
 `/exams` or `/report-cards` except the three logo byte routes, registered by hand like a

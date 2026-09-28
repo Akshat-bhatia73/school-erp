@@ -17,6 +17,7 @@ import {
   attendanceFiguresCte,
   attendancePlans,
   monthBounds,
+  pupilOnLeave,
   readCalendarDay,
   schoolToday,
   toCalendarDay,
@@ -246,11 +247,13 @@ interface DayRosterRow extends RosterRow {
   revision: number | null
   entry_kind: 'marking' | 'correction' | null
   recorded_at: string | null
+  on_leave: boolean
 }
 
 /**
  * One section on one day: the roll, and against each name the current mark,
- * which is the newest row the caller may read.
+ * which is the newest row the caller may read, and whether recorded leave
+ * covers the pupil that day (the screen pre-selects "leave" for them).
  */
 export async function readAttendanceDay(
   conn: AttendanceConnection,
@@ -270,7 +273,8 @@ export async function readAttendanceDay(
     sql`SELECT students.id, students.first_name, students.last_name, students.admission_number,
                enrollments.roll_number,
                cur.id AS entry_id, cur.mark, cur.revision, cur.kind AS entry_kind,
-               to_char(cur.created_at, ${sql.raw(ISO_TIMESTAMP)}) AS recorded_at
+               to_char(cur.created_at, ${sql.raw(ISO_TIMESTAMP)}) AS recorded_at,
+               ${pupilOnLeave(schoolId, sql`students.id`, sql`${date}::date`)} AS on_leave
           FROM enrollments
           JOIN students ON students.school_id = enrollments.school_id AND students.id = enrollments.student_id
           LEFT JOIN LATERAL (
@@ -311,6 +315,7 @@ export async function readAttendanceDay(
             recordedAt: row.recorded_at,
           },
         }),
+    onLeave: row.on_leave === true,
   }))
 
   return AttendanceDayResponse.parse({
@@ -341,6 +346,7 @@ interface MonthDayRow extends CalendarDayRow {
   enrolled: boolean
   mark: AttendanceMark | null
   corrected: boolean | null
+  on_leave: boolean | null
 }
 
 /** One pupil, one month: every day of it and what the month adds up to. */
@@ -380,7 +386,7 @@ export async function readStudentMonth(
   const dayRows = await conn.db.execute<MonthDayRow>(
     sql`${cte}
         SELECT to_char(d.day, 'YYYY-MM-DD') AS day, d.kind, d.holiday_name, d.academic_year_id, d.future,
-               (p.student_id IS NOT NULL) AS enrolled, p.mark, p.corrected
+               (p.student_id IS NOT NULL) AS enrolled, p.mark, p.corrected, p.on_leave
           FROM att_days d
           LEFT JOIN att_pupil_days p ON p.day = d.day AND p.student_id = ${studentId}::uuid
          ORDER BY d.day`,
@@ -417,6 +423,7 @@ export async function readStudentMonth(
     enrolled: row.enrolled,
     ...(row.mark === null ? {} : { mark: row.mark }),
     ...(row.corrected === null ? {} : { corrected: row.corrected }),
+    ...(row.on_leave === true ? { onLeave: true } : {}),
   }))
   const klassRow = klass.rows[0]
 
@@ -452,6 +459,7 @@ interface PupilDayRow extends Record<string, unknown> {
   day: string
   mark: AttendanceMark | null
   corrected: boolean | null
+  on_leave: boolean | null
 }
 
 /** True when a month and a year share at least a day. */
@@ -519,7 +527,7 @@ export async function readSectionMonth(
   )
   const markRows = await conn.db.execute<PupilDayRow>(
     sql`${cte}
-        SELECT student_id, to_char(day, 'YYYY-MM-DD') AS day, mark, corrected FROM att_pupil_days`,
+        SELECT student_id, to_char(day, 'YYYY-MM-DD') AS day, mark, corrected, on_leave FROM att_pupil_days`,
   )
   const figureRows = await conn.db.execute<FiguresRow>(sql`${cte} SELECT * FROM att_figures`)
 
@@ -549,6 +557,7 @@ export async function readSectionMonth(
           enrolled: found !== undefined,
           ...(found?.mark == null ? {} : { mark: found.mark }),
           ...(found?.corrected == null ? {} : { corrected: found.corrected }),
+          ...(found?.on_leave === true ? { onLeave: true } : {}),
         }
       }),
       summary: toSummary(figures.get(pupil.student_id)),

@@ -9,6 +9,8 @@ import type { ExportFile } from './types.ts'
 /** All the runner needs, so the daily route can call it as easily as a route. */
 export interface ExportDependencies {
   readonly documents: DocumentStorage
+  /** The data encryption key, for the one producer that may open a sealed number. */
+  readonly config: { readonly DATA_ENCRYPTION_KEY: string }
 }
 
 /** The extension a stored key ends in, decided by the bytes we produced. */
@@ -80,7 +82,10 @@ async function tryProduce(
   if (!producer) return null
   await conn.client.query('SAVEPOINT export_produce')
   try {
-    const file = await producer.produce(conn, context, criteria, { documents: deps.documents })
+    const file = await producer.produce(conn, context, criteria, {
+      documents: deps.documents,
+      encryptionKey: deps.config.DATA_ENCRYPTION_KEY,
+    })
     await conn.client.query('RELEASE SAVEPOINT export_produce')
     return file
   } catch {

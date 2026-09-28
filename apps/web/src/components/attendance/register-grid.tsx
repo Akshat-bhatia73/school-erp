@@ -13,6 +13,8 @@ export interface RegisterGridCell {
   /** True when the person was on the roster or the register that day. */
   on: boolean
   mark?: AttendanceMark
+  /** True when the office recorded leave covering the day. With no mark, the day counts as leave. */
+  onLeave?: boolean
 }
 
 export interface RegisterGridRow {
@@ -24,6 +26,9 @@ export interface RegisterGridRow {
   summary: AttendanceSummary
   to?: string
 }
+
+/** How a school day inside recorded leave stands out in a calendar, a grid and their legend. */
+export const LEAVE_DAY = 'border-dashed border-tag-blue/60 bg-tag-blue/6'
 
 const MARK_TEXT: Record<AttendanceMark, string> = {
   present: 'text-tag-green',
@@ -44,6 +49,13 @@ function DayCell({ day, cell }: { day: RegisterGridDay; cell: RegisterGridCell |
     )
   }
   if (off) return <td className="border-l bg-muted/40 px-1 text-center" />
+  if (cell.onLeave) {
+    return (
+      <td data-on-leave className="border-l bg-tag-blue/6 px-1 text-center text-[12px] text-tag-blue/70" title="Leave recorded by the office">
+        {MARK_SHORT.leave}
+      </td>
+    )
+  }
   return (
     <td className="border-l px-1 text-center">
       <span className="inline-block size-1.5 rounded-full bg-muted-foreground/40" />
@@ -51,8 +63,11 @@ function DayCell({ day, cell }: { day: RegisterGridDay; cell: RegisterGridCell |
   )
 }
 
-/** The legend under a grid, so the letters need no explaining. */
-export function MarkLegend({ className }: { className?: string }) {
+/**
+ * The legend under a grid, so the letters need no explaining. With `leave` it
+ * also explains a day the office recorded leave for and nobody marked.
+ */
+export function MarkLegend({ className, leave = false }: { className?: string; leave?: boolean }) {
   return (
     <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted-foreground', className)}>
       {(Object.keys(MARK_SHORT) as AttendanceMark[]).map((mark) => (
@@ -62,6 +77,12 @@ export function MarkLegend({ className }: { className?: string }) {
         </span>
       ))}
       <span className="flex items-center gap-1.5"><span className="inline-block size-1.5 rounded-full bg-muted-foreground/40" />not marked</span>
+      {leave ? (
+        <span className="flex items-center gap-1.5">
+          <span className={cn('inline-block size-3 rounded border', LEAVE_DAY)} />
+          leave recorded by the office
+        </span>
+      ) : null}
     </div>
   )
 }

@@ -9,7 +9,7 @@ import type { BellScheduleRecord } from '@/lib/api/timetable'
 import { describeError, isApiError } from '@/lib/api-errors'
 import { EmptyState, PageHeader, Panel } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
-import { TimetableTabs } from '@/components/timetable/timetable-tabs'
+import { SetupTabs } from '@/components/setup/setup-tabs'
 import { DAY_LABELS, WEEK_DAYS } from '@/components/timetable/day-selector'
 import { NoAcademicYearState } from '@/components/timetable/states'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -165,7 +165,7 @@ export function Page() {
       setFormError(null)
       return api.timetable.updateBellSchedule(schoolId, bell!.id, parsed.data)
     },
-    onSuccess: () => { invalidate(); toast.success('Saved the bell schedule') },
+    onSuccess: () => { invalidate(); toast.success('Saved the periods') },
     onError: (error) => { if (error instanceof Error && error.message === 'invalid') return; toast.error(describeError(error)) },
   })
 
@@ -234,11 +234,11 @@ export function Page() {
   return (
     <>
       <PageHeader
-        crumbs={[{ label: 'Timetable' }, { label: 'Bell schedule' }]}
+        crumbs={[{ label: 'School setup' }, { label: 'Periods' }]}
         actions={<span className="flex items-center gap-2">{addButton}{saveButton}</span>}
         hideOnMobile
       />
-      <TimetableTabs actions={compactSaveButton} />
+      <SetupTabs actions={compactSaveButton} />
       <div className="flex min-h-0 flex-1">
         {schedules.length > 1 && (
           <aside className="w-56 shrink-0 overflow-auto border-r bg-card scrollbar-thin">
@@ -259,7 +259,7 @@ export function Page() {
           ) : listRefused ? (
             <EmptyState icon={<Bell />} title={describeError(schedulesQuery.error)} />
           ) : !draft || !bell ? (
-            <EmptyState icon={<Bell />} title="No bell schedule yet" description="A bell schedule decides which periods exist in the school day." action={addButton} />
+            <EmptyState icon={<Bell />} title="No periods set up yet" description="The periods decide the lessons and breaks in the school day." action={addButton} />
           ) : (
             <div className="flex gap-4">
               <div className="min-w-0 flex-1">

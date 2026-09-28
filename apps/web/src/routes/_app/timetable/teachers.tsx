@@ -127,7 +127,7 @@ export function Page() {
   ) : isApiError(gridQuery.error) ? (
     <EmptyState icon={<CalendarDays />} title={describeError(gridQuery.error)} />
   ) : !bell ? (
-    <EmptyState icon={<CalendarDays />} title="No periods set up yet" description="Set up periods on the Bell schedule tab to see the week." />
+    <EmptyState icon={<CalendarDays />} title="No periods set up yet" description="Set up periods in School setup, under Periods, to see the week." />
   ) : (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto scrollbar-thin">
       <DaySelector days={workingDays} value={shownDay} onChange={setDay} />

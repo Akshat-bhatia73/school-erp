@@ -57,7 +57,7 @@ vi.mock('@/lib/api', () => ({
 const { api } = await import('@/lib/api')
 const { Route: DirectoryRoute } = await import('@/routes/_app/staff/index')
 const { TeachingTab } = await import('./teaching-tab')
-const { StaffEmploymentSheet } = await import('./edit-sheet')
+const { StaffContactSheet, StaffEmploymentSheet } = await import('./edit-sheet')
 const { Route: RecordRoute } = await import('@/routes/_app/staff/$staffId')
 const { Route: AddStaffRoute } = await import('@/routes/_app/staff/new')
 
@@ -114,10 +114,12 @@ describe('staff directory', () => {
     vi.mocked(api.files.exportJob).mockResolvedValue({ id: 'job-1', status: 'ready', fileName: 'staff.xlsx' })
     vi.mocked(api.files.downloadExportFile).mockResolvedValue({ blob: new Blob(['x']), fileName: 'staff.xlsx' })
 
+    window.localStorage.clear()
     renderWithSession(<Directory />, { capabilities: ['staff.read_directory', 'staff.export'] })
     await screen.findByText('Anita Sharma')
     await userEvent.click(screen.getAllByRole('checkbox')[1] as HTMLElement)
     await userEvent.click(screen.getAllByRole('button', { name: /export to excel/i })[0] as HTMLElement)
+    await userEvent.click(await screen.findByRole('button', { name: 'Export 1 staff' }))
 
     await waitFor(() => expect(api.staff.export).toHaveBeenCalledWith(SCHOOL_ID, { staffIds: ['staff-1'] }))
     await waitFor(() => expect(api.files.downloadExportFile).toHaveBeenCalledWith(SCHOOL_ID, 'job-1'))
@@ -317,5 +319,49 @@ describe('staff photo', () => {
 
     expect(await screen.findByRole('heading', { name: 'Anita Sharma' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Add photo')).not.toBeInTheDocument()
+  })
+})
+
+describe('staff Aadhaar', () => {
+  const contactDetail = (aadhaarLast4?: string) => ({
+    staff: anita,
+    private: { phone: '+919876543210', address: '12 Fixture Road', ...(aadhaarLast4 ? { aadhaarLast4 } : {}) },
+    allowedActions: ['staff.read_directory' as const, 'staff.read_private' as const, 'staff.update_private' as const],
+  })
+
+  it('shows the last four digits in the private block', async () => {
+    vi.mocked(api.staff.get).mockResolvedValue(contactDetail('1234'))
+    renderWithSession(<StaffRecord />, { capabilities: ['staff.read_directory'] })
+
+    expect(await screen.findByText('ending 1234')).toBeInTheDocument()
+  })
+
+  it('sends a typed number with the version the person was shown', async () => {
+    vi.mocked(api.staff.updatePrivate).mockResolvedValue(contactDetail('0124'))
+    renderWithSession(<StaffContactSheet detail={contactDetail()} open onOpenChange={() => {}} />, { capabilities: ['staff.update_private'] })
+
+    await userEvent.type(screen.getByLabelText('Aadhaar number'), '234567890124')
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(api.staff.updatePrivate).toHaveBeenCalled())
+    expect(vi.mocked(api.staff.updatePrivate).mock.calls[0]?.[2]).toMatchObject({ expectedVersion: 4, aadhaar: '234567890124' })
+  })
+
+  it('clears a number on file by sending null, and leaves it alone when untouched', async () => {
+    vi.mocked(api.staff.updatePrivate).mockResolvedValue(contactDetail())
+    const first = renderWithSession(<StaffContactSheet detail={contactDetail('1234')} open onOpenChange={() => {}} />, { capabilities: ['staff.update_private'] })
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(api.staff.updatePrivate).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(api.staff.updatePrivate).mock.calls[0]?.[2]?.aadhaar).toBeUndefined()
+    first.unmount()
+
+    renderWithSession(<StaffContactSheet detail={contactDetail('1234')} open onOpenChange={() => {}} />, { capabilities: ['staff.update_private'] })
+    expect(screen.getByText('ending 1234')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(screen.getByText('Removed when you save')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(api.staff.updatePrivate).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(api.staff.updatePrivate).mock.calls[1]?.[2]).toMatchObject({ aadhaar: null })
   })
 })

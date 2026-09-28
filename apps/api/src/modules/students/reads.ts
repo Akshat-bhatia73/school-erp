@@ -90,6 +90,8 @@ export interface StudentRow extends Record<string, unknown> {
   apaar_ciphertext?: string | null
   aadhaar_last4?: string | null
   aadhaar_ciphertext?: string | null
+  pen?: string | null
+  srn?: string | null
   address?: string | null
   /** Present only when the caller asked for the medical block. */
   blood_group?: string | null
@@ -147,7 +149,7 @@ export function studentProjection(options: StudentReadOptions): SQL {
     ? sql`, students.date_of_birth::text AS date_of_birth, students.gender, students.category,
       students.admission_type, students.admission_date::text AS admission_date,
       students.apaar_last4, students.apaar_ciphertext,
-      students.aadhaar_last4, students.aadhaar_ciphertext,
+      students.aadhaar_last4, students.aadhaar_ciphertext, students.pen, students.srn,
       COALESCE(students.address #>> '{}', students.address::text) AS address`
     : sql``
   const medical = options.medical

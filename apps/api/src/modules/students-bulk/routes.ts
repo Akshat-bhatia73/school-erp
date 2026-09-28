@@ -10,6 +10,7 @@ import {
   PromoteStudentsRequest,
   PromotionPreview,
   PromotionResult,
+  STUDENT_EXPORT_COLUMNS,
   StudentExportJob,
   StudentImportPreview,
   StudentsImportPreviewRequest,
@@ -18,6 +19,7 @@ import {
 import { photoMoment } from '../students/project.ts'
 import { issueStudentLogins } from '../../memberships/student-logins.ts'
 import { createAndMaybeProduce } from '../../exports/run.ts'
+import { assertColumnKeysHeld, inListOrder } from '../../exports/columns.ts'
 import type { ModuleDependencies } from '../shared/route.ts'
 import { protectedRoute } from '../shared/route.ts'
 import { ApiFailure } from '../shared/errors.ts'
@@ -416,6 +418,14 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
         if ((counted[0]?.total ?? 0) !== body.studentIds.length) {
           throw new ApiFailure('RESOURCE_NOT_FOUND')
         }
+        // A chosen column whose key the caller holds in no scope at all is
+        // refused whole; one held for only some rows is decided per row by
+        // the producer, which leaves the other rows' cells empty.
+        const columns =
+          body.columns === undefined ? undefined : inListOrder(body.columns, STUDENT_EXPORT_COLUMNS)
+        if (columns !== undefined) {
+          await assertColumnKeysHeld(conn, context, columns, STUDENT_EXPORT_COLUMNS, 'student')
+        }
 
         const job = await conn.client.query<{ id: string }>(
           `INSERT INTO export_jobs
@@ -428,7 +438,10 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
             context.schoolId,
             context.membershipId,
             context.accessVersion,
-            JSON.stringify({ studentIds: body.studentIds }),
+            JSON.stringify({
+              studentIds: body.studentIds,
+              ...(columns === undefined ? {} : { columns }),
+            }),
             body.studentIds.length,
           ],
         )
@@ -440,7 +453,11 @@ export function registerStudentBulkRoutes(app: FastifyInstance, deps: ModuleDepe
           targetType: 'export_job',
           targetId: row.id,
           summary: 'Requested an export of a chosen set of students.',
-          safeChanges: { rowCount: body.studentIds.length },
+          // The column keys, never a value from them.
+          safeChanges: {
+            rowCount: body.studentIds.length,
+            ...(columns === undefined ? {} : { columns }),
+          },
         })
         // A small export is produced here, so the answer already names a file
         // to download. A big one stays queued for the daily route. Either way

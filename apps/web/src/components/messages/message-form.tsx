@@ -31,10 +31,12 @@ import {
   noticePlaceholders,
   previewSentence,
   rangeInOrder,
+  RECIPIENTS_HELP,
   RECIPIENTS_LABEL,
   type AudienceChoice,
 } from '@/components/messages/labels'
 import { PlaceholderList } from '@/components/messages/placeholder-list'
+import { usePupilLogins } from '@/components/messages/use-pupil-logins'
 import { Panel } from '@/components/shared/page'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -102,7 +104,12 @@ export function MessageForm({ message }: { message?: MessageRecord }) {
   // A range whose first class comes after its last is refused by the server, so it is not previewed.
   const rangeBackwards = choice.kind === 'grade_range' && Boolean(choice.fromGradeId && choice.toGradeId)
     && !rangeInOrder(options?.grades ?? [], choice.fromGradeId, choice.toGradeId)
-  const audience = rangeBackwards ? null : audienceInputOf(choice)
+  const chosenAudience = rangeBackwards ? null : audienceInputOf(choice)
+  // With no pupil in the audience holding a login, the choice is hidden and the message goes to parents.
+  const pupilLogins = usePupilLogins(chosenAudience)
+  const audience = pupilLogins === 'none' && chosenAudience && chosenAudience.kind !== 'staff'
+    ? { ...chosenAudience, recipients: 'families' as const }
+    : chosenAudience
   const previewQuery = useQuery({
     queryKey: qk.messages.audiencePreview(schoolId, audience ?? undefined),
     queryFn: () => api.messages.audiencePreview(schoolId, audience!),
@@ -322,7 +329,7 @@ export function MessageForm({ message }: { message?: MessageRecord }) {
                   onClear={() => { setChoice({ ...choice, studentId: '' }); setPupilName('') }}
                 />
               )}
-              {hasRecipients(choice.kind) && (
+              {hasRecipients(choice.kind) && pupilLogins === 'some' && (
                 <div className="space-y-1.5">
                   <p className="text-[12.5px] text-muted-foreground">Send to</p>
                   <RadioGroup
@@ -335,9 +342,7 @@ export function MessageForm({ message }: { message?: MessageRecord }) {
                       <Label key={value} className="flex items-center gap-2 text-[13.5px] font-normal"><RadioGroupItem value={value} />{RECIPIENTS_LABEL[value]}</Label>
                     ))}
                   </RadioGroup>
-                  {choice.recipients !== 'families' && (
-                    <p className="text-[12px] text-muted-foreground">Pupils in Class 9 to 12 with a login read it in the app. Other pupils get nothing.</p>
-                  )}
+                  <p className="text-[12px] text-muted-foreground">{RECIPIENTS_HELP}</p>
                 </div>
               )}
               {errors.audience && <p role="alert" className="text-[12.5px] text-tag-red">{errors.audience}</p>}

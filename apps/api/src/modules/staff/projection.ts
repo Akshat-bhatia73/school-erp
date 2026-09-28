@@ -110,6 +110,8 @@ export function toPrivate(row: StaffRow): StaffDetailDto['private'] {
     ...(row.bankAccountLast4 && /^\d{4}$/.test(row.bankAccountLast4)
       ? { bankAccountLast4: row.bankAccountLast4 }
       : {}),
+    // The last four digits only; the sealed number never leaves the database.
+    ...(row.aadhaarLast4 && /^\d{4}$/.test(row.aadhaarLast4) ? { aadhaarLast4: row.aadhaarLast4 } : {}),
   }
   // A stored phone that is not in the contract's international shape (an older
   // ten digit Indian number, say) must not fail the whole detail read: the

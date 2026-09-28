@@ -1321,3 +1321,271 @@ test('promoting the first page leaves only the rest to promote', async () => {
   assert.equal(after.students.length, BIG_ROLL - moved.length)
   assert.equal(after.students.some((student) => moved.includes(student.id)), false)
 })
+
+test('an imported row keeps the APAAR id sealed and the PEN and SRN as typed', async () => {
+  const admissionNumber = `BULK-${stamp}-gov`
+  const apaarId = '445566778899'
+  const preview = await owner.fetch(`${base()}/import/preview`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      academicYearId: yearA,
+      rows: [sheetRow({ rowNumber: 1, admissionNumber, apaarId, pen: '11122233344', srn: 'UP/77-12' })],
+    }),
+  })
+  assert.equal(preview.status, 201)
+  const staged = (await preview.json()) as { id: string; version: number; validRows: number }
+  assert.equal(staged.validRows, 1)
+
+  // Sealed in the staged copy exactly like the Aadhaar number.
+  const stored = await adminPool().query<{ rows: Record<string, unknown>[] }>(
+    'SELECT rows FROM student_import_previews WHERE school_id = $1 AND id = $2',
+    [schoolA, staged.id],
+  )
+  assert.equal(JSON.stringify(stored.rows[0]?.rows).includes(apaarId), false)
+  const storedRow = stored.rows[0]?.rows[0] as { apaarId?: { ciphertext: string; last4: string }; pen?: string }
+  assert.equal(storedRow.apaarId?.last4, '8899')
+  assert.match(storedRow.apaarId?.ciphertext ?? '', /^v1\./)
+  assert.equal(storedRow.pen, '11122233344')
+
+  const committed = await owner.fetch(`${base()}/import/commit`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ previewId: staged.id, expectedVersion: staged.version }),
+  })
+  assert.equal(committed.status, 201)
+  const student = await adminPool().query<{ apaar_ciphertext: string; apaar_last4: string; pen: string; srn: string }>(
+    'SELECT apaar_ciphertext, apaar_last4, pen, srn FROM students WHERE school_id = $1 AND admission_number = $2',
+    [schoolA, admissionNumber],
+  )
+  assert.equal(student.rows[0]?.apaar_last4, '8899')
+  assert.match(student.rows[0]?.apaar_ciphertext ?? '', /^v1\./)
+  assert.equal(student.rows[0]?.pen, '11122233344')
+  assert.equal(student.rows[0]?.srn, 'UP/77-12')
+})
+
+test('an imported APAAR id too short to mask is a row error, not a stored value', async () => {
+  const preview = await owner.fetch(`${base()}/import/preview`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ academicYearId: yearA, rows: [sheetRow({ rowNumber: 1, apaarId: '12' })] }),
+  })
+  assert.equal(preview.status, 201)
+  const staged = (await preview.json()) as { validRows: number; errors: { field: string }[] }
+  assert.equal(staged.validRows, 0)
+  assert.deepEqual(staged.errors.map((error) => error.field), ['apaarId'])
+})
+
+/** The export as a grid of text: the header row first, then one row per student. */
+async function exportGrid(
+  client: Client,
+  request: Record<string, unknown>,
+): Promise<{ jobId: string; grid: string[][] }> {
+  const response = await client.fetch(`${base()}/export`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(request),
+  })
+  assert.equal(response.status, 202)
+  const job = (await response.json()) as { id: string; status: string }
+  assert.equal(job.status, 'ready')
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load((await readExportFileBytes(server, job.id)) as unknown as ArrayBuffer)
+  const sheet = workbook.worksheets[0]
+  assert.ok(sheet)
+  const grid: string[][] = []
+  sheet.eachRow((row) => {
+    const cells: string[] = []
+    for (let index = 1; index <= sheet.columnCount; index += 1) {
+      const value = row.getCell(index).value
+      cells.push(value === null || value === undefined ? '' : String(value))
+    }
+    grid.push(cells)
+  })
+  return { jobId: job.id, grid }
+}
+
+async function admissionNumberOf(studentId: string): Promise<string> {
+  const found = await adminPool().query<{ admission_number: string }>(
+    'SELECT admission_number FROM students WHERE id = $1',
+    [studentId],
+  )
+  return found.rows[0]?.admission_number as string
+}
+
+async function exportAudit(jobId: string): Promise<Record<string, unknown>> {
+  const found = await adminPool().query<{ safe_changes: Record<string, unknown> }>(
+    `SELECT safe_changes FROM audit_events WHERE school_id = $1 AND target_id = $2 AND action = 'students.export'`,
+    [schoolA, jobId],
+  )
+  assert.equal(found.rowCount, 1)
+  return found.rows[0]?.safe_changes as Record<string, unknown>
+}
+
+async function linkGuardian(
+  studentId: string,
+  firstName: string,
+  phone: string,
+  relation: string,
+  isPrimary: boolean,
+  age: string,
+): Promise<void> {
+  const pool = adminPool()
+  const guardian = await pool.query<{ id: string }>(
+    'INSERT INTO guardians (school_id, first_name, last_name, phone) VALUES ($1, $2, $3, $4) RETURNING id',
+    [schoolA, firstName, 'Export', phone],
+  )
+  await pool.query(
+    `INSERT INTO student_guardians (school_id, student_id, guardian_id, relation, is_primary, created_at)
+     VALUES ($1, $2, $3, $4, $5, now() - $6::interval)`,
+    [schoolA, studentId, guardian.rows[0]?.id, relation, isPrimary, age],
+  )
+}
+
+test('a student export that names no columns is the six roster columns it always was', async () => {
+  const first = await seatStudent()
+  const second = await seatStudent()
+  const { jobId, grid } = await exportGrid(owner, { studentIds: [first, second] })
+  assert.deepEqual(grid[0], ['Admission number', 'Name', 'Class', 'Section', 'Roll number', 'Status'])
+  const numbers = [await admissionNumberOf(first), await admissionNumberOf(second)].sort()
+  assert.deepEqual(grid.slice(1).map((row) => row[0]), numbers)
+  assert.deepEqual(grid.slice(1).map((row) => [row[1], row[5]]), [['Seated', 'active'], ['Seated', 'active']])
+
+  const job = await adminPool().query<{ criteria: Record<string, unknown> }>(
+    'SELECT criteria FROM export_jobs WHERE id = $1',
+    [jobId],
+  )
+  assert.equal('columns' in (job.rows[0]?.criteria ?? {}), false)
+  assert.equal('columns' in (await exportAudit(jobId)), false)
+})
+
+test('chosen columns come in the list order, with each parent picked by relation', async () => {
+  const student = await seatStudent()
+  await adminPool().query(`UPDATE students SET pen = '22233344455', blood_group = 'B+' WHERE id = $1`, [student])
+  // Two fathers: the older link wins. The mother is the primary guardian, so
+  // she is also the main contact.
+  await linkGuardian(student, 'Older', '+919800000001', 'father', false, '2 days')
+  await linkGuardian(student, 'Newer', '+919800000002', 'father', false, '1 day')
+  await linkGuardian(student, 'Mother', '+919800000003', 'mother', true, '1 hour')
+
+  const columns = ['pen', 'guardianName', 'name', 'fatherName', 'motherPhone', 'bloodGroup', 'admissionNumber']
+  const { jobId, grid } = await exportGrid(owner, { studentIds: [student], columns })
+  assert.deepEqual(grid[0], [
+    'Admission number', 'Name', "Father's name", "Mother's phone", 'Main contact name', 'Blood group', 'PEN (UDISE+)',
+  ])
+  assert.deepEqual(grid[1], [
+    await admissionNumberOf(student), 'Seated', 'Older Export', '+919800000003', 'Mother Export', 'B+', '22233344455',
+  ])
+
+  // The job and its one audit row name the keys, in file order, and no value.
+  const ordered = ['admissionNumber', 'name', 'fatherName', 'motherPhone', 'guardianName', 'bloodGroup', 'pen']
+  const job = await adminPool().query<{ criteria: { columns?: string[] } }>(
+    'SELECT criteria FROM export_jobs WHERE id = $1',
+    [jobId],
+  )
+  assert.deepEqual(job.rows[0]?.criteria.columns, ordered)
+  const audit = await exportAudit(jobId)
+  assert.deepEqual(audit.columns, ordered)
+  assert.equal(JSON.stringify(audit).includes('22233344455'), false)
+})
+
+test('a row outside a column key leaves that cell empty and keeps the row', async () => {
+  // The teacher reads guardian contacts for her own class only. An exception
+  // lets her export a pupil of another class too, so that pupil is in her
+  // file but his parents' phone numbers are not hers to put there.
+  const mine = await seatStudent()
+  const other = await seatStudent(otherSectionA)
+  await linkGuardian(mine, 'Mine', '+919800000011', 'mother', true, '1 hour')
+  await linkGuardian(other, 'Other', '+919800000012', 'mother', true, '1 hour')
+  const pool = adminPool()
+  const rule = await pool.query<{ id: string }>(
+    `INSERT INTO resource_access_rules
+       (school_id, membership_id, permission, effect, target_type, academic_year_id, section_id,
+        effective_from, reason, author_membership_id)
+     VALUES ($1, $2, 'students.export', 'allow', 'section', $3, $4, now() - interval '1 minute', 'Export test', $5)
+     RETURNING id`,
+    [schoolA, adult, yearA, otherSectionA, fixtureIds.ownerA],
+  )
+  let grid: string[][] = []
+  try {
+    grid = (await exportGrid(teacher, { studentIds: [mine, other], columns: ['admissionNumber', 'guardianPhone'] }))
+      .grid
+  } finally {
+    await pool.query('DELETE FROM resource_access_rules WHERE id = $1', [rule.rows[0]?.id])
+  }
+  assert.deepEqual(grid[0], ['Admission number', 'Main contact phone'])
+  const byNumber = new Map(grid.slice(1).map((row) => [row[0], row[1]]))
+  assert.equal(byNumber.size, 2)
+  assert.equal(byNumber.get(await admissionNumberOf(mine)), '+919800000011')
+  assert.equal(byNumber.get(await admissionNumberOf(other)), '')
+
+  // A column whose key she holds nowhere at all is refused whole.
+  const refused = await teacher.fetch(`${base()}/export`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ studentIds: [mine], columns: ['admissionNumber', 'pen'] }),
+  })
+  assert.equal(refused.status, 403)
+  assert.equal(await readError(refused), 'ACCESS_DENIED')
+})
+
+test('the whole Aadhaar number goes only into the owner or administrator file', async () => {
+  const student = await seatStudent()
+  const aadhaar = makeAadhaar()
+  const saved = await owner.fetch(`${base()}/${student}/sensitive`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ expectedVersion: 1, aadhaar }),
+  })
+  assert.equal(saved.status, 200)
+  // A row with no sensitive date of birth still exports its identity columns.
+  const { grid } = await exportGrid(owner, {
+    studentIds: [student],
+    columns: ['admissionNumber', 'aadhaarLast4', 'aadhaar'],
+  })
+  assert.deepEqual(grid[0], ['Admission number', 'Aadhaar (last 4 digits)', 'Aadhaar (full number)'])
+  assert.deepEqual(grid[1], [await admissionNumberOf(student), aadhaar.slice(-4), aadhaar])
+
+  // A principal exports students but holds no export identity key at all, so
+  // asking for the column is refused and no job is written.
+  const pool = adminPool()
+  const userId = randomUUID()
+  const membershipId = randomUUID()
+  const email = `bulk-principal-${randomUUID()}@example.test`
+  await pool.query('INSERT INTO auth_user (id, name, email) VALUES ($1, $2, $3)', [userId, 'Export Principal', email])
+  await pool.query(
+    `INSERT INTO school_memberships (id, school_id, user_id, kind, status) VALUES ($1, $2, $3, 'adult', 'active')`,
+    [membershipId, schoolA, userId],
+  )
+  await pool.query(
+    `INSERT INTO membership_roles (school_id, membership_id, role_id)
+     SELECT $1, $2, id FROM roles WHERE school_id = $1 AND key = 'principal'`,
+    [schoolA, membershipId],
+  )
+  const principal = await signInWithMfa(server, { userId, email, password: PASSWORD })
+  const jobsBefore = await pool.query<{ total: number }>(
+    'SELECT count(*)::int AS total FROM export_jobs WHERE school_id = $1 AND requested_by_membership_id = $2',
+    [schoolA, membershipId],
+  )
+  const refused = await principal.fetch(`${base()}/export`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ studentIds: [student], columns: ['admissionNumber', 'aadhaar'] }),
+  })
+  assert.equal(refused.status, 403)
+  assert.equal(await readError(refused), 'ACCESS_DENIED')
+  const jobsAfter = await pool.query<{ total: number }>(
+    'SELECT count(*)::int AS total FROM export_jobs WHERE school_id = $1 AND requested_by_membership_id = $2',
+    [schoolA, membershipId],
+  )
+  assert.equal(jobsAfter.rows[0]?.total, jobsBefore.rows[0]?.total)
+
+  // The last four digits are the principal's to export.
+  const allowed = await exportGrid(principal, { studentIds: [student], columns: ['admissionNumber', 'aadhaarLast4'] })
+  assert.deepEqual(allowed.grid[1], [await admissionNumberOf(student), aadhaar.slice(-4)])
+  await pool.query('DELETE FROM export_jobs WHERE school_id = $1 AND requested_by_membership_id = $2', [
+    schoolA,
+    membershipId,
+  ])
+  await pool.query('DELETE FROM auth_two_factor WHERE user_id = $1', [userId])
+})

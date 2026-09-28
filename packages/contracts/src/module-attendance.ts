@@ -274,6 +274,8 @@ export const AttendanceRegisterRow = z.strictObject({
       enrolled: z.boolean(),
       mark: AttendanceMark.optional(),
       corrected: z.boolean().optional(),
+      /** True when an active leave record covers the day. With no mark, the day counts as leave. */
+      onLeave: z.boolean().optional(),
     }),
   ).max(31),
   summary: AttendanceSummary,
@@ -385,6 +387,8 @@ export const StaffAttendanceRegisterRow = z.strictObject({
       onRegister: z.boolean(),
       mark: AttendanceMark.optional(),
       corrected: z.boolean().optional(),
+      /** True when an active leave record covers the day. With no mark, the day counts as leave. */
+      onLeave: z.boolean().optional(),
     }),
   ).max(31),
   summary: AttendanceSummary,

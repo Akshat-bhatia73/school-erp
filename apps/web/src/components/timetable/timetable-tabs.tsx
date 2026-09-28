@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { PageTabs } from '@/components/shared/page'
 import { useSchoolContext } from '@/lib/session'
 
-/** The Timetable tabs, shared by every timetable screen. */
+/** The Timetable tabs, shared by every timetable screen. Periods moved to School setup. */
 export function TimetableTabs({ actions }: { actions?: ReactNode }) {
   const { hasPermission } = useSchoolContext()
   const canReadLoads = hasPermission('timetable.read_teacher_loads')
@@ -14,7 +14,6 @@ export function TimetableTabs({ actions }: { actions?: ReactNode }) {
     { label: 'Class timetable', to: '/timetable' },
     ...(showStaffTab ? [{ label: canReadLoads ? 'Teachers' : 'My timetable', to: '/timetable/teachers' }] : []),
     { label: 'Substitutions', to: '/timetable/substitutions' },
-    { label: 'Bell schedule', to: '/timetable/periods' },
   ]
 
   return <PageTabs tabs={tabs} actions={actions} />

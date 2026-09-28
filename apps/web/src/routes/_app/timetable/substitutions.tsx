@@ -82,13 +82,33 @@ export function Page() {
   // Start each day fresh: yesterday's away list must not leak into today.
   useEffect(() => { setExtraAbsent([]); setDismissed([]); setReasons({}) }, [date])
 
+  // Recorded leave on the chosen day, for people who may read the staff
+  // register: somebody on leave is away and needs cover, and is not free.
+  const canReadStaffLeave = hasPermission('staff_attendance.read')
+  const leaveParams = { from: date, to: date }
+  const leaveQuery = useQuery({
+    queryKey: qk.leave.staff(schoolId, leaveParams),
+    queryFn: () => api.leave.listStaff(schoolId, leaveParams),
+    enabled: canReadStaffLeave,
+  })
+  const onLeave = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string }>()
+    for (const record of leaveQuery.data?.items ?? []) {
+      if (record.status !== 'active' || record.startsOn > date || record.endsOn < date) continue
+      byId.set(record.staff.id, { id: record.staff.id, name: record.staff.name })
+    }
+    return byId
+  }, [leaveQuery.data, date])
+  const onLeaveIds = useMemo(() => [...onLeave.keys()], [onLeave])
+
   const absentTeachers = useMemo(() => {
     const byId = new Map<string, { id: string; name: string }>()
     for (const s of subs) byId.set(s.absentTeacher.id, s.absentTeacher)
     for (const t of extraAbsent) if (!byId.has(t.id)) byId.set(t.id, t)
+    for (const t of onLeave.values()) if (!byId.has(t.id)) byId.set(t.id, t)
     for (const id of dismissed) byId.delete(id)
     return [...byId.values()]
-  }, [subs, extraAbsent, dismissed])
+  }, [subs, extraAbsent, onLeave, dismissed])
 
   // The free-teacher read is gated on this permission, so people without it
   // are not shown a panel they cannot fill.
@@ -175,7 +195,7 @@ export function Page() {
             </Panel>
 
             {canSeeFreeTeachers && yearId ? (
-              <FreeTeachersToday academicYearId={yearId} dayOfWeek={dayOfWeek} bell={bell} weekday={weekday} />
+              <FreeTeachersToday academicYearId={yearId} dayOfWeek={dayOfWeek} bell={bell} weekday={weekday} excludedIds={onLeaveIds} />
             ) : null}
 
             {absentTeachers.length === 0 ? (
@@ -185,6 +205,8 @@ export function Page() {
                 key={t.id}
                 staffId={t.id}
                 staffName={t.name}
+                onLeave={onLeave.has(t.id)}
+                unavailableIds={onLeaveIds}
                 date={date}
                 dayOfWeek={dayOfWeek}
                 academicYearId={yearId}

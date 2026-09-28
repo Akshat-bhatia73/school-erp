@@ -29,7 +29,8 @@ const MARK_WORDS: Readonly<Record<AttendanceMark, string>> = {
 /**
  * What one line of the day list says. A marked day says the mark; a day off
  * says which kind of day off it was; a school day nobody marked says so,
- * because that is what a low percentage is usually made of.
+ * because that is what a low percentage is usually made of, unless recorded
+ * leave covers it, when it counts as leave and says so.
  */
 function dayWords(day: AttendanceMonthDay): string {
   if (day.mark !== undefined) return MARK_WORDS[day.mark]
@@ -37,8 +38,8 @@ function dayWords(day: AttendanceMonthDay): string {
   if (day.kind === 'holiday') return day.holidayName ?? 'Holiday'
   if (day.kind === 'outside_year') return 'Outside the year'
   if (!day.enrolled) return 'Not on the roster'
-  if (day.future) return ''
-  return 'Not marked'
+  if (day.future) return day.onLeave === true ? 'On leave' : ''
+  return day.onLeave === true ? 'On leave' : 'Not marked'
 }
 
 /** One pupil's month as a document, for a file or a parent's own records. */

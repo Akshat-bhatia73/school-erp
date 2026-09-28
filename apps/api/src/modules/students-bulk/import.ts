@@ -2,7 +2,7 @@ import type { PoolClient } from 'pg'
 import type { RequestContext } from '@erp/contracts/server'
 import type { StudentsBulkImportRow, StudentsImportPreviewRequest } from '@erp/contracts'
 import { ApiFailure } from '../shared/errors.ts'
-import { sealAadhaar, sealPan, type SealedNumber } from '../shared/crypto.ts'
+import { seal, sealAadhaar, sealPan, type SealedNumber } from '../shared/crypto.ts'
 
 // Identity numbers are sealed at the moment the server reads the sheet, so no
 // copy of a whole Aadhaar or PAN ever sits in `student_import_previews` in
@@ -40,6 +40,10 @@ export interface StoredImportRow {
   readonly guardianAadhaar?: SealedNumber
   readonly guardianPan?: SealedNumber
   readonly guardianOfficeAddress?: string
+  /** Sealed at preview time like the Aadhaar number; the last four are the mask. */
+  readonly apaarId?: SealedNumber
+  readonly pen?: string
+  readonly srn?: string
 }
 
 export interface RowError {
@@ -174,6 +178,11 @@ export async function validateRows(
     if (!isRealPastDate(row.dateOfBirth)) {
       problems.push({ row: row.rowNumber, field: 'dateOfBirth', message: 'Date of birth must be a real past date.' })
     }
+    // The masked form shows the last four characters, so a shorter id cannot
+    // be stored (the sensitive edit refuses it the same way).
+    if (row.apaarId !== undefined && row.apaarId.length < 4) {
+      problems.push({ row: row.rowNumber, field: 'apaarId', message: 'The APAAR id must have at least 4 characters.' })
+    }
 
     if (problems.length > 0) {
       errors.push(...problems)
@@ -227,6 +236,11 @@ function storedRow(
     ...(row.guardianOfficeAddress === undefined || row.guardianOfficeAddress === ''
       ? {}
       : { guardianOfficeAddress: row.guardianOfficeAddress }),
+    ...(row.apaarId === undefined
+      ? {}
+      : { apaarId: { ciphertext: seal(row.apaarId, encryptionKey), last4: row.apaarId.slice(-4) } }),
+    ...(row.pen === undefined ? {} : { pen: row.pen }),
+    ...(row.srn === undefined ? {} : { srn: row.srn }),
   }
 }
 
@@ -320,8 +334,9 @@ export async function insertStudent(
     `INSERT INTO students
        (school_id, admission_number, first_name, last_name, status, date_of_birth,
         gender, category, admission_type, admission_date, address,
-        aadhaar_ciphertext, aadhaar_last4)
-     VALUES ($1, $2, $3, $4, 'active', $5::date, $6, $7, $8, current_date, $9::jsonb, $10, $11)
+        aadhaar_ciphertext, aadhaar_last4, apaar_ciphertext, apaar_last4, pen, srn)
+     VALUES ($1, $2, $3, $4, 'active', $5::date, $6, $7, $8, current_date, $9::jsonb, $10, $11,
+             $12, $13, $14, $15)
      RETURNING id`,
     [
       schoolId,
@@ -335,6 +350,10 @@ export async function insertStudent(
       address,
       row.studentAadhaar?.ciphertext ?? null,
       row.studentAadhaar?.last4 ?? null,
+      row.apaarId?.ciphertext ?? null,
+      row.apaarId?.last4 ?? null,
+      row.pen ?? null,
+      row.srn ?? null,
     ],
   )
   const studentId = student.rows[0]?.id

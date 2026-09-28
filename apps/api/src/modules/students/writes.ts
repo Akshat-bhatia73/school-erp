@@ -187,15 +187,18 @@ export async function admitStudent(
   if (new Set(named).size !== named.length) throw new ApiFailure('INVALID_REQUEST')
 
   const aadhaar = body.aadhaar === undefined ? null : sealAadhaar(body.aadhaar, encryptionKey)
+  const apaar = body.apaarId === undefined ? null : sealApaar(body.apaarId, encryptionKey)
   const inserted = await conn.db.execute<{ id: string }>(
     sql`INSERT INTO students (school_id, admission_number, first_name, last_name, status,
                               date_of_birth, gender, category, admission_type, admission_date, address,
-                              aadhaar_ciphertext, aadhaar_last4)
+                              aadhaar_ciphertext, aadhaar_last4, apaar_ciphertext, apaar_last4, pen, srn)
         VALUES (${context.schoolId}::uuid, ${admissionNumber}, ${body.firstName},
                 ${body.lastName ?? null}, 'active', ${body.dateOfBirth}::date, ${body.gender},
                 ${body.category ?? null}, ${body.admissionType ?? null}, ${body.admissionDate}::date,
                 ${body.address === undefined ? null : jsonText(body.address)}::jsonb,
-                ${aadhaar?.ciphertext ?? null}, ${aadhaar?.last4 ?? null})
+                ${aadhaar?.ciphertext ?? null}, ${aadhaar?.last4 ?? null},
+                ${apaar?.ciphertext ?? null}, ${apaar?.last4 ?? null},
+                ${body.pen ?? null}, ${body.srn ?? null})
         RETURNING id`,
   )
   const studentId = inserted.rows[0]?.id
@@ -276,6 +279,19 @@ const SENSITIVE_COLUMNS: Record<string, string> = {
   // exactly like the APAAR id, so it is never a plain column write.
   bloodGroup: 'blood_group',
   medicalNotes: 'medical_notes',
+  // The PEN and the SRN are plain columns (migration 0028); null clears them.
+  pen: 'pen',
+  srn: 'srn',
+}
+
+/**
+ * The APAAR id sealed, with the last four characters the masked form shows.
+ * Admission, the bulk import and the sensitive edit all seal through here, so
+ * the two columns always move together.
+ */
+export function sealApaar(value: string, encryptionKey: string): { ciphertext: string; last4: string } {
+  if (value.length < 4) throw new ApiFailure('INVALID_REQUEST')
+  return { ciphertext: seal(value, encryptionKey), last4: value.slice(-4) }
 }
 
 export function touchesMedical(body: StudentsUpdateSensitiveRequest): boolean {
@@ -298,9 +314,9 @@ export async function updateSensitive(
   if (body.apaarId !== undefined) {
     // The database only ever holds the sealed value and the last four digits
     // the masked form shows; the key stays in the API configuration.
-    if (body.apaarId.length < 4) throw new ApiFailure('INVALID_REQUEST')
-    set.apaar_ciphertext = seal(body.apaarId, encryptionKey)
-    set.apaar_last4 = body.apaarId.slice(-4)
+    const sealed = sealApaar(body.apaarId, encryptionKey)
+    set.apaar_ciphertext = sealed.ciphertext
+    set.apaar_last4 = sealed.last4
   }
   if (body.aadhaar !== undefined) {
     // Null clears the number and the digits together, so no mask is ever left

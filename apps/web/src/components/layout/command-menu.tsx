@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, LogOut, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus, CalendarClock, ClipboardCheck, NotebookPen, Mail, Sparkles } from 'lucide-react'
+import { Bell, BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, LogOut, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus, CalendarClock, ClipboardCheck, NotebookPen, Mail, Sparkles } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Tag } from '@/components/shared/tag'
@@ -31,6 +31,7 @@ const goTo: Entry[] = [
   { label: 'Classes & sections', icon: <Building2 />, to: '/setup/classes', permission: 'sections.read' },
   { label: 'Subjects', icon: <BookOpen />, to: '/setup/subjects', permission: 'subjects.read' },
   { label: 'Holidays', icon: <ListChecks />, to: '/setup/holidays', permission: 'holidays.read' },
+  { label: 'Periods', icon: <Bell />, to: '/timetable/periods', permission: 'timetable.manage_periods' },
   { label: 'Users & logins', icon: <UserRound />, to: '/settings/users', permission: 'members.read' },
   { label: 'Roles & permissions', icon: <ShieldCheck />, to: '/settings/roles', permission: 'roles.read' },
   { label: 'Audit log', icon: <ScrollText />, to: '/settings/audit-log', permission: 'audit.read' },

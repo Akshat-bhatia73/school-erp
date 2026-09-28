@@ -3,7 +3,7 @@
  * no longer takes an admission number: the server assigns it.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { StudentsAdmitRequest, type ConsentPurpose } from '@erp/contracts'
+import { CONSENT_PURPOSES, StudentsAdmitRequest, type ConsentPurpose } from '@erp/contracts'
 import {
   admitWithPhoto, consentEntries, emptyDraft, emptyGuardian, errorsForStep, photoConsented, toAdmitRequest, validateDraft,
   type ChosenPhoto,
@@ -44,8 +44,45 @@ describe('admission draft', () => {
     const draft = { ...filledDraft(), firstName: '', sectionId: '' }
     const errors = validateDraft(draft)
     expect(Object.keys(errorsForStep(0, errors))).toContain('firstName')
-    // The class step moved one along when the consent step was added between guardians and class.
-    expect(Object.keys(errorsForStep(3, errors))).toContain('sectionId')
+    // Consent lives on the guardians step now, so the class step is the third of four.
+    expect(Object.keys(errorsForStep(2, errors))).toContain('sectionId')
+  })
+
+  it('puts a bad PEN on the student step and a consent problem on the guardians step', () => {
+    const errors = validateDraft({ ...filledDraft(), pen: '12345', consentSigned: true, consentFormReference: 'x'.repeat(201) })
+    expect(errorsForStep(0, errors)).toHaveProperty('pen', 'Enter the 11 digit PEN')
+    expect(Object.keys(errorsForStep(1, errors)).some((path) => path.startsWith('consents.'))).toBe(true)
+  })
+
+  it('sends the APAAR id, PEN and SRN when typed, and leaves them out when blank', () => {
+    expect(toAdmitRequest(filledDraft())).toMatchObject({ apaarId: undefined, pen: undefined, srn: undefined })
+    const request = toAdmitRequest({ ...filledDraft(), apaarId: ' 123456789012 ', pen: '27123456789', srn: 'RJ/2026/004512' })
+    const parsed = StudentsAdmitRequest.safeParse(request)
+    expect(parsed.success && parsed.data).toMatchObject({ apaarId: '123456789012', pen: '27123456789', srn: 'RJ/2026/004512' })
+  })
+
+  it('records every purpose for the primary guardian as a signed form when the one box is ticked', () => {
+    const draft = {
+      ...filledDraft(),
+      guardians: [
+        { ...emptyGuardian('father'), firstName: 'Rakesh', phone: '9876543210' },
+        { ...emptyGuardian('mother'), firstName: 'Meera', phone: '9876543211' },
+      ],
+      primaryIndex: 1,
+      consentSigned: true,
+      consentFormReference: ' Form 12 ',
+    }
+    const parsed = StudentsAdmitRequest.safeParse(toAdmitRequest(draft))
+    expect(parsed.success && parsed.data.consents).toEqual(
+      CONSENT_PURPOSES.map((purpose) => ({ guardianIndex: 1, purpose, method: 'signed_form', evidenceReference: 'Form 12' })),
+    )
+    expect(photoConsented(draft)).toBe(true)
+  })
+
+  it('ignores the one-by-one ticks while the signed form is chosen, and the other way round', () => {
+    const ticked = [{ ...emptyGuardian('father'), firstName: 'Rakesh', phone: '9876543210', consentPurposes: ['photographs'] as ConsentPurpose[] }]
+    expect(consentEntries({ ...filledDraft(), guardians: ticked })).toEqual([])
+    expect(consentEntries({ ...filledDraft(), consentMode: 'each' as const, consentSigned: true })).toEqual([])
   })
 
   it('sends no consents when nothing was ticked, because an untouched box is not an answer', () => {
@@ -56,6 +93,7 @@ describe('admission draft', () => {
   it('emits one row per guardian and purpose, pointing at the guardian by index', () => {
     const draft = {
       ...filledDraft(),
+      consentMode: 'each' as const,
       guardians: [
         { ...emptyGuardian('father'), firstName: 'Rakesh', phone: '9876543210' },
         {
@@ -82,6 +120,7 @@ describe('admission photograph', () => {
   const student = { id: 'student-1', version: 1, admissionNumber: 'SVM/2026-27/101' }
   const withPhotoConsent = () => ({
     ...filledDraft(),
+    consentMode: 'each' as const,
     guardians: [{ ...emptyGuardian('father'), firstName: 'Rakesh', phone: '9876543210', consentPurposes: ['photographs'] as ConsentPurpose[] }],
   })
 
@@ -89,6 +128,7 @@ describe('admission photograph', () => {
     expect(photoConsented(filledDraft())).toBe(false)
     expect(photoConsented({
       ...filledDraft(),
+      consentMode: 'each' as const,
       guardians: [{ ...emptyGuardian('father'), consentPurposes: ['communication'] as ConsentPurpose[] }],
     })).toBe(false)
     expect(photoConsented(withPhotoConsent())).toBe(true)

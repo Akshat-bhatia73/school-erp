@@ -96,6 +96,10 @@ async function produce(
         // Only the four digits the screen shows, never the whole number.
         ...fact('PAN', contact.panLast4 === undefined ? undefined : `ending ${contact.panLast4}`),
         ...fact(
+          'Aadhaar',
+          contact.aadhaarLast4 === undefined ? undefined : `ending ${contact.aadhaarLast4}`,
+        ),
+        ...fact(
           'Bank account',
           contact.bankAccountLast4 === undefined
             ? undefined

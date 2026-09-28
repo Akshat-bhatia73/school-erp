@@ -176,6 +176,9 @@ export function OverviewTab({ detail, showGuardianContacts }: { detail: StudentD
                     )
                   : undefined,
               },
+              // Printed on certificates, so shown whole.
+              { label: 'PEN (UDISE+)', value: sensitive.pen ? <span className="font-mono">{sensitive.pen}</span> : undefined },
+              { label: 'SRN', value: sensitive.srn ? <span className="font-mono">{sensitive.srn}</span> : undefined },
               { label: 'Address', value: sensitive.address },
             ]}
           />

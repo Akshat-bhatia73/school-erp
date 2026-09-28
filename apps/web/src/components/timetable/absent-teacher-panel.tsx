@@ -21,6 +21,10 @@ import { cn } from '@/lib/utils'
 export interface AbsentTeacherPanelProps {
   staffId: string
   staffName: string
+  /** True when recorded leave covers this person on the day; the panel says so. */
+  onLeave?: boolean
+  /** People on recorded leave that day, never offered as a substitute. */
+  unavailableIds?: readonly string[]
   date: string
   /** 1–6; 0 when the date is a Sunday, in which case nothing is taught. */
   dayOfWeek: number
@@ -35,7 +39,7 @@ export interface AbsentTeacherPanelProps {
 }
 
 /** One absent teacher: their card row plus every period that needs an arrangement today. */
-export function AbsentTeacherPanel({ staffId, staffName, date, dayOfWeek, academicYearId, bell, substitutions, reason, onReasonChange, onRemove, canEdit }: AbsentTeacherPanelProps) {
+export function AbsentTeacherPanel({ staffId, staffName, onLeave = false, unavailableIds = [], date, dayOfWeek, academicYearId, bell, substitutions, reason, onReasonChange, onRemove, canEdit }: AbsentTeacherPanelProps) {
   const { schoolId } = useSchoolContext()
   const params = { staffId, date }
   const { data: periods = [], isLoading } = useQuery({
@@ -51,6 +55,7 @@ export function AbsentTeacherPanel({ staffId, staffName, date, dayOfWeek, academ
         <span className="flex items-center gap-2.5">
           <UserAvatar name={staffName} size="sm" />
           <span>{staffName}</span>
+          {onLeave ? <Tag color="blue">On leave</Tag> : null}
           <span className="text-[12.5px] font-normal text-muted-foreground">{periods.length} periods today</span>
         </span>
       }
@@ -97,6 +102,7 @@ export function AbsentTeacherPanel({ staffId, staffName, date, dayOfWeek, academ
                       academicYearId={academicYearId}
                       absentStaffId={staffId}
                       reason={reason}
+                      unavailableIds={unavailableIds}
                     />
                   </td>
                 </tr>
@@ -109,7 +115,7 @@ export function AbsentTeacherPanel({ staffId, staffName, date, dayOfWeek, academ
   )
 }
 
-function ArrangementCell({ cell, existing, date, dayOfWeek, academicYearId, absentStaffId, reason }: {
+function ArrangementCell({ cell, existing, date, dayOfWeek, academicYearId, absentStaffId, reason, unavailableIds }: {
   cell: TimetableCellRecord
   existing?: SubstitutionRecord
   date: string
@@ -117,6 +123,7 @@ function ArrangementCell({ cell, existing, date, dayOfWeek, academicYearId, abse
   academicYearId: string
   absentStaffId: string
   reason: string
+  unavailableIds: readonly string[]
 }) {
   const { schoolId } = useSchoolContext()
   const queryClient = useQueryClient()
@@ -173,6 +180,7 @@ function ArrangementCell({ cell, existing, date, dayOfWeek, academicYearId, abse
           subjectName={cell.subject.name}
           onPick={(id) => add.mutate(id)}
           pending={add.isPending}
+          excludedIds={unavailableIds}
         />
       </PopoverContent>
     </Popover>
@@ -193,7 +201,7 @@ function ArrangementCell({ cell, existing, date, dayOfWeek, academicYearId, abse
 }
 
 /** Free teachers for a slot, subject teachers first, plus "leave as free period". */
-export function FreeTeacherList({ academicYearId, dayOfWeek, periodIndex, subjectId, subjectName, onPick, pending }: {
+export function FreeTeacherList({ academicYearId, dayOfWeek, periodIndex, subjectId, subjectName, onPick, pending, excludedIds = [] }: {
   academicYearId: string
   dayOfWeek: number
   periodIndex: number
@@ -201,14 +209,17 @@ export function FreeTeacherList({ academicYearId, dayOfWeek, periodIndex, subjec
   subjectName: string
   onPick: (staffId?: string) => void
   pending?: boolean
+  /** People on recorded leave that day: away, so never offered. */
+  excludedIds?: readonly string[]
 }) {
   const { schoolId } = useSchoolContext()
   const params = { academicYearId, dayOfWeek, periodIndex, subjectId }
-  const { data = [], isLoading } = useQuery({
+  const { data: free = [], isLoading } = useQuery({
     queryKey: qk.freeTeachers(schoolId, params),
     queryFn: () => api.timetable.freeTeachers(schoolId, params),
     enabled: dayOfWeek >= 1 && dayOfWeek <= 6 && !!academicYearId,
   })
+  const data = free.filter((t) => !excludedIds.includes(t.teacher.id))
   const teaches = data.filter((t) => t.teachesSubject)
   const others = data.filter((t) => !t.teachesSubject)
 

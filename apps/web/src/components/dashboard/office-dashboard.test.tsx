@@ -222,3 +222,32 @@ describe('office dashboard, the money cards', () => {
     expect(screen.queryByText('Collected today')).not.toBeInTheDocument()
   })
 })
+
+describe('office dashboard, on leave today', () => {
+  it('shows the staff and the students on leave, with a way to the whole list', () => {
+    renderOffice(office({
+      leaveToday: {
+        date: '2026-09-21',
+        staff: { count: 1, names: [{ id: 'sf-1', name: 'Vikram Iyer', endsOn: '2026-09-23' }] },
+        students: { count: 12, names: [{ id: 'st-1', name: 'Diya Nair', section: 'Class 7 - B', endsOn: '2026-09-21' }] },
+      },
+    }))
+    expect(screen.getByText('On leave today')).toBeInTheDocument()
+    expect(screen.getByText('1 staff member')).toBeInTheDocument()
+    expect(screen.getByText('Vikram Iyer')).toBeInTheDocument()
+    expect(screen.getByText('12 students')).toBeInTheDocument()
+    expect(screen.getByText('Class 7 - B')).toBeInTheDocument()
+    expect(screen.getByText('and 11 more')).toBeInTheDocument()
+    expect(screen.getByText('View all').closest('a')).toHaveAttribute('href', '/attendance/leave')
+  })
+
+  it('says nobody is on leave when both halves are at zero', () => {
+    renderOffice(office({ leaveToday: { date: '2026-09-21', staff: { count: 0, names: [] }, students: { count: 0, names: [] } } }))
+    expect(screen.getByText('Nobody has leave recorded for today.')).toBeInTheDocument()
+  })
+
+  it('leaves the block out when the server did not send it', () => {
+    renderOffice(office())
+    expect(screen.queryByText('On leave today')).not.toBeInTheDocument()
+  })
+})

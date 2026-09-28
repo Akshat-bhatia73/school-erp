@@ -15,6 +15,8 @@ export interface FreeTeachersTodayProps {
   bell?: BellScheduleRecord
   /** The chosen day, written out, for the copy on the panel. */
   weekday: string
+  /** People on recorded leave that day: away, so never listed as free. */
+  excludedIds?: readonly string[]
 }
 
 /**
@@ -24,7 +26,7 @@ export interface FreeTeachersTodayProps {
  * is left once their free periods are taken off the day's periods, which keeps
  * this to the reads already made instead of asking for a new one.
  */
-export function FreeTeachersToday({ academicYearId, dayOfWeek, bell, weekday }: FreeTeachersTodayProps) {
+export function FreeTeachersToday({ academicYearId, dayOfWeek, bell, weekday, excludedIds = [] }: FreeTeachersTodayProps) {
   const { schoolId } = useSchoolContext()
   const periods = bell?.periods ?? []
   const teaching = dayOfWeek >= 1 && dayOfWeek <= 6 && !!academicYearId
@@ -60,7 +62,7 @@ export function FreeTeachersToday({ academicYearId, dayOfWeek, bell, weekday }: 
       ) : (
         <div className="grid gap-2">
           {periods.map((period, index) => {
-            const rows = results[index]?.data ?? []
+            const rows = (results[index]?.data ?? []).filter((row) => !excludedIds.includes(row.teacher.id))
             return (
               <div key={period.index} className="flex flex-wrap items-start gap-2 border-b pb-2 last:border-b-0 last:pb-0">
                 <span className="w-32 shrink-0 text-[13px]">

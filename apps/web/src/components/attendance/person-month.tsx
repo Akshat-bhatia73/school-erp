@@ -1,7 +1,7 @@
 /** One person's month: the figures it adds up to, and the calendar behind them. */
 import type { AttendanceMark, AttendanceSummary } from '@erp/contracts'
-import { MarkTag, Percentage } from '@/components/attendance/labels'
-import { MarkLegend } from '@/components/attendance/register-grid'
+import { MarkTag, OnLeaveTag, Percentage } from '@/components/attendance/labels'
+import { LEAVE_DAY, MarkLegend } from '@/components/attendance/register-grid'
 import { Facts } from '@/components/shared/page'
 import { cn } from '@/lib/utils'
 
@@ -12,6 +12,8 @@ export interface MonthCalendarDay {
   /** True when the person was on the roster or the register that day. */
   on: boolean
   mark?: AttendanceMark
+  /** True when the office recorded leave covering the day. With no mark, the day counts as leave. */
+  onLeave?: boolean
 }
 
 export function MonthFacts({ summary }: { summary: AttendanceSummary }) {
@@ -50,10 +52,13 @@ export function MonthCalendar({ days }: { days: MonthCalendarDay[] }) {
           <div key={name} className="px-1 text-[12px] text-muted-foreground">{name}</div>
         ))}
         {Array.from({ length: leadingBlanks(first.date) }).map((_, index) => <div key={`blank-${index}`} />)}
-        {days.map((day) => (
+        {days.map((day) => {
+          const onLeave = Boolean(day.onLeave && day.on && day.kind === 'school_day')
+          return (
           <div
             key={day.date}
-            className={cn('min-h-16 rounded-lg border p-1.5', day.kind !== 'school_day' && 'bg-muted/40')}
+            data-on-leave={onLeave || undefined}
+            className={cn('min-h-16 rounded-lg border p-1.5', day.kind !== 'school_day' && 'bg-muted/40', onLeave && LEAVE_DAY)}
           >
             <div className="text-[12px] tabular-nums text-muted-foreground">{Number(day.date.slice(8, 10))}</div>
             <div className="mt-1 text-[12px]">
@@ -63,12 +68,15 @@ export function MonthCalendar({ days }: { days: MonthCalendarDay[] }) {
                 <span className="text-muted-foreground">Sunday</span>
               ) : !day.on ? null : day.mark ? (
                 <MarkTag mark={day.mark} />
+              ) : onLeave ? (
+                <OnLeaveTag />
               ) : null}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
-      <MarkLegend />
+      <MarkLegend leave />
     </div>
   )
 }

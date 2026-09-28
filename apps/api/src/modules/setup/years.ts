@@ -23,6 +23,7 @@ import { lockSchool, writeAudit, type TenantConnection } from '../shared/audit.t
 import { bumpVersion } from '../shared/version.ts'
 import { ApiFailure, requireFound } from '../shared/errors.ts'
 import { isoDate, requireUuid, scopedTable } from './common.ts'
+import { ensureDefaultPeriods } from './default-periods.ts'
 
 type Year = z.infer<typeof AcademicYear>
 type YearStatus = Year['status']
@@ -183,12 +184,21 @@ export function registerAcademicYearRoutes(app: FastifyInstance, deps: ModuleDep
         )
         const id = requireFound(inserted.rows[0]).id
         const closed = body.status === 'current' ? await makeCurrent(conn, context.schoolId, id) : []
+        // A new year starts with the default periods rather than an empty
+        // timetable. It rides on this year's one audit row, never a second.
+        const periods = await ensureDefaultPeriods(conn, context.schoolId, id)
         await writeAudit(conn, context, {
           action: 'academic_years.manage',
           targetType: 'academic_year',
           targetId: id,
           summary: 'Created an academic year.',
-          safeChanges: { status: body.status, closedYearIds: closed },
+          safeChanges: {
+            status: body.status,
+            closedYearIds: closed,
+            ...(periods === null
+              ? {}
+              : { defaultBellScheduleId: periods.id, defaultPeriods: periods.periods }),
+          },
         })
         const rows = await conn.db
           .select(columns)

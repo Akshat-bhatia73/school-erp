@@ -63,7 +63,7 @@ All paths are under `/api/schools/:schoolId`. The permission column is the gate 
 | `PUT /school` | `school.update` | `expectedVersion` against `schools.version` | 200 | `INVALID_REQUEST`, `VERSION_CONFLICT` |
 | `GET /academic-years` | `academic_years.read` | plan predicate | 200 | — |
 | `GET /academic-years/current` | `holidays.read` | filtered to this school; no plan predicate | 200 | `RESOURCE_NOT_FOUND` |
-| `POST /academic-years` | `academic_years.manage` | dates ordered, one current year | 201 | `INVALID_REQUEST` |
+| `POST /academic-years` | `academic_years.manage` | dates ordered, one current year; a year with no bell schedule gets the default one | 201 | `INVALID_REQUEST` |
 | `PUT /academic-years/:academicYearId` | `academic_years.manage` | the same, plus `expectedVersion` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `GET /grades` | `grades.read` | plan predicate | 200 | — |
 | `POST /grades` | `grades.manage` | unique name and short name | 201 | `INVALID_REQUEST` |
@@ -104,6 +104,14 @@ A delete refused because something still refers to the record answers `INVALID_R
 it was closed by finishing the year (`promoted` or `detained`), so a closed
 year still shows who was in each class. A pupil who left is not counted.
 
+A new academic year starts with the default periods (September 2026) when it
+has no bell schedule: Monday to Saturday, eight periods of 40 minutes from
+08:00, a 15 minute break after period 2 and a 30 minute lunch after period 4.
+The schedule names no class, which is how a schedule applies to every class.
+It is written in the same transaction and rides on the year's one audit row
+(`defaultBellScheduleId`, `defaultPeriods`), never a second row. Source:
+`modules/setup/default-periods.ts`.
+
 ### Students
 
 | Method and path | Permission | Extra checks | Success | Error codes |
@@ -116,9 +124,9 @@ year still shows who was in each class. A pupil who left is not counted.
 | `GET /students/:studentId/siblings` | `students.read_siblings` | every sibling re-checked under `students.read_basic` | 200 | `RESOURCE_NOT_FOUND` |
 | `GET /students/:studentId/documents` | `students.read_documents` | document plan; `allowedActions` per row | 200 | `RESOURCE_NOT_FOUND` |
 | `GET /students/:studentId/enrollments` | `students.read_enrollments` | enrolment plan | 200 | `RESOURCE_NOT_FOUND` |
-| `POST /students` | `students.create` | section in this school; the admission number is assigned by the server for that section's academic year and may not be sent; an existing guardian also needs `students.manage_guardians` | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /students` | `students.create` | section in this school; the admission number is assigned by the server for that section's academic year and may not be sent; an existing guardian also needs `students.manage_guardians`; optional `apaarId` (sealed), `pen` and `srn` | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `PUT /students/:studentId` | `students.update_basic` | `expectedVersion` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
-| `PUT /students/:studentId/sensitive` | `students.update_sensitive` | medical fields also need `students.read_medical` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `PUT /students/:studentId/sensitive` | `students.update_sensitive` | medical fields also need `students.read_medical`; `pen` and `srn` take `null` to clear | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `POST /students/:studentId/move` | `students.manage_enrollment` | target section in this school and this year; roll number kept when omitted | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `POST /students/:studentId/leave` | `students.manage_enrollment` | leaving date not before the joining date; reason stored and audited | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `POST /students/:studentId/guardians` | `students.manage_guardians` | named guardian decided per record; one primary per student | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
@@ -143,10 +151,12 @@ year still shows who was in each class. A pupil who left is not counted.
 | `POST /students/import/commit` | `students.import` | preview pending, unexpired, this school, same author, `expectedVersion`; every row re-validated before the first insert | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `GET /students/promote/preview` | `students.promote` | roster bounded by the `students.read_basic` plan; `page` and `pageSize` (at most 100), with the matching `total` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `POST /students/promote` | `students.promote` | every named pupil distinct and currently seated in that class, with no open enrolment next year | 200 | `INVALID_REQUEST` |
-| `POST /students/export` | `students.export` | every requested id must pass the export plan, or none is written | 202 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /students/export` | `students.export` | every requested id must pass the export plan, or none is written; each chosen column's key must be held in some scope | 202 | `ACCESS_DENIED`, `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `POST /students/:studentId/export-profile` | `students.export` | the record decided again under this key; the producer re-reads every block behind its own key | 202 | `RESOURCE_NOT_FOUND` |
 
-The sheet may carry a pupil's Aadhaar and the created guardian's Aadhaar, PAN and office address (September 2026), all optional. The request contract checks their form, so one malformed number refuses the whole request and the screen names the row first. Aadhaar and PAN are sealed with the application key when the preview is staged, with the last four beside them, and the commit copies the sealed values into the pupil and the primary guardian without opening them; no whole number is in `student_import_previews`, a response or the audit rows, which still carry counts only.
+The sheet may carry a pupil's Aadhaar and the created guardian's Aadhaar, PAN and office address (September 2026), all optional. The request contract checks their form, so one malformed number refuses the whole request and the screen names the row first. Aadhaar and PAN are sealed with the application key when the preview is staged, with the last four beside them, and the commit copies the sealed values into the pupil and the primary guardian without opening them; no whole number is in `student_import_previews`, a response or the audit rows, which still carry counts only. The APAAR id, the PEN and the SRN (September 2026) are optional too: the APAAR id is sealed at preview exactly like the Aadhaar number (one shorter than four characters is a row error), and the PEN and the SRN are stored as typed. The PEN (11 digits, from UDISE+) and the SRN are plain columns shown whole in the sensitive block, the printed profile and the subject access copy.
+
+**Export columns.** `POST /students/export` and `POST /staff/export` accept `columns`, keys from `STUDENT_EXPORT_COLUMNS` / `STAFF_EXPORT_COLUMNS` in `@erp/contracts`. Without it the file is the old default columns. The file keeps the order of that list, whatever order the request used. A column may need a key on top of the export key (`students.read_sensitive`, `students.read_medical`, `students.read_guardian_contact`, `staff.read_employment`, `staff.read_private`, and `students.export_identity` / `staff.export_identity` for the whole Aadhaar number, held by the owner and the administrator only). The route refuses the request with `ACCESS_DENIED` when the caller holds a chosen column's key in no scope at all; the producer then decides each key per row in SQL (`CASE WHEN <planPredicate> THEN value END`), so a row outside that key's scope has an empty cell and stays in the file. The whole Aadhaar number is opened in the producer only for rows that pass the identity key. The father and mother columns take the linked guardian with that relation (the primary first, then the oldest link); the main contact is the primary guardian. The job criteria and the export's one audit row record the chosen keys in file order (`columns`), never a value. Source: `exports/columns.ts` and the two producers.
 
 ### Student logins
 
@@ -178,13 +188,13 @@ Task 23. A pupil's own login; the behaviour is in [student login](#student-login
 | `DELETE /staff/:staffId/assignments/:assignmentId` | `staff.manage_assignments` | the assignment must belong to that staff member | 204 | `RESOURCE_NOT_FOUND` |
 | `POST /staff` | `staff.create` | school locked first, then the employee code is assigned from the school counter; it may not be sent | 201 | `INVALID_REQUEST` |
 | `PUT /staff/:staffId/employment` | `staff.update_employment` | leaving date not before the stored joining date; `expectedVersion` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
-| `PUT /staff/:staffId/private` | `staff.update_private` | that record decided, so the self scope works | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `PUT /staff/:staffId/private` | `staff.update_private` | that record decided, so the self scope works; `aadhaar` is sealed with its last four kept, `null` clears both, and the audit row says only that it changed | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `PUT /staff/:staffId/pay` | `staff.update_pay` | audit row carries the reason and never the amount | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `GET /staff/:staffId/photo` | `staff.read_directory` | the record decided again; a record this caller may not read answers exactly like a missing one; no audit row | 200 | `RESOURCE_NOT_FOUND` |
 | `PUT /staff/:staffId/photo` | `staff.update_private` | the body is the picture itself, so `expectedVersion` is a query parameter; same type and size rules as a pupil's | 204 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `DELETE /staff/:staffId/photo` | `staff.update_private` | `expectedVersion` as a query parameter | 204 | `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 | `POST /staff/:staffId/anonymise` | `staff.anonymise` | status `resigned` or `retired`, the leaving date at least `RETENTION.staffPrivateYears` old by the database clock, not already anonymised, `expectedVersion` | 200 | `NOT_ALLOWED_YET`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
-| `POST /staff/export` | `staff.export` | every requested id must pass the export plan, or none is written | 202 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /staff/export` | `staff.export` | every requested id must pass the export plan, or none is written; each chosen column's key must be held in some scope (see Export columns above) | 202 | `ACCESS_DENIED`, `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `POST /staff/:staffId/export-profile` | `staff.export` | the record decided again under this key; the producer re-reads every block behind its own key | 202 | `RESOURCE_NOT_FOUND` |
 
 ### Timetable
@@ -258,6 +268,12 @@ Task 23. A pupil's own login; the behaviour is in [student login](#student-login
 | `GET /staff-attendance/months/:month` | `staff_attendance.read` | everybody on the register during the month, through the plans | 200 | `INVALID_REQUEST` |
 | `GET /staff-attendance/staff/:staffId/months/:month` | `staff_attendance.read` | the person decided again; audited through `auditRead` | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
 | `POST /staff-attendance/months/:month/export` | `staff_attendance.export` | the producer re-reads the register under the requester's plans | 202 | `INVALID_REQUEST` |
+| `GET /attendance/leave` | `attendance.read` | pupil leave through the attendance `pupil` plan and `students.read_basic`; `?from=&to=` overlap (neither: not ended before today), `?personId=`, `?includeCancelled=true`; the class on the first day named through `students.read_enrollments` and `sections.read`; at most 500 | 200 | `INVALID_REQUEST` |
+| `POST /attendance/leave` | `attendance.manage` | school locked; the pupil decided again and active (`leave_person_not_active`); no other active record of theirs shares a day (`leave_overlaps`) | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /attendance/leave/:leaveId/cancel` | `attendance.manage` | school locked; the pupil decided again; `expectedVersion`; refused once cancelled (`leave_already_cancelled`); the reason is the audit note | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
+| `GET /staff-attendance/leave` | `staff_attendance.read` | staff leave through the staff attendance `person` plan and `staff.read_directory`; the same query; a teacher's `self` plan reaches their own records alone | 200 | `INVALID_REQUEST` |
+| `POST /staff-attendance/leave` | `staff_attendance.manage` | school locked; the person decided again and `active` or `on_leave`; no overlap | 201 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND` |
+| `POST /staff-attendance/leave/:leaveId/cancel` | `staff_attendance.manage` | as the pupil cancel | 200 | `INVALID_REQUEST`, `RESOURCE_NOT_FOUND`, `VERSION_CONFLICT` |
 
 ### Exams
 
@@ -534,6 +550,18 @@ Task 20. One mark per pupil per school day, marked by the class teacher for the 
 **Anonymising a pupil** clears nothing here: a mark identifies nobody on its own, and the register is one the education rules require. The retention period is the pupil's sensitive period all the same; see [the data protection assessment](../compliance/DATA_PROTECTION.md) section 12.
 
 **Subject access** gains an `attendance` block: one record per academic year the pupil was enrolled in, with every mark and the year's summary, decided under `attendance.read` on that pupil and omitted, not emptied, when refused.
+
+## Recorded leave
+
+Migration 0028. The office writes down ahead of time that a pupil or a staff member will be away for a stretch of days (at most 180, with an optional reason), and may cancel it. Source: [modules/attendance/leave.ts](../../apps/api/src/modules/attendance/leave.ts). Applications by parents and teachers are a later task.
+
+**A plan, not a mark.** A leave record writes nothing to the register. The day's register row carries `onLeave: true` so the screen pre-selects "leave"; a pupil's month and a staff member's own month carry `onLeave` on the days it covers. In `att_pupil_days` and `sta_days` an `on_leave` column says whether an active record covers the day, and the figures count an unmarked school day inside leave as `leave`, not `unmarked`. A mark somebody saved always wins. Because every screen, file, report card and dashboard figure reads those common table expressions, they all agree.
+
+**Who reads and writes.** Pupil leave sits under the attendance keys through the `pupil` face: a teacher reads the leave of the pupils currently in their sections, a parent their own child's, the office the school's. Staff leave sits under the staff attendance keys through the `person` face, so a teacher reads only their own. A list carries a record only when the caller may read that person's own month. Recording and cancelling need the manage key, which only the school scope holds. Item `allowedActions` carries the manage key while the record is active and the caller may cancel it; the list's `allowedActions` says whether they may record more.
+
+**Writes.** Both lock the school and decide the person again; an id of another school, a section id or a made-up id is a missing record. The person must still be here (a pupil `active`, staff `active` or `on_leave`, else `leave_person_not_active`), and two active records of one person may not share a day (`leave_overlaps`, checked under the lock). Both are `INVALID_REQUEST` with the reason: the error codes have no conflict code apart from versions. A record is never deleted or edited: cancelling needs `expectedVersion`, stamps `cancelled_at` and who did it through `bumpVersion`, and is refused a second time (`leave_already_cancelled`). Each write leaves exactly one audit row under the manage key, target type `leave_record`, with the person, the dates and the day count; the cancel reason is the audit note, like a correction's. The record's own reason stays on the record.
+
+**Dashboard.** The office dashboard's `leaveToday` counts who is on leave that day and names up to ten of each, over the caller's own plans; each half is left out without its read key. A teaching staff member on leave that day counts in `today.teachersAway` unless their saved mark that day is present or late.
 
 ## Exams and report cards
 
