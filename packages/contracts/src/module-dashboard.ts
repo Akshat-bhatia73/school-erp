@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { CalendarDate, DisplayName, Id, Timestamp } from './common.ts'
 import { ConsentPurpose } from './module-lifecycle.ts'
 import { ExamKind } from './module-exams.ts'
+import { DashboardLeaveToday } from './module-leave.ts'
 import { ReportCardKind } from './module-report-cards.ts'
 import { AuditEventSummary, EnrollmentSummary, NamedReference, StudentBasic } from './responses.ts'
 
@@ -227,6 +228,8 @@ export const OfficeDashboard = z.strictObject({
   glance: Glance.optional(),
   fees: DashboardFees.optional(),
   attendance: DashboardAttendance.optional(),
+  /** Who is on leave today; absent without a school-scope attendance or staff attendance read key. */
+  leaveToday: DashboardLeaveToday.optional(),
   /** This year's exams; absent for anybody without `exams.read` at school scope, or with no exam set up. */
   exams: DashboardExams.optional(),
   studentsPerTeacher: z.number().nonnegative().optional(),

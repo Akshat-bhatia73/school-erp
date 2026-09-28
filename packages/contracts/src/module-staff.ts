@@ -1,6 +1,7 @@
 /** Task 5 request and response contracts owned by the staff module. */
 import { z } from 'zod'
 import { CalendarDate, DisplayName, Email, IdList, Phone, Version } from './common.ts'
+import { StaffExportColumns } from './export-columns.ts'
 
 /** The employment states a staff record may be in. Mirrors the database check. */
 export const StaffStatus = z.enum(['active', 'on_leave', 'resigned', 'retired'])
@@ -54,5 +55,6 @@ export const StaffSearchRequest = z.strictObject({
   q: z.string().trim().min(1).max(100),
 })
 
-export const StaffExportRequest = z.strictObject({ staffIds: IdList })
+/** Leaving `columns` out gives the five directory columns the file always had. */
+export const StaffExportRequest = z.strictObject({ staffIds: IdList, columns: StaffExportColumns.optional() })
 

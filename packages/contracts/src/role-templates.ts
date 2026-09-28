@@ -118,6 +118,7 @@ export const ROLE_TEMPLATES = {
       grant('students.read_consents', 'school'), grant('students.manage_consents', 'school'),
       grant('students.anonymise', 'school'), grant('staff.anonymise', 'school'),
       grant('students.export_subject', 'school'), grant('audit.redact_notes', 'school'),
+      grant('students.export_identity', 'school'), grant('staff.export_identity', 'school'),
       ...feesFull('school'),
       ...attendanceOffice,
       ...examsOffice,
@@ -156,6 +157,8 @@ export const ROLE_TEMPLATES = {
       grant('members.restore', 'school'), grant('roles.read', 'school'),
       grant('roles.assign', 'school'),
       grant('students.read_consents', 'school'), grant('students.manage_consents', 'school'),
+      // Whole Aadhaar numbers in an export: the owner and the administrator only.
+      grant('students.export_identity', 'school'), grant('staff.export_identity', 'school'),
       // The office counter takes money; it does not set fees or refund them.
       grant('fees.read', 'school'), grant('fees.collect', 'school'),
       ...attendanceOffice,

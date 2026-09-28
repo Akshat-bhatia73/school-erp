@@ -25,10 +25,10 @@ const permissionKeys = [
   'students.manage_enrollment', 'students.manage_guardians', 'students.import',
   'students.export', 'students.promote',
   'students.read_consents', 'students.manage_consents', 'students.anonymise',
-  'students.export_subject', 'students.manage_login',
+  'students.export_subject', 'students.manage_login', 'students.export_identity',
   'staff.read_directory', 'staff.read_employment', 'staff.read_private', 'staff.read_pay',
   'staff.create', 'staff.update_employment', 'staff.update_private', 'staff.update_pay',
-  'staff.manage_assignments', 'staff.export', 'staff.anonymise',
+  'staff.manage_assignments', 'staff.export', 'staff.anonymise', 'staff.export_identity',
   'members.read', 'members.invite', 'members.update', 'members.suspend',
   'members.remove', 'members.restore', 'members.manage_credentials',
   'roles.read', 'roles.assign', 'roles.manage', 'access.explain', 'access.manage', 'ownership.transfer',
@@ -127,6 +127,9 @@ export const PERMISSION_CATALOGUE = {
   'students.export_subject': active('student', ['school', 'own_children'], 'Export everything the system holds about one authorized student.', true, ['school']),
   // A pupil's own login: issue it, reset its password, switch it off and on.
   'students.manage_login': active('student', ['school'], 'Issue, reset, switch off or switch on a pupil\'s own login.', true),
+  // Whole Aadhaar numbers in a list export, for the government portals that ask
+  // for them. Everybody else's file carries the last four digits at most.
+  'students.export_identity': active('student', ['school'], 'Put whole Aadhaar numbers in a student export.', true),
   'staff.read_directory': active('staff', ['school', 'self', 'assigned_sections', 'own_children'], 'Read a minimal staff directory or timetable attribution.'),
   'staff.read_employment': active('staff', ['school', 'self'], 'Read authorized employment fields, excluding private and pay data.'),
   'staff.read_private': active('staff', ['school', 'self', 'finance'], 'Read private staff contact, identity, or bank fields.', true, ['school', 'finance']),
@@ -138,6 +141,7 @@ export const PERMISSION_CATALOGUE = {
   'staff.manage_assignments': active('teaching_assignment', ['school'], 'Assign teachers to sections and subjects.', true),
   'staff.export': active('staff', ['school', 'finance'], 'Export authorized staff fields.', true),
   'staff.anonymise': active('staff', ['school'], 'Anonymise a staff member who has left, after the retention period.', true),
+  'staff.export_identity': active('staff', ['school'], 'Put whole Aadhaar numbers in a staff export.', true),
   'members.read': active('membership', ['school'], 'Read the safe school membership directory.', true),
   'members.invite': active('invitation', ['school'], 'Invite a person using only a separately grantable fixed role.', true),
   'members.update': reserved('membership', ['school'], 'Reserved until a specific membership-update workflow is commissioned.', true),

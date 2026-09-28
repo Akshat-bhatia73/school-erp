@@ -1,7 +1,7 @@
 /** Task 5 request and response contracts owned by the students-bulk module. */
 import { z } from 'zod'
 import { CalendarDate, DisplayName, Email, Id } from './common.ts'
-import { AadhaarNumber, PanNumber } from './identifiers.ts'
+import { AadhaarNumber, PanNumber, PenNumber, SrnNumber } from './identifiers.ts'
 
 /**
  * One line of the uploaded sheet, as a person typed it. Names of grades and
@@ -39,6 +39,11 @@ export const StudentsBulkImportRow = z.strictObject({
   guardianAadhaar: AadhaarNumber.optional(),
   guardianPan: PanNumber.optional(),
   guardianOfficeAddress: z.string().trim().max(1000).optional(),
+  // The government numbers (migration 0028). The APAAR id is sealed like the
+  // Aadhaar number; the PEN and the SRN are stored as typed.
+  apaarId: z.string().trim().min(1).max(100).optional(),
+  pen: PenNumber.optional(),
+  srn: SrnNumber.optional(),
 })
 export type StudentsBulkImportRow = z.infer<typeof StudentsBulkImportRow>
 

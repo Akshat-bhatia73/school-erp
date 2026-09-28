@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CalendarDate, DisplayName, Id, Phone, Timestamp, Version, pageOf } from './common.ts'
+import { PenNumber, SrnNumber } from './identifiers.ts'
 import { PERMISSION_CATALOGUE, PermissionKey } from './permissions.ts'
 
 export const AllowedActions = z.array(PermissionKey).refine(
@@ -39,6 +40,9 @@ export const StudentSensitive = z.strictObject({
   apaarMasked: z.string().regex(/^XXXX-XXXX-\d{4}$/).optional(),
   aadhaarLast4: z.string().regex(/^\d{4}$/).optional(),
   address: z.string().max(1000).optional(),
+  // Government numbers printed on certificates, so shown whole (migration 0028).
+  pen: PenNumber.optional(),
+  srn: SrnNumber.optional(),
 })
 export const StudentMedical = z.strictObject({
   bloodGroup: z.string().max(20).optional(),
@@ -91,6 +95,7 @@ export const StaffPrivate = z.strictObject({
   phone: Phone, address: z.string().max(1000).optional(),
   dateOfBirth: CalendarDate.optional(), panLast4: z.string().max(4).optional(),
   bankAccountLast4: z.string().regex(/^\d{4}$/).optional(),
+  aadhaarLast4: z.string().regex(/^\d{4}$/).optional(),
 })
 export const StaffPay = z.strictObject({ monthlySalary: z.number().nonnegative() })
 export const StaffDetailResponse = z.strictObject({
