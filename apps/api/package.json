@@ -33,7 +33,7 @@
     "zod": "4.5.4"
   },
   "devDependencies": {
-    "@types/node": "24.13.3",
+    "@types/node": "26.6.2",
     "@types/pdfkit": "0.17.6",
     "@types/pg": "8.23.1",
     "esbuild": "0.28.2",
