@@ -14,14 +14,14 @@
     "@erp/contracts": "workspace:*",
     "@erp/db": "workspace:*",
     "@opentelemetry/api": "1.9.1",
-    "drizzle-orm": "0.45.2",
+    "drizzle-orm": "0.45.3",
     "pg": "8.23.0",
-    "zod": "4.5.4"
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
     "@types/pg": "8.23.1",
-    "tsx": "4.23.13",
+    "tsx": "4.23.15",
     "typescript": "6.0.3"
   },
   "engines": {
