@@ -10,7 +10,7 @@ import { PDF_CONTENT_TYPE } from '../pdf/kit.ts'
 import { registerProducer } from '../registry.ts'
 import type { ExportFile } from '../types.ts'
 import { buildWorkbook, XLSX_CONTENT_TYPE, type ExportColumn } from '../xlsx.ts'
-import { dayNumber, gridCell, monthInWords } from './attendance-register.ts'
+import { dayNumber, gridCell, LEAVE_NOTE, monthInWords } from './attendance-register.ts'
 
 /** The job row says which month; the register itself is read again now. */
 const Criteria = z.object({
@@ -116,6 +116,7 @@ async function produce(
   })
   // A column per day would not fit a page, so the document carries the month's
   // totals and says where the day by day grid can be had instead.
+  document.note(LEAVE_NOTE)
   document.note('This document holds the month’s totals. For the day by day grid, ask for the register as a spreadsheet.')
 
   return {

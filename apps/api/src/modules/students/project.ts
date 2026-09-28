@@ -134,6 +134,10 @@ export function toStudentSensitive(row: StudentRow): Sensitive | undefined {
   const aadhaar = typeof row.aadhaar_last4 === 'string' && /^\d{4}$/.test(row.aadhaar_last4)
     ? row.aadhaar_last4
     : undefined
+  // The PEN and the SRN are printed on certificates, so they are shown whole;
+  // a value the contract would refuse is left out rather than failing the read.
+  const pen = typeof row.pen === 'string' && /^\d{11}$/.test(row.pen) ? row.pen : undefined
+  const srn = typeof row.srn === 'string' && /^[A-Za-z0-9/-]{1,30}$/.test(row.srn) ? row.srn : undefined
   return {
     dateOfBirth: row.date_of_birth,
     gender,
@@ -143,6 +147,8 @@ export function toStudentSensitive(row: StudentRow): Sensitive | undefined {
     ...(apaarMasked === undefined ? {} : { apaarMasked }),
     ...(aadhaar === undefined ? {} : { aadhaarLast4: aadhaar }),
     ...(address === undefined ? {} : { address }),
+    ...(pen === undefined ? {} : { pen }),
+    ...(srn === undefined ? {} : { srn }),
   }
 }
 

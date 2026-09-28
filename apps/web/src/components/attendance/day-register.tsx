@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import type { AttendanceDayWindow, AttendanceMark } from '@erp/contracts'
 import { MarkPicker } from '@/components/attendance/mark-picker'
-import { MARK_LABEL, windowReason } from '@/components/attendance/labels'
+import { MARK_LABEL, OnLeaveTag, windowReason } from '@/components/attendance/labels'
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -33,6 +33,13 @@ export interface DayRegisterPerson {
   note?: string
   /** Where this person's own month lives, when there is one to open. */
   to?: string
+  /** True when the office recorded leave covering this day: an unmarked row starts on "leave". */
+  onLeave?: boolean
+}
+
+/** What a row starts on before anybody touches it: the saved mark, else the recorded leave, else present. */
+function startingMark(person: DayRegisterPerson): AttendanceMark {
+  return person.mark ?? (person.onLeave ? 'leave' : 'present')
 }
 
 /** `expectedRevision` is the revision this screen read, 0 for a person with no mark yet. */
@@ -54,13 +61,14 @@ export function DayRegister({ people, window: day, canRecord, canCorrect, isSavi
   const correcting = !recording && day.correct && canCorrect
   const editable = recording || correcting
 
-  // An unmarked day starts with everybody present, which is what most days are; a marked day
-  // starts from what the server already holds.
+  // An unmarked day starts with everybody present, which is what most days are, except a person
+  // the office recorded leave for, who starts on leave; a marked day starts from what the server
+  // already holds, because a saved mark always wins over the plan.
   const initial = useMemo(() => {
     const draft: Record<string, AttendanceMark> = {}
     for (const person of people) {
       if (!person.editable) continue
-      draft[person.id] = person.mark ?? 'present'
+      draft[person.id] = startingMark(person)
     }
     return draft
   }, [people])
@@ -68,7 +76,7 @@ export function DayRegister({ people, window: day, canRecord, canCorrect, isSavi
   const [draft, setDraft] = useState(initial)
   // A fresh answer from the server replaces the draft: the register on screen is the stored one
   // until somebody changes it again. Adjusting during render keeps that off an effect.
-  const signature = people.map((person) => `${person.id}:${person.mark ?? ''}`).join('|')
+  const signature = people.map((person) => `${person.id}:${person.mark ?? ''}:${person.onLeave ? 1 : 0}`).join('|')
   const [seen, setSeen] = useState(signature)
   if (seen !== signature) {
     setSeen(signature)
@@ -77,7 +85,7 @@ export function DayRegister({ people, window: day, canRecord, canCorrect, isSavi
 
   const lines = people
     .filter((person) => person.editable)
-    .map((person) => ({ id: person.id, mark: draft[person.id] ?? person.mark ?? 'present', expectedRevision: person.revision ?? 0 }))
+    .map((person) => ({ id: person.id, mark: draft[person.id] ?? startingMark(person), expectedRevision: person.revision ?? 0 }))
   const changed = lines.filter((line) => {
     const person = people.find((row) => row.id === line.id)
     return person?.mark !== line.mark
@@ -101,6 +109,7 @@ export function DayRegister({ people, window: day, canRecord, canCorrect, isSavi
 
   const present = lines.filter((line) => line.mark === 'present' || line.mark === 'late').length
   const absent = lines.filter((line) => line.mark === 'absent').length
+  const onLeave = lines.filter((line) => line.mark === 'leave').length
   const blocked = editable ? undefined : windowReason(day)
 
   return (
@@ -111,7 +120,8 @@ export function DayRegister({ people, window: day, canRecord, canCorrect, isSavi
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setDraft(Object.fromEntries(people.filter((person) => person.editable).map((person) => [person.id, 'present' as AttendanceMark])))}
+              // Everybody present, except those the office recorded leave for today.
+              onClick={() => setDraft(Object.fromEntries(people.filter((person) => person.editable).map((person) => [person.id, (person.onLeave ? 'leave' : 'present') as AttendanceMark])))}
             >
               Everyone present
             </Button>
@@ -143,8 +153,11 @@ export function DayRegister({ people, window: day, canRecord, canCorrect, isSavi
                 <td className="h-12 border-b px-3 tabular-nums text-muted-foreground">{person.lead}</td>
                 <td className="h-12 border-b border-l px-3">
                   <div className="min-w-0">
-                    <div className="truncate font-medium">
-                      {person.to ? <Link to={person.to} className="link-dotted">{person.name}</Link> : person.name}
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate font-medium">
+                        {person.to ? <Link to={person.to} className="link-dotted">{person.name}</Link> : person.name}
+                      </span>
+                      {person.onLeave && <OnLeaveTag />}
                     </div>
                     {person.sub && <div className="truncate text-[12px] text-muted-foreground">{person.sub}</div>}
                   </div>
@@ -171,6 +184,7 @@ export function DayRegister({ people, window: day, canRecord, canCorrect, isSavi
         <span>{people.length} {people.length === 1 ? noun.one : noun.many}</span>
         <span>{present} present</span>
         <span>{absent} absent</span>
+        {onLeave > 0 && <span>{onLeave} on leave</span>}
       </div>
 
       <AlertDialog open={reasonOpen} onOpenChange={(open) => { if (!open) setReasonOpen(false) }}>

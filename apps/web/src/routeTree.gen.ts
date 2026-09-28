@@ -54,6 +54,7 @@ import { Route as AppTimetableIndexRouteImport } from './routes/_app/timetable/i
 import { Route as AppTimetablePeriodsRouteImport } from './routes/_app/timetable/periods'
 import { Route as AppTimetableSubstitutionsRouteImport } from './routes/_app/timetable/substitutions'
 import { Route as AppTimetableTeachersRouteImport } from './routes/_app/timetable/teachers'
+import { Route as AppAttendanceLeaveIndexRouteImport } from './routes/_app/attendance/leave/index'
 import { Route as AppAttendanceStaffIndexRouteImport } from './routes/_app/attendance/staff/index'
 import { Route as AppAttendanceStaffStaffIdRouteImport } from './routes/_app/attendance/staff/$staffId'
 import { Route as AppAttendanceStaffMonthRouteImport } from './routes/_app/attendance/staff/month'
@@ -298,6 +299,11 @@ const AppTimetableTeachersRoute = AppTimetableTeachersRouteImport.update({
   path: '/timetable/teachers',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAttendanceLeaveIndexRoute = AppAttendanceLeaveIndexRouteImport.update({
+  id: '/attendance/leave/',
+  path: '/attendance/leave/',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAttendanceStaffIndexRoute = AppAttendanceStaffIndexRouteImport.update({
   id: '/attendance/staff/',
   path: '/attendance/staff/',
@@ -457,6 +463,7 @@ export interface FileRoutesByFullPath {
   '/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
   '/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
   '/messages/$messageId/edit': typeof AppMessagesMessageIdEditRoute
+  '/attendance/leave/': typeof AppAttendanceLeaveIndexRoute
   '/attendance/staff/': typeof AppAttendanceStaffIndexRoute
   '/exams/report-cards/': typeof AppExamsReportCardsIndexRoute
   '/exams/settings/': typeof AppExamsSettingsIndexRoute
@@ -521,6 +528,7 @@ export interface FileRoutesByTo {
   '/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
   '/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
   '/messages/$messageId/edit': typeof AppMessagesMessageIdEditRoute
+  '/attendance/leave': typeof AppAttendanceLeaveIndexRoute
   '/attendance/staff': typeof AppAttendanceStaffIndexRoute
   '/exams/report-cards': typeof AppExamsReportCardsIndexRoute
   '/exams/settings': typeof AppExamsSettingsIndexRoute
@@ -587,6 +595,7 @@ export interface FileRoutesById {
   '/_app/fees/receipts/$receiptId': typeof AppFeesReceiptsReceiptIdRoute
   '/_app/fees/students/$studentId': typeof AppFeesStudentsStudentIdRoute
   '/_app/messages/$messageId/edit': typeof AppMessagesMessageIdEditRoute
+  '/_app/attendance/leave/': typeof AppAttendanceLeaveIndexRoute
   '/_app/attendance/staff/': typeof AppAttendanceStaffIndexRoute
   '/_app/exams/report-cards/': typeof AppExamsReportCardsIndexRoute
   '/_app/exams/settings/': typeof AppExamsSettingsIndexRoute
@@ -653,6 +662,7 @@ export interface FileRouteTypes {
     | '/fees/receipts/$receiptId'
     | '/fees/students/$studentId'
     | '/messages/$messageId/edit'
+    | '/attendance/leave/'
     | '/attendance/staff/'
     | '/exams/report-cards/'
     | '/exams/settings/'
@@ -717,6 +727,7 @@ export interface FileRouteTypes {
     | '/fees/receipts/$receiptId'
     | '/fees/students/$studentId'
     | '/messages/$messageId/edit'
+    | '/attendance/leave'
     | '/attendance/staff'
     | '/exams/report-cards'
     | '/exams/settings'
@@ -782,6 +793,7 @@ export interface FileRouteTypes {
     | '/_app/fees/receipts/$receiptId'
     | '/_app/fees/students/$studentId'
     | '/_app/messages/$messageId/edit'
+    | '/_app/attendance/leave/'
     | '/_app/attendance/staff/'
     | '/_app/exams/report-cards/'
     | '/_app/exams/settings/'
@@ -1127,6 +1139,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTimetableTeachersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/attendance/leave/': {
+      id: '/_app/attendance/leave/'
+      path: '/attendance/leave'
+      fullPath: '/attendance/leave/'
+      preLoaderRoute: typeof AppAttendanceLeaveIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/attendance/staff/': {
       id: '/_app/attendance/staff/'
       path: '/attendance/staff'
@@ -1297,6 +1316,7 @@ interface AppRouteChildren {
   AppFeesReceiptsReceiptIdRoute: typeof AppFeesReceiptsReceiptIdRoute
   AppFeesStudentsStudentIdRoute: typeof AppFeesStudentsStudentIdRoute
   AppMessagesMessageIdEditRoute: typeof AppMessagesMessageIdEditRoute
+  AppAttendanceLeaveIndexRoute: typeof AppAttendanceLeaveIndexRoute
   AppAttendanceStaffIndexRoute: typeof AppAttendanceStaffIndexRoute
   AppExamsReportCardsIndexRoute: typeof AppExamsReportCardsIndexRoute
   AppExamsSettingsIndexRoute: typeof AppExamsSettingsIndexRoute
@@ -1349,6 +1369,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppFeesReceiptsReceiptIdRoute: AppFeesReceiptsReceiptIdRoute,
   AppFeesStudentsStudentIdRoute: AppFeesStudentsStudentIdRoute,
   AppMessagesMessageIdEditRoute: AppMessagesMessageIdEditRoute,
+  AppAttendanceLeaveIndexRoute: AppAttendanceLeaveIndexRoute,
   AppAttendanceStaffIndexRoute: AppAttendanceStaffIndexRoute,
   AppExamsReportCardsIndexRoute: AppExamsReportCardsIndexRoute,
   AppExamsSettingsIndexRoute: AppExamsSettingsIndexRoute,

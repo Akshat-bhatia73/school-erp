@@ -78,6 +78,7 @@ function Page() {
     holidayName: day.holidayName,
     on: day.enrolled,
     mark: day.mark,
+    onLeave: day.onLeave,
   }))
 
   return (

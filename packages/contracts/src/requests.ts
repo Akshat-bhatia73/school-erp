@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { CalendarDate, DisplayName, Id, IdList, PageRequest, Phone, Reason, Version } from './common.ts'
+import { StudentExportColumns } from './export-columns.ts'
+import { AadhaarNumber } from './identifiers.ts'
 
 export const StudentListRequest = PageRequest.extend({
   search: z.string().trim().max(100).optional(),
@@ -17,7 +19,10 @@ export const UpdateStudentBasicRequest = z.strictObject({
 }).refine((value) => value.firstName !== undefined || value.lastName !== undefined, 'Supply at least one editable field')
 export const UpdateStaffPrivateRequest = z.strictObject({
   expectedVersion: Version, phone: Phone.optional(), address: z.string().trim().max(1000).optional(),
-}).refine((value) => value.phone !== undefined || value.address !== undefined, 'Supply at least one editable field')
+  // The whole number, sealed by the server, or null to clear it. Like the
+  // student's, a response only ever carries the last four digits.
+  aadhaar: AadhaarNumber.nullable().optional(),
+}).refine((value) => value.phone !== undefined || value.address !== undefined || value.aadhaar !== undefined, 'Supply at least one editable field')
 export const UpdateStaffPayRequest = z.strictObject({
   expectedVersion: Version, monthlySalary: z.number().nonnegative(), reason: Reason,
 })
@@ -45,7 +50,8 @@ export const PromoteStudentsRequest = z.strictObject({
 })
 /** The server stores/revalidates preview rows; do not trust client-submitted "valid" rows. */
 export const CommitStudentImportRequest = z.strictObject({ previewId: Id, expectedVersion: Version })
-export const ExportStudentsRequest = z.strictObject({ studentIds: IdList })
+/** Leaving `columns` out gives the six roster columns the file always had. */
+export const ExportStudentsRequest = z.strictObject({ studentIds: IdList, columns: StudentExportColumns.optional() })
 
 export type StudentListRequest = z.infer<typeof StudentListRequest>
 export type TeachingAssignmentRequest = z.infer<typeof TeachingAssignmentRequest>

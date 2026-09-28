@@ -33,7 +33,10 @@ export const Route = createFileRoute('/_app/attendance/')({ component: Page, val
 function StaffOnly() {
   return (
     <>
-      <PageHeader crumbs={[{ label: 'Attendance', icon: <ClipboardCheck /> }]} />
+      <PageHeader
+        crumbs={[{ label: 'Attendance', icon: <ClipboardCheck /> }]}
+        actions={<Button asChild size="sm" variant="outline"><Link to="/attendance/leave">Leave</Link></Button>}
+      />
       <div className="p-3 md:p-4">
         <Panel title="Staff register" description="Who was in today, and the month so far.">
           <Button asChild size="sm"><Link to="/attendance/staff">Open the staff register</Link></Button>
@@ -133,7 +136,12 @@ function Registers() {
   const header = (
     <PageHeader
       crumbs={[{ label: 'Attendance', icon: <ClipboardCheck /> }]}
-      actions={canReadStaff ? <Button asChild size="sm" variant="outline"><Link to="/attendance/staff">Staff register</Link></Button> : undefined}
+      actions={(
+        <>
+          <Button asChild size="sm" variant="outline"><Link to="/attendance/leave">Leave</Link></Button>
+          {canReadStaff && <Button asChild size="sm" variant="outline"><Link to="/attendance/staff">Staff register</Link></Button>}
+        </>
+      )}
     />
   )
 

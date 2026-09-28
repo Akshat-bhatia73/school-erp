@@ -1,7 +1,7 @@
 /** The pure helpers behind the message screens. */
 import { describe, expect, it } from 'vitest'
 import {
-  attachmentProblem, audienceInputOf, audienceLine, formatBytes, hasRecipients, isoToLocalInput, localInputToIso,
+  attachmentProblem, audienceInputOf, audienceLine, pupilLoginProbe, RECIPIENTS_LABEL, formatBytes, hasRecipients, isoToLocalInput, localInputToIso,
   noticePlaceholders, previewSentence, rangeInOrder, recipientRelation,
 } from './labels'
 
@@ -45,10 +45,18 @@ describe('recipients', () => {
     expect(hasRecipients(null)).toBe(false)
   })
   it('shows the recipients next to the label, except for one pupil', () => {
-    expect(audienceLine({ kind: 'section', label: 'Class 9 A', recipients: 'both' })).toBe('Class 9 A, pupils and families')
-    expect(audienceLine({ kind: 'grade_range', label: 'Class 9 to Class 10', recipients: 'students' })).toBe('Class 9 to Class 10, pupils')
+    expect(audienceLine({ kind: 'section', label: 'Class 9 A', recipients: 'both' })).toBe('Class 9 A, parents and students')
+    expect(audienceLine({ kind: 'grade_range', label: 'Class 9 to Class 10', recipients: 'students' })).toBe('Class 9 to Class 10, students')
     expect(audienceLine({ kind: 'pupil', label: 'Aarav Sharma and family', recipients: 'both' })).toBe('Aarav Sharma and family')
     expect(audienceLine({ kind: 'staff', label: 'All staff' })).toBe('All staff')
+  })
+  it('names the choice for parents and for students with their own login', () => {
+    expect(RECIPIENTS_LABEL).toEqual({ families: 'Parents', students: 'Students (own login)', both: 'Parents and students' })
+  })
+  it('asks about logins by previewing the pupils alone, and never for staff', () => {
+    expect(pupilLoginProbe({ kind: 'section', sectionId: 'section-1', recipients: 'families' })).toEqual({ kind: 'section', sectionId: 'section-1', recipients: 'students' })
+    expect(pupilLoginProbe({ kind: 'staff' })).toBeNull()
+    expect(pupilLoginProbe(null)).toBeNull()
   })
   it('calls a pupil row a pupil', () => {
     expect(recipientRelation({ kind: 'student' })).toBe('Pupil')

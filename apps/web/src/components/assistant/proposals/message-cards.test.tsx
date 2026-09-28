@@ -19,8 +19,17 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 const confirmProposal = vi.fn()
+/** How many pupils in the audience have their own login, as the preview of the pupils alone says. */
+let pupilsWithLogin = 5
 vi.mock('@/lib/api', () => ({
   api: {
+    messages: {
+      audiencePreview: vi.fn(async () => ({
+        audience: { kind: 'section', label: 'Class 9 A', recipients: 'students' },
+        recipients: 30, pupils: 30, pupilsInApp: pupilsWithLogin,
+        delivered: pupilsWithLogin, noConsent: 0, notReceiving: 0, noContact: 30 - pupilsWithLogin, inApp: pupilsWithLogin, email: 0,
+      })),
+    },
     assistant: {
       confirmProposal: (...args: unknown[]) => confirmProposal(...args),
       dismissProposal: vi.fn(),
@@ -105,24 +114,44 @@ function sentPreview(): MessagePreview {
 beforeEach(() => {
   vi.clearAllMocks()
   window.sessionStorage.clear()
+  pupilsWithLogin = 5
 })
 
 describe('the message card', () => {
-  it('shows who it is for, the words, the character limit and what Confirm does', () => {
+  it('shows who it is for, the words, the character limit and what Confirm does', async () => {
     renderCard(proposalOf(notice))
     expect(screen.getByText('Class 9 A')).toBeInTheDocument()
     expect(screen.getByLabelText('Title')).toHaveValue('Sports day')
     expect(screen.getByLabelText('Message')).toHaveValue(notice.proposed.body)
     expect(screen.getByText(`${notice.proposed.body.length} / 5000`)).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: 'Send now' })).toBeChecked()
-    expect(screen.getByRole('radio', { name: 'Families' })).toBeChecked()
+    expect(await screen.findByRole('radio', { name: 'Parents' })).toBeChecked()
+    expect(screen.getByText('Students in Class 9 to 12 who have their own login get the message in the app.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Send notice' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Confirm' })).toBeNull()
   })
 
   it('offers no families or pupils choice for staff', () => {
     renderCard(proposalOf(staffNotice))
-    expect(screen.queryByRole('radio', { name: 'Families' })).toBeNull()
+    expect(screen.queryByRole('radio', { name: 'Parents' })).toBeNull()
+  })
+
+  it('hides the choice and sends to parents when no pupil in the audience has a login', async () => {
+    pupilsWithLogin = 0
+    const user = userEvent.setup()
+    confirmProposal.mockImplementation(async (_s: string, id: string, body: { preview: MessagePreview }) => ({
+      proposal: { ...proposalOf(body.preview), id, status: 'done', outcome: 'Sent the notice to Class 9 A.', href: '/messages/msg-9' },
+    }))
+    renderCard(proposalOf({ ...notice, audience: { kind: 'section', sectionId: 'sec-9a', recipients: 'both' } }))
+
+    const { api } = await import('@/lib/api')
+    await waitFor(() => expect(api.messages.audiencePreview).toHaveBeenCalledWith(SCHOOL, { kind: 'section', sectionId: 'sec-9a', recipients: 'students' }))
+    await vi.mocked(api.messages.audiencePreview).mock.results[0]!.value
+    expect(screen.queryByRole('radio', { name: 'Parents and students' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Send notice' }))
+
+    await waitFor(() => expect(confirmProposal).toHaveBeenCalledTimes(1))
+    expect(sentPreview().audience).toEqual({ kind: 'section', sectionId: 'sec-9a', recipients: 'families' })
   })
 
   it('names the button by the choice', async () => {
@@ -151,7 +180,7 @@ describe('the message card', () => {
     await user.clear(screen.getByLabelText('Title'))
     await user.type(screen.getByLabelText('Title'), 'Sports day moved')
     await user.type(screen.getByLabelText('Message'), ' Bring water.')
-    await user.click(screen.getByRole('radio', { name: 'Pupils and families' }))
+    await user.click(await screen.findByRole('radio', { name: 'Parents and students' }))
     await user.click(screen.getByRole('radio', { name: 'Schedule' }))
     const day = isoToLocalInput(IN_TWO_DAYS).slice(0, 10)
     fireEvent.change(screen.getByLabelText('Date'), { target: { value: day } })

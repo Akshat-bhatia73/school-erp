@@ -5,7 +5,7 @@ import { messageForIssue, type FieldLabels } from '@/lib/validation'
 export const IMPORT_HEADERS = [
   'Admission Number', 'First Name', 'Last Name', 'Date of Birth', 'Gender', 'Class', 'Section', 'Roll Number',
   'Father Name', 'Mother Name', 'Guardian Phone', 'Guardian Email', 'City', 'State', 'Pincode', 'Category', 'Admission Type',
-  'Student Aadhaar', 'Guardian Aadhaar', 'Guardian PAN', 'Guardian Office Address',
+  'Student Aadhaar', 'Guardian Aadhaar', 'Guardian PAN', 'Guardian Office Address', 'APAAR Id', 'PEN', 'SRN',
 ]
 
 /** The sheet heading for each field the import sends, so a problem names the column the office sees. */
@@ -31,6 +31,9 @@ const FIELD_HEADERS: Record<string, string> = {
   guardianAadhaar: 'Guardian Aadhaar',
   guardianPan: 'Guardian PAN',
   guardianOfficeAddress: 'Guardian Office Address',
+  apaarId: 'APAAR Id',
+  pen: 'PEN',
+  srn: 'SRN',
 }
 
 /** The column a problem belongs to, as the sheet heads it. */
@@ -57,13 +60,16 @@ export const COLUMN_HELP: Array<{ name: string; required: boolean; help: string 
   { name: 'Guardian Aadhaar', required: false, help: 'The Aadhaar number of the guardian on this row. Kept the same way.' },
   { name: 'Guardian PAN', required: false, help: '10 characters, like ABCDE1234F. Kept locked and shown only as the last four.' },
   { name: 'Guardian Office Address', required: false, help: 'Where the guardian works, if you have it.' },
+  { name: 'APAAR Id', required: false, help: 'The student’s APAAR id. Kept locked and shown only as the last four.' },
+  { name: 'PEN', required: false, help: 'The 11 digit PEN that UDISE+ gives each child.' },
+  { name: 'SRN', required: false, help: 'The state student registration number, as the state portal shows it.' },
 ]
 
 const EXAMPLE_ROWS = [
   ['', 'Aarav', 'Sharma', '14-05-2015', 'Male', 'Class 6', 'A', 1, 'Rakesh Sharma', 'Neha Sharma', '9876543210', 'rakesh.sharma@example.com', 'Jaipur', 'Rajasthan', '302001', 'General', 'New',
-    '2345 6789 0124', '3456 7890 1238', 'ABCDE1234F', 'Tonk Road, Jaipur'],
+    '2345 6789 0124', '3456 7890 1238', 'ABCDE1234F', 'Tonk Road, Jaipur', '123456789012', '27123456789', 'RJ/2026/004512'],
   ['SVM/2025-26/102', 'Diya', 'Verma', '02-11-2015', 'Female', 'Class 6', 'B', 2, 'Anil Verma', 'Pooja Verma', '9812345678', '', 'Jaipur', 'Rajasthan', '302012', 'OBC', 'Transfer',
-    '', '', '', ''],
+    '', '', '', '', '', '', ''],
 ]
 
 /** The template workbook: the header row and two example rows. */
@@ -171,6 +177,9 @@ const IMPORT_LABELS: FieldLabels = {
   guardianAadhaar: 'guardian Aadhaar number',
   guardianPan: 'guardian PAN',
   guardianOfficeAddress: 'guardian office address',
+  apaarId: 'APAAR id',
+  pen: 'PEN',
+  srn: 'SRN',
 }
 
 /**
@@ -208,6 +217,10 @@ export function mapSheetRows(sheetRows: Record<string, unknown>[]): MappedSheet 
       guardianAadhaar: optional(text(cell(sheetRow, 'Guardian Aadhaar')).replace(/[\s-]/g, '')),
       guardianPan: optional(cell(sheetRow, 'Guardian PAN')),
       guardianOfficeAddress: optional(cell(sheetRow, 'Guardian Office Address')),
+      apaarId: optional(cell(sheetRow, 'APAAR Id')),
+      // The PEN is eleven digits, which Excel may group or keep as a number; the contract checks it.
+      pen: optional(text(cell(sheetRow, 'PEN')).replace(/[\s-]/g, '')),
+      srn: optional(cell(sheetRow, 'SRN')),
     }
 
     const parsed = StudentsBulkImportRow.safeParse(candidate)
@@ -263,6 +276,9 @@ export function sampleRows(className: string, sectionName: string): Record<strin
       'Guardian Aadhaar': i % 4 === 0 ? sampleAadhaar(i + 100) : '',
       'Guardian PAN': i % 4 === 0 ? `ABCDE${String(1000 + i)}F` : '',
       'Guardian Office Address': i % 4 === 0 ? 'Tonk Road, Jaipur' : '',
+      'APAAR Id': i % 3 === 1 ? String(400000000000 + i * 1013) : '',
+      'PEN': i % 3 === 1 ? String(27100000000 + i * 101) : '',
+      'SRN': i % 3 === 1 ? `RJ/2026/${String(4500 + i).padStart(6, '0')}` : '',
     }
     if (i === 3) row['Guardian Phone'] = '12345'
     if (i === 7) row['Date of Birth'] = ''

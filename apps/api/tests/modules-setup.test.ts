@@ -1097,3 +1097,70 @@ test('a class teacher from another school cannot be put in charge of our section
   const kept = await adminPool().query('SELECT class_teacher_staff_id FROM sections WHERE id = $1', [taughtSection])
   assert.equal(kept.rows[0]?.class_teacher_staff_id, colleague)
 })
+
+test('a new academic year starts with the default periods, recorded on its one audit row', async () => {
+  const suffix = randomUUID().slice(0, 8)
+  const created = await owner.fetch(
+    `/api/schools/${schoolA}/academic-years`,
+    body({ name: `2031-32 ${suffix}`, startDate: '2031-04-01', endDate: '2032-03-31', status: 'upcoming' }),
+  )
+  assert.equal(created.status, 201)
+  const year = (await created.json()) as YearItem
+
+  const pool = adminPool()
+  const schedules = await pool.query<{
+    id: string
+    name: string
+    working_days: number[]
+    periods: { index: number; name: string; startTime: string; endTime: string; type: string }[]
+    saturday_period_count: number | null
+    links: number
+  }>(
+    `SELECT id, name, working_days, periods, saturday_period_count,
+            (SELECT count(*)::int FROM bell_schedule_grades bsg
+              WHERE bsg.school_id = bs.school_id AND bsg.bell_schedule_id = bs.id) AS links
+       FROM bell_schedules bs WHERE school_id = $1 AND academic_year_id = $2`,
+    [schoolA, year.id],
+  )
+  assert.equal(schedules.rowCount, 1)
+  const schedule = schedules.rows[0]
+  assert.ok(schedule)
+  // Monday to Saturday, the same day every day, and no class named: that is
+  // how a schedule says it applies to every class, including later ones.
+  assert.deepEqual(schedule.working_days.map(Number), [1, 2, 3, 4, 5, 6])
+  assert.equal(schedule.saturday_period_count, null)
+  assert.equal(schedule.links, 0)
+  assert.deepEqual(
+    schedule.periods.map((period) => [period.index, period.name, period.startTime, period.endTime, period.type]),
+    [
+      [0, 'Period 1', '08:00', '08:40', 'period'],
+      [1, 'Period 2', '08:40', '09:20', 'period'],
+      [2, 'Short break', '09:20', '09:35', 'break'],
+      [3, 'Period 3', '09:35', '10:15', 'period'],
+      [4, 'Period 4', '10:15', '10:55', 'period'],
+      [5, 'Lunch', '10:55', '11:25', 'lunch'],
+      [6, 'Period 5', '11:25', '12:05', 'period'],
+      [7, 'Period 6', '12:05', '12:45', 'period'],
+      [8, 'Period 7', '12:45', '13:25', 'period'],
+      [9, 'Period 8', '13:25', '14:05', 'period'],
+    ],
+  )
+
+  // The timetable reads it as the schedule of any class in that year.
+  const forGrade = await owner.fetch(
+    `/api/schools/${schoolA}/timetable/bell-schedules/for-grade/${gradeA}?academicYearId=${year.id}`,
+  )
+  assert.equal(forGrade.status, 200)
+  assert.equal(((await forGrade.json()) as { id: string }).id, schedule.id)
+
+  // One audit row for the whole request: the year's, naming the schedule.
+  const audits = await pool.query<{ action: string; safe_changes: Record<string, unknown> }>(
+    `SELECT action, safe_changes FROM audit_events
+      WHERE school_id = $1 AND target_id = ANY($2::uuid[])`,
+    [schoolA, [year.id, schedule.id]],
+  )
+  assert.equal(audits.rowCount, 1)
+  assert.equal(audits.rows[0]?.action, 'academic_years.manage')
+  assert.equal(audits.rows[0]?.safe_changes.defaultBellScheduleId, schedule.id)
+  assert.equal(audits.rows[0]?.safe_changes.defaultPeriods, 8)
+})

@@ -30,6 +30,10 @@ import { ApiFailure, readPlan, schoolToday } from '../shared/index.ts'
  * day on which the pupil was not enrolled is not theirs to be counted for. An
  * unmarked past school day counts against, and is reported as unmarked so a
  * screen can say why.
+ *
+ * Recorded leave (migration 0028) is a plan, not a mark: an unmarked school
+ * day inside an active leave record counts as leave, and not as unmarked. A
+ * mark somebody saved always wins over the plan, whatever it says.
  */
 
 export { schoolToday }
@@ -239,6 +243,33 @@ export async function readCalendarDay(
 }
 
 // ---------------------------------------------------------------------------
+// Recorded leave.
+
+/**
+ * True when an active leave record of this pupil covers this day. A leave
+ * record is read through its pupil, so it is in scope exactly when the pupil
+ * is: every caller ANDs the pupil plan in before this is reached.
+ */
+export function pupilOnLeave(schoolId: string, studentId: SQL, day: SQL): SQL {
+  return sql`EXISTS (SELECT 1 FROM leave_records
+       WHERE leave_records.school_id = ${schoolId}::uuid
+         AND leave_records.person_kind = 'student'
+         AND leave_records.student_id = ${studentId}
+         AND leave_records.cancelled_at IS NULL
+         AND ${day} BETWEEN leave_records.starts_on AND leave_records.ends_on)`
+}
+
+/** The same for a staff member, read through the staff member's own plan. */
+export function staffOnLeave(schoolId: string, staffId: SQL, day: SQL): SQL {
+  return sql`EXISTS (SELECT 1 FROM leave_records
+       WHERE leave_records.school_id = ${schoolId}::uuid
+         AND leave_records.person_kind = 'staff'
+         AND leave_records.staff_id = ${staffId}
+         AND leave_records.cancelled_at IS NULL
+         AND ${day} BETWEEN leave_records.starts_on AND leave_records.ends_on)`
+}
+
+// ---------------------------------------------------------------------------
 // Pupils: the current marks and the figures.
 
 export interface AttendanceFiguresInput extends CalendarInput {
@@ -265,10 +296,12 @@ export interface AttendanceFiguresInput extends CalendarInput {
  * - `att_current (id, student_id, section_id, academic_year_id, date, mark,
  *   kind, revision, created_at)`: the newest mark per pupil and date among
  *   the rows the caller may read.
- * - `att_pupil_days (student_id, day, kind, future, mark, corrected)`: one
- *   row per pupil and day they were enrolled in the window.
+ * - `att_pupil_days (student_id, day, kind, future, mark, corrected,
+ *   on_leave)`: one row per pupil and day they were enrolled in the window;
+ *   on_leave is true when an active leave record covers the day.
  * - `att_figures (student_id, school_days, present, absent, late, leave,
- *   half_day, unmarked)`: the counts over school days up to today.
+ *   half_day, unmarked)`: the counts over school days up to today. An
+ *   unmarked day on leave is counted as leave, never as unmarked.
  */
 export function attendanceFiguresCte(input: AttendanceFiguresInput): SQL {
   const school = sql`${input.schoolId}::uuid`
@@ -296,7 +329,8 @@ export function attendanceFiguresCte(input: AttendanceFiguresInput): SQL {
     ),
     att_pupil_days AS (
       SELECT DISTINCT ON (s.student_id, d.day)
-             s.student_id, d.day, d.kind, d.future, c.mark, (c.kind = 'correction') AS corrected
+             s.student_id, d.day, d.kind, d.future, c.mark, (c.kind = 'correction') AS corrected,
+             ${pupilOnLeave(input.schoolId, sql`s.student_id`, sql`d.day`)} AS on_leave
         FROM att_spans s
         JOIN att_days d ON d.day BETWEEN s.from_on AND s.to_on
         LEFT JOIN att_current c ON c.student_id = s.student_id AND c.date = d.day
@@ -308,9 +342,10 @@ export function attendanceFiguresCte(input: AttendanceFiguresInput): SQL {
              count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark = 'present')::int AS present,
              count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark = 'absent')::int AS absent,
              count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark = 'late')::int AS late,
-             count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark = 'leave')::int AS leave,
+             count(*) FILTER (WHERE kind = 'school_day' AND NOT future
+                                AND (mark = 'leave' OR (mark IS NULL AND on_leave)))::int AS leave,
              count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark = 'half_day')::int AS half_day,
-             count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark IS NULL)::int AS unmarked
+             count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark IS NULL AND NOT on_leave)::int AS unmarked
         FROM att_pupil_days
        GROUP BY student_id
     )`
@@ -361,7 +396,7 @@ export interface StaffFiguresInput extends CalendarInput {
 /**
  * The `WITH ...` prefix of a staff attendance statement. After it a query may
  * read `att_days`, `sta_people (staff_id, from_on, to_on)`, `sta_current`,
- * `sta_days (staff_id, day, kind, future, mark, corrected)` and `sta_figures`
+ * `sta_days (staff_id, day, kind, future, mark, corrected, on_leave)` and `sta_figures`
  * with the same columns as `att_figures`, keyed by `staff_id`.
  *
  * A person is on the register from their joining date to their leaving date,
@@ -393,7 +428,8 @@ export function staffFiguresCte(input: StaffFiguresInput): SQL {
        ORDER BY staff_attendance_entries.staff_id, staff_attendance_entries.date, staff_attendance_entries.revision DESC
     ),
     sta_days AS (
-      SELECT p.staff_id, d.day, d.kind, d.future, c.mark, (c.kind = 'correction') AS corrected
+      SELECT p.staff_id, d.day, d.kind, d.future, c.mark, (c.kind = 'correction') AS corrected,
+             ${staffOnLeave(input.schoolId, sql`p.staff_id`, sql`d.day`)} AS on_leave
         FROM sta_people p
         JOIN att_days d ON d.day BETWEEN p.from_on AND p.to_on
         LEFT JOIN sta_current c ON c.staff_id = p.staff_id AND c.date = d.day
@@ -404,9 +440,10 @@ export function staffFiguresCte(input: StaffFiguresInput): SQL {
              count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark = 'present')::int AS present,
              count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark = 'absent')::int AS absent,
              count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark = 'late')::int AS late,
-             count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark = 'leave')::int AS leave,
+             count(*) FILTER (WHERE kind = 'school_day' AND NOT future
+                                AND (mark = 'leave' OR (mark IS NULL AND on_leave)))::int AS leave,
              count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark = 'half_day')::int AS half_day,
-             count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark IS NULL)::int AS unmarked
+             count(*) FILTER (WHERE kind = 'school_day' AND NOT future AND mark IS NULL AND NOT on_leave)::int AS unmarked
         FROM sta_days
        GROUP BY staff_id
     )`

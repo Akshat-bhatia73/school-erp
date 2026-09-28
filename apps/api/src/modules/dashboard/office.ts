@@ -33,6 +33,7 @@ import {
 } from './calendar.ts'
 import { loadSchedules, scheduleForGrade, weeklyTeachingSlots } from './bell.ts'
 import { recentAuditEvents, securityAuditEvents } from './activity.ts'
+import { leaveToday, teachersOnLeave } from './leave.ts'
 
 /**
  * A substitution is visible when the period it covers is visible, because the
@@ -81,9 +82,18 @@ async function coverCounts(
   date: string,
 ): Promise<CoverCounts> {
   const scope = await substitutionScope(conn, context)
+  // A teacher is away when cover was arranged for them, or when recorded
+  // leave covers them and nobody has marked them present or late that day.
+  const onLeave = await teachersOnLeave(conn, context, date)
   const [row] = await rows<{ away: number; uncovered: number }>(
     conn,
-    sql`SELECT count(DISTINCT substitutions.absent_staff_id)::int AS away,
+    sql`SELECT (SELECT count(*)::int FROM (
+                  SELECT substitutions.absent_staff_id AS staff_id FROM substitutions
+                   WHERE substitutions.date = ${date}::date AND ${scope}
+                  UNION
+                  SELECT staff.id FROM staff
+                   WHERE staff.school_id = ${context.schoolId}::uuid AND ${onLeave}
+                ) away) AS away,
                count(*) FILTER (WHERE substitutions.substitute_staff_id IS NULL)::int AS uncovered
           FROM substitutions
          WHERE substitutions.date = ${date}::date AND ${scope}`,
@@ -658,6 +668,7 @@ export async function officeDashboard(
     calendar.day.kind === 'school_day'
       ? await optionalBlock(() => attendanceToday(conn, context, year, date))
       : undefined
+  const onLeave = await leaveToday(conn, context, date)
   const perTeacher = await optionalBlock(() => studentsPerTeacher(conn, context))
   const strengths = await optionalBlock(() => classStrength(conn, context, year?.id ?? null))
   const admissions = await optionalBlock(() => admissionsByMonth(conn, context, year, date))
@@ -683,6 +694,7 @@ export async function officeDashboard(
     ...(glance === undefined ? {} : { glance }),
     ...(fees === undefined ? {} : { fees }),
     ...(attendance === undefined ? {} : { attendance }),
+    ...(onLeave === undefined ? {} : { leaveToday: onLeave }),
     ...(exams === undefined ? {} : { exams }),
     ...(perTeacher === undefined ? {} : { studentsPerTeacher: perTeacher }),
     ...(strengths === undefined ? {} : { classStrength: strengths }),

@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { StaffUpdateEmploymentRequest, UpdateStaffPayRequest, UpdateStaffPrivateRequest } from '@erp/contracts'
+import { IdentityField } from '@/components/students/identity-fields'
 import { api } from '@/lib/api'
 import type { StaffDetail } from '@/lib/api/staff'
 import { Button } from '@/components/ui/button'
@@ -18,7 +19,7 @@ import { describeError } from '@/lib/api-errors'
 import { focusFirstInvalid } from '@/lib/validation'
 import { qk } from '@/lib/query'
 import { useSchoolContext } from '@/lib/session'
-import { Datalist, Field, SelectField, TextField, fieldErrorsFrom, type FieldErrors } from './form'
+import { Datalist, Field, STAFF_LABELS, SelectField, TextField, fieldErrorsFrom, type FieldErrors } from './form'
 import { employmentOptions, statusOptions, type EmploymentTypeValue, type StaffStatusValue } from './shared'
 
 interface SheetProps {
@@ -115,6 +116,9 @@ export function StaffContactSheet({ detail, open, onOpenChange }: SheetProps) {
   const [errors, setErrors] = useState<FieldErrors>({})
   const [phone, setPhone] = useState(detail.private?.phone ?? '')
   const [address, setAddress] = useState(detail.private?.address ?? '')
+  // Only the last digits ever come back, so the box starts empty and an untouched box changes nothing.
+  const [aadhaar, setAadhaar] = useState('')
+  const [removeAadhaar, setRemoveAadhaar] = useState(false)
 
   const save = useMutation({
     mutationFn: (body: Parameters<typeof api.staff.updatePrivate>[2]) => api.staff.updatePrivate(schoolId, staff.id, body),
@@ -123,9 +127,15 @@ export function StaffContactSheet({ detail, open, onOpenChange }: SheetProps) {
   })
 
   function onSave() {
-    const parsed = UpdateStaffPrivateRequest.safeParse({ expectedVersion: staff.version, phone: phone.trim(), address })
+    const parsed = UpdateStaffPrivateRequest.safeParse({
+      expectedVersion: staff.version,
+      phone: phone.trim(),
+      address,
+      // Null clears the number on file; a blank box leaves it as it is.
+      aadhaar: removeAadhaar ? null : aadhaar.trim() === '' ? undefined : aadhaar,
+    })
     if (!parsed.success) {
-      setErrors(fieldErrorsFrom(parsed.error))
+      setErrors(fieldErrorsFrom(parsed.error, { ...STAFF_LABELS, aadhaar: 'Aadhaar number' }))
       requestAnimationFrame(() => focusFirstInvalid())
       return
     }
@@ -138,13 +148,22 @@ export function StaffContactSheet({ detail, open, onOpenChange }: SheetProps) {
       <SheetContent className="flex w-full flex-col sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>Edit contact details</SheetTitle>
-          <SheetDescription>How the school reaches this person.</SheetDescription>
+          <SheetDescription>How the school reaches this person, and their Aadhaar number.</SheetDescription>
         </SheetHeader>
         <div className="min-h-0 flex-1 space-y-4 overflow-auto px-4 pb-2 scrollbar-thin">
           <TextField label="Phone" value={phone} onChange={setPhone} error={errors.phone} hint="Include the country code, like +919876543210" />
           <Field label="Address" error={errors.address}>
             <Textarea value={address} onChange={(e) => setAddress(e.target.value)} rows={4} placeholder="House 12, Gandhi Road, Jaipur" />
           </Field>
+          <IdentityField
+            kind="aadhaar"
+            label="Aadhaar number"
+            value={aadhaar}
+            onChange={setAadhaar}
+            onFile={detail.private?.aadhaarLast4}
+            error={errors.aadhaar}
+            removal={{ removed: removeAadhaar, onChange: setRemoveAadhaar }}
+          />
         </div>
         <SheetFooter className="flex-row justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>

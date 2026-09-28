@@ -57,6 +57,10 @@ export const ErrorReason = z.enum([
   'staff_attendance_own_record',
   'staff_attendance_not_on_register',
   'staff_attendance_register_incomplete',
+  // Recorded leave (migration 0028).
+  'leave_overlaps',
+  'leave_already_cancelled',
+  'leave_person_not_active',
   'exam_dates_outside_year',
   'exam_already_published',
   'exam_nothing_to_publish',

@@ -68,6 +68,18 @@ export const PanNumber = z
     'Enter the 10 character PAN, like AAAAA9999A',
   )
 
+/** The Permanent Education Number UDISE+ gives every child: eleven digits. */
+export const PenNumber = z
+  .string()
+  .transform((value) => value.replace(/\s+/g, ''))
+  .refine((value) => /^\d{11}$/.test(value), 'Enter the 11 digit PEN')
+
+/** The state's student registration number: letters, digits, / and -, up to 30. */
+export const SrnNumber = z
+  .string()
+  .trim()
+  .refine((value) => /^[A-Za-z0-9/-]{1,30}$/.test(value), 'Enter the SRN as the state portal shows it')
+
 export type AadhaarNumber = z.infer<typeof AadhaarNumber>
 export type PanNumber = z.infer<typeof PanNumber>
 

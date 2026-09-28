@@ -4,7 +4,7 @@
  * Nothing here decides anything: the contract is the only judge of whether a draft may be sent,
  * so every check is a safeParse of the request the screen would post.
  */
-import { StudentsAdmitRequest } from '@erp/contracts'
+import { CONSENT_PURPOSES, StudentsAdmitRequest } from '@erp/contracts'
 import type { ConsentMethod, ConsentPurpose } from '@erp/contracts'
 import type { AdmitStudentInput } from '@/lib/api/students'
 import { fieldErrors, type FieldLabels } from '@/lib/validation'
@@ -46,10 +46,24 @@ export interface AdmitDraft {
   address: string
   /** The student's own Aadhaar number, optional, twelve digits. */
   aadhaar: string
+  /** The government numbers, all optional: APAAR id, PEN (UDISE+) and the state's SRN. */
+  apaarId: string
+  pen: string
+  srn: string
   sectionId: string
   rollNumber: string
   guardians: GuardianDraft[]
   primaryIndex: number
+  /**
+   * How consent is recorded. `form`: the one tick for the consent section of the admission form,
+   * which covers every purpose for the primary guardian. `each`: the purposes ticked one by one
+   * on each guardian, as before.
+   */
+  consentMode: 'form' | 'each'
+  /** The family signed the consent section of the admission form. */
+  consentSigned: boolean
+  /** The form number or file reference for that signature, if there is one. */
+  consentFormReference: string
 }
 
 /**
@@ -66,7 +80,7 @@ export interface ChosenPhoto {
 
 /** A pupil's photograph may be kept only when a guardian agreed to photographs. */
 export function photoConsented(draft: AdmitDraft): boolean {
-  return draft.guardians.some((guardian) => guardian.consentPurposes.includes('photographs'))
+  return consentEntries(draft).some((entry) => entry.purpose === 'photographs')
 }
 
 /**
@@ -106,8 +120,9 @@ export function emptyGuardian(relation: GuardianRelation = 'father'): GuardianDr
 export function emptyDraft(): AdmitDraft {
   return {
     firstName: '', lastName: '', dateOfBirth: '', gender: '', category: '',
-    admissionDate: todayIso(), admissionType: '', address: '', aadhaar: '',
+    admissionDate: todayIso(), admissionType: '', address: '', aadhaar: '', apaarId: '', pen: '', srn: '',
     sectionId: '', rollNumber: '', guardians: [emptyGuardian('father')], primaryIndex: 0,
+    consentMode: 'form', consentSigned: false, consentFormReference: '',
   }
 }
 
@@ -132,6 +147,9 @@ export function toAdmitRequest(draft: AdmitDraft): AdmitStudentInput {
     admissionDate: draft.admissionDate,
     address: clean(draft.address),
     aadhaar: clean(draft.aadhaar),
+    apaarId: clean(draft.apaarId),
+    pen: clean(draft.pen),
+    srn: clean(draft.srn),
     sectionId: draft.sectionId,
     rollNumber: draft.rollNumber.trim() === '' ? undefined : Number(draft.rollNumber),
     guardians: draft.guardians.map((guardian, index) => ({
@@ -158,8 +176,21 @@ export function toAdmitRequest(draft: AdmitDraft): AdmitStudentInput {
   } as AdmitStudentInput
 }
 
-/** The consent rows this draft stands for, one per guardian and ticked purpose. */
+/**
+ * The consent rows this draft stands for. The signed form gives one row per purpose for the
+ * primary guardian; one by one gives a row per guardian and ticked purpose. Nothing ticked is no
+ * rows at all.
+ */
 export function consentEntries(draft: AdmitDraft) {
+  if (draft.consentMode === 'form') {
+    if (!draft.consentSigned) return []
+    return CONSENT_PURPOSES.map((purpose) => ({
+      guardianIndex: draft.primaryIndex,
+      purpose,
+      method: 'signed_form' as const,
+      evidenceReference: clean(draft.consentFormReference),
+    }))
+  }
   return draft.guardians.flatMap((guardian, guardianIndex) =>
     guardian.consentPurposes.map((purpose) => ({
       guardianIndex,
@@ -172,11 +203,14 @@ export function consentEntries(draft: AdmitDraft) {
 
 /** Which step owns which top-level field, so an error lands on the step that can fix it. */
 const STEP_FIELDS: Record<number, string[]> = {
-  0: ['firstName', 'lastName', 'dateOfBirth', 'gender', 'category', 'aadhaar'],
-  1: ['guardians'],
-  2: ['consents'],
-  3: ['admissionDate', 'admissionType', 'address', 'sectionId', 'rollNumber'],
+  0: ['firstName', 'lastName', 'dateOfBirth', 'gender', 'category', 'aadhaar', 'apaarId', 'pen', 'srn'],
+  // Consent is recorded on the guardians step, so its problems land there.
+  1: ['guardians', 'consents'],
+  2: ['admissionDate', 'admissionType', 'address', 'sectionId', 'rollNumber'],
 }
+
+/** The class step, where anything unrecognised is shown. */
+const CLASS_STEP = 2
 
 /** The words each field goes by on the form, so a problem reads as plain English. */
 export const ADMIT_LABELS: FieldLabels = {
@@ -187,6 +221,8 @@ export const ADMIT_LABELS: FieldLabels = {
   category: { label: 'category', kind: 'select' },
   aadhaar: 'Aadhaar number',
   apaarId: 'APAAR id',
+  pen: 'PEN',
+  srn: 'SRN',
   admissionDate: 'admission date',
   admissionType: { label: 'admission type', kind: 'select' },
   address: 'address',
@@ -222,7 +258,7 @@ export function stepOfError(path: string): number {
   for (const [step, fields] of Object.entries(STEP_FIELDS)) {
     if (fields.includes(head)) return Number(step)
   }
-  return 3
+  return CLASS_STEP
 }
 
 /** Only the problems this step can fix. */

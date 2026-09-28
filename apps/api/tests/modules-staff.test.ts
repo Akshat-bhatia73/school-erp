@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import test, { after, before } from 'node:test'
 import ExcelJS from 'exceljs'
+import { isVerhoeffValid } from '@erp/contracts'
 import { fixtureIds } from '@erp/db/fixtures'
 import {
   adminPool,
@@ -800,4 +801,205 @@ test('a leaving date is never on a row of the directory, which carries no employ
       body: JSON.stringify({ expectedVersion: current.staff.version, leavingDate: null }),
     })
   }
+})
+
+/** A twelve digit number that passes the Aadhaar check digit. */
+function makeAadhaar(): string {
+  for (;;) {
+    const head = String(2 + Math.floor(Math.random() * 8)) + String(Math.floor(Math.random() * 1e10)).padStart(10, '0')
+    for (let digit = 0; digit <= 9; digit += 1) {
+      if (isVerhoeffValid(`${head}${digit}`)) return `${head}${digit}`
+    }
+  }
+}
+
+async function versionOf(staffId: string): Promise<number> {
+  const found = await adminPool().query<{ version: number }>('SELECT version FROM staff WHERE id = $1', [staffId])
+  return Number(found.rows[0]?.version)
+}
+
+async function putPrivate(client: Client, staffId: string, fields: Record<string, unknown>): Promise<Response> {
+  return client.fetch(`/api/schools/${schoolA}/staff/${staffId}/private`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ expectedVersion: await versionOf(staffId), ...fields }),
+  })
+}
+
+test('a staff Aadhaar number is sealed, shown as its last four and cleared with null', async () => {
+  const aadhaar = makeAadhaar()
+  const saved = await putPrivate(owner, colleagueId, { aadhaar })
+  assert.equal(saved.status, 200)
+  const text = await saved.text()
+  assert.equal(text.includes(aadhaar), false)
+  assert.equal((JSON.parse(text) as { private?: { aadhaarLast4?: string } }).private?.aadhaarLast4, aadhaar.slice(-4))
+
+  const pool = adminPool()
+  const stored = await pool.query<{ aadhaar_ciphertext: string | null; aadhaar_last4: string | null }>(
+    'SELECT aadhaar_ciphertext, aadhaar_last4 FROM staff WHERE id = $1',
+    [colleagueId],
+  )
+  assert.match(stored.rows[0]?.aadhaar_ciphertext ?? '', /^v1\./)
+  assert.equal(stored.rows[0]?.aadhaar_ciphertext?.includes(aadhaar), false)
+  assert.equal(stored.rows[0]?.aadhaar_last4, aadhaar.slice(-4))
+
+  const detail = (await (await owner.fetch(`/api/schools/${schoolA}/staff/${colleagueId}`)).json()) as {
+    private?: { aadhaarLast4?: string }
+  }
+  assert.equal(detail.private?.aadhaarLast4, aadhaar.slice(-4))
+
+  // A malformed number is refused and changes nothing.
+  const bad = await putPrivate(owner, colleagueId, { aadhaar: '123456789012' })
+  assert.equal(bad.status, 400)
+
+  const cleared = await putPrivate(owner, colleagueId, { aadhaar: null })
+  assert.equal(cleared.status, 200)
+  const gone = await pool.query<{ aadhaar_ciphertext: string | null; aadhaar_last4: string | null }>(
+    'SELECT aadhaar_ciphertext, aadhaar_last4 FROM staff WHERE id = $1',
+    [colleagueId],
+  )
+  assert.deepEqual(gone.rows[0], { aadhaar_ciphertext: null, aadhaar_last4: null })
+
+  // One audit row per change: it says the Aadhaar changed, never the number.
+  const audits = await pool.query<{ safe_changes: Record<string, unknown> }>(
+    `SELECT safe_changes FROM audit_events
+      WHERE school_id = $1 AND target_id = $2 AND action = 'staff.update_private'
+        AND safe_changes ? 'aadhaarChanged'
+      ORDER BY created_at`,
+    [schoolA, colleagueId],
+  )
+  assert.deepEqual(audits.rows.map((row) => row.safe_changes), [
+    { fields: ['aadhaar'], aadhaarChanged: true, aadhaarCleared: false },
+    { fields: ['aadhaar'], aadhaarChanged: true, aadhaarCleared: true },
+  ])
+  assert.equal(JSON.stringify(audits.rows).includes(aadhaar), false)
+})
+
+/** The export as a grid of text: the header row first, then one row per person. */
+async function staffGrid(
+  client: Client,
+  request: Record<string, unknown>,
+): Promise<{ jobId: string; grid: string[][] }> {
+  const response = await client.fetch(`/api/schools/${schoolA}/staff/export`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(request),
+  })
+  assert.equal(response.status, 202)
+  const job = (await response.json()) as { id: string; status: string }
+  assert.equal(job.status, 'ready')
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load((await readExportFileBytes(server, job.id)) as unknown as ArrayBuffer)
+  const sheet = workbook.worksheets[0]
+  assert.ok(sheet)
+  const grid: string[][] = []
+  sheet.eachRow((row) => {
+    const cells: string[] = []
+    for (let index = 1; index <= sheet.columnCount; index += 1) {
+      const value = row.getCell(index).value
+      cells.push(value === null || value === undefined ? '' : String(value))
+    }
+    grid.push(cells)
+  })
+  return { jobId: job.id, grid }
+}
+
+/** A fresh office member with one role, signed in with the second step. */
+async function officeMember(role: string): Promise<{ client: Client; membershipId: string }> {
+  const pool = adminPool()
+  const userId = randomUUID()
+  const membershipId = randomUUID()
+  const email = `staff-${role}-${randomUUID()}@example.test`
+  await pool.query('INSERT INTO auth_user (id, name, email) VALUES ($1, $2, $3)', [userId, `Export ${role}`, email])
+  await pool.query(
+    `INSERT INTO school_memberships (id, school_id, user_id, kind, status) VALUES ($1, $2, $3, 'adult', 'active')`,
+    [membershipId, schoolA, userId],
+  )
+  await pool.query(
+    `INSERT INTO membership_roles (school_id, membership_id, role_id)
+     SELECT $1, $2, id FROM roles WHERE school_id = $1 AND key = $3`,
+    [schoolA, membershipId, role],
+  )
+  return { client: await signInWithMfa(server, { userId, email, password: PASSWORD }), membershipId }
+}
+
+test('a staff export with no columns is the five directory columns, chosen ones come in list order', async () => {
+  const plain = await staffGrid(owner, { staffIds: [colleagueId] })
+  assert.deepEqual(plain.grid, [
+    ['Employee code', 'Name', 'Role', 'Department', 'Status'],
+    [`COL-${suffix}`, 'Colleague Kumar', 'Teacher', 'Maths', 'active'],
+  ])
+
+  const chosen = await staffGrid(owner, {
+    staffIds: [colleagueId],
+    columns: ['phone', 'employmentType', 'name', 'joiningDate', 'employeeCode'],
+  })
+  assert.deepEqual(chosen.grid, [
+    ['Employee code', 'Name', 'Employment type', 'Joining date', 'Phone'],
+    [`COL-${suffix}`, 'Colleague Kumar', 'Permanent', '01 Apr 2026', '+919812345671'],
+  ])
+  const audit = await adminPool().query<{ safe_changes: Record<string, unknown> }>(
+    `SELECT safe_changes FROM audit_events WHERE school_id = $1 AND target_id = $2 AND action = 'staff.export'`,
+    [schoolA, chosen.jobId],
+  )
+  assert.equal(audit.rowCount, 1)
+  assert.deepEqual(audit.rows[0]?.safe_changes.columns, ['employeeCode', 'name', 'employmentType', 'joiningDate', 'phone'])
+  assert.equal(JSON.stringify(audit.rows[0]?.safe_changes).includes('+919812345671'), false)
+})
+
+test('the whole staff Aadhaar is for the owner, the principal and the administrator, and pay is never a column', async () => {
+  const aadhaar = makeAadhaar()
+  assert.equal((await putPrivate(owner, colleagueId, { aadhaar })).status, 200)
+  try {
+    const request = { staffIds: [colleagueId], columns: ['employeeCode', 'aadhaarLast4', 'aadhaar'] }
+    const principal = await officeMember('principal')
+    for (const client of [owner, officer, principal.client]) {
+      const { grid } = await staffGrid(client, request)
+      assert.deepEqual(grid[1], [`COL-${suffix}`, aadhaar.slice(-4), aadhaar])
+    }
+
+    // The accountant exports staff through the finance scope but holds no
+    // export identity key, so asking for the column is refused and no job is written.
+    const accountant = await officeMember('accountant')
+    const refused = await accountant.client.fetch(`/api/schools/${schoolA}/staff/export`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    })
+    assert.equal(refused.status, 403)
+    assert.equal(await codeOf(refused), 'ACCESS_DENIED')
+    const none = await adminPool().query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM export_jobs WHERE school_id = $1 AND requested_by_membership_id = $2',
+      [schoolA, accountant.membershipId],
+    )
+    assert.equal(none.rows[0]?.n, 0)
+
+    const salary = await owner.fetch(`/api/schools/${schoolA}/staff/export`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ staffIds: [colleagueId], columns: ['monthlySalary'] }),
+    })
+    assert.equal(salary.status, 400)
+  } finally {
+    await putPrivate(owner, colleagueId, { aadhaar: null })
+  }
+})
+
+test('an accountant exports private staff columns through the finance scope', async () => {
+  const accountant = await officeMember('accountant')
+  const { grid } = await staffGrid(accountant.client, {
+    staffIds: [colleagueId],
+    columns: ['employeeCode', 'staffType', 'phone', 'joiningDate'],
+  })
+  assert.deepEqual(grid, [
+    ['Employee code', 'Staff type', 'Joining date', 'Phone'],
+    [`COL-${suffix}`, 'Teaching', '01 Apr 2026', '+919812345671'],
+  ])
+  const refused = await accountant.client.fetch(`/api/schools/${schoolA}/staff/export`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ staffIds: [colleagueId], columns: ['employeeCode', 'aadhaar'] }),
+  })
+  assert.equal(refused.status, 403)
+  assert.equal(await codeOf(refused), 'ACCESS_DENIED')
 })

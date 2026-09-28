@@ -948,3 +948,102 @@ test('admission records the consents it was given and refuses an index it was no
     { purpose: 'photographs', status: 'given', method: 'in_person' },
   ])
 })
+
+test('admission keeps the APAAR id sealed and the PEN and SRN as typed', async () => {
+  const response = await admit({ apaarId: '998877665544', pen: '1234 5678 901', srn: 'MH/2026-0042' })
+  assert.equal(response.status, 201)
+  const created = await body<Basic>(response)
+
+  const pool = adminPool()
+  const stored = await pool.query<{ apaar_ciphertext: string; apaar_last4: string; pen: string; srn: string }>(
+    'SELECT apaar_ciphertext, apaar_last4, pen, srn FROM students WHERE school_id = $1 AND id = $2',
+    [schoolA, created.id],
+  )
+  assert.equal(stored.rows[0]?.apaar_last4, '5544')
+  assert.match(stored.rows[0]?.apaar_ciphertext ?? '', /^v1\./)
+  assert.equal((stored.rows[0]?.apaar_ciphertext ?? '').includes('998877665544'), false)
+  // The PEN arrives with the spaces a person types and is kept as eleven digits.
+  assert.equal(stored.rows[0]?.pen, '12345678901')
+  assert.equal(stored.rows[0]?.srn, 'MH/2026-0042')
+
+  // Still one audit row for the admission, and none of the numbers in it.
+  const audits = await pool.query<{ safe_changes: unknown }>(
+    `SELECT safe_changes FROM audit_events WHERE school_id = $1 AND target_id = $2 AND action = 'students.create'`,
+    [schoolA, created.id],
+  )
+  assert.equal(audits.rowCount, 1)
+  const trail = JSON.stringify(audits.rows[0]?.safe_changes)
+  for (const secret of ['998877665544', '12345678901', 'MH/2026-0042']) assert.equal(trail.includes(secret), false)
+
+  const detailText = await (await owner.fetch(`/api/schools/${schoolA}/students/${created.id}`)).text()
+  assert.equal(detailText.includes('998877665544'), false)
+  const detail = JSON.parse(detailText) as Detail
+  assert.equal(detail.sensitive?.apaarMasked, 'XXXX-XXXX-5544')
+  assert.equal(detail.sensitive?.pen, '12345678901')
+  assert.equal(detail.sensitive?.srn, 'MH/2026-0042')
+
+  // A teacher reads no sensitive block, so neither number reaches her.
+  const taught = await teacher.fetch(`/api/schools/${schoolA}/students/${created.id}`)
+  if (taught.status === 200) assert.equal('sensitive' in (await body<Detail>(taught)), false)
+
+  // The subject access copy carries both numbers and the whole APAAR id.
+  const subject = await owner.fetch(`/api/schools/${schoolA}/students/${created.id}/subject-access`)
+  assert.equal(subject.status, 200)
+  const copy = await body<{ sensitive?: Record<string, unknown> }>(subject)
+  assert.equal(copy.sensitive?.pen, '12345678901')
+  assert.equal(copy.sensitive?.srn, 'MH/2026-0042')
+  assert.equal(copy.sensitive?.apaarId, '998877665544')
+})
+
+test('admission refuses a PEN that is not eleven digits and writes nothing', async () => {
+  const pool = adminPool()
+  const before = await pool.query<{ total: number }>(
+    'SELECT count(*)::int AS total FROM students WHERE school_id = $1',
+    [schoolA],
+  )
+  for (const bad of [{ pen: '12345' }, { srn: 'has spaces in it' }, { apaarId: '' }]) {
+    const response = await admit(bad)
+    assert.equal(response.status, 400, JSON.stringify(bad))
+    assert.equal(await codeOf(response), 'INVALID_REQUEST')
+  }
+  // Too short to show the last four characters of.
+  const short = await admit({ apaarId: '12' })
+  assert.equal(short.status, 400)
+  const after = await pool.query<{ total: number }>(
+    'SELECT count(*)::int AS total FROM students WHERE school_id = $1',
+    [schoolA],
+  )
+  assert.equal(after.rows[0]?.total, before.rows[0]?.total)
+})
+
+test('the sensitive edit sets and clears the PEN and the SRN', async () => {
+  const created = await body<Basic>(await admit())
+  const set = await owner.fetch(`/api/schools/${schoolA}/students/${created.id}/sensitive`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ expectedVersion: created.version, pen: '10987654321', srn: 'KA-778' }),
+  })
+  assert.equal(set.status, 200)
+  const afterSet = await body<Detail>(await owner.fetch(`/api/schools/${schoolA}/students/${created.id}`))
+  assert.equal(afterSet.sensitive?.pen, '10987654321')
+  assert.equal(afterSet.sensitive?.srn, 'KA-778')
+
+  // Null clears one number; leaving the other out keeps it.
+  const cleared = await owner.fetch(`/api/schools/${schoolA}/students/${created.id}/sensitive`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ expectedVersion: afterSet.student.version, pen: null }),
+  })
+  assert.equal(cleared.status, 200)
+  const afterClear = await body<Detail>(await owner.fetch(`/api/schools/${schoolA}/students/${created.id}`))
+  assert.equal('pen' in (afterClear.sensitive ?? {}), false)
+  assert.equal(afterClear.sensitive?.srn, 'KA-778')
+
+  const audits = await adminPool().query<{ safe_changes: { fields: string[] } }>(
+    `SELECT safe_changes FROM audit_events
+      WHERE school_id = $1 AND target_id = $2 AND action = 'students.update_sensitive'
+      ORDER BY created_at`,
+    [schoolA, created.id],
+  )
+  assert.deepEqual(audits.rows.map((row) => row.safe_changes.fields), [['pen', 'srn'], ['pen']])
+})

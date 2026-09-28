@@ -1,7 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm'
 import type { StaffCreateRequest, StaffUpdateEmploymentRequest, TeachingAssignmentRequest } from '@erp/contracts'
 import { UpdateStaffPayRequest, UpdateStaffPrivateRequest } from '@erp/contracts'
-import type { FilesExportJobSummary } from '@erp/contracts'
+import type { FilesExportJobSummary, StaffExportColumn } from '@erp/contracts'
 import { createAndMaybeProduce, type ExportDependencies } from '../../exports/run.ts'
 import type { AuthzConnection } from '@erp/authz'
 import type { z } from 'zod'
@@ -9,6 +9,7 @@ import type { RequestContext } from '@erp/contracts/server'
 import { academicYears, exportJobs, sections, staff, subjects, teachingAssignments } from '@erp/db/schema'
 import { ApiFailure } from '../../http/errors.ts'
 import { lockSchool, writeAudit } from '../shared/audit.ts'
+import { sealAadhaar } from '../shared/crypto.ts'
 import { allocateEmployeeCode } from '../shared/sequences.ts'
 import { bumpVersion } from '../shared/version.ts'
 import type { StaffRow } from './projection.ts'
@@ -148,11 +149,27 @@ export async function updatePrivate(
   context: RequestContext,
   staffId: string,
   body: z.infer<typeof UpdateStaffPrivateRequest>,
+  encryptionKey: string,
 ): Promise<void> {
   const set: Record<string, unknown> = {}
-  if (body.phone !== undefined) set.phone = body.phone
+  const fields: string[] = []
+  if (body.phone !== undefined) {
+    set.phone = body.phone
+    fields.push('phone')
+  }
   // The column is JSON, so the address is stored as a JSON string value.
-  if (body.address !== undefined) set.address = JSON.stringify(body.address)
+  if (body.address !== undefined) {
+    set.address = JSON.stringify(body.address)
+    fields.push('address')
+  }
+  if (body.aadhaar !== undefined) {
+    // Sealed exactly like a student's; null clears the number and the digits
+    // together, so no mask is left in front of a number that is gone.
+    const sealed = body.aadhaar === null ? null : sealAadhaar(body.aadhaar, encryptionKey)
+    set.aadhaar_ciphertext = sealed?.ciphertext ?? null
+    set.aadhaar_last4 = sealed?.last4 ?? null
+    fields.push('aadhaar')
+  }
   await bumpVersion(conn, 'staff', {
     schoolId: context.schoolId,
     id: staffId,
@@ -165,7 +182,10 @@ export async function updatePrivate(
     targetId: staffId,
     // Never the number or the address itself, only which field moved.
     summary: 'Changed private contact details on a staff record.',
-    safeChanges: { fields: Object.keys(set) },
+    safeChanges: {
+      fields,
+      ...(body.aadhaar === undefined ? {} : { aadhaarChanged: true, aadhaarCleared: body.aadhaar === null }),
+    },
   })
 }
 
@@ -304,6 +324,7 @@ export async function createExportJob(
   context: RequestContext,
   deps: ExportDependencies,
   staffIds: readonly string[],
+  columns?: readonly StaffExportColumn[],
 ): Promise<FilesExportJobSummary> {
   const inserted = await conn.db
     .insert(exportJobs)
@@ -314,7 +335,7 @@ export async function createExportJob(
       status: 'queued',
       accessVersion: context.accessVersion,
       permission: 'staff.export',
-      criteria: { staffIds: [...staffIds] },
+      criteria: { staffIds: [...staffIds], ...(columns === undefined ? {} : { columns: [...columns] }) },
       rowCount: staffIds.length,
       expiresAt: sql`now() + interval '24 hours'`,
     })
@@ -326,7 +347,8 @@ export async function createExportJob(
     targetType: 'export_job',
     targetId: row.id,
     summary: 'Requested an export of selected staff records.',
-    safeChanges: { staffCount: staffIds.length },
+    // The column keys, never a value from them.
+    safeChanges: { staffCount: staffIds.length, ...(columns === undefined ? {} : { columns: [...columns] }) },
   })
   // One audit row per request stays one row: producing the file writes none,
   // and the download route writes its own when the bytes are handed over.

@@ -447,3 +447,25 @@ test("the printed record holds the guardian's private block only for a reader wh
   await pool.query('DELETE FROM student_guardians WHERE guardian_id = $1', [guardian])
   await pool.query('DELETE FROM guardians WHERE id = $1', [guardian])
 })
+
+test('the printed personal details carry the PEN and the SRN beside the APAAR id', async () => {
+  const pool = adminPool()
+  await pool.query(
+    `UPDATE students SET admission_date = '2026-04-01', pen = '55566677788', srn = 'RJ/2026/9'
+      WHERE id = $1`,
+    [taughtStudent],
+  )
+  const read = async (userId: string) => {
+    const context = await contextFor(userId)
+    return withTenantTransaction(server.pools.runtime, context, async (conn) =>
+      buildStudentProfileModel(conn, context, taughtStudent),
+    )
+  }
+  const forOwner = await read(fixtureIds.ownerAUser as string)
+  assert.equal(forOwner.sensitive?.pen, '55566677788')
+  assert.equal(forOwner.sensitive?.srn, 'RJ/2026/9')
+  // The teacher's copy has no personal block, so neither number is in it.
+  const forTeacher = await read(fixtureIds.adultUser as string)
+  assert.equal(forTeacher.sensitive, undefined)
+  await pool.query('UPDATE students SET pen = NULL, srn = NULL WHERE id = $1', [taughtStudent])
+})

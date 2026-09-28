@@ -80,6 +80,8 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
             aadhaar_last4: null,
             apaar_ciphertext: null,
             apaar_last4: null,
+            pen: null,
+            srn: null,
             address: null,
             previous_school: null,
             left_reason: null,

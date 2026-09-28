@@ -1,7 +1,7 @@
 /** Task 5 request and response contracts owned by the students module. */
 import { z } from 'zod'
 import { CalendarDate, DisplayName, Id, Phone, Version } from './common.ts'
-import { AadhaarNumber, PanNumber } from './identifiers.ts'
+import { AadhaarNumber, PanNumber, PenNumber, SrnNumber } from './identifiers.ts'
 import { AdmitConsent } from './module-lifecycle.ts'
 
 /** The relationship vocabulary a guardian link may use. Mirrors GuardianContact. */
@@ -65,6 +65,10 @@ export const StudentsAdmitRequest = z.strictObject({
   address: z.string().trim().max(1000).optional(),
   // Optional at admission: the office often has the form before the number.
   aadhaar: AadhaarNumber.optional(),
+  // The government numbers, all optional for the same reason (migration 0028).
+  apaarId: z.string().trim().min(1).max(100).optional(),
+  pen: PenNumber.optional(),
+  srn: SrnNumber.optional(),
   sectionId: Id,
   rollNumber: z.number().int().positive().optional(),
   guardians: z.array(StudentsAdmitGuardian).min(1).max(5),
@@ -84,6 +88,9 @@ export const StudentsUpdateSensitiveRequest = z
     // by the server, so a caller can never set the masked form by hand.
     aadhaar: AadhaarNumber.nullable().optional(),
     apaarId: z.string().trim().max(100).optional(),
+    // Null clears the number; leaving it out changes nothing.
+    pen: PenNumber.nullable().optional(),
+    srn: SrnNumber.nullable().optional(),
     bloodGroup: z.string().trim().max(20).optional(),
     medicalNotes: z.string().trim().max(4000).optional(),
   })

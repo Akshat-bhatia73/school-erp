@@ -1,6 +1,6 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, CalendarClock, CalendarDays, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, ListChecks, Mail, NotebookPen, PanelLeft, School, ScrollText, Search, ShieldCheck, Users, UserRound, BookOpen, Sparkles, X } from 'lucide-react'
+import { Bell, Building2, CalendarClock, CalendarDays, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, ListChecks, Mail, NotebookPen, PanelLeft, School, ScrollText, Search, ShieldCheck, Users, UserRound, BookOpen, Sparkles, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { AccountMenu } from '@/components/auth/account-menu'
 import { SectionLabel } from '@/components/shared/page'
@@ -16,11 +16,13 @@ import { cn } from '@/lib/utils'
 export const PUPIL_PATHS: ReadonlySet<string> = new Set(['/dashboard', '/timetable', '/attendance', '/exams', '/messages', '/assistant'])
 
 /** `permissions` means any one of them is enough; `permission` stays the single-key form. */
-interface NavItem { label: string; to: string; icon: ReactNode; count?: number | string; permission?: PermissionKey; permissions?: PermissionKey[]; exact?: boolean }
+/** `except` names paths under `to` that belong to another item, so only that one is marked active. */
+interface NavItem { label: string; to: string; icon: ReactNode; count?: number | string; permission?: PermissionKey; permissions?: PermissionKey[]; exact?: boolean; except?: string[] }
 
 function NavLink({ item, collapsed, onNavigate }: { item: NavItem; collapsed: boolean; onNavigate?: () => void }) {
   const path = useRouterState({ select: (s) => s.location.pathname })
-  const active = item.exact ? path === item.to : path === item.to || path.startsWith(item.to + '/')
+  const active = (item.exact ? path === item.to : path === item.to || path.startsWith(item.to + '/'))
+    && !item.except?.some((other) => path === other || path.startsWith(other + '/'))
   return (
     <Link
       to={item.to}
@@ -68,7 +70,8 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
     { label: isParent ? 'My children' : isPupil ? 'Home' : 'Dashboard', to: '/dashboard', icon: <LayoutDashboard />, exact: true },
     { label: 'Students', to: '/students', icon: <GraduationCap />, permission: 'students.read_basic' },
     { label: 'Staff', to: '/staff', icon: <Users />, permission: 'staff.read_directory' },
-    { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
+    // The periods page lives under Timetable's path but is a School setup screen.
+    { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read', except: ['/timetable/periods'] },
     { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
     { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read'] },
     { label: 'Exams', to: '/exams', icon: <NotebookPen />, permissions: ['exams.read', 'report_cards.read'] },
@@ -81,6 +84,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
     { label: 'Classes & sections', to: '/setup/classes', icon: <Building2 />, permission: 'sections.read' },
     { label: 'Subjects', to: '/setup/subjects', icon: <BookOpen />, permission: 'subjects.read' },
     { label: 'Holidays', to: '/setup/holidays', icon: <ListChecks />, permission: 'holidays.read' },
+    { label: 'Periods', to: '/timetable/periods', icon: <Bell />, permission: 'timetable.manage_periods' },
   ]
   const settings: NavItem[] = [
     { label: 'Users & logins', to: '/settings/users', icon: <UserRound />, permission: 'members.read' },

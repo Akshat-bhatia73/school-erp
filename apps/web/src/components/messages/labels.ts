@@ -74,9 +74,28 @@ export const AUDIENCE_KIND_LABEL = {
 
 /** The "Send to" choice for an audience made of pupils. */
 export const RECIPIENTS_LABEL: Readonly<Record<MessageRecipients, string>> = {
-  families: 'Families',
-  students: 'Pupils',
-  both: 'Pupils and families',
+  families: 'Parents',
+  students: 'Students (own login)',
+  both: 'Parents and students',
+}
+
+/** The recipients as they read after an audience: "Class 9 A, parents and students". */
+const RECIPIENTS_IN_LINE: Readonly<Record<MessageRecipients, string>> = {
+  families: 'parents',
+  students: 'students',
+  both: 'parents and students',
+}
+
+/** The line under the "Send to" choice. */
+export const RECIPIENTS_HELP = 'Students in Class 9 to 12 who have their own login get the message in the app.'
+
+/**
+ * The audience with only its pupils as recipients, which is how the preview says whether any
+ * pupil in it has a login: a preview for families alone counts no pupils at all.
+ */
+export function pupilLoginProbe(audience: MessageAudienceInput | null): MessageAudienceInput | null {
+  if (!audience || audience.kind === 'staff') return null
+  return { ...audience, recipients: 'students' }
 }
 
 /** Every audience made of pupils has a "Send to" choice; the staff audiences have none. */
@@ -85,13 +104,13 @@ export function hasRecipients(kind: AudienceChoice['kind'] | MessageAudienceView
 }
 
 /**
- * The audience as a sent message shows it: "Class 9 A, pupils and families". The server already
+ * The audience as a sent message shows it: "Class 9 A, parents and students". The server already
  * writes the recipients into one pupil's label ("Aarav Sharma and family"), so that one is left as
  * it is.
  */
 export function audienceLine(audience: Pick<MessageAudienceView, 'kind' | 'label' | 'recipients'>): string {
   if (!audience.recipients || audience.kind === 'pupil') return audience.label
-  return `${audience.label}, ${RECIPIENTS_LABEL[audience.recipients].toLowerCase()}`
+  return `${audience.label}, ${RECIPIENTS_IN_LINE[audience.recipients]}`
 }
 
 /** A delivery row's relation. A pupil's own row is "Pupil" even if the server left it out. */

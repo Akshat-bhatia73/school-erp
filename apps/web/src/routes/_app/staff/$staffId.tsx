@@ -207,6 +207,7 @@ function Page() {
                     { label: 'Date of birth', value: detail.private.dateOfBirth ? formatDate(detail.private.dateOfBirth) : '—' },
                     { label: 'Bank account', value: detail.private.bankAccountLast4 ? `•••• ${detail.private.bankAccountLast4}` : '—' },
                     { label: 'PAN', value: detail.private.panLast4 ? `•••••• ${detail.private.panLast4}` : '—' },
+                    { label: 'Aadhaar', value: detail.private.aadhaarLast4 ? <span className="font-mono">ending {detail.private.aadhaarLast4}</span> : '—' },
                   ]}
                 />
               </Panel>

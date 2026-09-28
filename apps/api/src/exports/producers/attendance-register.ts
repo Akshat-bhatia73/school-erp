@@ -27,6 +27,13 @@ export const MARK_LETTER: Readonly<Record<AttendanceMark, string>> = {
   half_day: 'H',
 }
 
+/**
+ * What the register files say about recorded leave: the leave figures, and
+ * the "LV" of a day nobody marked, include leave the office recorded ahead.
+ */
+export const LEAVE_NOTE =
+  'Leave includes planned leave the office recorded: a school day inside it that nobody marked counts as leave.'
+
 const MONTH_NAMES = [
   'January',
   'February',
@@ -59,17 +66,26 @@ export function dayNumber(date: string): string {
  * What a grid cell says for one person on one day. A day nobody was on the
  * register for is blank, a school day nobody marked is a dash so a reader can
  * tell it apart from a day off, and a Sunday or a holiday says which it was.
+ * An unmarked school day inside recorded leave reads as leave, because the
+ * totals already count it as leave; a saved mark always wins over the plan.
  */
 export function gridCell(
   day: { readonly kind: string },
-  cell: { readonly enrolled?: boolean; readonly onRegister?: boolean; readonly mark?: AttendanceMark } | undefined,
+  cell:
+    | {
+        readonly enrolled?: boolean
+        readonly onRegister?: boolean
+        readonly mark?: AttendanceMark
+        readonly onLeave?: boolean
+      }
+    | undefined,
 ): string {
   const on = cell?.enrolled ?? cell?.onRegister ?? false
   if (!on) return ''
   if (cell?.mark !== undefined) return MARK_LETTER[cell.mark]
   if (day.kind === 'sunday') return 'S'
   if (day.kind === 'holiday') return 'H'
-  if (day.kind === 'school_day') return '-'
+  if (day.kind === 'school_day') return cell?.onLeave === true ? MARK_LETTER.leave : '-'
   return ''
 }
 
@@ -173,6 +189,7 @@ async function produce(
   })
   // A column per day would not fit a page, so the document carries the month's
   // totals and says where the day by day grid can be had instead.
+  document.note(LEAVE_NOTE)
   document.note('This document holds the month’s totals. For the day by day grid, ask for the register as a spreadsheet.')
 
   return {

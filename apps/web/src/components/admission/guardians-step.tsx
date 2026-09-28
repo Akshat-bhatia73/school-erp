@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Switch } from '@/components/ui/switch'
 import { humanize } from '@/lib/utils'
+import { AdmissionConsent } from './consent-step'
 import { SelectField, TextField, type Errors } from './fields'
 import { emptyGuardian, type AdmitDraft, type GuardianDraft, type GuardianRelation } from './admit-state'
 
@@ -119,6 +120,8 @@ export function GuardiansStep({ draft, set, errors, canAttachExisting }: {
           <Plus /> Add another guardian
         </Button>
       )}
+
+      <AdmissionConsent draft={draft} set={set} errors={errors} />
     </div>
   )
 }

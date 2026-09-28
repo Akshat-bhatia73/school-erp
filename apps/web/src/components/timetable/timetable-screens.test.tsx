@@ -8,7 +8,7 @@
  */
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithSession } from '@/test/session'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -53,8 +53,9 @@ const timetable = {
 const setup = { academicYears: vi.fn(), grades: vi.fn(), sections: vi.fn(), gradeSubjects: vi.fn() }
 const staff = { search: vi.fn(), list: vi.fn() }
 const files = { exportJob: vi.fn(), downloadExportFile: vi.fn() }
+const leave = { listStaff: vi.fn() }
 
-vi.mock('@/lib/api', () => ({ api: { timetable, setup, staff, files } }))
+vi.mock('@/lib/api', () => ({ api: { timetable, setup, staff, files, leave } }))
 
 const SCHOOL_ID = '10000000-0000-4000-8000-000000000001'
 const YEAR = { id: 'year-1', schoolId: SCHOOL_ID, name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', status: 'current' as const, version: 1 }
@@ -93,6 +94,7 @@ beforeEach(() => {
   timetable.substitutions.mockResolvedValue({ substitutions: [], allowedActions: [] })
   timetable.absentPeriods.mockResolvedValue([])
   staff.search.mockResolvedValue([])
+  leave.listStaff.mockResolvedValue({ items: [], allowedActions: [] })
 })
 
 describe('Class timetable', () => {
@@ -171,7 +173,27 @@ describe('Class timetable', () => {
   })
 })
 
-describe('Bell schedule', () => {
+describe('Periods', () => {
+  it('sits under School setup, with the setup tabs and not the timetable tabs', async () => {
+    const { Page } = await import('@/routes/_app/timetable/periods')
+    renderWithSession(<Page />, { capabilities: ['academic_years.read', 'grades.read', 'timetable.read'] })
+
+    expect(await screen.findByText('Holidays')).toBeInTheDocument()
+    expect(screen.getAllByText('Periods').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('School setup').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Substitutions')).not.toBeInTheDocument()
+    expect(screen.queryByText('Bell schedule')).not.toBeInTheDocument()
+  })
+
+  it('is no longer a timetable tab', async () => {
+    const { TimetableTabs } = await import('@/components/timetable/timetable-tabs')
+    renderWithSession(<TimetableTabs />, { capabilities: ['timetable.read'] })
+
+    expect(screen.getByText('Substitutions')).toBeInTheDocument()
+    expect(screen.queryByText('Bell schedule')).not.toBeInTheDocument()
+    expect(screen.queryByText('Periods')).not.toBeInTheDocument()
+  })
+
   it('saves the version the person was looking at and invalidates the timetable', async () => {
     timetable.updateBellSchedule.mockResolvedValue({ ...BELL, version: 1 })
     const { Page } = await import('@/routes/_app/timetable/periods')
@@ -390,4 +412,66 @@ describe('Substitutions', () => {
 
     expect(await screen.findByText('You do not have permission to do this.')).toBeInTheDocument()
   })
+
+  it('offers a teacher on leave that day as away, tagged, and never as free', async () => {
+    leave.listStaff.mockResolvedValue({
+      items: [staffLeave('staff-4', 'Leela Rao'), staffLeave('staff-1', 'Meera Joshi'), { ...staffLeave('staff-5', 'Gone Home'), status: 'cancelled' }],
+      allowedActions: ['staff_attendance.read'],
+    })
+    timetable.substitutions.mockResolvedValue({
+      substitutions: [{
+        id: 'sub-1', date: '2026-09-15', section: { id: SECTION.id, name: 'Six A' },
+        subject: { id: 'subject-1', name: 'Mathematics' },
+        absentTeacher: { id: 'staff-1', name: 'Meera Joshi' }, substituteTeacher: null,
+        periodIndex: 0, notified: false,
+      }],
+      allowedActions: ['timetable.manage_substitutions'],
+    })
+    timetable.absentPeriods.mockResolvedValue([{ ...CELL, dayOfWeek: 2, periodIndex: 0 }])
+    timetable.freeTeachers.mockResolvedValue([
+      { teacher: { id: 'staff-3', name: 'Third Teacher' }, teachesSubject: true, periodsPerWeek: 3 },
+      { teacher: { id: 'staff-4', name: 'Leela Rao' }, teachesSubject: true, periodsPerWeek: 5 },
+    ])
+    searchParams = { date: '2026-09-15' }
+    const { Page } = await import('@/routes/_app/timetable/substitutions')
+    renderWithSession(<Page />, {
+      capabilities: ['academic_years.read', 'timetable.read', 'staff.read_directory', 'timetable.manage_substitutions', 'timetable.manage_entries', 'staff_attendance.read'],
+    })
+
+    expect(await screen.findByText('2 teachers are away on Tuesday.')).toBeInTheDocument()
+    expect(leave.listStaff).toHaveBeenCalledWith(SCHOOL_ID, { from: '2026-09-15', to: '2026-09-15' })
+    // Both people on leave are tagged; the one who already had an arrangement is listed once.
+    expect(screen.getAllByText('On leave')).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Remove teacher' })).toHaveLength(2)
+    expect(screen.queryByText('Gone Home')).not.toBeInTheDocument()
+
+    // Free teachers today leaves the person on leave out.
+    expect(await screen.findByText('Free teachers today')).toBeInTheDocument()
+    const free = screen.getByText('Free teachers today').closest('section') ?? document.body
+    await waitFor(() => expect(within(free as HTMLElement).getByText('Third Teacher')).toBeInTheDocument())
+    expect(within(free as HTMLElement).queryByText('Leela Rao')).not.toBeInTheDocument()
+
+    // So does the substitute picker.
+    const [arrange] = await screen.findAllByRole('button', { name: /Arrange/ })
+    await userEvent.click(arrange!)
+    expect(await screen.findByRole('button', { name: /Third Teacher/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Leela Rao/ })).not.toBeInTheDocument()
+  })
+
+  it('does not ask for leave without the staff register permission', async () => {
+    searchParams = { date: '2026-09-15' }
+    const { Page } = await import('@/routes/_app/timetable/substitutions')
+    renderWithSession(<Page />, { capabilities: ['academic_years.read', 'timetable.read', 'staff.read_directory', 'timetable.manage_substitutions'] })
+
+    expect(await screen.findByText('No one is away')).toBeInTheDocument()
+    expect(leave.listStaff).not.toHaveBeenCalled()
+  })
 })
+
+function staffLeave(id: string, name: string) {
+  return {
+    id: `leave-${id}`, version: 1, startsOn: '2026-09-14', endsOn: '2026-09-16', days: 3,
+    status: 'active' as const, recordedAt: '2026-09-10T09:00:00.000+05:30', allowedActions: [],
+    staff: { id, name, employeeCode: id.toUpperCase() },
+  }
+}

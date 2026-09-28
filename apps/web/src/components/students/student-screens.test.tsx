@@ -272,6 +272,38 @@ describe('APAAR', () => {
   })
 })
 
+describe('PEN and SRN', () => {
+  const SENSITIVE = { dateOfBirth: '2015-05-14', gender: 'male' as const, admissionDate: '2026-04-01', pen: '27123456789', srn: 'RJ/2026/004512' }
+
+  it('shows both whole in the personal details', async () => {
+    students.get.mockResolvedValue({ student: STUDENT, sensitive: SENSITIVE, allowedActions: ['students.read_basic', 'students.read_sensitive'] })
+    const { Route } = await import('@/routes/_app/students/$studentId')
+    const Screen = componentOf(Route)
+    renderWithSession(<Screen />, { capabilities: ['students.read_basic', 'students.read_sensitive'] })
+
+    expect(await screen.findByText('27123456789')).toBeInTheDocument()
+    expect(screen.getByText('RJ/2026/004512')).toBeInTheDocument()
+  })
+
+  it('sends null for an emptied number and nothing for an untouched one', async () => {
+    students.updateSensitive.mockResolvedValue({ student: STUDENT, allowedActions: ['students.read_basic'] })
+    const user = userEvent.setup()
+    const { StudentSensitiveSheet } = await import('@/components/students/student-edit-sheet')
+    renderWithSession(
+      <StudentSensitiveSheet open onOpenChange={() => {}} student={STUDENT} sensitive={SENSITIVE} medical={undefined} />,
+      { capabilities: ['students.update_sensitive'] },
+    )
+
+    await user.clear(screen.getByLabelText('PEN (UDISE+)'))
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(students.updateSensitive).toHaveBeenCalled())
+    const body = students.updateSensitive.mock.calls[0]?.[2]
+    expect(body).toMatchObject({ expectedVersion: 4, pen: null })
+    expect(body.srn).toBeUndefined()
+  })
+})
+
 describe('Anonymisation', () => {
   it('hides the action without students.anonymise and sends the version and reason with it', async () => {
     students.get.mockResolvedValue({ student: STUDENT, allowedActions: ['students.read_basic'] })
@@ -347,8 +379,11 @@ describe('Bulk export bar', () => {
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
     withoutPermission.unmount()
 
+    window.localStorage.clear()
     renderWithSession(<StudentBulkBar ids={['student-1']} onClear={() => {}} />, { capabilities: ['students.read_basic', 'students.export'] })
     await user.click(screen.getByRole('button', { name: /export to excel/i }))
+    // The default columns go as no columns at all, so the file is the one the roster always made.
+    await user.click(await screen.findByRole('button', { name: 'Export 1 student' }))
 
     await waitFor(() => expect(students.export).toHaveBeenCalledWith(SCHOOL_ID, { studentIds: ['student-1'] }))
     expect(await screen.findByText('Preparing your file…')).toBeInTheDocument()
@@ -361,8 +396,10 @@ describe('Bulk export bar', () => {
     const user = userEvent.setup()
     const { StudentBulkBar } = await import('@/components/students/student-bulk-bar')
 
+    window.localStorage.clear()
     renderWithSession(<StudentBulkBar ids={['student-1']} onClear={() => {}} />, { capabilities: ['students.read_basic', 'students.export'] })
     await user.click(screen.getByRole('button', { name: /export to excel/i }))
+    await user.click(await screen.findByRole('button', { name: 'Export 1 student' }))
 
     await waitFor(() => expect(files.downloadExportFile).toHaveBeenCalledWith(SCHOOL_ID, 'job-2'))
     // The file saved itself once; the button is only there to get it again.

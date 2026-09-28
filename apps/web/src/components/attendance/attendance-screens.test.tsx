@@ -282,3 +282,160 @@ describe('the staff register', () => {
     await waitFor(() => expect(attendance.staffDay).toHaveBeenCalledTimes(2))
   })
 })
+
+describe('recorded leave on the registers', () => {
+  it('starts an unmarked pupil with leave on record on "leave", tags the row, and sends it', async () => {
+    const actions: PermissionKey[] = ['attendance.read', 'attendance.record']
+    const response = dayResponse({ record: true, correct: false }, actions)
+    response.rows = response.rows.map((row, index) => ({ ...row, onLeave: index === 1 }))
+    attendance.day.mockResolvedValue(response)
+    attendance.mark.mockResolvedValue(response)
+    await renderDay(actions, ['teacher'])
+
+    expect(await screen.findByText('On leave')).toBeInTheDocument()
+    const onLeave = screen.getByRole('group', { name: 'Mark for Diya Nair' })
+    expect(within(onLeave).getByTitle('Leave')).toHaveAttribute('aria-pressed', 'true')
+    const other = screen.getByRole('group', { name: 'Mark for Aarav Sharma' })
+    expect(within(other).getByTitle('Present')).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.click(screen.getByText('Save attendance'))
+
+    await waitFor(() => expect(attendance.mark).toHaveBeenCalled())
+    const body = attendance.mark.mock.calls[0]?.[3] as { marks: Array<{ studentId: string; mark: string }> }
+    expect(body.marks.map((line) => line.mark)).toEqual(['present', 'leave'])
+  })
+
+  it('keeps a saved mark over the leave on record', async () => {
+    const actions: PermissionKey[] = ['attendance.read', 'attendance.record']
+    const response = dayResponse({ record: true, correct: false }, actions, ['present', 'present'])
+    response.rows = response.rows.map((row) => ({ ...row, onLeave: true }))
+    attendance.day.mockResolvedValue(response)
+    await renderDay(actions, ['teacher'])
+
+    const row = await screen.findByRole('group', { name: 'Mark for Diya Nair' })
+    expect(within(row).getByTitle('Present')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getAllByText('On leave')).toHaveLength(2)
+  })
+
+  it('starts a staff member with leave on record on "leave"', async () => {
+    const staffDay = {
+      date: DATE,
+      day: { date: DATE, kind: 'school_day', future: false },
+      window: { record: true, correct: false },
+      marked: false,
+      rows: [
+        { staff: { id: 'staff-2', name: 'Vikram Iyer', employeeCode: 'E2' }, self: false, onLeave: true },
+        { staff: { id: 'staff-3', name: 'Meena Pillai', employeeCode: 'E3' }, self: false, onLeave: false },
+      ],
+      allowedActions: ['staff_attendance.read', 'staff_attendance.record'] as PermissionKey[],
+    }
+    attendance.staffDay.mockResolvedValue(staffDay)
+    const { Route } = await import('@/routes/_app/attendance/staff/index')
+    const Screen = componentOf(Route)
+    renderWithSession(<Screen />, { schoolId: SCHOOL_ID, capabilities: ['staff_attendance.read', 'staff_attendance.record'], roleKeys: ['admin'] })
+
+    const row = await screen.findByRole('group', { name: 'Mark for Vikram Iyer' })
+    expect(within(row).getByTitle('Leave')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getAllByText('On leave')).toHaveLength(1)
+    // "Everyone present" still leaves the person on leave on leave.
+    await userEvent.click(within(row).getByTitle('Absent'))
+    await userEvent.click(screen.getByText('Everyone present'))
+    expect(within(row).getByTitle('Leave')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it("marks an unmarked day inside leave on a pupil's calendar, with a legend entry", async () => {
+    attendance.studentMonth.mockResolvedValue({
+      student: PUPILS[0],
+      academicYear: YEAR,
+      month: '2026-09',
+      section: SECTION,
+      grade: GRADE,
+      days: [
+        { date: '2026-09-01', kind: 'school_day', future: false, enrolled: true, mark: 'present' },
+        { date: '2026-09-02', kind: 'school_day', future: false, enrolled: true, onLeave: true },
+      ],
+      summary: { schoolDays: 2, present: 1, absent: 0, late: 0, leave: 1, halfDay: 0, unmarked: 0, percentage: 100 },
+      allowedActions: ['attendance.read'],
+    })
+    search = { month: '2026-09' }
+    const { Route } = await import('@/routes/_app/attendance/students/$studentId')
+    const Screen = componentOf(Route)
+    const { container } = renderWithSession(<Screen />, { schoolId: SCHOOL_ID, capabilities: ['attendance.read'], roleKeys: ['admin'] })
+
+    expect(await screen.findByText('On leave')).toBeInTheDocument()
+    expect(container.querySelectorAll('[data-on-leave]')).toHaveLength(1)
+    expect(screen.getByText('leave recorded by the office')).toBeInTheDocument()
+  })
+
+  it('draws an unmarked day inside leave on a section\'s month grid as leave, and says so in the legend', async () => {
+    const day = (date: string) => ({ date, kind: 'school_day', future: false, marked: true })
+    attendance.sectionMonth.mockResolvedValue({
+      section: SECTION,
+      grade: GRADE,
+      academicYear: YEAR,
+      month: '2026-09',
+      days: [day('2026-09-01'), day('2026-09-02')],
+      rows: [
+        {
+          student: PUPILS[0],
+          marks: [
+            { date: '2026-09-01', enrolled: true, mark: 'present', onLeave: true },
+            { date: '2026-09-02', enrolled: true, onLeave: true },
+          ],
+          summary: { schoolDays: 2, present: 1, absent: 0, late: 0, leave: 1, halfDay: 0, unmarked: 0, percentage: 100 },
+        },
+        {
+          student: PUPILS[1],
+          marks: [
+            { date: '2026-09-01', enrolled: true, mark: 'absent' },
+            { date: '2026-09-02', enrolled: true },
+          ],
+          summary: { schoolDays: 2, present: 0, absent: 1, late: 0, leave: 0, halfDay: 0, unmarked: 1, percentage: 0 },
+        },
+      ],
+      allowedActions: ['attendance.read'],
+    })
+    search = { month: '2026-09' }
+    const { Route } = await import('@/routes/_app/attendance/sections/$sectionId/month')
+    const Screen = componentOf(Route)
+    const { container } = renderWithSession(<Screen />, { schoolId: SCHOOL_ID, capabilities: ['attendance.read'], roleKeys: ['admin'] })
+
+    expect(await screen.findByText('Aarav Sharma')).toBeInTheDocument()
+    // The saved mark wins on the first day; only the unmarked second day is drawn as leave.
+    const cells = container.querySelectorAll('[data-on-leave]')
+    expect(cells).toHaveLength(1)
+    expect(cells[0]).toHaveTextContent('LV')
+    expect(cells[0]?.closest('tr')).toHaveTextContent('Aarav Sharma')
+    expect(screen.getByText('leave recorded by the office')).toBeInTheDocument()
+  })
+
+  it('draws an unmarked day inside leave on the staff month grid as leave', async () => {
+    attendance.staffMonth.mockResolvedValue({
+      academicYear: YEAR,
+      month: '2026-09',
+      days: [{ date: '2026-09-02', kind: 'school_day', future: false, marked: false }],
+      rows: [
+        {
+          staff: { id: 'staff-2', name: 'Vikram Iyer', employeeCode: 'E2' },
+          marks: [{ date: '2026-09-02', onRegister: true, onLeave: true }],
+          summary: { schoolDays: 1, present: 0, absent: 0, late: 0, leave: 1, halfDay: 0, unmarked: 0, percentage: null },
+        },
+        {
+          staff: { id: 'staff-3', name: 'Meena Pillai', employeeCode: 'E3' },
+          marks: [{ date: '2026-09-02', onRegister: true }],
+          summary: { schoolDays: 1, present: 0, absent: 0, late: 0, leave: 0, halfDay: 0, unmarked: 1, percentage: 0 },
+        },
+      ],
+      allowedActions: ['staff_attendance.read'],
+    })
+    search = { month: '2026-09' }
+    const { Route } = await import('@/routes/_app/attendance/staff/month')
+    const Screen = componentOf(Route)
+    const { container } = renderWithSession(<Screen />, { schoolId: SCHOOL_ID, capabilities: ['staff_attendance.read'], roleKeys: ['admin'] })
+
+    expect(await screen.findByText('Vikram Iyer')).toBeInTheDocument()
+    const cells = container.querySelectorAll('[data-on-leave]')
+    expect(cells).toHaveLength(1)
+    expect(cells[0]?.closest('tr')).toHaveTextContent('Vikram Iyer')
+    expect(screen.getByText('leave recorded by the office')).toBeInTheDocument()
+  })
+})

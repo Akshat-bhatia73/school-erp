@@ -86,6 +86,15 @@ export const qk = {
   staffAttendanceMonth: (schoolId: string, month: string) => [schoolId, 'attendance', 'staffMonth', month] as const,
   staffAttendanceMember: (schoolId: string, staffId: string, month: string) => [schoolId, 'attendance', 'staffMember', staffId, month] as const,
 
+  /**
+   * Recorded leave. Every write invalidates `[schoolId, 'leave']`, and `[schoolId, 'attendance']`
+   * and `[schoolId, 'dashboard']` too, because the registers and the figures read it.
+   */
+  leave: {
+    students: (schoolId: string, params?: Params) => [schoolId, 'leave', 'students', params ?? {}] as const,
+    staff: (schoolId: string, params?: Params) => [schoolId, 'leave', 'staff', params ?? {}] as const,
+  },
+
   exams: (schoolId: string, params?: Params) => [schoolId, 'exams', 'list', params ?? {}] as const,
   examOverview: (schoolId: string, examId: string) => [schoolId, 'exams', 'overview', examId] as const,
   examPapers: (schoolId: string, params?: Params) => [schoolId, 'exams', 'papers', params ?? {}] as const,

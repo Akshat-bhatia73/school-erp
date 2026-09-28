@@ -41,6 +41,7 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `students.anonymise` | active | school | school | school | — | — | — | — | — |
 | `students.export_subject` | active | school | school | school | — | — | — | own_children | — |
 | `students.manage_login` | active | school | school | school | school | — | — | — | — |
+| `students.export_identity` | active | school | school | school | school | — | — | — | — |
 | `staff.read_directory` | active | — | school | school | school | school | self | — | — |
 | `staff.read_employment` | active | — | school | school | school | school | self | — | — |
 | `staff.read_private` | active | school, finance | school | school | school | finance | self | — | — |
@@ -52,6 +53,7 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `staff.manage_assignments` | active | school | school | school | school | — | — | — | — |
 | `staff.export` | active | school, finance | school | school | school | finance | — | — | — |
 | `staff.anonymise` | active | school | school | school | — | — | — | — | — |
+| `staff.export_identity` | active | school | school | school | school | — | — | — | — |
 | `members.read` | active | school | school | school | school | — | — | — | — |
 | `members.invite` | active | school | school | school | school | — | — | — | — |
 | `members.update` | reserved | school | — | — | — | — | — | — | — |

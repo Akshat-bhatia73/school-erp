@@ -50,7 +50,7 @@ export function StudentStep({ draft, set, errors, photo, onPhoto }: {
         <AdmissionPhotoField name={name} photo={photo} onChange={onPhoto} />
       </Panel>
 
-      <Panel title="Aadhaar" description="Only the last four digits are shown once it is saved.">
+      <Panel title="ID numbers" description="All optional. Aadhaar and APAAR show only their last four digits once saved.">
         <div className="grid grid-cols-2 gap-4">
           <TextField
             label="Aadhaar number"
@@ -59,6 +59,28 @@ export function StudentStep({ draft, set, errors, photo, onPhoto }: {
             error={errors.aadhaar}
             placeholder="1234 5678 9012"
             hint="Optional"
+          />
+          <TextField
+            label="APAAR id"
+            value={draft.apaarId}
+            onChange={(v) => set({ apaarId: v })}
+            error={errors.apaarId}
+            hint="Optional"
+          />
+          <TextField
+            label="PEN (UDISE+)"
+            value={draft.pen}
+            onChange={(v) => set({ pen: v.replace(/\D/g, '').slice(0, 11) })}
+            error={errors.pen}
+            placeholder="11 digits"
+            hint="Optional"
+          />
+          <TextField
+            label="SRN"
+            value={draft.srn}
+            onChange={(v) => set({ srn: v })}
+            error={errors.srn}
+            hint="Optional. The state student registration number."
           />
         </div>
       </Panel>

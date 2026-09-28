@@ -14,6 +14,9 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 })
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
+/** How many pupils in the audience have their own login, as the preview of the pupils alone says. */
+let pupilsWithLogin = 0
+
 const create = vi.fn()
 const update = vi.fn()
 const send = vi.fn()
@@ -22,7 +25,15 @@ vi.mock('@/lib/api', () => ({
     messages: {
       audiences: vi.fn(async () => ({ school: true, staff: true, grades: [], sections: [], pupils: false })),
       templates: vi.fn(async () => ({ items: [] })),
-      audiencePreview: vi.fn(async () => ({ audience: { kind: 'school', label: 'The whole school', recipients: 'families' }, recipients: 58, pupils: 0 })),
+      audiencePreview: vi.fn(async (_school: string, audience: { recipients?: string }) => {
+        const pupils = audience.recipients === 'families' || audience.recipients === undefined ? 0 : 12
+        const inApp = pupils === 0 ? 0 : pupilsWithLogin
+        return {
+          audience: { kind: 'school', label: 'The whole school', recipients: audience.recipients ?? 'families' },
+          recipients: 58 + pupils, pupils, pupilsInApp: inApp,
+          delivered: 58 + inApp, noConsent: 0, notReceiving: 0, noContact: pupils - inApp, inApp: 40 + inApp, email: 0,
+        }
+      }),
       create: (...args: unknown[]) => create(...args),
       update: (...args: unknown[]) => update(...args),
       send: (...args: unknown[]) => send(...args),
@@ -37,6 +48,7 @@ const saved = { id: 'msg-1', version: 3, status: 'draft', audience: { kind: 'sta
 
 beforeEach(() => {
   vi.clearAllMocks()
+  pupilsWithLogin = 0
 })
 
 describe('sending from the message screen', () => {
@@ -85,5 +97,44 @@ describe('sending from the message screen', () => {
     await user.click(await screen.findByRole('button', { name: 'Save draft' }))
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1))
     expect(update.mock.calls[0]![2]).not.toHaveProperty('send')
+  })
+})
+
+describe('who in the household gets it', () => {
+  async function writeToWholeSchool(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByRole('radio', { name: 'Whole school' }))
+    await user.type(screen.getByLabelText('Title'), 'Sports day')
+    await user.type(screen.getByLabelText('Message'), 'On Friday.')
+  }
+
+  it('hides the choice and sends to parents when no pupil in the audience has a login', async () => {
+    const user = userEvent.setup()
+    create.mockResolvedValue({ ...saved, status: 'sent' })
+    renderWithSession(<MessageForm />, { schoolId: SCHOOL, capabilities: ['communication.send'] })
+    await writeToWholeSchool(user)
+
+    expect(await screen.findByText(/Goes to 58 families/)).toBeInTheDocument()
+    expect(screen.queryByRole('radiogroup', { name: 'Send to' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create.mock.calls[0]![1]).toMatchObject({ audience: { kind: 'school', recipients: 'families' } })
+  })
+
+  it('offers parents, students with their own login, or both when some pupils have a login', async () => {
+    pupilsWithLogin = 5
+    const user = userEvent.setup()
+    create.mockResolvedValue({ ...saved, status: 'sent' })
+    renderWithSession(<MessageForm />, { schoolId: SCHOOL, capabilities: ['communication.send'] })
+    await writeToWholeSchool(user)
+
+    expect(await screen.findByRole('radio', { name: 'Parents' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Parents and students' })).toBeInTheDocument()
+    expect(screen.getByText('Students in Class 9 to 12 who have their own login get the message in the app.')).toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: 'Students (own login)' }))
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create.mock.calls[0]![1]).toMatchObject({ audience: { kind: 'school', recipients: 'students' } })
   })
 })

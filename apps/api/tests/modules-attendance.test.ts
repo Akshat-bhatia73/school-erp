@@ -33,6 +33,7 @@ import {
   type TestServer,
   useSchoolDayTimezone,
 } from './harness.ts'
+import { gridCell, MARK_LETTER } from '../src/exports/producers/attendance-register.ts'
 
 const PASSWORD = 'Fixture-Pass!42'
 const OWNER_EMAIL = `att-owner-${randomUUID()}@example.test`
@@ -119,7 +120,7 @@ interface DayResponse {
     correctBlockedBy?: string
   }
   marked: boolean
-  rows: { student: Pupil; mark?: AttendanceMark; entry?: EntryRef }[]
+  rows: { student: Pupil; mark?: AttendanceMark; entry?: EntryRef; onLeave: boolean }[]
   allowedActions: string[]
 }
 interface SectionsResponse {
@@ -150,6 +151,7 @@ interface MonthDay extends CalendarDay {
   enrolled: boolean
   mark?: AttendanceMark
   corrected?: boolean
+  onLeave?: boolean
 }
 interface StudentMonth {
   student: Pupil
@@ -166,7 +168,7 @@ interface SectionMonth {
   days: (CalendarDay & { marked: boolean })[]
   rows: {
     student: Pupil
-    marks: { date: string; enrolled: boolean; mark?: AttendanceMark; corrected?: boolean }[]
+    marks: { date: string; enrolled: boolean; mark?: AttendanceMark; corrected?: boolean; onLeave?: boolean }[]
     summary: Summary
   }[]
 }
@@ -180,13 +182,14 @@ interface StaffDay {
     mark?: AttendanceMark
     entry?: EntryRef
     self: boolean
+    onLeave: boolean
   }[]
   allowedActions: string[]
 }
 interface StaffMemberMonth {
   staff: { id: string; name: string }
   month: string
-  days: (CalendarDay & { onRegister: boolean; mark?: AttendanceMark })[]
+  days: (CalendarDay & { onRegister: boolean; mark?: AttendanceMark; onLeave?: boolean })[]
   summary: Summary
   allowedActions: string[]
 }
@@ -1279,4 +1282,177 @@ test('a staff correction saves on a matching revision and refuses a stale one wh
     201,
   )
   assert.equal(plain.rows.find((row) => row.staff.id === teacherStaffId)?.mark, 'late')
+})
+
+// ---------------------------------------------------------------------------
+// Recorded leave. A plan, not a mark: the register pre-selects "leave", an
+// unmarked school day inside it counts as leave, and a saved mark wins. These
+// come last, so the leave they record never moves a figure another test counts.
+
+/** The counts a month adds up to once recorded leave is taken into account. */
+function countDaysWithLeave(days: readonly MonthDay[]): Summary {
+  const counted = days.filter((day) => day.enrolled && day.kind === 'school_day' && !day.future)
+  const of = (mark: AttendanceMark) => counted.filter((day) => day.mark === mark).length
+  const counts = {
+    schoolDays: counted.length,
+    present: of('present'),
+    absent: of('absent'),
+    late: of('late'),
+    leave: counted.filter((day) => day.mark === 'leave' || (day.mark === undefined && day.onLeave === true)).length,
+    halfDay: of('half_day'),
+    unmarked: counted.filter((day) => day.mark === undefined && day.onLeave !== true).length,
+  }
+  return { ...counts, percentage: attendancePercentage(counts) }
+}
+
+interface OfficeWithLeave {
+  today?: { teachersAway: number; periodsWithoutCover: number }
+  leaveToday?: {
+    date: string
+    staff?: { count: number; names: { id: string; name: string; endsOn: string }[] }
+    students?: { count: number; names: { id: string; name: string; section?: string; endsOn: string }[] }
+  }
+}
+
+async function officeDashboard(): Promise<OfficeWithLeave> {
+  return ok<OfficeWithLeave>(await owner.fetch(`/api/schools/${schoolA}/dashboard?date=${today}`))
+}
+
+test('pupil leave pre-selects the register and counts an unmarked day as leave; a saved mark wins', async () => {
+  const month = today.slice(0, 7)
+  const oldest = past[2] as string
+  const before = await studentMonth(owner, p1, month)
+  const unmarkedInside = before.days.filter(
+    (day) => day.date >= `${month}-01` && day.enrolled && day.kind === 'school_day' && !day.future && day.mark === undefined,
+  ).length
+  assert.ok(unmarkedInside > 0, 'p1 has a school day nobody marked in this month')
+  assert.equal(before.days.find((day) => day.date === oldest)?.mark, undefined)
+  assert.ok(before.days.every((day) => day.onLeave === undefined))
+
+  const leave = await ok<{ id: string; section?: NamedReference }>(
+    await owner.fetch(`/api/schools/${schoolA}/attendance/leave`, post({ studentId: p1, startsOn: `${month}-01`, endsOn: today })),
+    201,
+  )
+  assert.equal(leave.section?.id, attSection)
+
+  // The register: pre-selected on both days, and the saved mark still stands.
+  const dayToday = await readDay(teacher, attSection, today)
+  const rowToday = dayToday.rows.find((row) => row.student.id === p1)
+  assert.equal(rowToday?.onLeave, true)
+  assert.equal(rowToday?.mark, 'present', 'a saved mark wins over the plan')
+  assert.equal(dayToday.rows.find((row) => row.student.id === p2)?.onLeave, false)
+  const dayOld = await readDay(owner, attSection, oldest)
+  assert.equal(dayOld.rows.find((row) => row.student.id === p1)?.onLeave, true)
+  assert.equal(dayOld.rows.find((row) => row.student.id === p1)?.mark, undefined)
+
+  // The month: every day of the range says so, no mark moved, and the
+  // unmarked days inside it are leave now.
+  const after = await studentMonth(owner, p1, month)
+  for (const day of after.days) {
+    const inside = day.date <= today && day.enrolled
+    assert.equal(day.onLeave === true, inside, day.date)
+    assert.equal(day.mark, before.days.find((other) => other.date === day.date)?.mark)
+  }
+  assert.deepEqual(after.summary, countDaysWithLeave(after.days))
+  assert.equal(after.summary.leave, before.summary.leave + unmarkedInside)
+  assert.equal(after.summary.unmarked, before.summary.unmarked - unmarkedInside)
+  assert.equal(after.summary.present, before.summary.present)
+
+  // The section's month is the same figures.
+  const register = await ok<SectionMonth>(
+    await owner.fetch(`/api/schools/${schoolA}/attendance/sections/${attSection}/months/${month}`),
+  )
+  const registerRow = register.rows.find((row) => row.student.id === p1)
+  assert.deepEqual(registerRow?.summary, after.summary)
+  // Its grid says leave on the same days as the pupil's own month, and the
+  // file draws an unmarked one of them with the leave letter.
+  for (const cell of registerRow?.marks ?? []) {
+    assert.equal(cell.onLeave === true, after.days.find((day) => day.date === cell.date)?.onLeave === true, cell.date)
+  }
+  assert.ok(register.rows.find((row) => row.student.id === p2)?.marks.every((cell) => cell.onLeave === undefined))
+  const oldCell = registerRow?.marks.find((cell) => cell.date === oldest)
+  assert.equal(oldCell?.onLeave, true)
+  assert.equal(gridCell({ kind: 'school_day' }, oldCell), MARK_LETTER.leave)
+  assert.equal(gridCell({ kind: 'school_day' }, { enrolled: true }), '-')
+  assert.equal(gridCell({ kind: 'school_day' }, { enrolled: true, mark: 'present', onLeave: true }), 'P', 'a mark wins')
+  assert.equal(gridCell({ kind: 'sunday' }, { enrolled: true, onLeave: true }), 'S')
+
+  // A mark saved on a day of leave wins over it.
+  await ok<DayResponse>(await correctDay(owner, oldest, [{ studentId: p1, mark: 'present' }]), 201)
+  const corrected = await studentMonth(owner, p1, month)
+  assert.equal(corrected.summary.leave, after.summary.leave - 1)
+  assert.equal(corrected.summary.present, after.summary.present + 1)
+  assert.deepEqual(corrected.summary, countDaysWithLeave(corrected.days))
+
+  // The parent's card reads the same figures.
+  const parentMonth = await studentMonth(parent, p1, month)
+  assert.deepEqual(parentMonth.summary, corrected.summary)
+})
+
+test('staff leave pre-selects the register, counts as leave and makes a teacher away until marked present', async () => {
+  const awayId = await insertStaff('away')
+  const month = today.slice(0, 7)
+  const dashBefore = await officeDashboard()
+  const awayBefore = dashBefore.today?.teachersAway ?? 0
+
+  await ok<{ id: string }>(
+    await owner.fetch(`/api/schools/${schoolA}/staff-attendance/leave`, post({ staffId: awayId, startsOn: today, endsOn: today })),
+    201,
+  )
+  const day = await staffDay(principal, today)
+  const row = day.rows.find((entry) => entry.staff.id === awayId)
+  assert.equal(row?.onLeave, true)
+  assert.equal(row?.mark, undefined)
+  assert.equal(day.rows.find((entry) => entry.staff.id === teacherStaffId)?.onLeave, false)
+
+  const monthRead = await ok<StaffMemberMonth>(
+    await owner.fetch(`/api/schools/${schoolA}/staff-attendance/staff/${awayId}/months/${month}`),
+  )
+  assert.equal(monthRead.days.find((entry) => entry.date === today)?.onLeave, true)
+  assert.equal(monthRead.summary.leave, 1)
+  assert.equal(monthRead.summary.unmarked, monthRead.summary.schoolDays - 1)
+  const staffRegister = await ok<{
+    rows: { staff: { id: string }; marks: { date: string; onRegister: boolean; onLeave?: boolean }[] }[]
+  }>(await owner.fetch(`/api/schools/${schoolA}/staff-attendance/months/${month}`))
+  const awayCells = staffRegister.rows.find((entry) => entry.staff.id === awayId)?.marks ?? []
+  assert.deepEqual(
+    awayCells.filter((cell) => cell.onLeave === true).map((cell) => cell.date),
+    [today],
+    'the register grid says leave on the day of leave only',
+  )
+  assert.equal(gridCell({ kind: 'school_day' }, awayCells.find((cell) => cell.date === today)), MARK_LETTER.leave)
+  assert.ok(
+    staffRegister.rows.find((entry) => entry.staff.id === teacherStaffId)?.marks.every((cell) => cell.onLeave === undefined),
+  )
+
+  const dash = await officeDashboard()
+  assert.equal(dash.today?.teachersAway, awayBefore + 1, 'a teacher on leave today is away')
+  assert.equal(dash.leaveToday?.date, today)
+  assert.ok(dash.leaveToday?.staff?.names.some((entry) => entry.id === awayId && entry.endsOn === today))
+  assert.ok((dash.leaveToday?.staff?.count ?? 0) >= 1)
+  const pupil = dash.leaveToday?.students?.names.find((entry) => entry.id === p1)
+  assert.ok(pupil, 'the pupil on leave today is named')
+  assert.ok(pupil.section?.includes(`AS-${suffix.slice(0, 4)}`))
+  assert.ok((dash.leaveToday?.students?.count ?? 0) >= 1)
+
+  // Marked present after all: no longer away, and the day counts as present.
+  await ok<StaffDay>(
+    await principal.fetch(
+      `/api/schools/${schoolA}/staff-attendance/days/${today}/corrections`,
+      post({ marks: [{ staffId: awayId, mark: 'present' }], reason: 'Came in after all.' }),
+    ),
+    201,
+  )
+  assert.equal((await officeDashboard()).today?.teachersAway, awayBefore)
+  const marked = await ok<StaffMemberMonth>(
+    await owner.fetch(`/api/schools/${schoolA}/staff-attendance/staff/${awayId}/months/${month}`),
+  )
+  assert.equal(marked.summary.leave, 0)
+  assert.equal(marked.summary.present, 1)
+
+  // Nobody outside the office sees the block.
+  const teacherDash = await ok<Record<string, unknown>>(
+    await teacher.fetch(`/api/schools/${schoolA}/dashboard?date=${today}`),
+  )
+  assert.equal(teacherDash.leaveToday, undefined)
 })

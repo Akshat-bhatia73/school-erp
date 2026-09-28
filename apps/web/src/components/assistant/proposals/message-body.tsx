@@ -1,13 +1,15 @@
 /**
  * A notice inside a change card: who it is for (fixed; to change it the person asks again), its
  * title and words, when it goes (now, at a time in the school's clock, or kept as a draft) and,
- * for an audience made of pupils, whether families, pupils or both get it. A change to an existing
+ * for an audience made of pupils where some pupil has a login, whether parents, students or both
+ * get it. A change to an existing
  * message shows what is saved now beside what changes.
  */
 import { MESSAGE_BODY_MAX, MESSAGE_SCHEDULE_MAX_DAYS, MESSAGE_SCHEDULE_MIN_MINUTES, MESSAGE_TITLE_MAX, MessageRecipients, type MessagePreview } from '@erp/contracts'
 import { Users } from 'lucide-react'
-import { useState } from 'react'
-import { formatDateTime, isoToLocalInput, localInputToIso, RECIPIENTS_LABEL } from '@/components/messages/labels'
+import { useEffect, useState } from 'react'
+import { formatDateTime, isoToLocalInput, localInputToIso, RECIPIENTS_HELP, RECIPIENTS_LABEL } from '@/components/messages/labels'
+import { usePupilLogins } from '@/components/messages/use-pupil-logins'
 import { Tag } from '@/components/shared/tag'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -47,6 +49,15 @@ export function MessageBody({ preview, onChange, errors, readOnly, idBase }: {
   // The boxes keep a half-typed date or time; the preview holds an instant only once both are there.
   const [local, setLocal] = useState(() => splitLocal(send.when === 'at' ? send.sendAt : current?.sendAt ?? undefined))
   const recipients = recipientsOf(preview)
+  // The same rule as the message screen: with no pupil holding a login the choice is hidden and
+  // the notice goes to parents.
+  const pupilLogins = usePupilLogins(preview.pupilAudience ? preview.audience : null)
+  const forceParents = !readOnly && pupilLogins === 'none' && preview.audience.kind !== 'staff' && recipients !== 'families'
+  useEffect(() => {
+    if (forceParents && preview.audience.kind !== 'staff') {
+      onChange({ ...preview, audience: { ...preview.audience, recipients: 'families' } })
+    }
+  }, [forceParents, onChange, preview])
   const ids = { title: `${idBase}-title`, body: `${idBase}-body`, date: `${idBase}-date`, time: `${idBase}-time` }
   const err = { title: errors['proposed.title'], body: errors['proposed.body'], send: errors['proposed.send'] }
 
@@ -184,7 +195,7 @@ export function MessageBody({ preview, onChange, errors, readOnly, idBase }: {
           <FieldError id={`${idBase}-send-error`} text={err.send} />
         </div>
 
-        {preview.pupilAudience && recipients !== null && (
+        {preview.pupilAudience && recipients !== null && pupilLogins === 'some' && (
           <div className="grid gap-1.5">
             <p className={label} id={`${idBase}-recipients`}>Send to</p>
             <RadioGroup
@@ -201,9 +212,7 @@ export function MessageBody({ preview, onChange, errors, readOnly, idBase }: {
                 <Label key={value} className="flex items-center gap-2 text-[13.5px] font-normal"><RadioGroupItem value={value} />{RECIPIENTS_LABEL[value]}</Label>
               ))}
             </RadioGroup>
-            {recipients !== 'families' && (
-              <p className="text-[12px] text-muted-foreground">Pupils in Class 9 to 12 with a login read it in the app. Other pupils get nothing.</p>
-            )}
+            <p className="text-[12px] text-muted-foreground">{RECIPIENTS_HELP}</p>
           </div>
         )}
       </div>

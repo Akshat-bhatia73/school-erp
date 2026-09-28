@@ -361,6 +361,9 @@ export const staff = pgTable(
     monthlySalary: numeric('monthly_salary'),
     bankAccountLast4: text('bank_account_last4'),
     panLast4: text('pan_last4'),
+    /** The Aadhaar number sealed by the API and the digits a screen may show. See migration 0028. */
+    aadhaarCiphertext: text('aadhaar_ciphertext'),
+    aadhaarLast4: text('aadhaar_last4'),
     /** The photograph in the private document store; never a public URL. */
     photoStorageKey: text('photo_storage_key'),
     photoContentType: text('photo_content_type'),
@@ -467,6 +470,10 @@ export const students = pgTable(
     apaarLast4: text('apaar_last4'),
     /** The APAAR id sealed by the API; the key never reaches the database. */
     apaarCiphertext: text('apaar_ciphertext'),
+    /** The PEN UDISE+ gives every child, eleven digits. Not sealed. See migration 0028. */
+    pen: text('pen'),
+    /** The state's student registration number. Not sealed. */
+    srn: text('srn'),
     address: jsonb('address'),
     admissionDate: date('admission_date'),
     admissionType: text('admission_type'),
@@ -1162,6 +1169,34 @@ export const staffAttendanceEntries = pgTable(
 )
 
 /**
+ * Leave recorded ahead of time for one pupil or one staff member (migration
+ * 0028). Exactly one of studentId and staffId is set, as personKind says. A
+ * row is cancelled, never removed.
+ */
+export const leaveRecords = pgTable(
+  'leave_records',
+  {
+    id: id(),
+    schoolId: tenant(),
+    personKind: text('person_kind').notNull(),
+    studentId: uuid('student_id'),
+    staffId: uuid('staff_id'),
+    startsOn: date('starts_on').notNull(),
+    endsOn: date('ends_on').notNull(),
+    reason: text('reason'),
+    recordedByMembershipId: uuid('recorded_by_membership_id').notNull(),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelledByMembershipId: uuid('cancelled_by_membership_id'),
+    version: integer('version').notNull().default(1),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('leave_records_school_id_id_key').on(t.schoolId, t.id),
+    index('leave_records_dates_idx').on(t.schoolId, t.startsOn, t.endsOn),
+  ],
+)
+
+/**
  * Task 21. One row per academic year and exam of the fixed CBSE pattern; the
  * pattern itself (components and maximums) is a constant in @erp/contracts.
  */
@@ -1630,6 +1665,7 @@ export const schoolTables = [
   feeReceiptLines,
   attendanceEntries,
   staffAttendanceEntries,
+  leaveRecords,
   exams,
   examPapers,
   examMarks,

@@ -15,6 +15,7 @@ import {
   StaffSearchResults,
   StaffUpdateEmploymentRequest,
   SectionTeachingAssignmentList,
+  STAFF_EXPORT_COLUMNS,
   TeachingAssignmentList,
   TeachingAssignmentRequest,
   UpdateStaffPayRequest,
@@ -23,6 +24,7 @@ import {
 import { staff } from '@erp/db/schema'
 import { withTenantTransaction } from '@erp/db'
 import { ApiFailure } from '../../http/errors.ts'
+import { assertColumnKeysHeld, inListOrder } from '../../exports/columns.ts'
 import { protectedRoute, type ModuleDependencies } from '../shared/index.ts'
 import { toDirectory } from './projection.ts'
 import {
@@ -234,7 +236,7 @@ export function registerStaffRoutes(app: FastifyInstance, deps: ModuleDependenci
       return withTenantTransaction(deps.pools.runtime, context, async (conn) => {
         // The self scope lives here: a teacher may edit their own record only.
         await requireRecord(conn, context, 'staff.update_private', 'staff', staffId)
-        await updatePrivate(conn, context, staffId, body)
+        await updatePrivate(conn, context, staffId, body, deps.config.DATA_ENCRYPTION_KEY)
         return staffDetail(conn, context, await reloadStaff(conn, context.schoolId, staffId))
       })
     },
@@ -276,7 +278,15 @@ export function registerStaffRoutes(app: FastifyInstance, deps: ModuleDependenci
         const rows = await conn.db.select({ id: staff.id }).from(staff).where(where)
         const allowed = new Set(rows.map((row) => row.id))
         if (staffIds.some((id) => !allowed.has(id))) throw new ApiFailure('RESOURCE_NOT_FOUND')
-        return createExportJob(conn, context, deps, staffIds)
+        // A chosen column whose key the caller holds in no scope at all is
+        // refused whole; one held for only some rows is decided per row by
+        // the producer, which leaves the other rows' cells empty.
+        const columns =
+          body.columns === undefined ? undefined : inListOrder(body.columns, STAFF_EXPORT_COLUMNS)
+        if (columns !== undefined) {
+          await assertColumnKeysHeld(conn, context, columns, STAFF_EXPORT_COLUMNS, 'staff')
+        }
+        return createExportJob(conn, context, deps, staffIds, columns)
       }),
   })
 }

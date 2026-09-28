@@ -33,8 +33,12 @@ test('an owner exports the selected roster rows to a spreadsheet and one record 
   const toExcel = page.getByRole('button', { name: 'Export to Excel' })
   await expect(toExcel).toBeVisible()
 
-  const spreadsheet = page.waitForEvent('download', { timeout: 30_000 })
+  // Export to Excel first asks which columns; the defaults are ticked.
   await toExcel.click()
+  const dialog = page.getByRole('dialog', { name: 'Choose columns' })
+  await expect(dialog.getByRole('checkbox', { name: 'Admission number' })).toBeChecked()
+  const spreadsheet = page.waitForEvent('download', { timeout: 30_000 })
+  await dialog.getByRole('button', { name: 'Export 1 student' }).click()
   const workbook = await spreadsheet
   expect(workbook.suggestedFilename()).toMatch(/\.xlsx$/)
   expect(await workbook.failure()).toBeNull()

@@ -5,7 +5,7 @@ import { ClipboardCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import { currentMonth, MonthChip } from '@/components/attendance/month-chip'
-import { RegisterGrid, type RegisterGridRow } from '@/components/attendance/register-grid'
+import { MarkLegend, RegisterGrid, type RegisterGridRow } from '@/components/attendance/register-grid'
 import { FeeExportMenu, type FeeFileFormat } from '@/components/fees/export-menu'
 import { useExportDownload } from '@/components/shared/export-download'
 import { EmptyState, PageHeader, PageTabs, Toolbar } from '@/components/shared/page'
@@ -66,7 +66,7 @@ function Page() {
     id: row.student.id,
     lead: row.student.rollNumber !== undefined ? String(row.student.rollNumber) : '—',
     name: row.student.name,
-    cells: row.marks.map((mark) => ({ on: mark.enrolled, mark: mark.mark })),
+    cells: row.marks.map((mark) => ({ on: mark.enrolled, mark: mark.mark, onLeave: mark.onLeave })),
     summary: row.summary,
   }))
 
@@ -96,6 +96,7 @@ function Page() {
       )}
       <div className="flex h-11 shrink-0 items-center gap-4 border-t bg-card px-3 text-[12.5px] text-muted-foreground md:px-4">
         <span>{rows.length} {rows.length === 1 ? 'pupil' : 'pupils'}</span>
+        <MarkLegend leave className="ml-auto hidden md:flex" />
       </div>
     </>
   )

@@ -106,3 +106,36 @@ describe('import sheet mapping of identity numbers', () => {
     expect(problems.some((problem) => problem.field === 'studentAadhaar')).toBe(true)
   })
 })
+
+describe('import sheet mapping of the government numbers', () => {
+  it('has the APAAR Id, PEN and SRN columns, optional, in the template and the help', () => {
+    for (const column of ['APAAR Id', 'PEN', 'SRN']) {
+      expect(IMPORT_HEADERS).toContain(column)
+      expect(COLUMN_HELP.find((entry) => entry.name === column)).toMatchObject({ required: false })
+    }
+  })
+
+  it('maps the three columns, a grouped PEN forgiven', () => {
+    const { rows, problems } = mapSheetRows([
+      { ...base, 'APAAR Id': ' 123456789012 ', PEN: '2712 3456 789', SRN: 'RJ/2026/004512' },
+    ])
+    expect(problems).toEqual([])
+    expect(rows[0]).toMatchObject({ apaarId: '123456789012', pen: '27123456789', srn: 'RJ/2026/004512' })
+  })
+
+  it('reports a PEN that is not eleven digits on its row and column', () => {
+    const { rows, problems } = mapSheetRows([{ ...base, PEN: '12345' }])
+    expect(rows).toEqual([])
+    expect(problems).toEqual([{ row: 1, field: 'pen', message: 'Enter the 11 digit PEN' }])
+  })
+
+  it('reads a PEN typed into a number cell as its eleven digits', async () => {
+    const file = sheetFile([
+      ['First Name', 'Date of Birth', 'Gender', 'Class', 'Section', 'Guardian Phone', 'PEN'],
+      ['Aarav', '14-05-2015', 'Male', 'Class 6', 'A', 9876543210, 27123456789],
+    ])
+    const { rows, problems } = mapSheetRows(await readSpreadsheet(file))
+    expect(problems).toEqual([])
+    expect(rows[0]?.pen).toBe('27123456789')
+  })
+})

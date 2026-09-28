@@ -14,7 +14,7 @@ const val = (value?: string) => (value && value.trim() !== '' ? value : dash)
  * An identity number on the review screen is named, never shown. The office confirms it typed the
  * right one from the last digits, the same way every other screen in the app shows it.
  */
-function ending(value: string, kind: 'aadhaar' | 'pan') {
+function ending(value: string, kind: 'aadhaar' | 'pan' | 'apaar') {
   const cleaned = kind === 'aadhaar' ? value.replace(/\D/g, '') : value.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
   if (cleaned.length < 4) return dash
   return <span className="font-mono">ending {cleaned.slice(-4)}</span>
@@ -58,6 +58,10 @@ export function ReviewStep({ draft, onEdit, academicYearId, yearName, photo = nu
             { label: 'Gender', value: draft.gender ? humanize(draft.gender) : dash },
             { label: 'Category', value: val(draft.category) },
             { label: 'Aadhaar', value: ending(draft.aadhaar, 'aadhaar') },
+            { label: 'APAAR id', value: ending(draft.apaarId, 'apaar') },
+            // PEN and SRN are printed on certificates and shown whole on the record, so here too.
+            { label: 'PEN (UDISE+)', value: val(draft.pen) },
+            { label: 'SRN', value: val(draft.srn) },
             { label: 'Photograph', value: photo ? 'Chosen' : dash },
           ]}
         />
@@ -95,28 +99,42 @@ export function ReviewStep({ draft, onEdit, academicYearId, yearName, photo = nu
         </div>
       </Panel>
 
-      <Panel title="Consent" actions={editButton(2)}>
-        <div className="space-y-4">
-          {draft.guardians.map((guardian, index) => (
-            <Facts
-              key={index}
-              items={[
-                {
-                  label: [guardian.firstName, guardian.lastName].filter(Boolean).join(' ') || humanize(guardian.relation),
-                  value: guardian.consentPurposes.length === 0
-                    ? 'Nothing recorded'
-                    : guardian.consentPurposes.map((purpose) => PURPOSE_LABEL[purpose]).join(', '),
-                },
-                ...(guardian.consentPurposes.length > 0
-                  ? [{ label: 'How it was given', value: METHOD_LABEL[guardian.consentMethod] }]
-                  : []),
-              ]}
-            />
-          ))}
-        </div>
+      <Panel title="Consent" actions={editButton(1)}>
+        {draft.consentMode === 'form' ? (
+          <Facts
+            items={[
+              {
+                label: 'Admission form',
+                value: draft.consentSigned ? 'Consent section signed: every purpose, as a signed form' : 'Nothing recorded',
+              },
+              ...(draft.consentSigned && draft.consentFormReference.trim() !== ''
+                ? [{ label: 'Form reference', value: draft.consentFormReference.trim() }]
+                : []),
+            ]}
+          />
+        ) : (
+          <div className="space-y-4">
+            {draft.guardians.map((guardian, index) => (
+              <Facts
+                key={index}
+                items={[
+                  {
+                    label: [guardian.firstName, guardian.lastName].filter(Boolean).join(' ') || humanize(guardian.relation),
+                    value: guardian.consentPurposes.length === 0
+                      ? 'Nothing recorded'
+                      : guardian.consentPurposes.map((purpose) => PURPOSE_LABEL[purpose]).join(', '),
+                  },
+                  ...(guardian.consentPurposes.length > 0
+                    ? [{ label: 'How it was given', value: METHOD_LABEL[guardian.consentMethod] }]
+                    : []),
+                ]}
+              />
+            ))}
+          </div>
+        )}
       </Panel>
 
-      <Panel title="Class and admission" actions={editButton(3)}>
+      <Panel title="Class and admission" actions={editButton(2)}>
         <Facts
           items={[
             { label: 'Academic year', value: yearName },

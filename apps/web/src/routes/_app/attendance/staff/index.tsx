@@ -69,7 +69,12 @@ function Page() {
   const header = (
     <PageHeader
       crumbs={[{ label: 'Attendance', to: '/attendance', icon: <ClipboardCheck /> }, { label: 'Staff register' }]}
-      actions={<Button asChild size="sm" variant="outline"><Link to="/attendance/staff/month">Month view</Link></Button>}
+      actions={(
+        <>
+          <Button asChild size="sm" variant="outline"><Link to="/attendance/leave" search={{ kind: 'staff' }}>Leave</Link></Button>
+          <Button asChild size="sm" variant="outline"><Link to="/attendance/staff/month">Month view</Link></Button>
+        </>
+      )}
     />
   )
 
@@ -102,6 +107,7 @@ function Page() {
     editable: !row.self,
     note: row.self ? 'Marked by a colleague' : undefined,
     to: `/attendance/staff/${row.staff.id}`,
+    onLeave: row.onLeave,
   }))
 
   return (

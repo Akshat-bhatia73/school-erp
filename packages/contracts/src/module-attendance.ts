@@ -35,7 +35,9 @@ export type AttendanceCalendarDay = z.infer<typeof AttendanceCalendarDay>
  * are the days of the academic year in the month that are not Sundays or
  * holidays, up to today, on which the pupil (or staff member) was on the
  * roster. An unmarked school day is neither present nor leave, so it counts
- * against, and it is reported so a screen can say why a figure is low.
+ * against, and it is reported so a screen can say why a figure is low. The
+ * exception is an unmarked school day inside an active leave record: that one
+ * counts as leave (and not as unmarked), because the office said so ahead.
  */
 export const AttendanceSummary = z.strictObject({
   schoolDays: z.number().int().nonnegative(),
@@ -167,6 +169,8 @@ export const AttendanceRosterRow = z.strictObject({
   /** Absent when nobody has marked this pupil on this day yet. */
   mark: AttendanceMark.optional(),
   entry: AttendanceEntryRef.optional(),
+  /** True when an active leave record covers this pupil on this day; the screen pre-selects "leave". */
+  onLeave: z.boolean(),
 })
 export type AttendanceRosterRow = z.infer<typeof AttendanceRosterRow>
 
@@ -243,6 +247,8 @@ export const AttendanceMonthDay = AttendanceCalendarDay.extend({
   mark: AttendanceMark.optional(),
   /** True when the current mark is an office correction. */
   corrected: z.boolean().optional(),
+  /** True when an active leave record covers the day. With no mark, the day counts as leave. */
+  onLeave: z.boolean().optional(),
 })
 export type AttendanceMonthDay = z.infer<typeof AttendanceMonthDay>
 
@@ -268,6 +274,8 @@ export const AttendanceRegisterRow = z.strictObject({
       enrolled: z.boolean(),
       mark: AttendanceMark.optional(),
       corrected: z.boolean().optional(),
+      /** True when an active leave record covers the day. With no mark, the day counts as leave. */
+      onLeave: z.boolean().optional(),
     }),
   ).max(31),
   summary: AttendanceSummary,
@@ -315,6 +323,8 @@ export const StaffAttendanceRow = z.strictObject({
   entry: AttendanceEntryRef.optional(),
   /** True on the caller's own row, which nobody marks for themselves. */
   self: z.boolean(),
+  /** True when an active leave record covers this person on this day; the screen pre-selects "leave". */
+  onLeave: z.boolean(),
 })
 export type StaffAttendanceRow = z.infer<typeof StaffAttendanceRow>
 
@@ -355,6 +365,8 @@ export const StaffAttendanceMonthDay = AttendanceCalendarDay.extend({
   onRegister: z.boolean(),
   mark: AttendanceMark.optional(),
   corrected: z.boolean().optional(),
+  /** True when an active leave record covers the day. With no mark, the day counts as leave. */
+  onLeave: z.boolean().optional(),
 })
 
 export const StaffAttendanceMemberMonthResponse = z.strictObject({
@@ -375,6 +387,8 @@ export const StaffAttendanceRegisterRow = z.strictObject({
       onRegister: z.boolean(),
       mark: AttendanceMark.optional(),
       corrected: z.boolean().optional(),
+      /** True when an active leave record covers the day. With no mark, the day counts as leave. */
+      onLeave: z.boolean().optional(),
     }),
   ).max(31),
   summary: AttendanceSummary,

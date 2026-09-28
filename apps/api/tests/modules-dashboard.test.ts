@@ -806,6 +806,51 @@ test('one uncovered period on the date is counted once', async () => {
   await adminPool().query('DELETE FROM substitutions WHERE id = $1', [id])
 })
 
+test('recorded leave on the day is on the office card, and a teacher on leave is away', async () => {
+  const before = await office(owner, PROBE)
+  const staffBefore = before.leaveToday?.staff?.count ?? 0
+  const pupilsBefore = before.leaveToday?.students?.count ?? 0
+  const awayBefore = before.today?.teachersAway ?? 0
+  const staffLeave = randomUUID()
+  const pupilLeave = randomUUID()
+  const pool = adminPool()
+  await pool.query(
+    `INSERT INTO leave_records(id,school_id,person_kind,staff_id,starts_on,ends_on,recorded_by_membership_id)
+     VALUES ($1,$2,'staff',$3,'2026-12-09','2026-12-11',$4)`,
+    [staffLeave, schoolA, secondStaffId, ownerMembershipId],
+  )
+  await pool.query(
+    `INSERT INTO leave_records(id,school_id,person_kind,student_id,starts_on,ends_on,recorded_by_membership_id)
+     VALUES ($1,$2,'student',$3,'2026-12-10','2026-12-10',$4)`,
+    [pupilLeave, schoolA, studentA, ownerMembershipId],
+  )
+  try {
+    const during = await office(owner, PROBE)
+    assert.equal(during.leaveToday?.date, PROBE)
+    assert.equal(during.leaveToday?.staff?.count, staffBefore + 1)
+    assert.ok(during.leaveToday?.staff?.names.some((entry) => entry.id === secondStaffId && entry.endsOn === '2026-12-11'))
+    assert.equal(during.leaveToday?.students?.count, pupilsBefore + 1)
+    assert.ok(during.leaveToday?.students?.names.some((entry) => entry.id === studentA && entry.endsOn === PROBE))
+    assert.equal(during.today?.teachersAway, awayBefore + 1, 'a teacher on leave is away without a cover row')
+
+    // A cancelled record is a plan nobody holds to any more.
+    await pool.query(
+      `UPDATE leave_records SET cancelled_at = now(), cancelled_by_membership_id = $2 WHERE id = ANY($1::uuid[])`,
+      [[staffLeave, pupilLeave], ownerMembershipId],
+    )
+    const cancelled = await office(owner, PROBE)
+    assert.equal(cancelled.leaveToday?.staff?.count ?? 0, staffBefore)
+    assert.equal(cancelled.leaveToday?.students?.count ?? 0, pupilsBefore)
+    assert.equal(cancelled.today?.teachersAway, awayBefore)
+
+    // The block is the office's: a teacher's home never carries it.
+    const home = (await (await dashboard(teacher, schoolA, PROBE)).json()) as Record<string, unknown>
+    assert.equal(home.leaveToday, undefined)
+  } finally {
+    await pool.query('DELETE FROM leave_records WHERE id = ANY($1::uuid[])', [[staffLeave, pupilLeave]])
+  }
+})
+
 test('one invitation about to expire is counted once', async () => {
   const id = randomUUID()
   const { before: seen, after } = await countAround('invitations_expiring', async () => {
