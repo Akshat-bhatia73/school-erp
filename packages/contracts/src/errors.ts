@@ -61,6 +61,10 @@ export const ErrorReason = z.enum([
   'leave_overlaps',
   'leave_already_cancelled',
   'leave_person_not_active',
+  // Leave applications (migration 0029).
+  'leave_application_not_pending',
+  'leave_application_too_far_back',
+  'leave_application_no_staff_record',
   'exam_dates_outside_year',
   'exam_already_published',
   'exam_nothing_to_publish',

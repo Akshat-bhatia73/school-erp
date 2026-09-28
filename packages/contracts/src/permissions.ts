@@ -43,6 +43,7 @@ const permissionKeys = [
   'communication.read', 'communication.send', 'communication.manage', 'communication.export',
   'report_cards.read', 'report_cards.manage', 'report_cards.publish', 'report_cards.export',
   'staff_attendance.read', 'staff_attendance.record', 'staff_attendance.manage', 'staff_attendance.export',
+  'leave_applications.read', 'leave_applications.apply', 'leave_applications.decide',
   'ai_assistant.use', 'ai_assistant.manage',
 ] as const
 
@@ -56,6 +57,7 @@ export const ResourceType = z.enum([
   'access_decision', 'access_exception', 'school_ownership', 'audit_event',
   'timetable', 'bell_schedule', 'substitution', 'dashboard', 'fee', 'attendance',
   'exam', 'communication', 'report_card', 'staff_attendance', 'ai_assistant',
+  'leave_application',
 ])
 export type ResourceType = z.infer<typeof ResourceType>
 
@@ -214,6 +216,14 @@ export const PERMISSION_CATALOGUE = {
   'staff_attendance.record': active('staff_attendance', ['school'], 'Mark the staff attendance register for today.', true),
   'staff_attendance.manage': active('staff_attendance', ['school'], 'Correct a past day of the staff register with a reason.', true),
   'staff_attendance.export': active('staff_attendance', ['school'], 'Export the staff attendance register for a month.', true),
+  // Leave applications (migration 0029). A parent applies for their own child
+  // and a staff member for themselves; the class teacher (assigned_sections,
+  // which for leave applications is the class-teacher post alone) decides a
+  // pupil's application and the office decides any. A single-factor class
+  // teacher decides, so only the school scope is privileged.
+  'leave_applications.read': active('leave_application', ['school', 'assigned_sections', 'own_children', 'self'], 'Read leave applications: one\'s own, one\'s own children\'s, one\'s class\'s, or the school\'s.'),
+  'leave_applications.apply': active('leave_application', ['own_children', 'self'], 'Apply for leave for one\'s own child or for oneself, and withdraw it while it waits.'),
+  'leave_applications.decide': active('leave_application', ['school', 'assigned_sections'], 'Approve or refuse a leave application.', true, ['school']),
   // Opens the assistant and one's own conversations. It widens nothing: what
   // the assistant reaches is exactly what the person's other keys allow.
   'ai_assistant.use': active('ai_assistant', ['self'], 'Use the assistant, bounded by one\'s own permissions, and read one\'s own conversations.'),

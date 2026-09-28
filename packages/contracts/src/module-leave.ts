@@ -123,3 +123,131 @@ export const DashboardLeaveToday = z.strictObject({
   }).optional(),
 })
 export type DashboardLeaveToday = z.infer<typeof DashboardLeaveToday>
+
+// ---------------------------------------------------------------------------
+// Leave applications (migration 0029).
+//
+// A parent applies for their own child and a staff member for themselves. A
+// pupil's application is decided by the class teacher of the pupil's section
+// or by the office, whoever acts first; a staff member's by the office. An
+// approval writes the leave record above in the same transaction, so the
+// register, the figures and the dashboard need nothing new. The applicant is
+// told the decision by an automatic message (`leave_decision_pupil` /
+// `leave_decision_staff`). Staff applications carry a type and no yearly
+// balance. An application may start up to LEAVE_APPLY_DAYS_BACK days before
+// the day it is made (in the school's timezone).
+
+/** How many days before today an application may start. */
+export const LEAVE_APPLY_DAYS_BACK = 7
+
+export const LeaveType = z.enum(['sick', 'casual', 'other'])
+export type LeaveType = z.infer<typeof LeaveType>
+export const LEAVE_TYPE_LABELS: Readonly<Record<LeaveType, string>> = {
+  sick: 'Sick leave',
+  casual: 'Casual leave',
+  other: 'Other',
+}
+
+export const LeaveApplicationStatus = z.enum(['pending', 'approved', 'refused', 'withdrawn'])
+export type LeaveApplicationStatus = z.infer<typeof LeaveApplicationStatus>
+export const LEAVE_APPLICATION_STATUS_LABELS: Readonly<Record<LeaveApplicationStatus, string>> = {
+  pending: 'Waiting',
+  approved: 'Approved',
+  refused: 'Not approved',
+  withdrawn: 'Withdrawn',
+}
+
+/** A reason is required on an application: the person deciding needs it. */
+const ApplicationDates = z.strictObject({
+  startsOn: CalendarDate,
+  endsOn: CalendarDate,
+  reason: LeaveReason,
+})
+
+/** A parent's application for one of their own children. */
+export const StudentLeaveApplyRequest = withDateRules(ApplicationDates.extend({ studentId: Id }))
+export type StudentLeaveApplyRequest = z.infer<typeof StudentLeaveApplyRequest>
+
+/** A staff member applies for themselves: the server finds their staff record from the session. */
+export const StaffLeaveApplyRequest = withDateRules(ApplicationDates.extend({ leaveType: LeaveType }))
+export type StaffLeaveApplyRequest = z.infer<typeof StaffLeaveApplyRequest>
+
+/** Approve, or refuse with a note the applicant reads. */
+export const LeaveApplicationDecideRequest = z
+  .strictObject({
+    expectedVersion: Version,
+    decision: z.enum(['approve', 'refuse']),
+    note: LeaveReason.optional(),
+  })
+  .refine((value) => value.decision === 'approve' || value.note !== undefined, {
+    message: 'Say why the leave is not approved',
+    path: ['note'],
+  })
+export type LeaveApplicationDecideRequest = z.infer<typeof LeaveApplicationDecideRequest>
+
+/** Only the person who applied withdraws, and only while it waits. */
+export const LeaveApplicationWithdrawRequest = z.strictObject({ expectedVersion: Version })
+export type LeaveApplicationWithdrawRequest = z.infer<typeof LeaveApplicationWithdrawRequest>
+
+/**
+ * The applications the caller may read. `mine` narrows to the ones the caller
+ * made (a teacher's own, among their class's); `status` to one state; from/to
+ * to those overlapping the range. With no status, pending ones come first.
+ */
+export const LeaveApplicationListRequest = z.strictObject({
+  status: LeaveApplicationStatus.optional(),
+  mine: z.enum(['true', 'false']).optional(),
+  from: CalendarDate.optional(),
+  to: CalendarDate.optional(),
+})
+export type LeaveApplicationListRequest = z.infer<typeof LeaveApplicationListRequest>
+
+const ApplicationCommon = {
+  id: Id,
+  version: Version,
+  startsOn: CalendarDate,
+  endsOn: CalendarDate,
+  days: z.number().int().positive(),
+  reason: LeaveReason,
+  status: LeaveApplicationStatus,
+  appliedAt: Timestamp,
+  appliedBy: DisplayName.optional(),
+  /** True when the caller made this application. */
+  mine: z.boolean(),
+  decidedAt: Timestamp.optional(),
+  decidedBy: DisplayName.optional(),
+  decisionNote: LeaveReason.optional(),
+  /** The leave record an approval wrote. */
+  leaveRecordId: Id.optional(),
+  allowedActions: AllowedActions,
+}
+
+export const StudentLeaveApplication = z.strictObject({
+  ...ApplicationCommon,
+  student: AttendancePupil,
+  /** The pupil's class on the first day of the leave, when the caller may read it. */
+  section: NamedReference.optional(),
+  grade: NamedReference.optional(),
+})
+export type StudentLeaveApplication = z.infer<typeof StudentLeaveApplication>
+
+export const StaffLeaveApplication = z.strictObject({
+  ...ApplicationCommon,
+  staff: AttendanceStaffMember,
+  leaveType: LeaveType,
+})
+export type StaffLeaveApplication = z.infer<typeof StaffLeaveApplication>
+
+export const StudentLeaveApplicationList = z.strictObject({
+  items: z.array(StudentLeaveApplication).max(LEAVE_LIST_MAX),
+  /** `leave_applications.apply` when the caller may apply for a child. */
+  allowedActions: AllowedActions,
+})
+export type StudentLeaveApplicationList = z.infer<typeof StudentLeaveApplicationList>
+
+export const StaffLeaveApplicationList = z.strictObject({
+  items: z.array(StaffLeaveApplication).max(LEAVE_LIST_MAX),
+  /** `leave_applications.apply` when the caller has a staff record to apply for. */
+  allowedActions: AllowedActions,
+})
+export type StaffLeaveApplicationList = z.infer<typeof StaffLeaveApplicationList>
