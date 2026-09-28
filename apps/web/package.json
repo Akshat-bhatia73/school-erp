@@ -19,7 +19,7 @@
     "@sentry/react": "10.74.0",
     "@tanstack/react-query": "^5",
     "@tanstack/react-router": "^1",
-    "@tanstack/react-table": "^8",
+    "@tanstack/react-table": "^9",
     "ai": "^7.0.106",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
