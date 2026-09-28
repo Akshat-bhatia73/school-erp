@@ -947,18 +947,21 @@ test('a staff export with no columns is the five directory columns, chosen ones 
   assert.equal(JSON.stringify(audit.rows[0]?.safe_changes).includes('+919812345671'), false)
 })
 
-test('the whole staff Aadhaar is for the owner and the administrator, and pay is never a column', async () => {
+test('the whole staff Aadhaar is for the owner, the principal and the administrator, and pay is never a column', async () => {
   const aadhaar = makeAadhaar()
   assert.equal((await putPrivate(owner, colleagueId, { aadhaar })).status, 200)
   try {
     const request = { staffIds: [colleagueId], columns: ['employeeCode', 'aadhaarLast4', 'aadhaar'] }
-    for (const client of [owner, officer]) {
+    const principal = await officeMember('principal')
+    for (const client of [owner, officer, principal.client]) {
       const { grid } = await staffGrid(client, request)
       assert.deepEqual(grid[1], [`COL-${suffix}`, aadhaar.slice(-4), aadhaar])
     }
 
-    const principal = await officeMember('principal')
-    const refused = await principal.client.fetch(`/api/schools/${schoolA}/staff/export`, {
+    // The accountant exports staff through the finance scope but holds no
+    // export identity key, so asking for the column is refused and no job is written.
+    const accountant = await officeMember('accountant')
+    const refused = await accountant.client.fetch(`/api/schools/${schoolA}/staff/export`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(request),
@@ -967,7 +970,7 @@ test('the whole staff Aadhaar is for the owner and the administrator, and pay is
     assert.equal(await codeOf(refused), 'ACCESS_DENIED')
     const none = await adminPool().query<{ n: number }>(
       'SELECT count(*)::int AS n FROM export_jobs WHERE school_id = $1 AND requested_by_membership_id = $2',
-      [schoolA, principal.membershipId],
+      [schoolA, accountant.membershipId],
     )
     assert.equal(none.rows[0]?.n, 0)
 

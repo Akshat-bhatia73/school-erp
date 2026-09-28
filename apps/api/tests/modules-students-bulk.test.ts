@@ -1546,8 +1546,8 @@ test('the whole Aadhaar number goes only into the owner or administrator file', 
   assert.deepEqual(grid[0], ['Admission number', 'Aadhaar (last 4 digits)', 'Aadhaar (full number)'])
   assert.deepEqual(grid[1], [await admissionNumberOf(student), aadhaar.slice(-4), aadhaar])
 
-  // A principal exports students but holds no export identity key at all, so
-  // asking for the column is refused and no job is written.
+  // The principal holds the export identity key too (the user's decision on
+  // 28 September 2026), so the whole number is in their file as well.
   const pool = adminPool()
   const userId = randomUUID()
   const membershipId = randomUUID()
@@ -1563,22 +1563,8 @@ test('the whole Aadhaar number goes only into the owner or administrator file', 
     [schoolA, membershipId],
   )
   const principal = await signInWithMfa(server, { userId, email, password: PASSWORD })
-  const jobsBefore = await pool.query<{ total: number }>(
-    'SELECT count(*)::int AS total FROM export_jobs WHERE school_id = $1 AND requested_by_membership_id = $2',
-    [schoolA, membershipId],
-  )
-  const refused = await principal.fetch(`${base()}/export`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ studentIds: [student], columns: ['admissionNumber', 'aadhaar'] }),
-  })
-  assert.equal(refused.status, 403)
-  assert.equal(await readError(refused), 'ACCESS_DENIED')
-  const jobsAfter = await pool.query<{ total: number }>(
-    'SELECT count(*)::int AS total FROM export_jobs WHERE school_id = $1 AND requested_by_membership_id = $2',
-    [schoolA, membershipId],
-  )
-  assert.equal(jobsAfter.rows[0]?.total, jobsBefore.rows[0]?.total)
+  const whole = await exportGrid(principal, { studentIds: [student], columns: ['admissionNumber', 'aadhaar'] })
+  assert.deepEqual(whole.grid[1], [await admissionNumberOf(student), aadhaar])
 
   // The last four digits are the principal's to export.
   const allowed = await exportGrid(principal, { studentIds: [student], columns: ['admissionNumber', 'aadhaarLast4'] })

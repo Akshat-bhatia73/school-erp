@@ -128,7 +128,7 @@ export const PERMISSION_CATALOGUE = {
   // A pupil's own login: issue it, reset its password, switch it off and on.
   'students.manage_login': active('student', ['school'], 'Issue, reset, switch off or switch on a pupil\'s own login.', true),
   // Whole Aadhaar numbers in a list export, for the government portals that ask
-  // for them. Everybody else's file carries the last four digits at most.
+  // for them. Only the owner, the principal and the administrator hold it; everybody else's file carries the last four digits at most.
   'students.export_identity': active('student', ['school'], 'Put whole Aadhaar numbers in a student export.', true),
   'staff.read_directory': active('staff', ['school', 'self', 'assigned_sections', 'own_children'], 'Read a minimal staff directory or timetable attribution.'),
   'staff.read_employment': active('staff', ['school', 'self'], 'Read authorized employment fields, excluding private and pay data.'),
