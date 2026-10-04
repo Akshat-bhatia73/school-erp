@@ -1,6 +1,6 @@
 # Next implementation plan: readiness and the first school modules
 
-Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Tasks 15, 18, 19, 20, 21, 22 and 23 are built, and the rough edges they left are closed (section 9); Tasks 16 and 17 are not started. Task 24, the AI assistant, is built. Next: Task 25, homework (decided 4 October 2026).
+Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Tasks 15, 18, 19, 20, 21, 22 and 23 are built, and the rough edges they left are closed (section 9); Tasks 16 and 17 are not started. Task 24, the AI assistant, and Task 25, homework, are built.
 
 ## 1. Where we are
 
@@ -139,7 +139,7 @@ The full design is in [docs/assistant/ARCHITECTURE.md](assistant/ARCHITECTURE.md
 
 **Exit check.** A teacher asking about another class, a parent asking about another family's child and a pupil asking about anything beyond their own record each get nothing more than the screen would give them, proven in `tests/security` with a scripted model. One person can never read or confirm another person's conversation or proposal, the owner included. Every answer that used school data shows its sources, built from the tool calls the server made. Nothing is written until the person presses Confirm, and a confirm re-checks the body and the record's version. Switching it off for a school or a person, a guardian withdrawing consent, and suspending a member each take effect on the next request. No audit row, log line or error report holds the text of a question or an answer.
 
-### Task 25: Homework — decided 4 October 2026
+### Task 25: Homework — built, 4 October 2026
 
 A teacher sets homework for a section and subject with a due date; families and pupils with their own login read it; on the due date the teacher checks each pupil off; the office sees what was set and who keeps not doing it. Decided by the product owner on 4 October 2026, before the build.
 
@@ -171,6 +171,8 @@ For homework, as for exams, `assigned_sections` is the class-teacher post alone:
 
 **Exit check.** A teacher sets and checks homework only for their own section and subject (or their own class's general items); a parent reads only their own child's items and status, including last year's after promotion, and nothing of another family's child; a pupil reads only their own; the accountant reads nothing; files download only through the byte route after a fresh decision; the digest respects consent and the switch. Proven in `tests/security` with cross-school and same-school wrong-person tests. The release adds migration `0030` and changes the role templates, so every existing school needs `pnpm db:sync-roles`.
 
+Decisions taken while building it, on 4 October 2026. **A family reads an item** through a child enrolled in its class on the day it was set (`joined_on <= set_on`, not left before it), in every year, in `@erp/authz` for both the list and the single decision; a pupil who joins later does not see earlier items, and a family list has one row per child and item, so two siblings in one class see the item twice. **Instructions may be empty.** **Removing is permanent**: the database refuses any change to a removed item, its files and its check-offs (anonymisation may still clear a remark), and a removed item cannot be restored. **Setting** inserts the row and then decides it again through the caller's own `homework.set` plan, rolling back with `ACCESS_DENIED` when the plan does not reach it; the year must be open with today inside it and the due date inside the year. **Check-offs** keep their own copy of the class, year and subject, so they outlive the item when the sweep deletes it, and a saved line never goes back to "not checked"; a save names only the changed lines, each with the version it read (0 for a pupil never checked), and a stale version refuses the whole save. The check-off sheet lists only the pupils the caller may name. **Files** are typed by their first bytes and a picture loses its metadata, as for photographs; a request whose `content-length` is over 4 MB gets a plain 413 before the body is read. **The evening message** may be set between 12:00 and 21:00 (default 17:00), lists at most 12 items, soonest due first, and ends with "and N more" when there are more. **The report** is gated by `homework.check`, covers at most 366 days and names a pupil only when the caller may read them; its Excel export is office only. **Retention**: items and files are kept for their academic year and one more, then the nightly sweep deletes them, files first; check-offs follow the pupil's period and anonymising the pupil clears the remarks; the subject-access export includes the check-offs. The release changes the role templates (four keys active, 20 grants per school), so every existing school needs `pnpm db:sync-roles` after migration `0030`. Described in [PROTECTED_APIS.md](auth/PROTECTED_APIS.md#homework) and [DATA_PROTECTION.md](compliance/DATA_PROTECTION.md) section 18.
+
 ### Out of scope for this plan
 
 Custom role building, a policy editor, native apps, offline data and online payment collection.
@@ -185,7 +187,7 @@ Custom role building, a policy editor, native apps, offline data and online paym
 | 4 | Task 21 exams and report cards, then Task 22 communication. |
 | 5 | Task 23 student login. Rough edges after it (section 9). |
 | 6 | Task 24 AI assistant (built). |
-| 7 | **Task 25 homework — next.** Tasks 16 and 17 must still finish before the first paying school whatever else is built. |
+| 7 | Task 25 homework (built). Tasks 16 and 17 must still finish before the first paying school whatever else is built. |
 
 The readiness tasks are the release gate for the first paying school; the module tasks decide what that school gets. Fees can be built while the region move is pending, but must not hold real money before it.
 
