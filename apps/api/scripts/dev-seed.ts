@@ -304,6 +304,7 @@ async function removePreviousSchool(client: pg.PoolClient): Promise<void> {
   const tables = [
     'assistant_usage', 'assistant_messages', 'assistant_threads', 'assistant_settings',
     'homework_checks', 'homework_attachments', 'homework',
+    'leave_applications', 'leave_records',
     'message_recipients', 'message_attachments', 'messages', 'message_templates', 'communication_settings',
     'guardian_consents', 'audit_event_notes',
     'attendance_entries', 'staff_attendance_entries',
@@ -1948,10 +1949,11 @@ async function main(): Promise<void> {
       const author = (subjectId: string | null): { by: string; staffId: string | null } => {
         const teacher = subjectId === null ? classTeacher : teacherFor.get(`${section.id}:${subjectId}`)
         const membership = teacher ? teacherMembershipOf.get(teacher.id) : undefined
-        // A teacher with no login of their own: the principal set it for them.
+        // A teacher with no login of their own: the principal entered it for
+        // them, and it still shows as the teacher's.
         return membership !== undefined && teacher !== undefined
           ? { by: membership, staffId: teacher.id }
-          : { by: principalMembership, staffId: null }
+          : { by: principalMembership, staffId: teacher?.id ?? null }
       }
       const days = recentDays.filter((_, dayIndex) => (dayIndex + index) % 2 === 0)
       const items: HomeworkRow[] = days.map((setOn, dayIndex) => {
@@ -1965,35 +1967,36 @@ async function main(): Promise<void> {
           id: randomUUID(),
           sectionId: section.id,
           subjectId: subject?.id ?? null,
-          title: subject === null ? title : `${subject.name}: ${title}`,
+          title,
           setOn,
           dueOn: dueOn > yearNow.end ? setOn : dueOn,
           ...author(subject?.id ?? null),
           removed: false,
         }
       })
-      // Due today (set two days ago, a subject's) and due tomorrow (set today, general).
+      // Due today (set two days ago, a subject's) when today is a school day,
+      // and due on the next school day (set today, general).
       const todaySubject = subjects[index % Math.max(subjects.length, 1)]
-      if (shiftDays(runDate, -2) >= yearNow.start) {
+      if (isSchoolDay(runDate) && shiftDays(runDate, -2) >= yearNow.start) {
         items.push({
           id: randomUUID(),
           sectionId: section.id,
           subjectId: todaySubject?.id ?? null,
-          title: todaySubject ? `${todaySubject.name}: ${pick(HOMEWORK_TITLES.subject as readonly string[])}` : 'Practise your poem',
+          title: todaySubject ? pick(HOMEWORK_TITLES.subject as readonly string[]) : 'Practise your poem',
           setOn: shiftDays(runDate, -2),
           dueOn: runDate,
           ...author(todaySubject?.id ?? null),
           removed: false,
         })
       }
-      if (shiftDays(runDate, 1) <= yearNow.end) {
+      if (nextSchoolDay(runDate) <= yearNow.end) {
         items.push({
           id: randomUUID(),
           sectionId: section.id,
           subjectId: null,
           title: pick(HOMEWORK_TITLES.general as readonly string[]),
           setOn: runDate,
-          dueOn: shiftDays(runDate, 1),
+          dueOn: nextSchoolDay(runDate),
           ...author(null),
           removed: false,
         })
@@ -2068,7 +2071,7 @@ async function main(): Promise<void> {
     }
     console.info(
       `Homework: ${homeworkRows.length} items over ${sectionsNow.length} sections in the last three weeks ` +
-        `(one due today and one due tomorrow in each), ${homeworkChecks.length} check-offs; ` +
+        `(one due today on a school day and one due on the next school day in each), ${homeworkChecks.length} check-offs; ` +
         'the two newest past items of each section are left to check.',
     )
 

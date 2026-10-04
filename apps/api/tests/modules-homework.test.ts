@@ -1130,6 +1130,12 @@ test('status filters: to_check for staff, upcoming and past for everyone', async
   assert.ok(!ids.includes(past.old!), 'everyone on its roster is checked')
   assert.ok(!ids.includes(items.teacherMaths!.id), 'not due yet')
   assert.ok(toCheck.items.every((item) => (item.progress?.notChecked ?? 0) > 0))
+  // A teacher's "to check" holds only what they may check: the class teacher
+  // reads the class's subject items but checks general items alone.
+  const classToCheck = await list(classTeacher, '&status=to_check')
+  assert.ok(classToCheck.items.length > 0)
+  assert.ok(classToCheck.items.every((item) => item.subject === undefined || item.subject === null))
+  assert.ok(classToCheck.items.every((item) => item.allowedActions.includes('homework.check')))
   const familyToCheck = await listAll(parent, 'status=to_check')
   assert.deepEqual(familyToCheck.items, [], 'a family has nothing to check')
 })

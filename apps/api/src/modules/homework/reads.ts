@@ -304,7 +304,17 @@ export async function listHomework(
 ): Promise<HomeworkListResponse> {
   const today = await schoolToday(conn, context.schoolId)
   const plans = await homeworkReadPlans(conn, context)
-  const { where, order } = listWhere(query, today)
+  const listed = listWhere(query, today)
+  // "To check" lists what the caller may still check, as the dashboard card
+  // does: items the check plan reaches, inside the teacher's window unless
+  // the school-wide grant reaches them.
+  let where = listed.where
+  if (query.status === 'to_check') {
+    const check = await homeworkWritePlans(conn, context, 'homework.check')
+    const opened = addDays(today, -HOMEWORK_TEACHER_CHECK_DAYS)
+    where = sql`${where} AND (${check.items}) AND (homework.due_on >= ${opened}::date OR (${check.office}))`
+  }
+  const order = listed.order
   const rows = await selectItems(conn, {
     schoolId: context.schoolId,
     plans,
