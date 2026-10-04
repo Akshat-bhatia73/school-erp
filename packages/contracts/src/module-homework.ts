@@ -52,6 +52,50 @@ export const HOMEWORK_ROSTER_MAX = 200
 /** The digest goes from the school's time on the day until this hour the next morning, then is skipped. */
 export const HOMEWORK_DIGEST_LAST_HOUR = 9
 export const HOMEWORK_DIGEST_DEFAULT_TIME = '17:00'
+/**
+ * The most items one pupil's digest lists, soonest due first; any more are one
+ * closing line ("and N more, see Homework in the app"). Nothing caps the items
+ * a class gets in a day, and a message body is at most MESSAGE_BODY_MAX
+ * (5000) characters, so the list has a budget of its own.
+ */
+export const HOMEWORK_DIGEST_MAX_ITEMS = 12
+/** A title in the digest list is cut to this many characters, with an ellipsis. */
+export const HOMEWORK_DIGEST_TITLE_MAX = 80
+
+/** One item as the digest lists it. `subject` is the subject's name, or the word for general homework. */
+export interface HomeworkDigestEntry {
+  subject: string
+  title: string
+  /** ISO date, for the order. */
+  dueOn: string
+  /** The due date as the message shows it (formatDate). */
+  dueLabel: string
+}
+
+/**
+ * The `{homework_list}` placeholder of the digest: one line per item, soonest
+ * due first (then subject, then title), at most HOMEWORK_DIGEST_MAX_ITEMS
+ * lines with titles cut to HOMEWORK_DIGEST_TITLE_MAX, and a closing line for
+ * the rest. At most about 12 x 200 characters, far inside a message body; the
+ * writer still clamps the rendered body to MESSAGE_BODY_MAX because a school's
+ * own wording may be long.
+ */
+export function homeworkDigestList(entries: readonly HomeworkDigestEntry[]): string {
+  const ordered = [...entries].sort(
+    (a, b) =>
+      a.dueOn.localeCompare(b.dueOn) || a.subject.localeCompare(b.subject) || a.title.localeCompare(b.title),
+  )
+  const shown = ordered.slice(0, HOMEWORK_DIGEST_MAX_ITEMS).map((entry) => {
+    const title =
+      entry.title.length > HOMEWORK_DIGEST_TITLE_MAX
+        ? `${entry.title.slice(0, HOMEWORK_DIGEST_TITLE_MAX - 1).trimEnd()}…`
+        : entry.title
+    return `- ${entry.subject}: ${title} (due ${entry.dueLabel})`
+  })
+  const rest = ordered.length - shown.length
+  if (rest > 0) shown.push(`- and ${rest} more, see Homework in the app`)
+  return shown.join('\n')
+}
 
 /** 'HH:MM', 12:00 to 21:00: when the evening digest starts to go, in the school's timezone. */
 export const HomeworkDigestTime = z
@@ -194,8 +238,8 @@ const HomeworkCommon = {
  * The items the caller may read, soonest due first for `upcoming`, newest
  * due first otherwise. `general=true` narrows to items with no subject.
  * `studentId` narrows to the items of one pupil (a parent choosing a child;
- * staff reading one pupil): the sections the pupil was enrolled in while the
- * item ran. from/to bound the due date. Without academicYearId every year the
+ * staff reading one pupil): the items of the sections the pupil was enrolled
+ * in on the day each was set. from/to bound the due date. Without academicYearId every year the
  * caller may read is listed (a family reads past years too).
  */
 export const HomeworkListRequest = z

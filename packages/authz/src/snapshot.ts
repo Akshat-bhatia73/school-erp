@@ -414,8 +414,8 @@ async function ownChildBehind(
 
 /**
  * One of the caller's own children, or the pupil a student login is,
- * enrolled in this homework item's section and year at some point from the
- * day it was set to the day it was due: the row a family scope reads the
+ * enrolled in this homework item's section and year on the day it was set:
+ * the row a family scope reads the
  * item through. The same children as loadRelationshipFactsFor names, and the
  * same enrolment rule as the list predicate in scope.ts.
  */
@@ -430,7 +430,7 @@ async function ownChildInHomeworkClass(
        FROM homework h
        JOIN enrollments e ON e.school_id = h.school_id AND e.section_id = h.section_id
         AND e.academic_year_id = h.academic_year_id
-        AND e.joined_on <= h.due_on AND (e.left_on IS NULL OR e.left_on >= h.set_on)
+        AND e.joined_on <= h.set_on AND (e.left_on IS NULL OR e.left_on >= h.set_on)
       WHERE h.school_id = $1 AND h.id = $3
         AND (EXISTS (SELECT 1 FROM membership_guardian_links mgl
                        JOIN guardian_student_access gsa
@@ -916,7 +916,7 @@ export async function loadResourceFacts(
       // section, year and subject ([] for general homework) and whether the
       // item is removed. A pupil names themselves and their current sections,
       // exactly as a student does. For an item, the caller's own child (or
-      // the pupil a student login is) enrolled in its class while it ran is
+      // the pupil a student login is) enrolled in its class on the day it was set is
       // named, so own_children and own_record answer exactly as the list
       // predicate does.
       const row = await conn.client.query<{

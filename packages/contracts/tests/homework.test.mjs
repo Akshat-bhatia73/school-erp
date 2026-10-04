@@ -82,3 +82,25 @@ test('files: three per item, 4 MB each, PDF, JPEG or PNG', () => {
   assert.equal(c.HomeworkAttachmentView.safeParse({ ...view, sizeBytes: 4 * 1024 * 1024 + 1 }).success, false)
   assert.equal(c.HomeworkAttachmentView.safeParse({ ...view, contentType: 'image/gif' }).success, false)
 })
+
+test('the digest list has a budget: soonest due first, short titles, the rest as one line', () => {
+  const entries = Array.from({ length: 30 }, (_, n) => ({
+    subject: n % 2 ? 'Maths' : 'General',
+    title: `${'Long title '.repeat(11)}${n}`.slice(0, c.HOMEWORK_TITLE_MAX),
+    dueOn: `2026-10-${String(10 + (n % 20)).padStart(2, '0')}`,
+    dueLabel: `day ${n}`,
+  }))
+  const list = c.homeworkDigestList(entries)
+  const lines = list.split('\n')
+  assert.equal(lines.length, c.HOMEWORK_DIGEST_MAX_ITEMS + 1)
+  assert.equal(lines.at(-1), `- and ${30 - c.HOMEWORK_DIGEST_MAX_ITEMS} more, see Homework in the app`)
+  assert.ok(lines[0].includes('(due day 0)') || lines[0].includes('(due day 20)'), lines[0])
+  for (const line of lines.slice(0, -1)) assert.ok(line.length <= 200, line)
+  const body = c.renderMessageText(c.DEFAULT_MESSAGE_WORDING.homework_digest.body, {
+    homework_list: list,
+  })
+  assert.ok(body.length < c.MESSAGE_BODY_MAX, `${body.length}`)
+  // A short day lists everything, with no closing line.
+  assert.equal(c.homeworkDigestList(entries.slice(0, 2)).split('\n').length, 2)
+  assert.equal(c.homeworkDigestList([]), '')
+})

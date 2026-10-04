@@ -207,6 +207,51 @@ test('a check-off agrees with its item, keeps its pupil and is never deleted', a
   await refusedWith(['42501'], `DELETE FROM homework_checks WHERE id = $1`, [checkId])
 })
 
+test('a removed item, its files and its check-offs stay as they were; anonymising still clears a remark', async () => {
+  const id = await item()
+  const refusal = ['P0001', '23000']
+  const checkId = await check(id, { remark: 'Neat work' })
+  const fileId = (
+    await asRuntime(i.schoolA, (client) =>
+      client.query(
+        `INSERT INTO homework_attachments(school_id,homework_id,file_name,content_type,size_bytes,storage_key,
+                                          created_by_membership_id)
+         VALUES ($1,$2,'sheet.pdf','application/pdf',10,'k1',$3) RETURNING id`,
+        [i.schoolA, id, i.ownerA],
+      ),
+    )
+  ).rows[0].id
+  await asRuntime(i.schoolA, (client) =>
+    client.query(
+      `UPDATE homework SET removed_at = now(), removed_by_membership_id = $2, version = version + 1 WHERE id = $1`,
+      [id, i.ownerA],
+    ),
+  )
+  await refusedWith(refusal, `UPDATE homework SET title = 'Changed' WHERE id = $1`, [id])
+  await refusedWith(refusal, `UPDATE homework SET due_on = due_on + 1 WHERE id = $1`, [id])
+  await refusedWith(refusal, `UPDATE homework SET version = version + 1 WHERE id = $1`, [id])
+  await refusedWith(
+    refusal,
+    `INSERT INTO homework_attachments(school_id,homework_id,file_name,content_type,size_bytes,storage_key,
+                                      created_by_membership_id)
+     VALUES ($1,$2,'more.pdf','application/pdf',10,'k2',$3)`,
+    [i.schoolA, id, i.ownerA],
+  )
+  await refusedWith(refusal, `DELETE FROM homework_attachments WHERE id = $1`, [fileId])
+  await assert.rejects(check(id, { studentId: i.studentA2 }), (error) => refusal.includes(error.code))
+  await refusedWith(refusal, `UPDATE homework_checks SET status = 'not_done' WHERE id = $1`, [checkId])
+  await refusedWith(refusal, `UPDATE homework_checks SET remark = 'Other words' WHERE id = $1`, [checkId])
+  // Anonymising the pupil clears the remark, and changes nothing else.
+  await asRuntime(i.schoolA, (client) =>
+    client.query(
+      `UPDATE homework_checks SET remark = NULL, version = version + 1, updated_at = now() WHERE id = $1`,
+      [checkId],
+    ),
+  )
+  const kept = await admin.query('SELECT status, remark FROM homework_checks WHERE id = $1', [checkId])
+  assert.deepEqual(kept.rows[0], { status: 'done', remark: null })
+})
+
 test('the sweep removes old items with their files and leaves the pupils\' check-offs', async () => {
   const old = await item({ yearId: oldYear, sectionId: oldSection, setOn: '2023-06-01', dueOn: '2023-06-03' })
   const current = await item()

@@ -57,6 +57,7 @@ interface Rows {
   hwGeneral: string
   hwRemoved: string
   hwLate: string
+  hwSpanning: string
   hwSectionTwo: string
   hwLastYear: string
   checkChildMaths: string
@@ -189,6 +190,8 @@ before(async () => {
   const hwGeneral = await item(thisYear, sectionOne, null, '2026-06-01', '2026-06-03')
   const hwRemoved = await item(thisYear, sectionOne, maths, '2026-06-02', '2026-06-04')
   const hwLate = await item(thisYear, sectionOne, maths, '2026-06-12', '2026-06-14')
+  // Set before the late joiner came (10 June) and due after: not theirs.
+  const hwSpanning = await item(thisYear, sectionOne, maths, '2026-06-08', '2026-06-12')
   const hwSectionTwo = await item(thisYear, sectionTwo, maths, '2026-06-01', '2026-06-03')
   const hwLastYear = await item(lastYear, lastYearSection, maths, '2025-06-01', '2025-06-03')
 
@@ -228,6 +231,7 @@ before(async () => {
     hwGeneral,
     hwRemoved,
     hwLate,
+    hwSpanning,
     hwSectionTwo,
     hwLastYear,
     checkChildMaths,
@@ -255,6 +259,7 @@ function candidates(): string[] {
     rows.hwGeneral,
     rows.hwRemoved,
     rows.hwLate,
+    rows.hwSpanning,
     rows.hwSectionTwo,
     rows.hwLastYear,
     rows.checkChildMaths,
@@ -333,6 +338,7 @@ test('a parent reads their child\'s items and own check-offs, last year\'s too, 
       rows.hwScience,
       rows.hwGeneral,
       rows.hwLate,
+      rows.hwSpanning,
       // Promoted: last year's class, set while the child was in it.
       rows.hwLastYear,
       rows.checkChildMaths,
@@ -359,13 +365,15 @@ test('a pupil with a login reads their own items and own status only', async () 
       rows.hwScience,
       rows.hwGeneral,
       rows.hwLate,
+      rows.hwSpanning,
       rows.hwLastYear,
       rows.checkPupilOneMaths,
       rows.checkPupilOneLastYear,
       rows.pupilOne,
     ]),
   )
-  // Joined on 10 June: the item set and due before that is not theirs.
+  // Joined on 10 June: an item set before that is not theirs, even one due
+  // after they joined (hwSpanning, set 8 June, due 12 June).
   assert.deepEqual(
     await agree('late joiner', pupilContext(rows.lateLogin), 'homework.read'),
     sorted([rows.hwLate, rows.lateJoiner]),
@@ -383,6 +391,7 @@ test('the class teacher reads every item of the class but sets and checks its ge
       rows.hwGeneral,
       rows.hwRemoved,
       rows.hwLate,
+      rows.hwSpanning,
       rows.checkChildMaths,
       rows.checkPupilOneMaths,
       rows.checkChildGeneral,
@@ -405,7 +414,7 @@ test('the class teacher reads every item of the class but sets and checks its ge
 
 test('a subject teacher reaches their own section and subject, and never general homework', async () => {
   const teacher = teacherContext(rows.subjectTeacher)
-  const own = [rows.hwMaths, rows.hwRemoved, rows.hwLate, rows.checkChildMaths, rows.checkPupilOneMaths, rows.checkChildRemoved]
+  const own = [rows.hwMaths, rows.hwRemoved, rows.hwLate, rows.hwSpanning, rows.checkChildMaths, rows.checkPupilOneMaths, rows.checkChildRemoved]
   const classPupils = [rows.child, rows.pupilOne, rows.lateJoiner]
   for (const permission of ['homework.read', 'homework.set', 'homework.check'] as const) {
     assert.deepEqual(

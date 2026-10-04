@@ -682,6 +682,28 @@ The pump has three triggers. The web asks `GET /messages/inbox/unread` every min
 
 **Subject access** gains `messages`: the messages about the pupil (automatic messages and notices to the pupil's family) that the caller may read under `communication.read`, newest first. A parent's export holds what was addressed to them.
 
+## Homework
+
+Task 25, migration `0030`. This section holds the rules the foundation fixed; the module's own description is added with the routes.
+
+**Setting an item has no row to decide against yet.** `authorize` takes a record id, and the homework faces are an item, a check-off and a pupil, so `homework.set` cannot be decided for an item that does not exist. Do not check `teaching_assignments` or `sections.class_teacher_staff_id` by hand. Inside the one `withTenantTransaction` that writes it: lock the school, validate the section, year and subject belong to this school (and the subject is one of the section's class subjects), insert the item, then re-decide that same row with the plan and roll back with the refusal when it does not come back:
+
+```ts
+const plan = await authz.scopeQuery(context, 'homework.set', 'homework')
+const found = await conn.db.execute(sql`SELECT 1 FROM homework
+  WHERE homework.school_id = ${schoolId} AND homework.id = ${newId}
+    AND ${planPredicate(plan, homeworkScopedTable('item'))}`)
+if (found.rows.length === 0) throw new ApiFailure('ACCESS_DENIED') // the transaction rolls back
+```
+
+Edit, remove, files and check-offs are decided by the item's id as usual.
+
+**Removed items stay as they were.** The database refuses any change to a removed item (words, due date, version), any file added to or deleted from it, and any check-off written or changed on it; the API answers `homework_removed` before it gets there. The one change allowed on a removed item's check-off is anonymisation clearing the remark (`remark = NULL`, with `version` and `updated_at`, nothing else).
+
+**A family reads an item through a child enrolled in its section and year on the day it was set** (`joined_on <= set_on` and `left_on` empty or on or after `set_on`), for every year. A pupil who joined after an item was set does not read it, even when it falls due after they joined; their check-off on it (they are on the due-date roster) is still theirs to read, because a check-off is read through the pupil, not through the item.
+
+**The digest has a budget.** Build `{homework_list}` with `homeworkDigestList` from `@erp/contracts`: at most `HOMEWORK_DIGEST_MAX_ITEMS` (12) lines, soonest due first, titles cut to `HOMEWORK_DIGEST_TITLE_MAX` (80), then one line "and N more, see Homework in the app". The automatic writer already clamps the rendered title and body to `MESSAGE_TITLE_MAX` and `MESSAGE_BODY_MAX`, so a long school wording cannot break the `messages` CHECK constraints.
+
 ## Student login
 
 Task 23. A pupil in Class 9 to 12 signs in with the school's login code, their admission number and a password, and reads their own published learning record: their timetable, attendance, published results and report cards, and the notices addressed to them. Nothing financial or administrative. Source: [auth/student-sign-in.ts](../../apps/api/src/auth/student-sign-in.ts), [memberships/student-logins.ts](../../apps/api/src/memberships/student-logins.ts) and migration `0019_student_login.sql`.

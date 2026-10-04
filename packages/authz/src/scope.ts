@@ -404,9 +404,9 @@ export function leaveApplicationScopedTable(kind: LeaveApplicationTableKind): Sc
  *
  * A family reads through the pupil, for every year the child was here:
  *  * an item, when one of their children was enrolled in its section and
- *    year at some point from the day it was set to the day it was due (so
- *    the pupils set it and the pupils on its roster both see it), and it is
- *    not removed;
+ *    year on the day it was set (a child who joined later does not read the
+ *    class's earlier homework, even when it falls due after they joined),
+ *    and it is not removed;
  *  * a check-off, when it is their child's own and its item is not removed;
  *  * the pupil face, when it is their child.
  * Another pupil's check-off names another pupil and is never reached.
@@ -911,7 +911,7 @@ function ownPupilTerm(table: ScopedTable, studentIds: readonly string[]): SQL {
 
 /**
  * A family's reach into homework (see HOMEWORK_TABLES): an item through a
- * child enrolled in its class while it ran, a check-off through the child it
+ * child enrolled in its class on the day it was set, a check-off through the child it
  * belongs to, never anything removed.
  */
 function homeworkFamilyTerm(table: ScopedTable, childIds: readonly string[], childList: SQL): SQL {
@@ -920,7 +920,7 @@ function homeworkFamilyTerm(table: ScopedTable, childIds: readonly string[], chi
       return sql`(${homework.removedAt} IS NULL AND EXISTS (SELECT 1 FROM enrollments e
           WHERE e.school_id = ${homework.schoolId} AND e.student_id IN (${childList})
             AND e.section_id = ${homework.sectionId} AND e.academic_year_id = ${homework.academicYearId}
-            AND e.joined_on <= ${homework.dueOn}
+            AND e.joined_on <= ${homework.setOn}
             AND (e.left_on IS NULL OR e.left_on >= ${homework.setOn})))`
     case 'check':
       return sql`(${idInTerm(homeworkChecks.studentId, childIds)} AND NOT EXISTS (SELECT 1 FROM homework hw

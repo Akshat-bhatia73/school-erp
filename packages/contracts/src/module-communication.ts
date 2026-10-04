@@ -170,7 +170,7 @@ export const MESSAGE_PLACEHOLDERS = {
   leave_dates: 'The days of leave, such as 29 Sep 2026 to 1 Oct 2026',
   decision: 'approved or not approved',
   decision_note: 'What the person who decided wrote, or nothing',
-  homework_list: 'The homework set that day, one line each: subject, title and due date',
+  homework_list: 'The homework set that day, one line each: subject, title and due date (at most 12, soonest due first)',
 } as const
 export type MessagePlaceholder = keyof typeof MESSAGE_PLACEHOLDERS
 

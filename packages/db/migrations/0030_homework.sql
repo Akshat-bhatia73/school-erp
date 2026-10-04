@@ -154,10 +154,11 @@ BEGIN
         RAISE EXCEPTION 'the class, subject and author of homework never change'
             USING ERRCODE = 'integrity_constraint_violation';
     END IF;
-    -- Removing is for good.
-    IF OLD.removed_at IS NOT NULL AND (NEW.removed_at IS DISTINCT FROM OLD.removed_at
-        OR NEW.removed_by_membership_id IS DISTINCT FROM OLD.removed_by_membership_id) THEN
-        RAISE EXCEPTION 'removed homework stays removed'
+    -- Removing is for good, and a removed item is kept exactly as it was:
+    -- not un-removed, not edited, not re-versioned. Removing itself starts
+    -- from OLD.removed_at IS NULL, so it passes.
+    IF OLD.removed_at IS NOT NULL THEN
+        RAISE EXCEPTION 'removed homework stays as it was'
             USING ERRCODE = 'integrity_constraint_violation';
     END IF;
     RETURN NEW;
@@ -176,13 +177,17 @@ CREATE TRIGGER homework_guard_delete
 
 -- A check-off names the item's subject, and keeps its pupil and its class.
 -- The one change of homework_id allowed is to NULL, which is what the sweep's
--- foreign key action does when the item goes.
+-- foreign key action does when the item goes. The check-offs of a removed
+-- item are kept as they were: none is written or changed, except that
+-- anonymising the pupil clears a remark (a change of the remark to NULL, the
+-- version and updated_at, and nothing else).
 CREATE FUNCTION homework_checks_guard ()
     RETURNS TRIGGER
     LANGUAGE plpgsql
     AS $$
 DECLARE
     item_subject uuid;
+    item_removed timestamptz;
 BEGIN
     IF TG_OP = 'UPDATE' THEN
         IF NEW.school_id IS DISTINCT FROM OLD.school_id
@@ -194,6 +199,23 @@ BEGIN
             RAISE EXCEPTION 'a check-off keeps its pupil, its item and its class'
                 USING ERRCODE = 'integrity_constraint_violation';
         END IF;
+        IF NEW.homework_id IS NULL THEN
+            RETURN NEW;
+        END IF;
+        SELECT
+            h.removed_at INTO item_removed
+        FROM
+            homework h
+        WHERE
+            h.school_id = NEW.school_id
+            AND h.id = NEW.homework_id;
+        IF item_removed IS NOT NULL AND NOT (NEW.remark IS NULL
+                AND NEW.status IS NOT DISTINCT FROM OLD.status
+                AND NEW.checked_by_membership_id IS NOT DISTINCT FROM OLD.checked_by_membership_id
+                AND NEW.checked_at IS NOT DISTINCT FROM OLD.checked_at) THEN
+            RAISE EXCEPTION 'the check-offs of removed homework stay as they were'
+                USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
         RETURN NEW;
     END IF;
     IF NEW.homework_id IS NULL THEN
@@ -201,12 +223,18 @@ BEGIN
             USING ERRCODE = 'integrity_constraint_violation';
     END IF;
     SELECT
-        h.subject_id INTO item_subject
+        h.subject_id,
+        h.removed_at INTO item_subject,
+        item_removed
     FROM
         homework h
     WHERE
         h.school_id = NEW.school_id
         AND h.id = NEW.homework_id;
+    IF item_removed IS NOT NULL THEN
+        RAISE EXCEPTION 'the check-offs of removed homework stay as they were'
+            USING ERRCODE = 'integrity_constraint_violation';
+    END IF;
     IF FOUND AND item_subject IS DISTINCT FROM NEW.subject_id THEN
         RAISE EXCEPTION 'a check-off names the subject of its item'
             USING ERRCODE = 'integrity_constraint_violation';
@@ -219,6 +247,51 @@ CREATE TRIGGER homework_checks_guard
     BEFORE INSERT OR UPDATE ON homework_checks
     FOR EACH ROW
     EXECUTE FUNCTION homework_checks_guard ();
+
+-- The files of a removed item are kept as they were: none is added, and the
+-- API never deletes one. The retention sweep (erp_maintenance, or the foreign
+-- key cascade when it deletes the item) is not the API and passes.
+CREATE FUNCTION homework_attachments_guard ()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    target_school uuid;
+    target_item uuid;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        IF current_user <> 'erp_runtime' THEN
+            RETURN OLD;
+        END IF;
+        target_school := OLD.school_id;
+        target_item := OLD.homework_id;
+    ELSE
+        target_school := NEW.school_id;
+        target_item := NEW.homework_id;
+    END IF;
+    IF EXISTS (
+        SELECT
+            1
+        FROM
+            homework h
+        WHERE
+            h.school_id = target_school
+            AND h.id = target_item
+            AND h.removed_at IS NOT NULL) THEN
+        RAISE EXCEPTION 'the files of removed homework stay as they were'
+            USING ERRCODE = 'integrity_constraint_violation';
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER homework_attachments_guard
+    BEFORE INSERT OR DELETE ON homework_attachments
+    FOR EACH ROW
+    EXECUTE FUNCTION homework_attachments_guard ();
 
 DO $$
 DECLARE
