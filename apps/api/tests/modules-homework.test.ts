@@ -558,6 +558,18 @@ test('the due date, the subject, the year and the section are checked', async ()
     400,
     'homework_due_out_of_range',
   )
+  // Inside sixty days but after the year ends: its own reason, so the teacher
+  // knows to set it in the new year.
+  await adminPool().query('UPDATE academic_years SET end_date = $2 WHERE id = $1', [thisYear, shift(today, 10)])
+  try {
+    await failure(
+      await create(owner, { sectionId: sectionOne, subjectId: maths, title: 'Holiday', dueOn: shift(today, 11) }),
+      400,
+      'homework_due_after_year_end',
+    )
+  } finally {
+    await adminPool().query('UPDATE academic_years SET end_date = $2 WHERE id = $1', [thisYear, yearEnd])
+  }
   await failure(
     await create(owner, { sectionId: sectionOne, subjectId: art, title: 'Paint', dueOn: today }),
     400,
@@ -1014,9 +1026,16 @@ test('a save writes the changed lines at their versions, one audit row, remarks 
   )
   assert.equal(cleared.rows.find((row) => row.student.id === classmate)?.check?.remark, undefined)
 
-  // A save that changes nothing writes nothing.
-  await ok<Sheet>(await saveChecks(subjectTeacher, id, [{ studentId: lateJoiner, status: 'done', expectedVersion: 1 }]))
-  assert.equal((await auditRows('homework.check', id)).length, 3)
+  // A save that changes nothing writes no check-off, and still one audit row.
+  const unchanged = await ok<Sheet>(
+    await saveChecks(subjectTeacher, id, [{ studentId: lateJoiner, status: 'done', expectedVersion: 1 }]),
+  )
+  assert.equal(unchanged.rows.find((row) => row.student.id === lateJoiner)?.check?.version, 1)
+  audits = await auditRows('homework.check', id)
+  assert.equal(audits.length, 4)
+  assert.equal(audits[3]?.safe_changes.checked, 0)
+  assert.equal(audits[3]?.safe_changes.changed, 0)
+  assert.equal(audits[3]?.note, null)
 })
 
 test('families read their own child’s status and never another pupil’s', async () => {

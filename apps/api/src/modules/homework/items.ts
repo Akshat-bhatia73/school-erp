@@ -74,8 +74,14 @@ async function sectionFacts(conn: HomeworkConnection, schoolId: string, sectionI
  * HOMEWORK_DUE_MAX_DAYS of it, and inside the item's academic year.
  */
 function assertDueOn(dueOn: string, setOn: string, yearEnd: string): void {
-  if (dueOn < setOn || dueOn > addDays(setOn, HOMEWORK_DUE_MAX_DAYS) || dueOn > yearEnd) {
+  if (dueOn < setOn || dueOn > addDays(setOn, HOMEWORK_DUE_MAX_DAYS)) {
     throw new ApiFailure('INVALID_REQUEST', undefined, 'homework_due_out_of_range')
+  }
+  // The check-off sheet is the class's roster on the due date, and a class
+  // has no pupils after its year ends (they move to next year's sections), so
+  // an item is due inside its own year.
+  if (dueOn > yearEnd) {
+    throw new ApiFailure('INVALID_REQUEST', undefined, 'homework_due_after_year_end')
   }
 }
 

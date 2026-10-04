@@ -163,6 +163,22 @@ describe('the staff list', () => {
     expect(homework.list.mock.calls.at(-1)![1]).not.toHaveProperty('subjectId', 'general')
   })
 
+  it('lists the chosen year\'s classes in the Class chip, and a new year clears the class', async () => {
+    setup.academicYears.mockResolvedValue([
+      { id: 'year-0', schoolId: SCHOOL_ID, name: '2025-26', startDate: '2025-04-01', endDate: '2026-03-31', status: 'closed', version: 1 },
+      { id: 'year-1', schoolId: SCHOOL_ID, name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', status: 'current', version: 1 },
+    ])
+    search = { academicYearId: 'year-0', sectionId: 'old-sec' }
+    await renderList([...TEACHER, 'academic_years.read'], ['admin'])
+    await waitFor(() => expect(setup.sections).toHaveBeenCalledWith(SCHOOL_ID, { academicYearId: 'year-0' }))
+    expect(setup.sections).not.toHaveBeenCalledWith(SCHOOL_ID, { academicYearId: 'year-1' })
+
+    await userEvent.click(await screen.findByRole('button', { name: /Year/ }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: '2026-27' }))
+    const update = navigate.mock.calls.at(-1)![0] as { search: (prev: Record<string, unknown>) => Record<string, unknown> }
+    expect(update.search(search)).toEqual({ academicYearId: 'year-1', sectionId: undefined })
+  })
+
   it('offers Set homework only to somebody who holds homework.set', async () => {
     const { unmount } = await renderList(TEACHER, ['teacher'])
     expect((await screen.findAllByRole('button', { name: 'Set homework' })).length).toBeGreaterThan(0)

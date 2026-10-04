@@ -556,7 +556,7 @@ off. The screens are in the Homework table above.
   `allowedActions`; the sheet saves only when the server's `window.check` says so; the Report tab for
   `homework.check`; Excel for `homework.export` on the person and on the report.
 - **Messages**: the kind `homework_digest` is a cyan tag.
-- **Refusals** come from the server's reasons: `homework_due_out_of_range`,
+- **Refusals** come from the server's reasons: `homework_due_out_of_range`, `homework_due_after_year_end`,
   `homework_subject_not_in_class`, `homework_year_not_current`, `homework_removed`,
   `homework_not_due_yet`, `homework_check_window_closed`, `homework_pupil_not_on_roster`,
   `homework_attachment_too_large`, `homework_attachment_type` and `homework_too_many_attachments`,

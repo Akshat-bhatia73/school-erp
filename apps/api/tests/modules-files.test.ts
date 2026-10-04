@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import test, { after, before } from 'node:test'
+import { PERMISSION_CATALOGUE, PermissionKey } from '@erp/contracts'
 import { fixtureIds } from '@erp/db/fixtures'
+import { EXPORT_PERMISSIONS } from '../src/modules/files/routes.ts'
 import {
   adminPool,
   closeAdminPool,
@@ -370,6 +372,16 @@ test('a job whose permission the caller lacks has expired, not refused', async (
   const response = await owner.fetch(`/api/schools/${schoolA}/exports/${jobId}`)
   assert.equal(response.status, 200)
   assert.deepEqual(await response.json(), { id: jobId, status: 'expired' })
+})
+
+test('every export key passes the floor of the job status and file routes', () => {
+  // A member whose only export key is, say, homework.export must still reach
+  // their own job; the job's own permission is decided again afterwards.
+  const exportKeys = PermissionKey.options.filter(
+    (key) => key.endsWith('.export') && PERMISSION_CATALOGUE[key].availability === 'active',
+  )
+  assert.ok(exportKeys.includes('homework.export'))
+  for (const key of exportKeys) assert.ok(EXPORT_PERMISSIONS.includes(key), `${key} is not in the export floor`)
 })
 
 test('an export job cannot be read through another school path', async () => {

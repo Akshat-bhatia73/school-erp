@@ -114,7 +114,6 @@ function StaffHomework() {
   const [q, setQ] = useState('')
   const [setting, setSetting] = useState(false)
   const navigate = useNavigate()
-  const classes = useClassOptions(true)
   const subjectsQuery = useQuery({
     queryKey: qk.subjects(schoolId),
     queryFn: () => api.setup.subjects(schoolId),
@@ -123,6 +122,8 @@ function StaffHomework() {
 
   const status = search.status ?? 'upcoming'
   const yearId = search.academicYearId ?? currentYearId ?? undefined
+  // The Class chip lists the chosen year's sections, not always this year's.
+  const classes = useClassOptions(true, yearId)
   const params: HomeworkListParams = {
     academicYearId: yearId,
     sectionId: search.sectionId,
@@ -180,7 +181,7 @@ function StaffHomework() {
       <HomeworkTabs />
       <Toolbar search={<Input placeholder="Search homework" value={q} onChange={(e) => setQ(e.target.value)} className="h-8 w-full md:w-60" />}>
         {years.length > 1 && yearId && (
-          <FilterChip label="Year" value={yearId} options={years.map((year) => ({ value: year.id, label: year.name }))} onChange={(value) => set({ academicYearId: value })} clearable={false} />
+          <FilterChip label="Year" value={yearId} options={years.map((year) => ({ value: year.id, label: year.name }))} onChange={(value) => set({ academicYearId: value, sectionId: undefined })} clearable={false} />
         )}
         <FilterChip label="Class" value={search.sectionId} options={classes.options} onChange={(value) => set({ sectionId: value })} />
         <FilterChip label="Subject" value={search.subjectId} options={subjectOptions} onChange={(value) => set({ subjectId: value })} />

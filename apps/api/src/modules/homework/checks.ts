@@ -33,7 +33,8 @@ import { readCheckSheet } from './reads.ts'
  * school-wide grant of the homework.check plan, at any time. A save is the
  * changed lines of the sheet: every line is checked (the pupil on the roster,
  * the version the writer read) before the first row is written, so a refused
- * save writes nothing, and the save is one audit row for the item. A line is
+ * save writes nothing, and every save, even one that changes no line, is one
+ * audit row for the item. A line is
  * never un-checked.
  */
 
@@ -171,7 +172,9 @@ export function registerHomeworkCheckRoutes(app: FastifyInstance, deps: ModuleDe
           if (remark !== null && remark !== (current?.remark ?? null)) remarks.push(remark)
         }
 
-        if (checked + changed > 0) {
+        // Exactly one audit row per save, like a marks sheet: a save that matches
+        // what is stored records checked: 0, changed: 0 and no note.
+        {
           await writeAudit(conn, context, {
             action: 'homework.check',
             targetType: 'homework',

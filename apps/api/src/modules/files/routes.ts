@@ -49,7 +49,7 @@ function jobParam(request: FastifyRequest): string {
  * "holds at least one of these somewhere in the school"; the job's own
  * permission is re-decided afterwards.
  */
-const EXPORT_PERMISSIONS: readonly PermissionKeyType[] = [
+export const EXPORT_PERMISSIONS: readonly PermissionKeyType[] = [
   'students.export',
   'staff.export',
   'audit.export',
@@ -72,6 +72,8 @@ const EXPORT_PERMISSIONS: readonly PermissionKeyType[] = [
   'report_cards.export',
   // A message's delivery record, for the office.
   'communication.export',
+  // The homework report, for the office.
+  'homework.export',
 ]
 
 /**

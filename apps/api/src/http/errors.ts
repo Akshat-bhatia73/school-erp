@@ -69,6 +69,8 @@ const REASON_MESSAGES: Record<ErrorReason, string> = {
   leave_application_not_pending: 'This application has already been decided or withdrawn. Reload to see where it stands.',
   leave_application_too_far_back: 'Leave can be applied for up to 7 days back. For anything earlier, speak to the school office.',
   homework_due_out_of_range: 'Homework is due on or after the day it is set, and within 60 days.',
+  homework_due_after_year_end:
+    'Homework cannot be due after the academic year ends. Set it in the new year once its classes are ready.',
   homework_subject_not_in_class: 'That subject is not taught in this class this year. Choose one of the class\'s subjects.',
   homework_year_not_current: 'Homework is set only for a class in the current academic year.',
   homework_removed: 'This homework has been removed. Reload to see where it stands.',

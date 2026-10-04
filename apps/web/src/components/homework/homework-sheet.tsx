@@ -61,14 +61,20 @@ export function useHomeworkRefresh() {
 }
 
 /** The classes of the current year this person can see, labelled "Class 6 A", in the school's order. */
-export function useClassOptions(enabled: boolean) {
+/**
+ * The classes of one academic year, in class order. Defaults to the current
+ * year, which is the only year homework can be set in; a list filtered to a
+ * past year passes that year so its Class chip offers that year's sections.
+ */
+export function useClassOptions(enabled: boolean, yearId?: string) {
   const { schoolId, hasPermission } = useSchoolContext()
   const { currentYearId } = useAcademicYear()
-  const sectionParams = { academicYearId: currentYearId ?? undefined }
+  const academicYearId = yearId ?? currentYearId ?? undefined
+  const sectionParams = { academicYearId }
   const sections = useQuery({
     queryKey: qk.sections(schoolId, sectionParams),
     queryFn: () => api.setup.sections(schoolId, sectionParams),
-    enabled: enabled && currentYearId !== null && hasPermission('sections.read'),
+    enabled: enabled && academicYearId !== undefined && hasPermission('sections.read'),
   })
   const grades = useQuery({
     queryKey: qk.grades(schoolId),

@@ -67,6 +67,7 @@ export const ErrorReason = z.enum([
   'leave_application_no_staff_record',
   // Homework (migration 0030).
   'homework_due_out_of_range',
+  'homework_due_after_year_end',
   'homework_subject_not_in_class',
   'homework_year_not_current',
   'homework_removed',
