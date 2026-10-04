@@ -473,6 +473,31 @@ export const HomeworkExportJob = ExportJobSummary
 export type HomeworkExportJob = z.infer<typeof HomeworkExportJob>
 
 // ---------------------------------------------------------------------------
+// Subject access. Imported by module-lifecycle.
+
+/**
+ * One of the pupil's check-offs in a subject access export. A check-off is
+ * part of the pupil's record and outlives its item: once the retention sweep
+ * has removed the item, the title and due date are gone and the class, year,
+ * subject, status and remark stay. The remark is cleared when the pupil is
+ * anonymised.
+ */
+export const SubjectHomeworkCheck = z.strictObject({
+  academicYear: NamedReference,
+  section: NamedReference,
+  grade: NamedReference,
+  /** Absent for general homework. */
+  subject: NamedReference.optional(),
+  /** Absent once the item itself has been removed by the retention sweep. */
+  title: HomeworkTitle.optional(),
+  dueOn: CalendarDate.optional(),
+  status: HomeworkCheckStatus,
+  remark: HomeworkRemark.optional(),
+  checkedAt: Timestamp,
+})
+export type SubjectHomeworkCheck = z.infer<typeof SubjectHomeworkCheck>
+
+// ---------------------------------------------------------------------------
 // Dashboard cards. Imported by module-dashboard.
 
 /** One item on a family's "Homework due" card: due today or tomorrow, for one child. */

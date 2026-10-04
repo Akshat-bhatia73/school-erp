@@ -10,6 +10,7 @@ import { AttendanceYearRecord } from './module-attendance.ts'
 import { ExamResultsResponse } from './module-exams.ts'
 import { ReportCardView } from './module-report-cards.ts'
 import { SubjectMessage } from './module-communication.ts'
+import { SubjectHomeworkCheck } from './module-homework.ts'
 
 /** The purposes a school may ask a guardian to consent to. */
 export const CONSENT_PURPOSES = [
@@ -180,6 +181,11 @@ export const SubjectAccessExport = z.strictObject({
    * needs `communication.read`.
    */
   messages: z.array(SubjectMessage).max(500).optional(),
+  /**
+   * The pupil's homework check-offs, newest first, as far as the caller may
+   * read them; needs `homework.read` on this pupil (Task 25).
+   */
+  homework: z.array(SubjectHomeworkCheck).max(5000).optional(),
   accessHistory: z.array(SubjectAccessEvent).max(200).optional(),
   /**
    * How many conversations the pupil had with the assistant and when, never

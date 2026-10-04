@@ -28,6 +28,8 @@ export type VersionedTable =
   | 'message_templates'
   | 'leave_records'
   | 'leave_applications'
+  | 'homework'
+  | 'homework_checks'
 
 /** The caller edited a record someone else has already changed. */
 export function assertVersion(expected: number, actual: number): void {

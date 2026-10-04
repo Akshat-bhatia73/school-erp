@@ -23,7 +23,7 @@ export interface ProducerIo {
  * the collection register and the two attendance registers are either, chosen
  * by the request. A paper's marks register is a spreadsheet; one report card
  * and a section's report cards are documents. A message's delivery record is
- * a spreadsheet.
+ * a spreadsheet, and so is the homework report.
  */
 export type ExportJobKind =
   | 'students'
@@ -42,6 +42,7 @@ export type ExportJobKind =
   | 'report_card'
   | 'report_cards_section'
   | 'message_delivery'
+  | 'homework_report'
 
 /** What a producer hands back. The bytes are never stored anywhere else. */
 export interface ExportFile {
