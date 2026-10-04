@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { Bell, BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, LogOut, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus, CalendarClock, ClipboardCheck, NotebookPen, Mail, Sparkles } from 'lucide-react'
+import { Bell, BookOpen, Building2, CalendarDays, GraduationCap, LayoutDashboard, ListChecks, LogOut, Moon, ScrollText, School, ShieldCheck, Sun, UserPlus, UserRound, Users, ArrowUpRight, Upload, MailPlus, CalendarClock, ClipboardCheck, NotebookPen, NotebookText, Mail, Sparkles } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
 import { Tag } from '@/components/shared/tag'
@@ -24,6 +24,7 @@ const goTo: Entry[] = [
   { label: 'Timetable', icon: <CalendarClock />, to: '/timetable', permission: 'timetable.read' },
   { label: 'Attendance', icon: <ClipboardCheck />, to: '/attendance', permission: 'attendance.read' },
   { label: 'Exams', icon: <NotebookPen />, to: '/exams', permission: 'exams.read' },
+  { label: 'Homework', icon: <NotebookText />, to: '/homework', permission: 'homework.read' },
   { label: 'Messages', icon: <Mail />, to: '/messages', permission: 'communication.read' },
   { label: 'Assistant', icon: <Sparkles />, to: '/assistant', permission: 'ai_assistant.use' },
   { label: 'School profile', icon: <School />, to: '/setup/school', permission: 'school.read' },

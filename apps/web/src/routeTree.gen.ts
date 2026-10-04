@@ -31,6 +31,9 @@ import { Route as AppExamsExamIdRouteImport } from './routes/_app/exams/$examId'
 import { Route as AppFeesIndexRouteImport } from './routes/_app/fees/index'
 import { Route as AppFeesCollectionsRouteImport } from './routes/_app/fees/collections'
 import { Route as AppFeesSetupRouteImport } from './routes/_app/fees/setup'
+import { Route as AppHomeworkIndexRouteImport } from './routes/_app/homework/index'
+import { Route as AppHomeworkHomeworkIdRouteImport } from './routes/_app/homework/$homeworkId'
+import { Route as AppHomeworkReportRouteImport } from './routes/_app/homework/report'
 import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages/index'
 import { Route as AppMessagesNewRouteImport } from './routes/_app/messages/new'
 import { Route as AppSettingsAssistantRouteImport } from './routes/_app/settings/assistant'
@@ -181,6 +184,21 @@ const AppFeesCollectionsRoute = AppFeesCollectionsRouteImport.update({
 const AppFeesSetupRoute = AppFeesSetupRouteImport.update({
   id: '/fees/setup',
   path: '/fees/setup',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppHomeworkIndexRoute = AppHomeworkIndexRouteImport.update({
+  id: '/homework/',
+  path: '/homework/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppHomeworkHomeworkIdRoute = AppHomeworkHomeworkIdRouteImport.update({
+  id: '/homework/$homeworkId',
+  path: '/homework/$homeworkId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppHomeworkReportRoute = AppHomeworkReportRouteImport.update({
+  id: '/homework/report',
+  path: '/homework/report',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMessagesIndexRoute = AppMessagesIndexRouteImport.update({
@@ -427,6 +445,8 @@ export interface FileRoutesByFullPath {
   '/exams/$examId': typeof AppExamsExamIdRoute
   '/fees/collections': typeof AppFeesCollectionsRoute
   '/fees/setup': typeof AppFeesSetupRoute
+  '/homework/$homeworkId': typeof AppHomeworkHomeworkIdRoute
+  '/homework/report': typeof AppHomeworkReportRoute
   '/messages/new': typeof AppMessagesNewRoute
   '/settings/assistant': typeof AppSettingsAssistantRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
@@ -450,6 +470,7 @@ export interface FileRoutesByFullPath {
   '/attendance/': typeof AppAttendanceIndexRoute
   '/exams/': typeof AppExamsIndexRoute
   '/fees/': typeof AppFeesIndexRoute
+  '/homework/': typeof AppHomeworkIndexRoute
   '/messages/': typeof AppMessagesIndexRoute
   '/staff/': typeof AppStaffIndexRoute
   '/students/': typeof AppStudentsIndexRoute
@@ -492,6 +513,8 @@ export interface FileRoutesByTo {
   '/exams/$examId': typeof AppExamsExamIdRoute
   '/fees/collections': typeof AppFeesCollectionsRoute
   '/fees/setup': typeof AppFeesSetupRoute
+  '/homework/$homeworkId': typeof AppHomeworkHomeworkIdRoute
+  '/homework/report': typeof AppHomeworkReportRoute
   '/messages/new': typeof AppMessagesNewRoute
   '/settings/assistant': typeof AppSettingsAssistantRoute
   '/settings/audit-log': typeof AppSettingsAuditLogRoute
@@ -515,6 +538,7 @@ export interface FileRoutesByTo {
   '/attendance': typeof AppAttendanceIndexRoute
   '/exams': typeof AppExamsIndexRoute
   '/fees': typeof AppFeesIndexRoute
+  '/homework': typeof AppHomeworkIndexRoute
   '/messages': typeof AppMessagesIndexRoute
   '/staff': typeof AppStaffIndexRoute
   '/students': typeof AppStudentsIndexRoute
@@ -559,6 +583,8 @@ export interface FileRoutesById {
   '/_app/exams/$examId': typeof AppExamsExamIdRoute
   '/_app/fees/collections': typeof AppFeesCollectionsRoute
   '/_app/fees/setup': typeof AppFeesSetupRoute
+  '/_app/homework/$homeworkId': typeof AppHomeworkHomeworkIdRoute
+  '/_app/homework/report': typeof AppHomeworkReportRoute
   '/_app/messages/new': typeof AppMessagesNewRoute
   '/_app/settings/assistant': typeof AppSettingsAssistantRoute
   '/_app/settings/audit-log': typeof AppSettingsAuditLogRoute
@@ -582,6 +608,7 @@ export interface FileRoutesById {
   '/_app/attendance/': typeof AppAttendanceIndexRoute
   '/_app/exams/': typeof AppExamsIndexRoute
   '/_app/fees/': typeof AppFeesIndexRoute
+  '/_app/homework/': typeof AppHomeworkIndexRoute
   '/_app/messages/': typeof AppMessagesIndexRoute
   '/_app/staff/': typeof AppStaffIndexRoute
   '/_app/students/': typeof AppStudentsIndexRoute
@@ -626,6 +653,8 @@ export interface FileRouteTypes {
     | '/exams/$examId'
     | '/fees/collections'
     | '/fees/setup'
+    | '/homework/$homeworkId'
+    | '/homework/report'
     | '/messages/new'
     | '/settings/assistant'
     | '/settings/audit-log'
@@ -649,6 +678,7 @@ export interface FileRouteTypes {
     | '/attendance/'
     | '/exams/'
     | '/fees/'
+    | '/homework/'
     | '/messages/'
     | '/staff/'
     | '/students/'
@@ -691,6 +721,8 @@ export interface FileRouteTypes {
     | '/exams/$examId'
     | '/fees/collections'
     | '/fees/setup'
+    | '/homework/$homeworkId'
+    | '/homework/report'
     | '/messages/new'
     | '/settings/assistant'
     | '/settings/audit-log'
@@ -714,6 +746,7 @@ export interface FileRouteTypes {
     | '/attendance'
     | '/exams'
     | '/fees'
+    | '/homework'
     | '/messages'
     | '/staff'
     | '/students'
@@ -757,6 +790,8 @@ export interface FileRouteTypes {
     | '/_app/exams/$examId'
     | '/_app/fees/collections'
     | '/_app/fees/setup'
+    | '/_app/homework/$homeworkId'
+    | '/_app/homework/report'
     | '/_app/messages/new'
     | '/_app/settings/assistant'
     | '/_app/settings/audit-log'
@@ -780,6 +815,7 @@ export interface FileRouteTypes {
     | '/_app/attendance/'
     | '/_app/exams/'
     | '/_app/fees/'
+    | '/_app/homework/'
     | '/_app/messages/'
     | '/_app/staff/'
     | '/_app/students/'
@@ -976,6 +1012,27 @@ declare module '@tanstack/react-router' {
       path: '/fees/setup'
       fullPath: '/fees/setup'
       preLoaderRoute: typeof AppFeesSetupRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/homework/': {
+      id: '/_app/homework/'
+      path: '/homework'
+      fullPath: '/homework/'
+      preLoaderRoute: typeof AppHomeworkIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/homework/$homeworkId': {
+      id: '/_app/homework/$homeworkId'
+      path: '/homework/$homeworkId'
+      fullPath: '/homework/$homeworkId'
+      preLoaderRoute: typeof AppHomeworkHomeworkIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/homework/report': {
+      id: '/_app/homework/report'
+      path: '/homework/report'
+      fullPath: '/homework/report'
+      preLoaderRoute: typeof AppHomeworkReportRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/messages/': {
@@ -1280,6 +1337,8 @@ interface AppRouteChildren {
   AppExamsExamIdRoute: typeof AppExamsExamIdRoute
   AppFeesCollectionsRoute: typeof AppFeesCollectionsRoute
   AppFeesSetupRoute: typeof AppFeesSetupRoute
+  AppHomeworkHomeworkIdRoute: typeof AppHomeworkHomeworkIdRoute
+  AppHomeworkReportRoute: typeof AppHomeworkReportRoute
   AppMessagesNewRoute: typeof AppMessagesNewRoute
   AppSettingsAssistantRoute: typeof AppSettingsAssistantRoute
   AppSettingsAuditLogRoute: typeof AppSettingsAuditLogRoute
@@ -1303,6 +1362,7 @@ interface AppRouteChildren {
   AppAttendanceIndexRoute: typeof AppAttendanceIndexRoute
   AppExamsIndexRoute: typeof AppExamsIndexRoute
   AppFeesIndexRoute: typeof AppFeesIndexRoute
+  AppHomeworkIndexRoute: typeof AppHomeworkIndexRoute
   AppMessagesIndexRoute: typeof AppMessagesIndexRoute
   AppStaffIndexRoute: typeof AppStaffIndexRoute
   AppStudentsIndexRoute: typeof AppStudentsIndexRoute
@@ -1333,6 +1393,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppExamsExamIdRoute: AppExamsExamIdRoute,
   AppFeesCollectionsRoute: AppFeesCollectionsRoute,
   AppFeesSetupRoute: AppFeesSetupRoute,
+  AppHomeworkHomeworkIdRoute: AppHomeworkHomeworkIdRoute,
+  AppHomeworkReportRoute: AppHomeworkReportRoute,
   AppMessagesNewRoute: AppMessagesNewRoute,
   AppSettingsAssistantRoute: AppSettingsAssistantRoute,
   AppSettingsAuditLogRoute: AppSettingsAuditLogRoute,
@@ -1356,6 +1418,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAttendanceIndexRoute: AppAttendanceIndexRoute,
   AppExamsIndexRoute: AppExamsIndexRoute,
   AppFeesIndexRoute: AppFeesIndexRoute,
+  AppHomeworkIndexRoute: AppHomeworkIndexRoute,
   AppMessagesIndexRoute: AppMessagesIndexRoute,
   AppStaffIndexRoute: AppStaffIndexRoute,
   AppStudentsIndexRoute: AppStudentsIndexRoute,

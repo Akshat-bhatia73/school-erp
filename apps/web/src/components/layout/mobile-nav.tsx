@@ -1,5 +1,5 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { CalendarClock, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, Mail, Menu, Search, Sparkles, Users } from 'lucide-react'
+import { CalendarClock, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, Mail, Menu, NotebookText, Search, Sparkles, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { UserAvatar } from '@/components/shared/avatar'
 import { PUPIL_PATHS } from '@/components/layout/sidebar'
@@ -58,6 +58,8 @@ const TABS: Tab[] = [
   { label: 'Timetable', to: '/timetable', icon: <CalendarClock />, permission: 'timetable.read' },
   { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
   { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read', 'leave_applications.read'] },
+  // Families and pupils open homework every day, so it sits in their short bar; staff reach it from the drawer.
+  { label: 'Homework', to: '/homework', icon: <NotebookText />, permission: 'homework.read', parentOnly: true },
   // Staff reach Messages from the drawer; a parent's or pupil's bar is short, so it sits here for them.
   { label: 'Messages', to: '/messages', icon: <Mail />, permission: 'communication.read', parentOnly: true },
 ]

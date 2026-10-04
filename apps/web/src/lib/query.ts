@@ -138,6 +138,17 @@ export const qk = {
     usage: (schoolId: string, month?: string) => [schoolId, 'assistant', 'usage', month ?? 'current'] as const,
   },
 
+  /**
+   * Homework. Every write invalidates `[schoolId, 'homework']`, and `[schoolId, 'dashboard']` too,
+   * because the "Homework due" and "To check" cards read it.
+   */
+  homework: {
+    list: (schoolId: string, params?: Params) => [schoolId, 'homework', 'list', params ?? {}] as const,
+    detail: (schoolId: string, homeworkId: string) => [schoolId, 'homework', 'detail', homeworkId] as const,
+    checks: (schoolId: string, homeworkId: string) => [schoolId, 'homework', 'detail', homeworkId, 'checks'] as const,
+    report: (schoolId: string, params?: Params) => [schoolId, 'homework', 'report', params ?? {}] as const,
+  },
+
   examSettings: (schoolId: string) => [schoolId, 'reportCards', 'settings'] as const,
   reportCardEntries: (schoolId: string, sectionId: string, term: string) => [schoolId, 'reportCards', 'entries', sectionId, term] as const,
   reportCardSections: (schoolId: string, params?: Params) => [schoolId, 'reportCards', 'sections', params ?? {}] as const,

@@ -303,3 +303,30 @@ describe('parent dashboard, allow the school assistant', () => {
     expect(keys).toContain(JSON.stringify([SCHOOL, 'dashboard', {}]))
   })
 })
+
+describe('the Homework due card', () => {
+  const due = {
+    today: [{ homeworkId: 'hw-1', subject: { id: 'sub-1', name: 'Mathematics' }, title: 'Exercise 4.2', dueOn: '2026-09-21', status: 'not_checked' as const }],
+    tomorrow: [{ homeworkId: 'hw-2', title: 'Bring a leaf', dueOn: '2026-09-22', status: 'not_due' as const }],
+  }
+
+  it('lists each child\'s items due today and tomorrow, linked to the item', () => {
+    renderParent(parent({ children: [child({ homeworkDue: due })] }))
+    expect(screen.getByText('Homework due')).toBeInTheDocument()
+    expect(screen.getByText('Mathematics · Exercise 4.2').closest('a')).toHaveAttribute('href', '/homework/hw-1')
+    expect(screen.getByText('General · Bring a leaf')).toBeInTheDocument()
+    expect(screen.getByText('Due tomorrow')).toBeInTheDocument()
+    expect(screen.getByText('Not due yet')).toBeInTheDocument()
+  })
+
+  it('names the child when there is more than one', () => {
+    const sister = child({ student: { ...child().student, id: 'st-2', firstName: 'Diya' }, homeworkDue: { today: [], tomorrow: [] } })
+    renderParent(parent({ children: [child({ homeworkDue: due }), sister] }))
+    expect(screen.getByText('Aarav Sharma · Due today')).toBeInTheDocument()
+  })
+
+  it('is absent when the dashboard did not send it', () => {
+    renderParent(parent())
+    expect(screen.queryByText('Homework due')).not.toBeInTheDocument()
+  })
+})

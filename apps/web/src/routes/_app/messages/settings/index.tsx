@@ -43,6 +43,7 @@ const KINDS: Array<{ kind: AutomaticMessageKind; title: string; description: str
   { kind: 'birthday_staff', title: 'Staff birthdays', description: 'Wishes a staff member a happy birthday.', enabled: 'birthdaysStaffEnabled' },
   { kind: 'leave_decision_pupil', title: 'Leave decisions', description: 'Tells whoever applied whether their leave was approved. These are the words a family reads about a pupil\'s leave.', enabled: 'leaveDecisionsEnabled' },
   { kind: 'leave_decision_staff', title: 'Staff leave decisions', description: 'The words a staff member reads about their own leave.', enabled: 'leaveDecisionsEnabled' },
+  { kind: 'homework_digest', title: 'Evening homework message', description: 'Each evening, tells the family the homework set that day for their child. Nothing goes on a day with no homework.', enabled: 'homeworkDigestEnabled' },
 ]
 
 /** Kinds that share another kind's switch, with the sentence that says so. */
@@ -67,6 +68,8 @@ function valuesOf(settings: SettingsRecord): CommunicationSettingsValues {
     birthdaysStaffEnabled: settings.birthdaysStaffEnabled,
     leaveDecisionsEnabled: settings.leaveDecisionsEnabled,
     dailySendHour: settings.dailySendHour,
+    homeworkDigestEnabled: settings.homeworkDigestEnabled,
+    homeworkDigestTime: settings.homeworkDigestTime,
   }
 }
 
@@ -125,6 +128,7 @@ function Page() {
     ),
     birthday_pupil: <HourField value={values.dailySendHour} disabled={!canManage} onChange={(n) => set({ dailySendHour: n })} />,
     birthday_staff: <HourField value={values.dailySendHour} disabled={!canManage} onChange={(n) => set({ dailySendHour: n })} />,
+    homework_digest: <DigestTimeField value={values.homeworkDigestTime} disabled={!canManage} onChange={(time) => set({ homeworkDigestTime: time })} />,
   }
 
   return (
@@ -182,6 +186,30 @@ function HourField({ value, disabled, onChange }: { value: number; disabled: boo
         <SelectContent>{HOURS.map((h) => <SelectItem key={h} value={String(h)}>{hourLabel(h)}</SelectItem>)}</SelectContent>
       </Select>
       <p className="text-[12px] text-muted-foreground">Shared by birthdays and fee reminders.</p>
+    </div>
+  )
+}
+
+/** 12:00 to 21:00 on the half hour; a time the school saved off the half hour is still offered. */
+const DIGEST_TIMES = Array.from({ length: 19 }, (_, i) => `${String(12 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 === 0 ? '00' : '30'}`)
+
+/** "17:00" -> "5:00 pm". */
+function digestTimeLabel(time: string): string {
+  const [h = 0, m = 0] = time.split(':').map(Number)
+  const hour = h > 12 ? h - 12 : h
+  return `${hour}:${String(m).padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`
+}
+
+function DigestTimeField({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (time: string) => void }) {
+  const times = DIGEST_TIMES.includes(value) ? DIGEST_TIMES : [...DIGEST_TIMES, value].sort()
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-[12.5px] text-muted-foreground">Send from</Label>
+      <Select value={value} disabled={disabled} onValueChange={onChange}>
+        <SelectTrigger className="w-32" aria-label="Homework message time"><SelectValue /></SelectTrigger>
+        <SelectContent>{times.map((t) => <SelectItem key={t} value={t}>{digestTimeLabel(t)}</SelectItem>)}</SelectContent>
+      </Select>
+      <p className="text-[12px] text-muted-foreground">A message not sent by 9 am the next morning is skipped.</p>
     </div>
   )
 }
