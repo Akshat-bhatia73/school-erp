@@ -38,6 +38,8 @@ const COLUMNS: Readonly<Record<keyof CommunicationSettingsValues, string>> = {
   birthdaysPupilsEnabled: 'birthdays_pupils_enabled',
   birthdaysStaffEnabled: 'birthdays_staff_enabled',
   leaveDecisionsEnabled: 'leave_decisions_enabled',
+  homeworkDigestEnabled: 'homework_digest_enabled',
+  homeworkDigestTime: 'homework_digest_time',
   dailySendHour: 'daily_send_hour',
 }
 

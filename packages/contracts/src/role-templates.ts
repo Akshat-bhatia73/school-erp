@@ -86,6 +86,12 @@ const examsOffice: readonly RoleGrant[] = [
   grant('report_cards.publish', 'school'), grant('report_cards.export', 'school'),
 ]
 
+/** Homework for the office: read, set, check and export any in the school. */
+const homeworkOffice: readonly RoleGrant[] = [
+  grant('homework.read', 'school'), grant('homework.set', 'school'),
+  grant('homework.check', 'school'), grant('homework.export', 'school'),
+]
+
 /** Messages for the office: send to anyone in the school, set the automatic messages, export the record. */
 const communicationOffice: readonly RoleGrant[] = [
   grant('communication.read', 'school'), grant('communication.send', 'school'),
@@ -126,6 +132,7 @@ export const ROLE_TEMPLATES = {
       ...attendanceOffice,
       ...examsOffice,
       ...communicationOffice,
+      ...homeworkOffice,
       grant('ai_assistant.use', 'self'), grant('ai_assistant.manage', 'school'),
     ],
   },
@@ -148,6 +155,7 @@ export const ROLE_TEMPLATES = {
       ...attendanceOffice,
       ...examsOffice,
       ...communicationOffice,
+      ...homeworkOffice,
       grant('ai_assistant.use', 'self'), grant('ai_assistant.manage', 'school'),
     ],
   },
@@ -168,6 +176,7 @@ export const ROLE_TEMPLATES = {
       ...attendanceOffice,
       ...examsOffice,
       ...communicationOffice,
+      ...homeworkOffice,
       grant('ai_assistant.use', 'self'),
     ],
   },
@@ -228,6 +237,13 @@ export const ROLE_TEMPLATES = {
       // assigned_sections is the class-teacher post alone for these.
       grant('leave_applications.read', 'self'), grant('leave_applications.apply', 'self'),
       grant('leave_applications.read', 'assigned_sections'), grant('leave_applications.decide', 'assigned_sections'),
+      // Homework: a subject teacher sets and checks their own section and
+      // subject (assigned_subjects); the class teacher reads every item of
+      // their class and sets and checks its general items (assigned_sections,
+      // the class-teacher post alone for homework).
+      grant('homework.read', 'assigned_sections'), grant('homework.read', 'assigned_subjects'),
+      grant('homework.set', 'assigned_sections'), grant('homework.set', 'assigned_subjects'),
+      grant('homework.check', 'assigned_sections'), grant('homework.check', 'assigned_subjects'),
       grant('ai_assistant.use', 'self'),
     ],
   },
@@ -255,6 +271,8 @@ export const ROLE_TEMPLATES = {
       grant('communication.read', 'self'),
       // Leave for their own child: apply, withdraw while it waits, and read.
       grant('leave_applications.read', 'own_children'), grant('leave_applications.apply', 'own_children'),
+      // Their own child's homework and the child's own status, every year.
+      grant('homework.read', 'own_children'),
       grant('ai_assistant.use', 'self'),
     ],
   },
@@ -273,6 +291,7 @@ export const ROLE_TEMPLATES = {
       grant('dashboard.read', 'own_record'),
       grant('attendance.read', 'own_record'),
       grant('exams.read', 'own_record'), grant('report_cards.read', 'own_record'),
+      grant('homework.read', 'own_record'),
       // Notices addressed to the pupil themself, and nothing written to their family.
       grant('communication.read', 'self'),
       // Only after a guardian gives the ai_assistant consent; the API checks it.

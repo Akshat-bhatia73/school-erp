@@ -1229,6 +1229,96 @@ export const leaveApplications = pgTable(
 )
 
 /**
+ * Task 25 homework (migration 0030). One item per section, with a subject or
+ * none (general homework, the class teacher's). Removed, never deleted by a
+ * person; the retention sweep deletes an item a year after its own year ended.
+ */
+export const homework = pgTable(
+  'homework',
+  {
+    id: id(),
+    schoolId: tenant(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    sectionId: uuid('section_id').notNull(),
+    /** Null for general homework. */
+    subjectId: uuid('subject_id'),
+    title: text('title').notNull(),
+    instructions: text('instructions').notNull().default(''),
+    setOn: date('set_on').notNull(),
+    dueOn: date('due_on').notNull(),
+    createdByMembershipId: uuid('created_by_membership_id').notNull(),
+    createdByStaffId: uuid('created_by_staff_id'),
+    updatedByMembershipId: uuid('updated_by_membership_id').notNull(),
+    removedAt: timestamp('removed_at', { withTimezone: true }),
+    removedByMembershipId: uuid('removed_by_membership_id'),
+    version: integer('version').notNull().default(1),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('homework_school_id_id_key').on(t.schoolId, t.id),
+    unique('homework_school_id_id_academic_year_id_section_id_key').on(
+      t.schoolId,
+      t.id,
+      t.academicYearId,
+      t.sectionId,
+    ),
+    index('homework_section_due_idx').on(t.schoolId, t.sectionId, t.dueOn),
+    index('homework_year_due_idx').on(t.schoolId, t.academicYearId, t.dueOn),
+  ],
+)
+
+/** A file set with a homework item, in the private document store. At most three per item (the API). */
+export const homeworkAttachments = pgTable(
+  'homework_attachments',
+  {
+    id: id(),
+    schoolId: tenant(),
+    homeworkId: uuid('homework_id').notNull(),
+    fileName: text('file_name').notNull(),
+    contentType: text('content_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    storageKey: text('storage_key').notNull(),
+    createdByMembershipId: uuid('created_by_membership_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('homework_attachments_school_id_id_key').on(t.schoolId, t.id),
+    index('homework_attachments_homework_idx').on(t.schoolId, t.homeworkId),
+  ],
+)
+
+/**
+ * One pupil's check-off on one item. Section, year and subject are the
+ * item's, copied so the scope terms read them off the row; homeworkId becomes
+ * null when the sweep removes the item and the row stays with the pupil.
+ */
+export const homeworkChecks = pgTable(
+  'homework_checks',
+  {
+    id: id(),
+    schoolId: tenant(),
+    homeworkId: uuid('homework_id'),
+    studentId: uuid('student_id').notNull(),
+    academicYearId: uuid('academic_year_id').notNull(),
+    sectionId: uuid('section_id').notNull(),
+    subjectId: uuid('subject_id'),
+    /** done, partly_done or not_done. */
+    status: text('status').notNull(),
+    remark: text('remark'),
+    checkedByMembershipId: uuid('checked_by_membership_id').notNull(),
+    checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
+    version: integer('version').notNull().default(1),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('homework_checks_school_id_id_key').on(t.schoolId, t.id),
+    unique('homework_checks_school_id_homework_id_student_id_key').on(t.schoolId, t.homeworkId, t.studentId),
+    index('homework_checks_student_idx').on(t.schoolId, t.studentId),
+    index('homework_checks_section_idx').on(t.schoolId, t.sectionId, t.academicYearId),
+  ],
+)
+
+/**
  * Task 21. One row per academic year and exam of the fixed CBSE pattern; the
  * pattern itself (components and maximums) is a constant in @erp/contracts.
  */
@@ -1442,6 +1532,10 @@ export const communicationSettings = pgTable('communication_settings', {
   birthdaysStaffEnabled: boolean('birthdays_staff_enabled').notNull().default(true),
   /** Tell whoever applied for leave what was decided (migration 0029). */
   leaveDecisionsEnabled: boolean('leave_decisions_enabled').notNull().default(true),
+  /** The evening homework digest to families (migration 0030). */
+  homeworkDigestEnabled: boolean('homework_digest_enabled').notNull().default(true),
+  /** 'HH:MM' in the school's timezone, 12:00 to 21:00, from which the digest goes. */
+  homeworkDigestTime: text('homework_digest_time').notNull().default('17:00'),
   dailySendHour: integer('daily_send_hour').notNull().default(8),
   automaticSince: timestamp('automatic_since', { withTimezone: true }).notNull().defaultNow(),
   version: integer('version').notNull().default(1),
@@ -1701,6 +1795,9 @@ export const schoolTables = [
   staffAttendanceEntries,
   leaveRecords,
   leaveApplications,
+  homework,
+  homeworkAttachments,
+  homeworkChecks,
   exams,
   examPapers,
   examMarks,

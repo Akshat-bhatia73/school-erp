@@ -9,6 +9,7 @@ import { CalendarDate, DisplayName, Id, Timestamp } from './common.ts'
 import { ConsentPurpose } from './module-lifecycle.ts'
 import { ExamKind } from './module-exams.ts'
 import { DashboardLeaveToday } from './module-leave.ts'
+import { DashboardHomeworkDue, DashboardHomeworkToCheckItem } from './module-homework.ts'
 import { ReportCardKind } from './module-report-cards.ts'
 import { AuditEventSummary, EnrollmentSummary, NamedReference, StudentBasic } from './responses.ts'
 
@@ -299,6 +300,12 @@ export const TeacherDashboard = z.strictObject({
     .optional(),
   /** The caller's own papers with empty cells whose window is still open, soonest deadline first. */
   marksToEnter: z.array(DashboardMarksToEnter).max(50).optional(),
+  /**
+   * "To check": the caller's items past their due date with pupils not
+   * checked, oldest due first, over the caller's own `homework.check` plan.
+   * Absent without the key.
+   */
+  homeworkToCheck: z.array(DashboardHomeworkToCheckItem).max(50).optional(),
   holidays: z.array(DashboardHoliday),
 })
 
@@ -323,6 +330,8 @@ export const ParentDashboard = z.strictObject({
       attendance: DashboardChildAttendance.optional(),
       /** The newest published report card of any year; needs `report_cards.read` on this child. */
       latestReportCard: DashboardReportCard.optional(),
+      /** "Homework due": this child's items due today and tomorrow; needs `homework.read` on this child. */
+      homeworkDue: DashboardHomeworkDue.optional(),
       /** The child has a pupil login that is on (Class 9 to 12). */
       hasPupilLogin: z.boolean(),
       /**
@@ -355,6 +364,8 @@ export const StudentDashboard = z.strictObject({
     attendance: DashboardChildAttendance.optional(),
     /** The newest published report card of any year. */
     latestReportCard: DashboardReportCard.optional(),
+    /** "Homework due": the pupil's own items due today and tomorrow. */
+    homeworkDue: DashboardHomeworkDue.optional(),
   }),
   holidays: z.array(DashboardHoliday),
 })

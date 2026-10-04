@@ -44,6 +44,7 @@ const permissionKeys = [
   'report_cards.read', 'report_cards.manage', 'report_cards.publish', 'report_cards.export',
   'staff_attendance.read', 'staff_attendance.record', 'staff_attendance.manage', 'staff_attendance.export',
   'leave_applications.read', 'leave_applications.apply', 'leave_applications.decide',
+  'homework.read', 'homework.set', 'homework.check', 'homework.export',
   'ai_assistant.use', 'ai_assistant.manage',
 ] as const
 
@@ -57,7 +58,7 @@ export const ResourceType = z.enum([
   'access_decision', 'access_exception', 'school_ownership', 'audit_event',
   'timetable', 'bell_schedule', 'substitution', 'dashboard', 'fee', 'attendance',
   'exam', 'communication', 'report_card', 'staff_attendance', 'ai_assistant',
-  'leave_application',
+  'leave_application', 'homework',
 ])
 export type ResourceType = z.infer<typeof ResourceType>
 
@@ -224,6 +225,17 @@ export const PERMISSION_CATALOGUE = {
   'leave_applications.read': active('leave_application', ['school', 'assigned_sections', 'own_children', 'self'], 'Read leave applications: one\'s own, one\'s own children\'s, one\'s class\'s, or the school\'s.'),
   'leave_applications.apply': active('leave_application', ['own_children', 'self'], 'Apply for leave for one\'s own child or for oneself, and withdraw it while it waits.'),
   'leave_applications.decide': active('leave_application', ['school', 'assigned_sections'], 'Approve or refuse a leave application.', true, ['school']),
+  // Homework (migration 0030). For homework, as for exams, assigned_sections
+  // is the class-teacher post alone: the class teacher reads every item of
+  // their class and sets and checks its general items (no subject); a subject
+  // teacher reaches the items of their own section and subject through
+  // assigned_subjects. A family reads through the pupil, for every year, and
+  // never a removed item. Set and check are privileged at school scope only,
+  // as marks entry is, so a single-factor teacher still works.
+  'homework.read': active('homework', ['school', 'assigned_sections', 'assigned_subjects', 'own_children', 'own_record'], 'Read homework and check-offs within the granted scope; a family reads its own child\'s items and status only.'),
+  'homework.set': active('homework', ['school', 'assigned_sections', 'assigned_subjects'], 'Set, edit and remove homework for an assigned section and subject, or general homework for one\'s own class.', true, ['school']),
+  'homework.check': active('homework', ['school', 'assigned_sections', 'assigned_subjects'], 'Mark pupils done, partly done or not done on homework from its due date, and read the homework report.', true, ['school']),
+  'homework.export': active('homework', ['school'], 'Export the homework report.', true),
   // Opens the assistant and one's own conversations. It widens nothing: what
   // the assistant reaches is exactly what the person's other keys allow.
   'ai_assistant.use': active('ai_assistant', ['self'], 'Use the assistant, bounded by one\'s own permissions, and read one\'s own conversations.'),

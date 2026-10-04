@@ -70,6 +70,18 @@ export interface ResourceFacts {
    * the member it shows for.
    */
   readonly membershipIds?: readonly string[]
+  /**
+   * Homework: the item, or the check-off's item, has no subject (general
+   * homework, the class teacher's). Absent on a pupil face. A class teacher
+   * sets and checks only general items through assigned_sections, and reads
+   * every item of their class.
+   */
+  readonly general?: boolean
+  /**
+   * Homework: the item, or the check-off's item, was removed. A family scope
+   * never reaches a removed item or a check-off on one.
+   */
+  readonly removed?: boolean
   /** Set for resources that summarise the whole authorized dataset, such as the dashboard. */
   readonly aggregate?: true
 }
@@ -112,7 +124,18 @@ export function fieldGroupsFor(permission: PermissionKey): readonly FieldGroup[]
   return FIELD_GROUPS[permission] ?? NO_FIELD_GROUPS
 }
 
-export function matchesScope(scope: AccessScope, facts: RelationshipFacts, resourceFacts: ResourceFacts): boolean {
+/**
+ * Whether one grant scope reaches this resource. `permission` matters for
+ * homework alone, where the class-teacher post reads every item of the class
+ * but sets and checks only its general items; left out, it is read as a write
+ * (the narrower answer).
+ */
+export function matchesScope(
+  scope: AccessScope,
+  facts: RelationshipFacts,
+  resourceFacts: ResourceFacts,
+  permission?: PermissionKey,
+): boolean {
   switch (scope) {
     case 'school':
       return true
@@ -145,10 +168,21 @@ export function matchesScope(scope: AccessScope, facts: RelationshipFacts, resou
     case 'assigned_sections': {
       const looksAfter = facts.classTeacherSections ?? []
       if (classTeacherOnly(resourceFacts.resourceType)) {
-        // Exams, report cards and leave applications: the class-teacher post alone. A teaching
-        // assignment in the section is reached through assigned_subjects,
-        // one subject at a time, so a maths teacher never reads science.
+        // Exams, report cards, leave applications and homework: the
+        // class-teacher post alone. A teaching assignment in the section is
+        // reached through assigned_subjects, one subject at a time, so a
+        // maths teacher never reads science.
         if (resourceFacts.aggregate === true) return looksAfter.length > 0
+        // Homework: the class teacher reads every item of the class, but
+        // sets and checks its general items only; an item with a subject is
+        // its subject teacher's.
+        if (
+          resourceFacts.resourceType === 'homework' &&
+          permission !== 'homework.read' &&
+          resourceFacts.general !== true
+        ) {
+          return false
+        }
         return looksAfter.some((section) => sectionMatches(section, resourceFacts))
       }
       if (resourceFacts.aggregate === true) return facts.assignments.length > 0 || looksAfter.length > 0
@@ -162,7 +196,10 @@ export function matchesScope(scope: AccessScope, facts: RelationshipFacts, resou
       // A report card is the whole class's subjects on one page; no single
       // subject opens it.
       if (resourceFacts.resourceType === 'report_card') return false
-      if (resourceFacts.resourceType === 'exam' && resourceFacts.subjectIds === undefined) {
+      if (
+        (resourceFacts.resourceType === 'exam' || resourceFacts.resourceType === 'homework') &&
+        resourceFacts.subjectIds === undefined
+      ) {
         // A pupil face names no subject: a teacher reaches the pupil when they
         // teach any subject in the pupil's current section, and the marks
         // shown are still narrowed subject by subject. An exam's own row names
@@ -209,7 +246,12 @@ export function studentKindConsistent(context: RequestContext): boolean {
 
 /** Resource types whose assigned_sections scope is the class-teacher post alone. */
 function classTeacherOnly(resourceType: ResourceType): boolean {
-  return resourceType === 'exam' || resourceType === 'report_card' || resourceType === 'leave_application'
+  return (
+    resourceType === 'exam' ||
+    resourceType === 'report_card' ||
+    resourceType === 'leave_application' ||
+    resourceType === 'homework'
+  )
 }
 
 /** Resource types a family scope reaches only once they are published. */
@@ -220,6 +262,8 @@ function publishedOnly(resourceType: ResourceType): boolean {
 /** The resource belongs to one of these pupils, and is published where that matters. */
 function ownPupilMatches(resourceFacts: ResourceFacts, studentIds: readonly string[]): boolean {
   if (resourceFacts.studentId === undefined || !studentIds.includes(resourceFacts.studentId)) return false
+  // A removed homework item, and every check-off on it, is gone for a family.
+  if (resourceFacts.resourceType === 'homework' && resourceFacts.removed === true) return false
   return !publishedOnly(resourceFacts.resourceType) || resourceFacts.published === true
 }
 
@@ -334,7 +378,7 @@ function run(input: EvaluateInput): Step {
 
   // 6. Role grants. Scope predicates are independent and never ranked.
   const matchedGrants = snapshot.grants.filter(
-    (policyGrant) => policyGrant.permission === permission && matchesScope(policyGrant.scope, facts, resourceFacts),
+    (policyGrant) => policyGrant.permission === permission && matchesScope(policyGrant.scope, facts, resourceFacts, permission),
   )
 
   // 7. Exceptions.

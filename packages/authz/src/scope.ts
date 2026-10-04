@@ -19,6 +19,8 @@ import {
   grades,
   guardians,
   holidays,
+  homework,
+  homeworkChecks,
   leaveApplications,
   messageRecipients,
   messages,
@@ -100,6 +102,11 @@ export interface ScopedTable {
    * COMMUNICATION_TABLES).
    */
   readonly addressedTo?: (membershipId: string) => SQL
+  /**
+   * Homework: which face of a `homework` plan this table is (see
+   * HOMEWORK_TABLES). The item face is the unaliased homework table itself.
+   */
+  readonly homeworkFace?: 'item' | 'check' | 'pupil'
 }
 
 /**
@@ -384,6 +391,62 @@ export function leaveApplicationScopedTable(kind: LeaveApplicationTableKind): Sc
   return LEAVE_APPLICATION_TABLES[kind]
 }
 
+/**
+ * The tables a `homework` plan can be laid over: the item itself, a pupil's
+ * check-off, and the pupil whose homework is being listed.
+ *
+ * An item and a check-off carry their section, year and subject (a
+ * check-off copies them from its item), so a subject teacher reaches them
+ * through assigned_subjects and the class teacher through assigned_sections,
+ * which for homework is the class-teacher post alone and, for homework.set
+ * and homework.check, reaches general items (no subject) only. A check-off
+ * keeps them after the sweep removes its item.
+ *
+ * A family reads through the pupil, for every year the child was here:
+ *  * an item, when one of their children was enrolled in its section and
+ *    year at some point from the day it was set to the day it was due (so
+ *    the pupils set it and the pupils on its roster both see it), and it is
+ *    not removed;
+ *  * a check-off, when it is their child's own and its item is not removed;
+ *  * the pupil face, when it is their child.
+ * Another pupil's check-off names another pupil and is never reached.
+ */
+const HOMEWORK_TABLES = {
+  item: {
+    table: homework,
+    schoolId: homework.schoolId,
+    id: homework.id,
+    sectionId: homework.sectionId,
+    academicYearId: homework.academicYearId,
+    subjectId: homework.subjectId,
+    homeworkFace: 'item',
+  },
+  check: {
+    table: homeworkChecks,
+    schoolId: homeworkChecks.schoolId,
+    id: homeworkChecks.id,
+    studentId: homeworkChecks.studentId,
+    sectionId: homeworkChecks.sectionId,
+    academicYearId: homeworkChecks.academicYearId,
+    subjectId: homeworkChecks.subjectId,
+    homeworkFace: 'check',
+  },
+  pupil: {
+    table: students,
+    schoolId: students.schoolId,
+    id: students.id,
+    studentId: students.id,
+    homeworkFace: 'pupil',
+  },
+} as const satisfies Record<string, ScopedTable>
+
+export type HomeworkTableKind = keyof typeof HOMEWORK_TABLES
+
+/** The descriptor of one homework table, for planPredicate with a `homework` plan. Over the unaliased table. */
+export function homeworkScopedTable(kind: HomeworkTableKind): ScopedTable {
+  return HOMEWORK_TABLES[kind]
+}
+
 const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
   student: { table: students, schoolId: students.schoolId, id: students.id },
   staff: { table: staff, schoolId: staff.schoolId, id: staff.id },
@@ -471,6 +534,9 @@ const SCOPED_TABLES: Partial<Record<ResourceType, ScopedTable>> = {
   // A bare leave application plan lists the applications; the pupil and the
   // staff member faces come from leaveApplicationScopedTable.
   leave_application: LEAVE_APPLICATION_TABLES.application,
+  // A bare homework plan lists the items; the check-offs and the pupil face
+  // come from homeworkScopedTable.
+  homework: HOMEWORK_TABLES.item,
 }
 
 /** The table a plan of this resource type lists, or null when there is none. */
@@ -642,7 +708,8 @@ function assignedSectionsTerm(plan: AuthorizedReadPlan, table: ScopedTable, pair
         : enrollmentExists(table.studentId, table.schoolId, enrolledPairs)
     case 'exam':
     case 'report_card':
-      // The caller passes the class-teacher pairs alone for these two. A
+    case 'homework':
+      // The caller passes the class-teacher pairs alone for these three. A
       // paper, a mark, a card, an entry and a roster carry their section and
       // year; a pupil is reached through a current enrolment, as a student
       // is; an exam's own row names no section and is never reached.
@@ -702,11 +769,16 @@ function assignedSubjectsTerm(
   triples: readonly AssignedTriple[],
 ): SQL {
   if (triples.length === 0) return FALSE
-  if (plan.resourceType !== 'timetable' && plan.resourceType !== 'teaching_assignment' && plan.resourceType !== 'exam') {
+  if (
+    plan.resourceType !== 'timetable' &&
+    plan.resourceType !== 'teaching_assignment' &&
+    plan.resourceType !== 'exam' &&
+    plan.resourceType !== 'homework'
+  ) {
     return FALSE
   }
   if (
-    plan.resourceType === 'exam' &&
+    (plan.resourceType === 'exam' || plan.resourceType === 'homework') &&
     table.subjectId === undefined &&
     table.sectionId === undefined &&
     table.studentId !== undefined
@@ -774,6 +846,8 @@ function ownChildrenTerm(plan: AuthorizedReadPlan, table: ScopedTable, childIds:
       // An application and the pupil face answer through the pupil, for every
       // year the child was here. A staff application names no pupil.
       return table.studentId === undefined ? FALSE : idInTerm(table.studentId, childIds)
+    case 'homework':
+      return homeworkFamilyTerm(table, childIds, childList)
     case 'fee':
       // A fee row answers through the pupil it belongs to. A head or a
       // structure belongs to the school and names no pupil, so it never does.
@@ -835,6 +909,42 @@ function ownPupilTerm(table: ScopedTable, studentIds: readonly string[]): SQL {
   return sql`(${idInTerm(table.studentId, studentIds)} AND ${table.published})`
 }
 
+/**
+ * A family's reach into homework (see HOMEWORK_TABLES): an item through a
+ * child enrolled in its class while it ran, a check-off through the child it
+ * belongs to, never anything removed.
+ */
+function homeworkFamilyTerm(table: ScopedTable, childIds: readonly string[], childList: SQL): SQL {
+  switch (table.homeworkFace) {
+    case 'item':
+      return sql`(${homework.removedAt} IS NULL AND EXISTS (SELECT 1 FROM enrollments e
+          WHERE e.school_id = ${homework.schoolId} AND e.student_id IN (${childList})
+            AND e.section_id = ${homework.sectionId} AND e.academic_year_id = ${homework.academicYearId}
+            AND e.joined_on <= ${homework.dueOn}
+            AND (e.left_on IS NULL OR e.left_on >= ${homework.setOn})))`
+    case 'check':
+      return sql`(${idInTerm(homeworkChecks.studentId, childIds)} AND NOT EXISTS (SELECT 1 FROM homework hw
+          WHERE hw.school_id = ${homeworkChecks.schoolId} AND hw.id = ${homeworkChecks.homeworkId}
+            AND hw.removed_at IS NOT NULL))`
+    case 'pupil':
+      return table.studentId === undefined ? FALSE : idInTerm(table.studentId, childIds)
+    default:
+      return FALSE
+  }
+}
+
+/**
+ * Homework's assigned_sections for homework.set and homework.check: the
+ * class-teacher post reaches general items alone (an item or a check-off with
+ * no subject), never the pupil face. homework.read reaches every item of the
+ * class and the pupils in it.
+ */
+function homeworkClassTeacherWriteTerm(table: ScopedTable, pairs: readonly AssignedPair[]): SQL {
+  if (table.homeworkFace === 'pupil' || table.homeworkFace === undefined) return FALSE
+  if (table.sectionId === undefined || table.academicYearId === undefined || table.subjectId === undefined) return FALSE
+  return sql`(${pairTerm(table.sectionId, table.academicYearId, pairs)} AND ${table.subjectId} IS NULL)`
+}
+
 function enrollmentExistsForChildren(restriction: SQL, table: ScopedTable, childList: SQL): SQL {
   return sql`EXISTS (SELECT 1 FROM enrollments e
       WHERE e.school_id = ${table.schoolId} AND e.left_on IS NULL
@@ -866,12 +976,19 @@ function scopeTerm(plan: AuthorizedReadPlan, table: ScopedTable, scope: AccessSc
     case 'self':
       return selfTerm(plan, table, parts.selfStaffId)
     case 'assigned_sections':
-      // For exams, report cards and leave applications this is the
-      // class-teacher post alone.
+      // For exams, report cards, leave applications and homework this is
+      // the class-teacher post alone; for setting and checking homework, on
+      // general items only.
+      if (plan.resourceType === 'homework' && plan.permission !== 'homework.read') {
+        return homeworkClassTeacherWriteTerm(table, parts.classTeacherPairs)
+      }
       return assignedSectionsTerm(
         plan,
         table,
-        plan.resourceType === 'exam' || plan.resourceType === 'report_card' || plan.resourceType === 'leave_application'
+        plan.resourceType === 'exam' ||
+          plan.resourceType === 'report_card' ||
+          plan.resourceType === 'leave_application' ||
+          plan.resourceType === 'homework'
           ? parts.classTeacherPairs
           : parts.pairs,
       )

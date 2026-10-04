@@ -107,5 +107,9 @@ Each cell lists independent allowed scopes. `—` means no grant. Reserved actio
 | `leave_applications.read` | active | — | school | school | school | self | self, assigned_sections | own_children | — |
 | `leave_applications.apply` | active | — | self | self | self | self | self | own_children | — |
 | `leave_applications.decide` | active | school | school | school | school | — | assigned_sections | — | — |
+| `homework.read` | active | — | school | school | school | — | assigned_sections, assigned_subjects | own_children | own_record |
+| `homework.set` | active | school | school | school | school | — | assigned_sections, assigned_subjects | — | — |
+| `homework.check` | active | school | school | school | school | — | assigned_sections, assigned_subjects | — | — |
+| `homework.export` | active | school | school | school | school | — | — | — | — |
 | `ai_assistant.use` | active | — | self | self | self | self | self | self | self |
 | `ai_assistant.manage` | active | school | school | school | — | — | — | — | — |

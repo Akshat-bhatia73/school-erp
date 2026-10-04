@@ -35,6 +35,8 @@ interface SettingsRow {
   birthdays_pupils_enabled: boolean
   birthdays_staff_enabled: boolean
   leave_decisions_enabled: boolean
+  homework_digest_enabled: boolean
+  homework_digest_time: string
   daily_send_hour: number
   automatic_since: Date
   version: number
@@ -52,7 +54,8 @@ export async function loadCommunicationSettings(
   const result = await conn.client.query<SettingsRow>(
     `SELECT absence_enabled, absence_delay_minutes, results_enabled, report_cards_enabled,
             fee_reminders_enabled, fee_reminder_days_before, fee_overdue_every_days,
-            birthdays_pupils_enabled, birthdays_staff_enabled, leave_decisions_enabled, daily_send_hour,
+            birthdays_pupils_enabled, birthdays_staff_enabled, leave_decisions_enabled,
+            homework_digest_enabled, homework_digest_time, daily_send_hour,
             automatic_since, version
        FROM communication_settings WHERE school_id = $1`,
     [schoolId],
@@ -70,6 +73,8 @@ export async function loadCommunicationSettings(
     birthdaysPupilsEnabled: row.birthdays_pupils_enabled,
     birthdaysStaffEnabled: row.birthdays_staff_enabled,
     leaveDecisionsEnabled: row.leave_decisions_enabled,
+    homeworkDigestEnabled: row.homework_digest_enabled,
+    homeworkDigestTime: row.homework_digest_time,
     dailySendHour: row.daily_send_hour,
     automaticSince: row.automatic_since.toISOString(),
     version: row.version,
