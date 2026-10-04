@@ -2,3 +2,10 @@ packages:
   - "apps/*"
   - "packages/*"
   - "tests/*"
+
+# brace-expansion reaches us through exceljs > archiver > glob/readdir-glob >
+# minimatch; GHSA-qhr7-859c-m2p7 and GHSA-6j4f-fj2g-mc7p are fixed in 1.1.20
+# and 2.1.6, which exceljs's own ranges do not pick up yet.
+overrides:
+  "brace-expansion@<1.1.20": "^1.1.20"
+  "brace-expansion@>=2.0.0 <2.1.6": "^2.1.6"
