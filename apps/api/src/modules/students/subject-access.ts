@@ -1,6 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import { sql } from 'drizzle-orm'
-import { AuthorizationError, communicationScopedTable, planPredicate, scopedTableFor } from '@erp/authz'
+import {
+  AuthorizationError,
+  communicationScopedTable,
+  homeworkScopedTable,
+  planPredicate,
+  scopedTableFor,
+} from '@erp/authz'
 import { withTenantTransaction } from '@erp/db'
 import { ASSISTANT_KEEP_DAYS, SubjectAccessExport } from '@erp/contracts'
 import type {
@@ -15,6 +21,7 @@ import type {
   ReportCardView,
   SubjectAccessEvent,
   SubjectAssistantSummary,
+  SubjectHomeworkCheck,
   SubjectMessage,
   SubjectSensitive,
 } from '@erp/contracts'
@@ -508,6 +515,65 @@ async function loadMessages(
 }
 
 /**
+ * The pupil's homework check-offs (Task 25), newest first, through the
+ * caller's own homework.read plan over the check-off face, so a family's copy
+ * holds the child's own check-offs and never one on a removed item. A
+ * check-off whose item the retention sweep removed still names its class,
+ * year and subject. Undefined when the caller may not read this pupil's
+ * homework, so the block is left out rather than emptied.
+ */
+async function loadHomeworkChecks(
+  conn: ModuleConnection,
+  context: RequestContext,
+  studentId: string,
+): Promise<SubjectHomeworkCheck[] | undefined> {
+  if (!(await decideResource(conn, context, 'homework.read', 'homework', studentId)).allowed) return undefined
+  const checks = planPredicate(await readPlan(conn, context, 'homework.read', 'homework'), homeworkScopedTable('check'))
+  const result = await conn.db.execute<{
+    year_id: string
+    year_name: string
+    section_id: string
+    section_name: string
+    grade_id: string
+    grade_name: string
+    subject_id: string | null
+    subject_name: string | null
+    title: string | null
+    due_on: string | null
+    status: SubjectHomeworkCheck['status']
+    remark: string | null
+    checked_at: string
+  }>(
+    sql`SELECT ay.id AS year_id, ay.name AS year_name, sec.id AS section_id, sec.name AS section_name,
+               g.id AS grade_id, g.name AS grade_name, sub.id AS subject_id, sub.name AS subject_name,
+               hw.title, to_char(hw.due_on, 'YYYY-MM-DD') AS due_on, homework_checks.status, homework_checks.remark,
+               to_char(homework_checks.checked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS checked_at
+          FROM homework_checks
+          JOIN academic_years ay ON ay.school_id = homework_checks.school_id AND ay.id = homework_checks.academic_year_id
+          JOIN sections sec ON sec.school_id = homework_checks.school_id AND sec.id = homework_checks.section_id
+          JOIN grades g ON g.school_id = sec.school_id AND g.id = sec.grade_id
+          LEFT JOIN subjects sub ON sub.school_id = homework_checks.school_id AND sub.id = homework_checks.subject_id
+          LEFT JOIN homework hw ON hw.school_id = homework_checks.school_id AND hw.id = homework_checks.homework_id
+         WHERE homework_checks.school_id = ${context.schoolId}::uuid
+           AND homework_checks.student_id = ${studentId}::uuid
+           AND (${checks})
+         ORDER BY homework_checks.checked_at DESC, homework_checks.id DESC
+         LIMIT 5000`,
+  )
+  return result.rows.map((row) => ({
+    academicYear: { id: row.year_id, name: row.year_name },
+    section: { id: row.section_id, name: row.section_name },
+    grade: { id: row.grade_id, name: row.grade_name },
+    ...(row.subject_id !== null && row.subject_name !== null ? { subject: { id: row.subject_id, name: row.subject_name } } : {}),
+    ...(row.title === null ? {} : { title: row.title }),
+    ...(row.due_on === null ? {} : { dueOn: row.due_on }),
+    status: row.status,
+    ...(row.remark === null ? {} : { remark: row.remark }),
+    checkedAt: row.checked_at,
+  }))
+}
+
+/**
  * That the pupil used the assistant (Task 24): how many conversations and
  * questions, and when. The words are the pupil's alone and stay sealed; they
  * are never opened here. Undefined when the pupil never had a login.
@@ -568,6 +634,7 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ...(result.exams === undefined ? [] : ['exams']),
           ...(result.reportCards === undefined ? [] : ['reportCards']),
           ...(result.messages === undefined ? [] : ['messages']),
+          ...(result.homework === undefined ? [] : ['homework']),
           ...(result.accessHistory === undefined ? [] : ['accessHistory']),
           ...(result.assistantConversations === undefined ? [] : ['assistantConversations']),
         ],
@@ -690,6 +757,10 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
         // out when the caller holds communication.read nowhere.
         const messages = await loadMessages(conn, context, studentId)
 
+        // Homework check-offs are part of the pupil's record; decided on the
+        // pupil and read through the caller's own homework plan.
+        const homework = await loadHomeworkChecks(conn, context, studentId)
+
         // The trail is decided against the school as a whole: there is no one
         // audit row to decide, and the rows named here are this student's.
         const history = (await decideAction(conn, context, 'audit.read', context.schoolId, true))
@@ -716,6 +787,7 @@ export function registerSubjectAccessRoutes(app: FastifyInstance, deps: ModuleDe
           ...(exams === undefined ? {} : { exams }),
           ...(reportCards === undefined ? {} : { reportCards }),
           ...(messages === undefined ? {} : { messages }),
+          ...(homework === undefined ? {} : { homework }),
           ...(history === undefined ? {} : { accessHistory: history }),
           ...(assistantConversations === undefined ? {} : { assistantConversations }),
         }

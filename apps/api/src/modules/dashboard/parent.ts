@@ -22,6 +22,7 @@ import {
 } from '../attendance/figures.ts'
 import { currentEnrollmentsFor, label, listOwnChildren, predicateFor, rows } from './queries.ts'
 import { latestReportCard } from './exams.ts'
+import { readHomeworkDue } from '../homework/reads.ts'
 import {
   buildCalendar,
   currentAcademicYear,
@@ -284,7 +285,7 @@ async function attendanceFor(
 /** The blocks a parent's card and a pupil's own card share. */
 export type LearningCard = Pick<
   ParentDashboard['children'][number],
-  'student' | 'enrollment' | 'classTeacher' | 'todayLessons' | 'attendance' | 'latestReportCard'
+  'student' | 'enrollment' | 'classTeacher' | 'todayLessons' | 'attendance' | 'latestReportCard' | 'homeworkDue'
 >
 
 /**
@@ -332,8 +333,10 @@ export async function learningCards(
             )
     const attendance = await optionalBlock(() => attendanceFor(conn, context, student.id, date))
     const reportCard = await optionalBlock(() => latestReportCard(conn, context, student.id))
+    const homeworkDue = await optionalBlock(() => readHomeworkDue(conn, context, student.id, date))
     cards.push({
       student,
+      ...(homeworkDue === undefined ? {} : { homeworkDue }),
       ...(attendance === undefined ? {} : { attendance }),
       ...(reportCard === undefined ? {} : { latestReportCard: reportCard }),
       ...(enrollment === undefined ? {} : { enrollment }),

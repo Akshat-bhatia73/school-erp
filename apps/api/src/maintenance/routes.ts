@@ -81,6 +81,21 @@ async function removeExpiredMessageFiles(
   )
 }
 
+/**
+ * The same for homework files (Task 25): an item and its files go a year
+ * after its academic year ended, and sweep_homework only deletes an item once
+ * no file of it still names stored bytes. Its listing pages at the same size.
+ */
+async function removeExpiredHomeworkFiles(
+  deps: MaintenanceDependencies,
+): Promise<{ removed: number; left: number }> {
+  return removeExpiredFiles(
+    deps,
+    'SELECT * FROM list_expired_homework_attachments()',
+    'SELECT forget_homework_attachment($1::uuid, $2::uuid)',
+  )
+}
+
 async function removeExpiredFiles(
   deps: MaintenanceDependencies,
   listSql: string,
@@ -249,6 +264,8 @@ export function registerMaintenanceRoutes(
     // The same for message attachments: sweep_messages only removes a
     // message once no attachment of it still names stored bytes.
     const messageFiles = await removeExpiredMessageFiles(deps)
+    // And homework files, before sweep_homework deletes the items they belong to.
+    const homeworkFiles = await removeExpiredHomeworkFiles(deps)
 
     const entries = [
       ...(await sweep(
@@ -274,6 +291,9 @@ export function registerMaintenanceRoutes(
         [`${RETENTION.credentialGraceDays} days`],
       )),
       ...(await sweep(deps.pools.runtime, 'messages', 'SELECT * FROM sweep_messages()')),
+      // Homework items a year after their academic year ended; the pupils'
+      // check-offs stay with the pupil's own record.
+      ...(await sweep(deps.pools.runtime, 'homework', 'SELECT * FROM sweep_homework()')),
       // Assistant conversations 30 days after each message was written, the
       // conversations left empty, and the word-free usage counts after 13 months.
       ...(await sweep(deps.pools.runtime, 'assistant', 'SELECT * FROM sweep_assistant()')),
@@ -305,6 +325,8 @@ export function registerMaintenanceRoutes(
       ['exports.files_left', exportFiles.left],
       ['messages.files_removed', messageFiles.removed],
       ['messages.files_left', messageFiles.left],
+      ['homework.files_removed', homeworkFiles.removed],
+      ['homework.files_left', homeworkFiles.left],
       ['exports.produced', produced.produced],
       ['exports.failed', produced.failed],
       ['exports.expired', produced.expired],

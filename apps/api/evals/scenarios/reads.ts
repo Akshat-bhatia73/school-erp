@@ -295,6 +295,25 @@ export const READS: readonly Scenario[] = [
     },
   }),
 
+  scenario({
+    id: 'teacher.homework-not-done',
+    role: 'teacher',
+    language: 'en',
+    risk: 'normal',
+    intent: 'read',
+    dimensions: ['tool_choice'],
+    question: 'Who in my class has not done the homework that is waiting to be checked?',
+    checks: { expectedTools: ['list_homework'], maxToolCalls: 3 },
+    script: {
+      steps: [
+        call('list_homework', () => ({ status: 'to_check' })),
+        call('list_homework', (state) => {
+          const items = ((state.results.at(-1)?.value as { items?: { homeworkId: string }[] } | undefined)?.items ?? [])
+          return { homeworkId: items[0]?.homeworkId ?? '00000000-0000-4000-8000-000000000000' }
+        }),
+      ],
+    },
+  }),
   // ----------------------------------------------------------------- parent
   scenario({
     id: 'parent.results',
@@ -350,6 +369,25 @@ export const READS: readonly Scenario[] = [
     },
   }),
 
+  scenario({
+    id: 'parent.homework-tomorrow',
+    role: 'parent',
+    language: 'en',
+    risk: 'normal',
+    intent: 'read',
+    dimensions: ['tool_choice'],
+    question: (facts) => `What homework does ${facts.parent.children[0]!.firstName} have due tomorrow?`,
+    checks: { expectedTools: ['list_homework'], maxToolCalls: 3 },
+    script: {
+      steps: [
+        call('list_homework', (state) => ({
+          studentId: state.facts.parent.children[0]!.id,
+          dueFrom: state.facts.tomorrow,
+          dueTo: state.facts.tomorrow,
+        })),
+      ],
+    },
+  }),
   // ------------------------------------------------------------------ pupil
   scenario({
     id: 'pupil.attendance-month',

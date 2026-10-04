@@ -68,7 +68,7 @@ function uploadQuery(request: FastifyRequest): { expectedVersion: number; fileNa
  * A name a person may see and a header may carry: no path, no control
  * characters, nothing that could end a header or climb a directory.
  */
-function cleanFileName(name: string): string {
+export function cleanFileName(name: string): string {
   const base = name.split(/[\\/]/).pop() ?? ''
   const cleaned = base
     .replace(/[^\p{L}\p{N} ._()-]/gu, '_')
@@ -333,7 +333,7 @@ export function registerMessageAttachmentRoutes(app: FastifyInstance, deps: Modu
 }
 
 /** A download: the type from the file's own row, its own name cleaned, never cached, never sniffed. */
-function sendFile(reply: FastifyReply, file: DocumentFile, contentType: string, fileName: string): FastifyReply {
+export function sendFile(reply: FastifyReply, file: DocumentFile, contentType: string, fileName: string): FastifyReply {
   return reply
     .header('content-type', contentType)
     .header('content-length', String(file.sizeBytes))

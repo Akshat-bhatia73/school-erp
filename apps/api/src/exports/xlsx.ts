@@ -43,8 +43,23 @@ export function formatExportDate(value: string | Date | null | undefined): strin
  * never becomes a formula the spreadsheet evaluates when the file is opened.
  */
 export async function buildWorkbook(input: WorkbookInput): Promise<Uint8Array> {
+  return buildWorkbookSheets([input])
+}
+
+/**
+ * Several sheets in one file, each built exactly as buildWorkbook builds its
+ * one, in the order given. A report with two tables (the homework report's
+ * items and its pupils) is one file a reader can tab through.
+ */
+export async function buildWorkbookSheets(inputs: readonly WorkbookInput[]): Promise<Uint8Array> {
   const workbook = new ExcelJS.Workbook()
   workbook.created = new Date()
+  for (const input of inputs) addSheet(workbook, input)
+  const buffer = await workbook.xlsx.writeBuffer()
+  return new Uint8Array(buffer as ArrayBuffer)
+}
+
+function addSheet(workbook: ExcelJS.Workbook, input: WorkbookInput): void {
   const sheet = workbook.addWorksheet(input.sheetName.slice(0, 31), {
     // The header stays in view while a long list is scrolled.
     views: [{ state: 'frozen', ySplit: 1 }],
@@ -86,9 +101,6 @@ export async function buildWorkbook(input: WorkbookInput): Promise<Uint8Array> {
     })
     added.alignment = { vertical: 'middle' }
   }
-
-  const buffer = await workbook.xlsx.writeBuffer()
-  return new Uint8Array(buffer as ArrayBuffer)
 }
 
 /** The type the download route puts on a spreadsheet. */

@@ -403,6 +403,7 @@ test('one tool from each module answers the owner with a card and a source', asy
     ['list_exams', {}],
     ['report_card_sections', {}],
     ['my_inbox', {}],
+    ['list_homework', {}],
   ]
   for (const [name, input] of cases) {
     const outcome = assertDrawable(await run(owner, name, input), name)
@@ -798,4 +799,56 @@ test('fee_dues tells the model its rows are sorted by balance, highest first', a
   assert.equal(told.shown, told.pupils.length)
   const balances = told.pupils.map((row) => row.balanceRupees)
   assert.deepEqual(balances, [...balances].sort((a, b) => b - a))
+})
+
+test('list_homework reads the homework list as the person: a parent their child with the status, a teacher their class', async () => {
+  const pool = adminPool()
+  const tomorrow = shift(today, 1)
+  const insert = async (sectionId: string, title: string, setOn: string, dueOn: string): Promise<string> => {
+    const found = await pool.query<{ id: string }>(
+      `INSERT INTO homework(school_id,academic_year_id,section_id,title,set_on,due_on,created_by_membership_id,updated_by_membership_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$7) RETURNING id`,
+      [school, year, sectionId, title, setOn, dueOn, ownerMembershipId],
+    )
+    return found.rows[0]!.id
+  }
+  const mine = await insert(mySection, `Tools reading ${suffix}`, today, tomorrow)
+  const theirs = await insert(otherSection, `Tools other ${suffix}`, today, tomorrow)
+  const checked = await insert(mySection, `Tools checked ${suffix}`, shift(today, -3), shift(today, -1))
+  await pool.query(
+    `INSERT INTO homework_checks(school_id,homework_id,student_id,academic_year_id,section_id,status,checked_by_membership_id)
+     VALUES ($1,$2,$3,$4,$5,'not_done',$6)`,
+    [school, checked, p2, year, mySection, ownerMembershipId],
+  )
+
+  // The parent asks what is due tomorrow: their child's class only, with the child's own status.
+  const family = assertDrawable(await run(parent, 'list_homework', { dueFrom: tomorrow, dueTo: tomorrow }), 'parent')
+  const familyItems = (family.forModel as { items: { homeworkId: string; childId?: string; status?: string; subject: string }[] }).items
+  assert.deepEqual(familyItems.map((item) => [item.homeworkId, item.childId, item.status, item.subject]), [
+    [mine, p1, 'not_due', 'General'],
+  ])
+  assert.equal(family.source?.href, '/homework')
+  assert.equal(rowsOf(family).rows[0]?.href, `/homework/${mine}`)
+  // A family has no check-off sheet, so one item's pupils are not available to them.
+  assert.equal((await run(parent, 'list_homework', { homeworkId: checked })).status, 'not_available')
+  assert.equal((await run(parent, 'list_homework', { homeworkId: theirs })).status, 'not_available')
+
+  // The class teacher: their own class's items with the figures, never the other class.
+  const staff = assertDrawable(await run(teacher, 'list_homework', {}), 'teacher')
+  const staffIds = (staff.forModel as { items: { homeworkId: string; progress?: unknown }[] }).items.map((item) => item.homeworkId)
+  assert.ok(staffIds.includes(mine) && staffIds.includes(checked))
+  assert.ok(!staffIds.includes(theirs))
+  // Who has not done it: the sheet, Not done first, then the pupils nobody checked.
+  const sheet = assertDrawable(await run(teacher, 'list_homework', { homeworkId: checked }), 'sheet')
+  const read = sheet.forModel as { counts: Record<string, number>; pupils: { studentId: string; status: string }[] }
+  assert.deepEqual(read.pupils.map((pupil) => [pupil.studentId, pupil.status]), [
+    [p2, 'not_done'],
+    [p1, 'not_checked'],
+  ])
+  assert.deepEqual(read.counts, { pupils: 2, done: 0, partlyDone: 0, notDone: 1, notChecked: 1 })
+  assert.equal((await run(teacher, 'list_homework', { homeworkId: theirs })).status, 'not_available')
+
+  // Offered to whoever reads homework, the accountant not.
+  assert.ok(isOffered(toolNamed('list_homework'), new Set<PermissionKey>(['homework.read'])))
+  assert.ok(!isOffered(toolNamed('list_homework'), new Set<PermissionKey>(['fees.read'])))
 })

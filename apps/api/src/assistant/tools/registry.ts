@@ -3,6 +3,7 @@ import type { AnyReadTool } from './types.ts'
 import { ATTENDANCE_TOOLS } from './attendance.ts'
 import { EXAM_TOOLS } from './exams.ts'
 import { FEE_TOOLS } from './fees.ts'
+import { HOMEWORK_TOOLS } from './homework.ts'
 import { MESSAGE_TOOLS } from './messages.ts'
 import { REPORT_CARD_TOOLS } from './report-cards.ts'
 import { SCHOOL_TOOLS } from './school.ts'
@@ -22,6 +23,7 @@ export const READ_TOOLS: readonly AnyReadTool[] = [
   ...FEE_TOOLS,
   ...EXAM_TOOLS,
   ...REPORT_CARD_TOOLS,
+  ...HOMEWORK_TOOLS,
   ...MESSAGE_TOOLS,
 ]
 
