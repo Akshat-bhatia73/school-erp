@@ -226,6 +226,18 @@ where the row says so.
 | `/messages/templates` | `messages/templates` list, create, update, archive | Notice templates, readable with `communication.send`, changed in a Sheet with `communication.manage` | — |
 | `/messages/settings` | `messages/settings`, `messages/templates` | `communication.manage`: one panel per automatic message with its switch, its options (absence delay, days before a fee falls due, overdue every so many days where 0 is off, the morning hour) and its words with the placeholders it may use and "Restore the built-in words". Fee dues follow the fee reminder switch. "Leave decisions" (`leaveDecisionsEnabled`) tells whoever applied whether their leave was approved: one switch on the pupil kind (`leave_decision_pupil`, to the family), and the staff kind (`leave_decision_staff`) says "Goes out while leave decisions are on."; both kinds' words are editable with their placeholders (`leave_dates`, `decision`, `decision_note`) | — |
 
+### Homework
+
+| Screen | Endpoints | What each role sees | Not yet |
+|---|---|---|---|
+| Sidebar, mobile tabs, command menu | — | "Homework" for everybody holding `homework.read` (a pupil included: `/homework` joins the pupil allowlist). On a phone it is a bottom tab for families and pupils only; staff reach it from the menu | — |
+| `/homework` | `homework` (list), `setup/subjects`, sections and years, `homework` create and attachments | **Staff**: Year, Class, Subject (with "General"), Status (Upcoming by default, Past, To check, Removed, All) and Due (Today, Tomorrow, Next 7 days, Last 7 days, Last 30 days) chips and a search over title, subject, class and who set it; the table reads Due ("Today", "Tomorrow" or the date), Class, Subject (a General tag for general homework), Homework (with "N files"), Set by and Checked ("12 of 30", "Not due yet", or a Removed tag); footer "N homework items in view", and "Narrow the filters to see the rest." when the server cut the list. "Set homework" for `homework.set`. Staff who hold `homework.check` get Homework and Report tabs. **Families and pupils** (a pupil login, or the parent or student dashboard view): Status and Due chips, a Child chip for a parent of more than one child, and Due, Subject, Homework, Child (with more than one) and Status (Done, Partly done, Not done, Not checked, Not due). Row click opens the item | — |
+| Set homework Sheet | `homework` create and update, attachments add and remove, `setup/subjects`, sections | Class (the current year's classes the person can see), Subject (the class's subjects, or "General homework", with the hint that only the class teacher or the office sets it), Title, Instructions (optional), Due date, and up to three files (PDF, JPEG or PNG, 4 MB each, checked before upload). Files chosen while setting go one by one after the item is created; a failure says which file and to add it from the homework page. When editing, the class and subject are fixed, and adding or removing a file saves at once with the item's version. "Homework set" / "Homework saved" | — |
+| `/homework/:homeworkId` | `homework/:id`, `homework/:id/attachments/:id`, `homework/:id/checks` (read and save), `homework/:id/remove` | Title, class and subject tags, due date; Instructions; Files with Download; Details (subject, set on, set by, year, last changed by). A family sees a Status panel ("Your children" with more than one child) with the teacher's remark. Edit and Remove only when the item's `allowedActions` hold `homework.set` and it is not removed; Remove asks for an optional reason. A removed item says when and by whom, and that families no longer see it. **Check-offs** for staff (the item carries `progress` or a `checkWindow`): roll, pupil, Done / Partly done / Not done and a remark per row, "N of M pupils checked", "Mark all done" (fills only pupils with no status) and "Save changes", which sends only the changed lines with the version each was read at (0 for a pupil never checked). Read-only with a sentence when it is not due yet ("Pupils can be checked off from 6 Oct 2026, the day it is due.") or the teacher's window has closed ("Teachers could change check-offs until 20 Oct 2026. Ask the school office to change them now."). A remark with no status is refused on save ("Choose Done, Partly done or Not done for each pupil with a remark."); a version conflict reloads the sheet | — |
+| `/homework/report` | `homework/report`, `homework/report/export` + `exports/:id` + `exports/:id/file`, `setup/subjects`, sections | For `homework.check`: From and To (the last 30 days by default, checked against the report's rules before anything is sent), Class and Subject chips. "Homework set": per class and subject, Items, Done, Partly done, Not done and Not checked. "Pupils with 3 or more Not done": pupil, admission number, class, Not done and Checked. "Export to Excel" when the person holds `homework.export` and the report's `allowedActions` carry it | — |
+| Dashboard | `dashboard` | A teacher's "To check" card (items past due with pupils not checked; "All homework is checked" when empty); a parent's and a pupil's "Homework due" card, due today and tomorrow, with the child's name when there is more than one child | — |
+| `/messages/settings` | `messages/settings` | "Evening homework message" (`homeworkDigestEnabled`) with "Send from", a time from 12:00 to 9:00 pm on the half hour (a saved time off the half hour is still shown), and "A message not sent by 9 am the next morning is skipped." | — |
+
 ### Access management and settings
 
 | Screen | Endpoints | What each role sees | Not yet |
@@ -524,3 +536,37 @@ children, the 7-day rule, reversed dates, a server refusal) and for a staff memb
 no staff record, too far back). `components/messages/settings-screen.test.tsx` (2) covers the
 switch and the words; the office and teacher dashboard tests, the navigation test, the attendance
 screens test and `lib/api/leave.test.ts` gain a case each for the new pieces.
+
+## Homework, October 2026
+
+Task 25. A teacher sets homework for a class with a subject, or as general homework for their own
+class, and a due date; families and pupils read it; from the due date the teacher checks each pupil
+off. The screens are in the Homework table above.
+
+- **Client**: `api.homework.list/get/create/update/remove`, `addAttachment` (raw bytes with the
+  file's type as `Content-Type`), `removeAttachment`, `downloadAttachment`, `checks`, `saveChecks`,
+  `report` and `export` (`exportReport`), parsed through the `@erp/contracts` shapes. Keys
+  `qk.homework.list/detail/checks/report` under `[schoolId, 'homework']`. Every homework write
+  invalidates the homework and dashboard prefixes, because the dashboard cards read homework.
+- **Who is a family**: a pupil login, or anybody viewing the parent or student home. Their list
+  shows the child's own status and never progress figures, and their detail page has no check-off
+  sheet. A person who is both staff and a parent gets the staff list, without their children's
+  entries.
+- **Permissions**: "Set homework" for `homework.set`; Edit and Remove from the item's own
+  `allowedActions`; the sheet saves only when the server's `window.check` says so; the Report tab for
+  `homework.check`; Excel for `homework.export` on the person and on the report.
+- **Messages**: the kind `homework_digest` is a cyan tag.
+- **Refusals** come from the server's reasons: `homework_due_out_of_range`,
+  `homework_subject_not_in_class`, `homework_year_not_current`, `homework_removed`,
+  `homework_not_due_yet`, `homework_check_window_closed`, `homework_pupil_not_on_roster`,
+  `homework_attachment_too_large`, `homework_attachment_type` and `homework_too_many_attachments`,
+  each in plain words.
+
+Tests: `components/homework/homework.test.tsx` (19) covers the staff list (footer, the General
+subject, Set homework gating), the set sheet (inline errors, a past due date, general homework for
+the only class), the detail page (Edit and Remove gating, a removed item, removing with a reason),
+the check-off sheet (changed lines with their versions, Mark all done, a remark without a status, a
+closed window), a parent and a pupil (the child's status, the Child chip, no sheet), the report with
+its export gating, and the pupil's Homework due card. `lib/api/homework.test.ts` covers the client;
+the navigation test, the parent and teacher dashboard tests and the messages settings test gain a
+case each.

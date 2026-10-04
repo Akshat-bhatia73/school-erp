@@ -282,6 +282,23 @@ extra checks is in [protected school APIs](./PROTECTED_APIS.md#messages).
 | `messages.templates`, `messages.createTemplate`, `messages.updateTemplate`, `messages.archiveTemplate` | `communication.send` to read; `communication.manage` / school to change; privileged | `MessageTemplateList`, `MessageTemplate` | Task 22 |
 | `messages.settings`, `messages.saveSettings` | `communication.manage` / school; privileged | `CommunicationSettings` | Task 22 |
 
+The homework module (Task 25) added these. Every one is a `protectedRoute` under `/homework` except
+the upload and the file byte route, registered by hand like a message file; the route table with its
+extra checks is in [protected school APIs](./PROTECTED_APIS.md#homework).
+
+| Operation | Permission / scope | Safe response family | Owner |
+|---|---|---|---|
+| `homework.list` | `homework.read` / school, the class-teacher post (every item of the class), assigned subjects (own section and subject), own children or own record (the child's class on the day each item was set, every year, never a removed item) | `HomeworkListResponse` | Homework (0030) |
+| `homework.get` | `homework.read` / matched record scope (the item); a family gets its own children's status only | `HomeworkDetail` | Homework (0030) |
+| `homework.create` | `homework.set` / school (privileged), the class-teacher post for general items, or assigned subjects for the teacher's own section and subject; the row is decided through the plan after the insert and rolled back when it is not reached; the subject one of the class's subjects; due within 60 days and inside the year | `HomeworkDetail` | Homework (0030) |
+| `homework.update`, `homework.remove` | `homework.set` / matched record scope (the item), whoever wrote it; not removed; `expectedVersion`; never the section or subject; the remove reason is an audit note | `HomeworkDetail` | Homework (0030) |
+| `homework.addAttachment`, `homework.removeAttachment` | `homework.set` / matched record scope; not removed; `expectedVersion`; at most 3 files, PDF, JPEG or PNG by the first bytes, 4 MB each | `HomeworkDetail` | Homework (0030) |
+| `homework.downloadAttachment` | `homework.read` / matched record scope, decided again for every request through the detail plan; a byte stream | a byte stream | Homework (0030) |
+| `homework.checks` | `homework.read` / matched record scope, staff only (a family is refused); the roster on the due date, limited to the pupils the caller may name | `HomeworkCheckSheet` | Homework (0030) |
+| `homework.saveChecks` | `homework.check` / matched record scope; privileged at school scope; from the due date, until 14 days after it except at school scope; changed lines only, each with its version; one audit row per save with the remarks as its note | `HomeworkCheckSheet` | Homework (0030) |
+| `homework.report` | `homework.check` / school, the class-teacher post (general items) or assigned subjects; pupils named through `students.read_basic` | `HomeworkReportResponse` | Homework (0030) |
+| `homework.export` (`exportReport`) | `homework.export` / school; privileged; a `homework_report` job re-read under the requester's plans | `HomeworkExportJob` | Homework (0030) |
+
 ## Read auditing
 
 Task 13 made reads visible in the same trail as writes. A detail read of one person's record leaves

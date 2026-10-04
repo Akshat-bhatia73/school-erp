@@ -169,6 +169,8 @@ Adopted in Task 12 and to be published to schools. The periods the code acts on 
 | Exam marks, publications and co-scholastic grades (`exam_marks`, `exam_publications`, the grades in `report_card_entries`) | Permanently, as the academic record | Nothing; a school issues mark statements and transfer certificates from them years later |
 | Published report cards (`report_card_versions.content`) | Permanently, with the exam results | Nothing |
 | The class teacher's remarks (`report_card_entries.remarks`, `report_card_versions.remarks`) | With the pupil's sensitive fields: enrolled, plus 3 years after leaving | Anonymise: cleared in both tables; the database allows exactly that change to a published card |
+| Homework items and their files (`homework`, `homework_attachments`) | The item's academic year and one more year | Deleted by the nightly sweep, files first (`sweep_homework`) |
+| Homework check-offs and the teacher's remarks (`homework_checks`) | With the pupil's sensitive fields: enrolled, plus 3 years after leaving | Nothing prunes the check-offs today; anonymisation clears the remarks |
 
 ## 8. SOC 2 readiness map
 
@@ -441,3 +443,28 @@ A short assessment of the assistant (Task 24), written before it is built, as th
 **Retention.** Conversation text, tool results and proposals are deleted 30 days after they were written. Usage counts with no text are kept 13 months for limits and billing. Anonymising a pupil deletes their own conversations at once. A pupil's subject-access export counts their conversations and says when they were, but never holds the words: the product owner decided on 25 September 2026 that a pupil's conversations are read by the pupil alone, a parent included, and the pupil can read them in the app for the 30 days they are kept. **Counsel to confirm** this sits well with a parent exercising the child's right of access.
 
 **Changes to make in the 24a pull request.** The privacy notice (the assistant, Google as a recipient, the 30 days, no training, no profiling), the processing agreement's sub-processor clause, the retention schedule (two new lines) and the consent wording for the `ai_assistant` purpose.
+
+## 18. Homework, October 2026
+
+A short assessment of the homework module, written when it was built (Task 25).
+
+**What changed.** The system now holds the homework a teacher sets for a class: a title, instructions, the day it was set, the day it is due, who set it and up to three files (PDF, JPEG or PNG, 4 MB each). From the due date the teacher marks each pupil Done, Partly done or Not done, with an optional remark of up to 200 characters. Families cannot tick anything; a pupil with no mark after the due date shows as "Not checked". On a day homework is set, the school sends each pupil's family an evening message listing it. The office sees how much homework each class got and which pupils had three or more Not done in a period, and can export that as a spreadsheet.
+
+**Purpose and basis.** Running the school: setting and checking work is teaching, and telling a family what homework their child has is part of it. It is not a new consent purpose. The evening message is a message like any other and goes only to a family who has given the `communication` consent and whose notifications the office has not switched off. The privacy notice and the processing agreement say so.
+
+**Who reads it.** Owner, principal and admin set, edit, remove and check any homework in the school and export the report. A subject teacher sets and checks the homework of their own subject in their own sections. A class teacher reads every item of their own class and sets and checks its general homework, which has no subject. A parent reads the items set for their child's class while the child was in it, for every year the child was at the school, and their own child's mark and remark, and nothing about any other child. A pupil with their own login reads the same about themself. The accountant reads nothing here. Every read is bounded by the same plan its detail read uses, so a list never carries a row a person could not open.
+
+**What keeps it honest.**
+
+- The roster is the pupils enrolled in the class on the due date, worked out by the server; a save that names anybody else is refused with nothing written.
+- A teacher can change marks for 14 days after the due date. After that only the office changes them.
+- A family never sees another pupil's mark, the class figures or the roster, and never sees an item the school removed.
+- Removing an item hides it and keeps it, with its marks, for the record; no person deletes homework. The database refuses any change to a removed item.
+- Files are kept in the private document store and served only through a permission-checked route that decides the item again for every request. The file's type is decided by its first bytes, and pictures lose their metadata as photographs do.
+- `safe_changes` carries ids, dates and counts. The title, the instructions and file names are never in an audit row. A remark is free text about a child, so it is a redactable audit note and is stored nowhere else but the check-off.
+- The evening message lists subjects, titles and due dates only, never another pupil's name or mark.
+
+**Retention and anonymisation, decided.** Homework items and their files describe a class, not a person, so they are kept for the item's academic year and one more, then the nightly sweep deletes the files and the items. A pupil's marks and remarks are part of the pupil's record and follow the pupil's period (enrolled plus three years); they outlive the item, keeping the class, year and subject they were for. Anonymising a pupil clears the remarks; the marks stay, because "not done" on its own identifies nobody. Nothing prunes the marks today, as for attendance. A pupil's subject-access export includes their marks and remarks. The evening messages follow the two-year messages rule.
+
+**Where it sits.** In the same United States database as everything else. No real school's data goes in until the database has moved to an Indian region (Task 17).
+
