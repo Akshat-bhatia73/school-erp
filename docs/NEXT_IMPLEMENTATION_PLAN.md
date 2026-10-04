@@ -1,6 +1,6 @@
 # Next implementation plan: readiness and the first school modules
 
-Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Tasks 15, 18, 19, 20, 21, 22 and 23 are built, and the rough edges they left are closed (section 9); Tasks 16 and 17 are not started. Next: Task 24, the AI assistant (decided 25 September 2026).
+Date: 19 September 2026. Status: proposed, for review. Follows [AUTH_RBAC_IMPLEMENTATION_PLAN.md](AUTH_RBAC_IMPLEMENTATION_PLAN.md), whose fourteen tasks are delivered and live at erp.akshat-bhatia.com with test data. Tasks 15, 18, 19, 20, 21, 22 and 23 are built, and the rough edges they left are closed (section 9); Tasks 16 and 17 are not started. Task 24, the AI assistant, is built. Next: Task 25, homework (decided 4 October 2026).
 
 ## 1. Where we are
 
@@ -139,6 +139,38 @@ The full design is in [docs/assistant/ARCHITECTURE.md](assistant/ARCHITECTURE.md
 
 **Exit check.** A teacher asking about another class, a parent asking about another family's child and a pupil asking about anything beyond their own record each get nothing more than the screen would give them, proven in `tests/security` with a scripted model. One person can never read or confirm another person's conversation or proposal, the owner included. Every answer that used school data shows its sources, built from the tool calls the server made. Nothing is written until the person presses Confirm, and a confirm re-checks the body and the record's version. Switching it off for a school or a person, a guardian withdrawing consent, and suspending a member each take effect on the next request. No audit row, log line or error report holds the text of a question or an answer.
 
+### Task 25: Homework — decided 4 October 2026
+
+A teacher sets homework for a section and subject with a due date; families and pupils with their own login read it; on the due date the teacher checks each pupil off; the office sees what was set and who keeps not doing it. Decided by the product owner on 4 October 2026, before the build.
+
+**Setting homework.** A homework item belongs to one section in one academic year: a title (up to 120 characters), instructions (up to 4,000 characters), the day it was set (`set_on`, today in the school's timezone, never in the past) and the day it is due (`due_on`, on or after `set_on`, within 60 days). A subject teacher sets homework for the sections and subjects of their teaching assignments; the class teacher may also set general homework for their own class, which has no subject. Owner, principal and admin set, edit and remove any homework in the school. A teacher edits or removes homework within their own scope, whoever wrote it, so a replacement teacher can carry on. Editing changes the words, the due date and the files, never the section or the subject. Removing hides the item from families and drops it from figures but keeps it and its check-offs for the record; nothing is deleted by a person.
+
+**Files.** Up to three files per item, PDF, JPEG or PNG, 4 MB each (the Vercel request limit is 4.5 MB, so the 5 MB first discussed cannot pass through a function). They are kept in the private document store exactly like message attachments and served only by a byte route that decides the homework again for every request.
+
+**Checking off.** From the due date onward the teacher marks each pupil on the section's roster Done, Partly done or Not done, with an optional short remark (up to 200 characters) per pupil. The roster is the pupils enrolled in the section on the due date. A teacher can change check-offs until 14 days after the due date; the office can change them at any time. Each save is one audit row for the item; the remarks are free text and go to `note`, never `safe_changes`. Families cannot tick anything: the teacher's check-off is the only status. A pupil with no check-off after the due date shows as "Not checked", never as Not done.
+
+**Who reads what.** New keys `homework.read`, `homework.set`, `homework.check`, `homework.export` on a new resource type `homework`.
+
+| Role | read | set | check | export |
+|---|---|---|---|---|
+| Owner, principal, admin | school | school | school | school |
+| Teacher | assigned_sections, assigned_subjects | assigned_sections, assigned_subjects | assigned_sections, assigned_subjects | — |
+| Parent | own_children | — | — | — |
+| Pupil with a login | own_record | — | — | — |
+| Accountant | — | — | — | — |
+
+For homework, as for exams, `assigned_sections` is the class-teacher post alone: the class teacher reads every item of their class and sets and checks general items there; a subject teacher reaches the items of their own section and subject through `assigned_subjects`. A family reads homework through the pupil: the items of every section the child was enrolled in, set while the child was enrolled there, and the child's own check-off, for every year the child was at the school (the rule in section 2). Another pupil's status is never in a family's or pupil's response. Removed items are not visible to families.
+
+**Evening message.** A new automatic message kind, `homework_digest`, one per pupil per school day that had homework set, listing each item's subject, title and due date, to the pupil's families under the same consent and notification rules as every automatic message. It is due from 17:00 in the school's timezone (a school setting) and may still go until 09:00 the next morning, so the daily 08:00 cron sends any digest the evening pump missed; after that it is skipped, never sent late. The school switches it off on the communication settings page (`homework_digest_enabled`, on by default). Pupils with their own login see homework on their screen; the digest goes to families only.
+
+**Screens.** A Homework screen in the sidebar for every role that holds `homework.read`: a list by due date with section, subject and status filters; a detail page with the instructions, files and, for staff, the check-off sheet; a Sheet to set or edit an item. Parents and pupils see their child's items with the child's status. The dashboard gets a "Homework due" card for families and pupils (due today and tomorrow) and a "To check" card for teachers (items past due with pupils not checked). The office gets a Report tab: items set per section and subject over a date range, and pupils with three or more Not done in that range, with an Excel export through the exports module (`homework_report` job kind, `homework.export`). The report route is gated by `homework.check`, so a teacher sees it for their own scope.
+
+**Assistant.** One read tool over the homework list route, so a parent can ask what homework their child has tomorrow and a teacher who has not done the maths homework. It never sets or checks homework.
+
+**Retention and privacy.** Homework items and files are school records about a class, kept for the current year and one more, then removed by the nightly sweep. A pupil's check-offs and remarks are part of the pupil's record and follow the pupil's three-year period; anonymising the pupil clears the remarks. The subject-access export includes the pupil's check-offs. The retention schedule, privacy notice and DATA_PROTECTION.md gain a homework section in the same pull request.
+
+**Exit check.** A teacher sets and checks homework only for their own section and subject (or their own class's general items); a parent reads only their own child's items and status, including last year's after promotion, and nothing of another family's child; a pupil reads only their own; the accountant reads nothing; files download only through the byte route after a fresh decision; the digest respects consent and the switch. Proven in `tests/security` with cross-school and same-school wrong-person tests. The release adds migration `0030` and changes the role templates, so every existing school needs `pnpm db:sync-roles`.
+
 ### Out of scope for this plan
 
 Custom role building, a policy editor, native apps, offline data and online payment collection.
@@ -152,7 +184,8 @@ Custom role building, a policy editor, native apps, offline data and online paym
 | 3 | Task 17 region move, before any real school. Task 20 attendance (built). |
 | 4 | Task 21 exams and report cards, then Task 22 communication. |
 | 5 | Task 23 student login. Rough edges after it (section 9). |
-| 6 | **Task 24 AI assistant — next.** Product decisions first, then the build. Tasks 16 and 17 follow, and must finish before the first paying school whatever else is built. |
+| 6 | Task 24 AI assistant (built). |
+| 7 | **Task 25 homework — next.** Tasks 16 and 17 must still finish before the first paying school whatever else is built. |
 
 The readiness tasks are the release gate for the first paying school; the module tasks decide what that school gets. Fees can be built while the region move is pending, but must not hold real money before it.
 
