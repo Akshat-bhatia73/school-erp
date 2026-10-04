@@ -30,6 +30,8 @@ const leaverFeeHead = randomUUID()
 const leaverReceipt = randomUUID()
 const leaverEntry = randomUUID()
 const leaverVersion = randomUUID()
+const leaverHomework = randomUUID()
+const leaverRemovedHomework = randomUUID()
 const LEAVER_CARD_CONTENT = { figures: 'kept as the academic record' }
 const LEAVER_CHEQUE = `CHQ-${randomUUID().slice(0, 8)}`
 
@@ -163,6 +165,28 @@ before(async () => {
     ],
   )
 
+  // Two homework check-offs with a teacher's remark (Task 25), one on an item
+  // since removed. The remarks follow the pupil's retention period; the
+  // statuses stay as the class's record.
+  for (const id of [leaverHomework, leaverRemovedHomework]) {
+    await pool.query(
+      `INSERT INTO homework(id,school_id,academic_year_id,section_id,title,set_on,due_on,
+                            created_by_membership_id,updated_by_membership_id)
+       VALUES ($1,$2,$3,$4,'Lifecycle homework','2026-05-04','2026-05-06',$5,$5)`,
+      [id, schoolA, fixtureIds.yearA as string, fixtureIds.sectionA as string, fixtureIds.ownerA as string],
+    )
+    await pool.query(
+      `INSERT INTO homework_checks(school_id,homework_id,student_id,academic_year_id,section_id,status,remark,
+                                   checked_by_membership_id)
+       VALUES ($1,$2,$3,$4,$5,'not_done','Forgot the thoughtful essay',$6)`,
+      [schoolA, id, leaver, fixtureIds.yearA as string, fixtureIds.sectionA as string, fixtureIds.ownerA as string],
+    )
+  }
+  await pool.query(
+    `UPDATE homework SET removed_at = now(), removed_by_membership_id = $2 WHERE id = $1`,
+    [leaverRemovedHomework, fixtureIds.ownerA as string],
+  )
+
   // A student who is still here, for the unlink rules.
   await pool.query(
     `INSERT INTO students(id,school_id,admission_number,first_name,status)
@@ -249,6 +273,11 @@ after(async () => {
   await pool.query('ALTER TABLE report_card_versions DISABLE TRIGGER report_card_versions_no_change')
   await pool.query('DELETE FROM report_card_versions WHERE id = $1', [leaverVersion])
   await pool.query('ALTER TABLE report_card_versions ENABLE TRIGGER report_card_versions_no_change')
+  await pool.query('DELETE FROM homework_checks WHERE student_id = $1', [leaver])
+  // Only the retention sweep deletes homework, so its guard is lifted for the tidy-up alone.
+  await pool.query('ALTER TABLE homework DISABLE TRIGGER homework_guard_delete')
+  await pool.query('DELETE FROM homework WHERE id = ANY($1::uuid[])', [[leaverHomework, leaverRemovedHomework]])
+  await pool.query('ALTER TABLE homework ENABLE TRIGGER homework_guard_delete')
   await pool.query('DELETE FROM students WHERE id = ANY($1::uuid[])', [[leaver, sibling, unlinkStudent]])
   await pool.query('DELETE FROM staff WHERE id = $1', [retiree])
   await pool.query('DELETE FROM membership_roles WHERE membership_id = ANY($1::uuid[])', [
@@ -355,6 +384,7 @@ test('after the retention period the record keeps its register fields and nothin
   assert.equal(audit.rows[0]?.safe_changes.feeReceiptsCleared, 1)
   assert.equal(audit.rows[0]?.safe_changes.reportCardRemarksCleared, 1)
   assert.equal(audit.rows[0]?.safe_changes.reportCardVersionRemarksCleared, 1)
+  assert.equal(audit.rows[0]?.safe_changes.homeworkRemarksCleared, 2)
   assert.ok(!JSON.stringify(audit.rows[0]).includes('thoughtful'), 'a remark never reaches the audit row')
 
   // Remarks are gone from the working row and the published card; the grade
@@ -377,6 +407,16 @@ test('after the retention period the record keeps its register fields and nothin
   assert.equal(version?.remarks, null)
   assert.deepEqual(version?.content, LEAVER_CARD_CONTENT)
   assert.equal(version?.content_hash, 'a'.repeat(64))
+
+  // Homework remarks are gone, on the removed item's check-off too; the statuses stay.
+  const homeworkChecks = await adminPool().query<{ status: string; remark: string | null; version: number }>(
+    'SELECT status, remark, version FROM homework_checks WHERE student_id = $1',
+    [leaver],
+  )
+  assert.deepEqual(homeworkChecks.rows, [
+    { status: 'not_done', remark: null, version: 2 },
+    { status: 'not_done', remark: null, version: 2 },
+  ])
 
   // The money stands. Only the payer's name is gone, because that is the one
   // edit the append-only ledger allows at all.

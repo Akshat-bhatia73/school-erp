@@ -2,6 +2,8 @@ import { sql } from 'drizzle-orm'
 import type { AuthzConnection } from '@erp/authz'
 import {
   EXAM_PATTERN,
+  HOMEWORK_DIGEST_LAST_HOUR,
+  homeworkDigestList,
   MESSAGE_BODY_MAX,
   MESSAGE_TITLE_MAX,
   renderMessageText,
@@ -111,13 +113,21 @@ interface SchoolClock {
   name: string
   today: string
   hour: number
+  /** The school's clock now, 'HH:MM'. */
+  time: string
+  /** The school's own date of automatic_since, or null while there is no settings row. */
+  since_day: string | null
 }
 
 async function schoolClock(conn: AuthzConnection, schoolId: string): Promise<SchoolClock | null> {
   const result = await conn.client.query<SchoolClock>(
-    `SELECT name, to_char(local_now::date, 'YYYY-MM-DD') AS today, extract(hour FROM local_now)::int AS hour
-       FROM (SELECT name, now() AT TIME ZONE COALESCE(NULLIF(timezone, ''), 'Asia/Kolkata') AS local_now
-               FROM schools WHERE id = $1) AS clock`,
+    `SELECT name, to_char(local_now::date, 'YYYY-MM-DD') AS today, extract(hour FROM local_now)::int AS hour,
+            to_char(local_now, 'HH24:MI') AS time,
+            (SELECT to_char((cs.automatic_since AT TIME ZONE zone)::date, 'YYYY-MM-DD')
+               FROM communication_settings cs WHERE cs.school_id = $1) AS since_day
+       FROM (SELECT name, zone, now() AT TIME ZONE zone AS local_now
+               FROM (SELECT name, COALESCE(NULLIF(timezone, ''), 'Asia/Kolkata') AS zone
+                       FROM schools WHERE id = $1) AS school) AS clock`,
     [schoolId],
   )
   return result.rows[0] ?? null
@@ -471,6 +481,94 @@ async function staffLeaveDecisionCandidates(
   }))
 }
 
+/** The latest moment, 'HH:MM', a digest about yesterday may still go: HOMEWORK_DIGEST_LAST_HOUR o'clock. */
+const DIGEST_LAST_TIME = `${String(HOMEWORK_DIGEST_LAST_HOUR).padStart(2, '0')}:00`
+
+/** An ISO date moved by whole days, without touching the local clock. */
+function shiftDay(isoDate: string, days: number): string {
+  const moved = new Date(`${isoDate}T00:00:00Z`)
+  moved.setUTCDate(moved.getUTCDate() + days)
+  return moved.toISOString().slice(0, 10)
+}
+
+/**
+ * Which day's homework digest is due at this moment on the school's clock,
+ * or null when none is. Day D's digest is due from the school's digest time
+ * on D and may still go until 09:00 on D + 1, so the morning cron sends one
+ * the evening pump missed; after that it is skipped, never sent late.
+ */
+export function homeworkDigestDay(today: string, time: string, digestTime: string): string | null {
+  if (time >= digestTime) return today
+  if (time < DIGEST_LAST_TIME) return shiftDay(today, -1)
+  return null
+}
+
+/**
+ * One digest per pupil with at least one item, not removed, set on `day` in a
+ * section the pupil was enrolled in that day (the rule a family reads an item
+ * by). The message names the pupil's class that day; the list holds every
+ * such item, built by homeworkDigestList so a long day keeps its budget.
+ */
+async function homeworkDigestCandidates(
+  conn: AuthzConnection,
+  schoolId: string,
+  day: string,
+  limit: number,
+): Promise<Candidate[]> {
+  const enrolledThatDay = `en.school_id = st.school_id AND en.student_id = st.id
+            AND en.joined_on <= $2::date AND (en.left_on IS NULL OR en.left_on >= $2::date)`
+  const setThatDay = `hw.school_id = en.school_id AND hw.section_id = en.section_id
+            AND hw.academic_year_id = en.academic_year_id AND hw.set_on = $2::date AND hw.removed_at IS NULL`
+  const result = await conn.client.query<PupilRow & { entries: { subject: string; title: string; dueOn: string }[] }>(
+    `SELECT st.id AS student_id, st.first_name, st.last_name, cls.section_id, cls.academic_year_id,
+            cls.class_label, items.entries
+       FROM students st
+       JOIN LATERAL (
+         SELECT en.section_id, en.academic_year_id, gr.name || ' ' || sec.name AS class_label
+           FROM enrollments en
+           JOIN sections sec ON sec.school_id = en.school_id AND sec.id = en.section_id
+           JOIN grades gr ON gr.school_id = sec.school_id AND gr.id = sec.grade_id
+          WHERE ${enrolledThatDay}
+            AND EXISTS (SELECT 1 FROM homework hw WHERE ${setThatDay})
+          ORDER BY en.joined_on DESC, en.id
+          LIMIT 1
+       ) cls ON true
+       CROSS JOIN LATERAL (
+         SELECT json_agg(json_build_object('subject', one.subject, 'title', one.title, 'dueOn', one.due_on)) AS entries
+           FROM (SELECT DISTINCT hw.id, COALESCE(sub.name, 'General') AS subject, hw.title,
+                        to_char(hw.due_on, 'YYYY-MM-DD') AS due_on
+                   FROM enrollments en
+                   JOIN homework hw ON ${setThatDay}
+                   LEFT JOIN subjects sub ON sub.school_id = hw.school_id AND sub.id = hw.subject_id
+                  WHERE ${enrolledThatDay}) one
+       ) items
+      WHERE st.school_id = $1 AND st.status = 'active' AND st.anonymised_at IS NULL
+        AND st.id IN (SELECT en.student_id
+                        FROM homework hw
+                        JOIN enrollments en ON en.school_id = hw.school_id AND en.section_id = hw.section_id
+                         AND en.academic_year_id = hw.academic_year_id
+                         AND en.joined_on <= $2::date AND (en.left_on IS NULL OR en.left_on >= $2::date)
+                       WHERE hw.school_id = $1 AND hw.set_on = $2::date AND hw.removed_at IS NULL)
+        AND ${notSent(`'homework_digest:' || st.id || ':' || $2`)}
+      ORDER BY st.id
+      LIMIT $3`,
+    [schoolId, day, limit],
+  )
+  return result.rows.map((row) =>
+    pupilCandidate(row, `homework_digest:${row.student_id}:${day}`, {
+      date: formatMessageDate(day),
+      homework_list: homeworkDigestList(
+        (row.entries ?? []).map((entry) => ({
+          subject: entry.subject,
+          title: entry.title,
+          dueOn: entry.dueOn,
+          dueLabel: formatMessageDate(entry.dueOn),
+        })),
+      ),
+    }),
+  )
+}
+
 /** The kinds addressed to one staff member rather than to a pupil's family. */
 function toStaffMember(kind: AutomaticMessageKind): boolean {
   return kind === 'birthday_staff' || kind === 'leave_decision_staff'
@@ -596,6 +694,13 @@ export async function createAutomaticMessages(
   }
   if (daily && settings.birthdaysStaffEnabled)
     await run('birthday_staff', (limit) => staffBirthdayCandidates(conn, schoolId, clock.today, limit))
+  // The evening homework digest, to families only. Never about a day before
+  // automatic messages started here.
+  if (settings.homeworkDigestEnabled) {
+    const day = homeworkDigestDay(clock.today, clock.time, settings.homeworkDigestTime)
+    if (day !== null && clock.since_day !== null && day >= clock.since_day)
+      await run('homework_digest', (limit) => homeworkDigestCandidates(conn, schoolId, day, limit))
+  }
 
   return { created }
 }

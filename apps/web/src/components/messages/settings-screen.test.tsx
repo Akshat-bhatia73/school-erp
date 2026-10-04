@@ -87,3 +87,33 @@ describe('leave decisions on the automatic messages screen', () => {
     })))
   })
 })
+
+describe('the evening homework message on the automatic messages screen', () => {
+  // Radix Select measures and captures the pointer; jsdom has neither.
+  Element.prototype.hasPointerCapture ??= () => false
+  Element.prototype.releasePointerCapture ??= () => {}
+  Element.prototype.scrollIntoView ??= () => {}
+
+  it('has its own switch and time, and sends both with the rest of the settings', async () => {
+    await renderSettings()
+
+    const toggle = await screen.findByRole('switch', { name: 'Evening homework message on or off' })
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
+    const time = screen.getByRole('combobox', { name: 'Homework message time' })
+    expect(time).toHaveTextContent('5:00 pm')
+
+    await userEvent.click(time)
+    await userEvent.click(await screen.findByRole('option', { name: '6:30 pm' }))
+    await userEvent.click(toggle)
+    await userEvent.click(screen.getAllByRole('button', { name: /^Save/ })[0]!)
+    await waitFor(() => expect(messages.saveSettings).toHaveBeenCalled())
+    expect(messages.saveSettings.mock.calls[0]![1]).toMatchObject({ homeworkDigestEnabled: false, homeworkDigestTime: '18:30', expectedVersion: 4 })
+  })
+
+  it('shows the homework words with the homework list placeholder', async () => {
+    await renderSettings()
+    const title = await screen.findByDisplayValue(DEFAULT_MESSAGE_WORDING.homework_digest.title)
+    const panel = title.closest('section') as HTMLElement
+    expect(within(panel).getAllByText('{homework_list}').length).toBeGreaterThan(0)
+  })
+})

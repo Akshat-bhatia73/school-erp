@@ -352,3 +352,78 @@ test('a member removed longer ago than the grace period loses sessions and email
   // Attribution on old audit rows survives.
   assert.equal(user.rows[0]?.name, 'Gone Person')
 })
+
+test('homework a year past its academic year loses its files, then the item; the check-offs stay with the pupil', async () => {
+  const pool = adminPool()
+  const tag = randomUUID().slice(0, 8)
+  const oldYear = randomUUID()
+  const oldSection = randomUUID()
+  const pupil = randomUUID()
+  await pool.query(
+    `INSERT INTO academic_years (id, school_id, name, start_date, end_date, status)
+     VALUES ($1, $2, $3, '2023-04-01', '2024-03-31', 'closed')`,
+    [oldYear, SCHOOL_A, `Sweep HW ${tag}`],
+  )
+  await pool.query(`INSERT INTO sections (id, school_id, academic_year_id, grade_id, name) VALUES ($1, $2, $3, $4, $5)`, [
+    oldSection,
+    SCHOOL_A,
+    oldYear,
+    String(fixtureIds.gradeA),
+    `SW-${tag.slice(0, 4)}`,
+  ])
+  await pool.query(`INSERT INTO students (id, school_id, admission_number, first_name, status) VALUES ($1, $2, $3, 'Swept', 'left')`, [
+    pupil,
+    SCHOOL_A,
+    `SW/${tag}`,
+  ])
+  const item = async (yearId: string, sectionId: string, setOn: string): Promise<{ id: string; key: string }> => {
+    const id = randomUUID()
+    const key = `homework/${SCHOOL_A}/${randomUUID()}.pdf`
+    await pool.query(
+      `INSERT INTO homework (id, school_id, academic_year_id, section_id, title, set_on, due_on,
+                             created_by_membership_id, updated_by_membership_id)
+       VALUES ($1, $2, $3, $4, 'Swept homework', $5::date, $5::date + 2, $6, $6)`,
+      [id, SCHOOL_A, yearId, sectionId, setOn, OWNER_A],
+    )
+    await pool.query(
+      `INSERT INTO homework_attachments (school_id, homework_id, file_name, content_type, size_bytes, storage_key,
+                                         created_by_membership_id)
+       VALUES ($1, $2, 'sheet.pdf', 'application/pdf', 9, $3, $4)`,
+      [SCHOOL_A, id, key, OWNER_A],
+    )
+    server.documents.put(key, new TextEncoder().encode('old bytes'))
+    return { id, key }
+  }
+  const old = await item(oldYear, oldSection, '2023-06-05')
+  const live = await item(YEAR_A, String(fixtureIds.sectionA), '2026-06-05')
+  await pool.query(
+    `INSERT INTO homework_checks (school_id, homework_id, student_id, academic_year_id, section_id, status,
+                                  checked_by_membership_id)
+     VALUES ($1, $2, $3, $4, $5, 'done', $6)`,
+    [SCHOOL_A, old.id, pupil, oldYear, oldSection, OWNER_A],
+  )
+
+  const body = await runSweep()
+  assert.ok(body.swept['homework.files_removed']! >= 1, JSON.stringify(body))
+  assert.equal(body.swept['homework.files_left'], 0, JSON.stringify(body))
+  assert.ok(body.swept['homework.homework']! >= 1, JSON.stringify(body))
+  assert.equal(await server.documents.read(old.key), null)
+  assert.equal((await pool.query('SELECT 1 FROM homework WHERE id = $1', [old.id])).rowCount, 0)
+  const check = await pool.query<{ homework_id: string | null; status: string; section_id: string }>(
+    'SELECT homework_id, status, section_id FROM homework_checks WHERE student_id = $1',
+    [pupil],
+  )
+  assert.deepEqual(check.rows, [{ homework_id: null, status: 'done', section_id: oldSection }])
+  // This year's item and its file are untouched.
+  assert.notEqual(await server.documents.read(live.key), null)
+  assert.equal((await pool.query('SELECT 1 FROM homework WHERE id = $1', [live.id])).rowCount, 1)
+
+  // The rows this test made go again; only the sweep deletes homework, so its guard is lifted for the tidy-up.
+  await pool.query('DELETE FROM homework_checks WHERE student_id = $1', [pupil])
+  await pool.query('ALTER TABLE homework DISABLE TRIGGER homework_guard_delete')
+  await pool.query('DELETE FROM homework WHERE id = $1', [live.id])
+  await pool.query('ALTER TABLE homework ENABLE TRIGGER homework_guard_delete')
+  await pool.query('DELETE FROM students WHERE id = $1', [pupil])
+  await pool.query('DELETE FROM sections WHERE id = $1', [oldSection])
+  await pool.query('DELETE FROM academic_years WHERE id = $1', [oldYear])
+})

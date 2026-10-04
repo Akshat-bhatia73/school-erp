@@ -27,6 +27,7 @@ import * as logo from './logo'
 import * as messages from './messages'
 import * as studentLogins from './student-logins'
 import * as assistant from './assistant'
+import * as homework from './homework'
 
 export const api = {
   setup,
@@ -69,6 +70,10 @@ export const api = {
     export: messages.exportDelivery,
   },
   assistant,
+  homework: {
+    ...homework,
+    export: homework.exportReport,
+  },
 } as const
 
 export * from './shared'

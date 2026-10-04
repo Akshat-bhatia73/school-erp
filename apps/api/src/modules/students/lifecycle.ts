@@ -125,6 +125,15 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
           [context.schoolId, studentId],
         )
 
+        // Homework remarks are the same kind of note (Task 25): they go, with a
+        // version bump; the statuses stay as the class's record. The database
+        // allows exactly this change on a removed item's check-off too.
+        const homeworkRemarksCleared = await conn.client.query(
+          `UPDATE homework_checks SET remark = NULL, version = version + 1, updated_at = now()
+            WHERE school_id = $1 AND student_id = $2 AND remark IS NOT NULL`,
+          [context.schoolId, studentId],
+        )
+
         // Messages about the child lose their words, whatever their status,
         // and the masked email addresses of the guardians anonymised just now
         // go from the delivery record. A guardian anonymised in this
@@ -167,6 +176,7 @@ export function registerStudentLifecycleRoutes(app: FastifyInstance, deps: Modul
             feeReceiptsCleared: cleared.rowCount ?? 0,
             reportCardRemarksCleared: entriesCleared.rowCount ?? 0,
             reportCardVersionRemarksCleared: versionsCleared.rowCount ?? 0,
+            homeworkRemarksCleared: homeworkRemarksCleared.rowCount ?? 0,
             messagesRedacted: messagesRedacted.rowCount ?? 0,
             messageEmailsCleared: messageEmailsCleared.rowCount ?? 0,
             assistantThreadsDeleted: assistantThreads.rowCount ?? 0,

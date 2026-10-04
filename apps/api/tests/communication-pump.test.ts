@@ -19,6 +19,7 @@ import { MESSAGE_EMAIL_MAX_ATTEMPTS, ROLE_TEMPLATES } from '@erp/contracts'
 import type { DeliveryAdapter } from '../src/delivery/types.ts'
 import type { DispatchDependencies } from '../src/modules/communication/common.ts'
 import { runEmailQueue } from '../src/modules/communication/email.ts'
+import { homeworkDigestDay } from '../src/modules/communication/automatic.ts'
 import { runMessagePump } from '../src/modules/communication/pump.ts'
 import {
   adminPool,
@@ -381,6 +382,264 @@ test('a fee reminder names the instalment after the concession', async () => {
     [`fee_overdue:${feePupil}:${today}`],
   )
   assert.equal(overdue[0]?.title, 'Fee dues of ₹6,000 for Fees')
+})
+
+// ---------------------------------------------------------------------------
+// The evening homework digest (Task 25).
+
+test('the digest day: from the digest time on the day, until 09:00 the next morning, then skipped', () => {
+  assert.equal(homeworkDigestDay('2026-10-05', '17:00', '17:00'), '2026-10-05')
+  assert.equal(homeworkDigestDay('2026-10-05', '23:59', '17:00'), '2026-10-05')
+  assert.equal(homeworkDigestDay('2026-10-05', '16:59', '17:00'), null)
+  assert.equal(homeworkDigestDay('2026-10-05', '12:00', '17:00'), null)
+  assert.equal(homeworkDigestDay('2026-10-05', '09:00', '17:00'), null)
+  assert.equal(homeworkDigestDay('2026-10-06', '08:59', '17:00'), '2026-10-05')
+  assert.equal(homeworkDigestDay('2026-10-06', '00:00', '21:00'), '2026-10-05')
+  assert.equal(homeworkDigestDay('2026-11-01', '08:00', '17:00'), '2026-10-31')
+})
+
+const hwSection = randomUUID()
+const hwPupil = randomUUID()
+const hwQuiet = randomUUID()
+const hwLate = randomUUID()
+
+async function homeworkItem(input: {
+  schoolId: string
+  yearId: string
+  sectionId: string
+  setOn: string
+  dueOffset: number
+  title: string
+  membershipId: string
+  removed?: boolean
+}): Promise<void> {
+  await adminPool().query(
+    `INSERT INTO homework(school_id,academic_year_id,section_id,title,set_on,due_on,created_by_membership_id,
+                          updated_by_membership_id,removed_at,removed_by_membership_id)
+     VALUES ($1,$2,$3,$4,$5::date,$5::date + $6::int,$7,$7,
+             CASE WHEN $8 THEN now() END, CASE WHEN $8 THEN $7::uuid END)`,
+    [input.schoolId, input.yearId, input.sectionId, input.title, input.setOn, input.dueOffset, input.membershipId, input.removed === true],
+  )
+}
+
+async function guardianFor(schoolId: string, studentId: string, recordedBy: string, consent: boolean): Promise<string> {
+  const id = randomUUID()
+  const pool = adminPool()
+  await pool.query(`INSERT INTO guardians(id,school_id,first_name,email) VALUES ($1,$2,'Homework parent',$3)`, [
+    id,
+    schoolId,
+    `hw.parent.${randomUUID().slice(0, 8)}@gmail.com`,
+  ])
+  await pool.query(
+    `INSERT INTO student_guardians(school_id,student_id,guardian_id,relation) VALUES ($1,$2,$3,'mother')`,
+    [schoolId, studentId, id],
+  )
+  if (consent)
+    await pool.query(
+      `INSERT INTO guardian_consents(school_id,student_id,guardian_id,purpose,status,method,recorded_by_membership_id)
+       VALUES ($1,$2,$3,'communication','given','signed_form',$4)`,
+      [schoolId, studentId, id, recordedBy],
+    )
+  return id
+}
+
+test('the homework digest waits for its time and its switch, goes once per pupil and keeps its budget', async () => {
+  const pool = adminPool()
+  await pool.query(`INSERT INTO sections(id,school_id,academic_year_id,grade_id,name) VALUES ($1,$2,$3,$4,'H')`, [
+    hwSection,
+    school,
+    year,
+    grade,
+  ])
+  await pupil(hwPupil, 'Homework', hwSection)
+  await pupil(hwQuiet, 'Quiet', hwSection)
+  await pool.query(
+    `INSERT INTO students(id,school_id,admission_number,first_name,last_name,status) VALUES ($1,$2,$3,'Late','Pump','active')`,
+    [hwLate, school, `PMP/${suffix}/Late`],
+  )
+  // Joins tomorrow: not in the class on the day the homework was set.
+  await pool.query(
+    `INSERT INTO enrollments(school_id,student_id,academic_year_id,section_id,roll_number,joined_on)
+     VALUES ($1,$2,$3,$4,3,$5::date + 1)`,
+    [school, hwLate, year, hwSection, today],
+  )
+  await guardianFor(school, hwPupil, owner, true)
+  await guardianFor(school, hwQuiet, owner, false)
+  // Thirty items today, one removed, and one set yesterday.
+  for (let index = 1; index <= 30; index += 1)
+    await homeworkItem({
+      schoolId: school,
+      yearId: year,
+      sectionId: hwSection,
+      setOn: today,
+      dueOffset: (index % 5) + 1,
+      title: index === 1 ? `Long ${'x'.repeat(110)}` : `Worksheet ${String(index).padStart(2, '0')}`,
+      membershipId: owner,
+    })
+  await homeworkItem({ schoolId: school, yearId: year, sectionId: hwSection, setOn: today, dueOffset: 1, title: 'Taken back', membershipId: owner, removed: true })
+  const yesterday = (await pool.query<{ d: string }>(`SELECT to_char($1::date - 1, 'YYYY-MM-DD') AS d`, [today])).rows[0]?.d ?? ''
+  await homeworkItem({ schoolId: school, yearId: year, sectionId: hwSection, setOn: yesterday, dueOffset: 2, title: 'Old news', membershipId: owner })
+
+  // Before its time (the clock reads about 14:00): nothing.
+  await pool.query(`UPDATE communication_settings SET homework_digest_time = '21:00' WHERE school_id = $1`, [school])
+  await pump()
+  assert.equal((await messagesOf('homework_digest')).length, 0)
+  // Switched off: nothing.
+  await pool.query(
+    `UPDATE communication_settings SET homework_digest_time = '12:00', homework_digest_enabled = false WHERE school_id = $1`,
+    [school],
+  )
+  await pump()
+  assert.equal((await messagesOf('homework_digest')).length, 0)
+
+  await pool.query(`UPDATE communication_settings SET homework_digest_enabled = true WHERE school_id = $1`, [school])
+  await pump()
+  const sent = await messagesOf('homework_digest')
+  assert.deepEqual(
+    sent.map((row) => row.dedupe_key).sort(),
+    [`homework_digest:${hwPupil}:${today}`, `homework_digest:${hwQuiet}:${today}`].sort(),
+  )
+  const mine = sent.find((row) => row.student_id === hwPupil)
+  assert.equal(mine?.status, 'sent')
+  const [y, m, d] = today.split('-')
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  assert.equal(mine?.title, `Homework for Homework, ${Number(d)} ${months[Number(m) - 1]} ${y}`)
+  const body = mine?.body ?? ''
+  assert.ok(body.length <= 5000)
+  const lines = body.split('\n').filter((line) => line.startsWith('- '))
+  // Twelve items, soonest due first, then one closing line for the other eighteen.
+  assert.equal(lines.length, 13, body)
+  assert.equal(lines[12], '- and 18 more, see Homework in the app')
+  assert.match(lines[0] ?? '', /^- General: (Long x+…|Worksheet \d\d) \(due /)
+  assert.ok(lines.some((line) => line.includes('…')), 'the long title is cut')
+  assert.doesNotMatch(body, /Taken back|Old news/)
+  assert.match(body, /Homework Pump, Class 4 H/)
+
+  // Consent decides who it reaches: the family that agreed, not the one that did not.
+  const outcomes = await pool.query<{ student_id: string; outcome: string }>(
+    `SELECT m.student_id, r.outcome FROM message_recipients r JOIN messages m ON m.id = r.message_id
+      WHERE m.school_id = $1 AND m.kind = 'homework_digest' AND NOT r.is_student ORDER BY r.outcome`,
+    [school],
+  )
+  assert.deepEqual(
+    outcomes.rows.map((row) => [row.student_id === hwPupil ? 'agreed' : 'quiet', row.outcome]).sort(),
+    [['agreed', 'delivered'], ['quiet', 'no_consent']],
+  )
+  // A message to the family only, never to the pupil's own login.
+  const own = await pool.query(
+    `SELECT 1 FROM message_recipients r JOIN messages m ON m.id = r.message_id
+      WHERE m.school_id = $1 AND m.kind = 'homework_digest' AND r.is_student`,
+    [school],
+  )
+  assert.equal(own.rows.length, 0)
+
+  await pump()
+  assert.equal((await messagesOf('homework_digest')).length, 2)
+})
+
+/** An Etc zone whose clock reads `hour` o'clock now, give or take the minutes. */
+function zoneAt(hour: number): string {
+  let offset = hour - new Date().getUTCHours()
+  if (offset < -12) offset += 24
+  if (offset > 14) offset -= 24
+  if (offset === 0) return 'Etc/UTC'
+  return offset > 0 ? `Etc/GMT-${offset}` : `Etc/GMT+${-offset}`
+}
+
+/** A small school of its own whose clock reads `hour`, with one pupil and homework set yesterday. */
+async function digestSchool(hour: number): Promise<{ id: string; pupilId: string; yesterday: string }> {
+  const pool = adminPool()
+  const id = randomUUID()
+  const tag = randomUUID().slice(0, 8)
+  await pool.query(`INSERT INTO schools(id,login_code,name,short_name,timezone) VALUES ($1,$2,$3,'DGS',$4)`, [
+    id,
+    `digest-${tag}`,
+    `Digest School ${tag}`,
+    zoneAt(hour),
+  ])
+  const userId = randomUUID()
+  const membershipId = randomUUID()
+  await pool.query(`INSERT INTO auth_user(id,name,email) VALUES ($1,'Digest Owner',$2)`, [userId, `digest-${tag}@example.test`])
+  await pool.query(`INSERT INTO school_memberships(id,school_id,user_id,kind,status) VALUES ($1,$2,$3,'adult','active')`, [
+    membershipId,
+    id,
+    userId,
+  ])
+  const yearId = randomUUID()
+  const gradeId = randomUUID()
+  const sectionId = randomUUID()
+  await pool.query(
+    `INSERT INTO academic_years(id,school_id,name,start_date,end_date,status)
+     VALUES ($1,$2,$3,current_date - 100,current_date + 200,'current')`,
+    [yearId, id, `DGS-${tag}`],
+  )
+  await pool.query(`INSERT INTO grades(id,school_id,name,short_name,sort_order) VALUES ($1,$2,'Class 6','C6',6)`, [gradeId, id])
+  await pool.query(`INSERT INTO sections(id,school_id,academic_year_id,grade_id,name) VALUES ($1,$2,$3,$4,'A')`, [
+    sectionId,
+    id,
+    yearId,
+    gradeId,
+  ])
+  const pupilId = randomUUID()
+  await pool.query(
+    `INSERT INTO students(id,school_id,admission_number,first_name,last_name,status) VALUES ($1,$2,$3,'Digest','Pupil','active')`,
+    [pupilId, id, `DGS/${tag}`],
+  )
+  await pool.query(
+    `INSERT INTO enrollments(school_id,student_id,academic_year_id,section_id,roll_number,joined_on)
+     VALUES ($1,$2,$3,$4,1,current_date - 100)`,
+    [id, pupilId, yearId, sectionId],
+  )
+  await guardianFor(id, pupilId, membershipId, true)
+  const local = await pool.query<{ yesterday: string }>(
+    `SELECT to_char((now() AT TIME ZONE timezone)::date - 1, 'YYYY-MM-DD') AS yesterday FROM schools WHERE id = $1`,
+    [id],
+  )
+  const yesterday = local.rows[0]?.yesterday ?? ''
+  await homeworkItem({ schoolId: id, yearId, sectionId, setOn: yesterday, dueOffset: 3, title: 'Read chapter 4', membershipId })
+  // Automatic messages started three days ago here.
+  await pool.query(
+    `INSERT INTO communication_settings(school_id, automatic_since) VALUES ($1, now() - interval '3 days')`,
+    [id],
+  )
+  return { id, pupilId, yesterday }
+}
+
+async function pumpSchool(schoolId: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const counts = await runMessagePump(deps, schoolId, `pump-test-${randomUUID()}`)
+    if (counts.skipped === undefined) return
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error('the pump never got the school lock')
+}
+
+async function digestKeys(schoolId: string): Promise<string[]> {
+  const found = await adminPool().query<{ dedupe_key: string }>(
+    `SELECT dedupe_key FROM messages WHERE school_id = $1 AND kind = 'homework_digest' ORDER BY dedupe_key`,
+    [schoolId],
+  )
+  return found.rows.map((row) => row.dedupe_key)
+}
+
+test("the morning run sends yesterday's digest the evening missed, until 09:00 and never after", async () => {
+  // 08:00 on the school's clock: yesterday's digest may still go.
+  const early = await digestSchool(8)
+  // Not about a day before automatic messages started.
+  await adminPool().query(`UPDATE communication_settings SET automatic_since = now() WHERE school_id = $1`, [early.id])
+  await pumpSchool(early.id)
+  assert.deepEqual(await digestKeys(early.id), [])
+  await adminPool().query(
+    `UPDATE communication_settings SET automatic_since = now() - interval '3 days' WHERE school_id = $1`,
+    [early.id],
+  )
+  await pumpSchool(early.id)
+  assert.deepEqual(await digestKeys(early.id), [`homework_digest:${early.pupilId}:${early.yesterday}`])
+
+  // 10:00: past the cut-off and before the evening, so yesterday's is skipped for good.
+  const late = await digestSchool(10)
+  await pumpSchool(late.id)
+  assert.deepEqual(await digestKeys(late.id), [])
 })
 
 test('a failing email is tried again and recorded as failed after the fifth attempt, never as sent', async () => {

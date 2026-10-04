@@ -31,6 +31,7 @@ export const KIND_COLOR: Readonly<Record<MessageKind, TagColor>> = {
   birthday_staff: 'pink',
   leave_decision_pupil: 'teal',
   leave_decision_staff: 'teal',
+  homework_digest: 'cyan',
 }
 
 export const STATUS_LABEL: Readonly<Record<MessageStatus, string>> = {

@@ -597,3 +597,50 @@ test('leave applications: parent own child, class teacher alone, staff self, nev
   assert.equal(matchesScope('self', classTeacher, pupilRow), false, 'a pupil row names no staff member')
   assert.equal(matchesScope('school', classTeacher, staffRow), true)
 })
+
+test('homework: the class teacher reads the class and writes general items; subject teachers their subject; families through the pupil', () => {
+  const item: ResourceFacts = {
+    resourceType: 'homework',
+    id: 'homework-1',
+    sectionIds: ['section-1'],
+    academicYearId: 'year-1',
+    subjectIds: ['maths'],
+    general: false,
+    removed: false,
+  }
+  const general: ResourceFacts = { ...item, id: 'homework-2', subjectIds: [], general: true }
+  const classTeacher: RelationshipFacts = {
+    selfStaffId: 'staff-1',
+    assignments: [],
+    classTeacherSections: [{ sectionId: 'section-1', academicYearId: 'year-1' }],
+    ownChildStudentIds: [],
+  }
+  const subjectTeacher: RelationshipFacts = {
+    selfStaffId: 'staff-2',
+    assignments: [{ sectionId: 'section-1', subjectId: 'maths', academicYearId: 'year-1' }],
+    ownChildStudentIds: [],
+  }
+  assert.equal(matchesScope('assigned_sections', classTeacher, item, 'homework.read'), true)
+  assert.equal(matchesScope('assigned_sections', classTeacher, item, 'homework.set'), false, 'a subject item is the subject teacher\'s')
+  assert.equal(matchesScope('assigned_sections', classTeacher, item, 'homework.check'), false)
+  assert.equal(matchesScope('assigned_sections', classTeacher, item), false, 'no permission reads as a write')
+  assert.equal(matchesScope('assigned_sections', classTeacher, general, 'homework.set'), true)
+  assert.equal(matchesScope('assigned_sections', classTeacher, general, 'homework.check'), true)
+  assert.equal(matchesScope('assigned_sections', classTeacher, { ...general, sectionIds: ['section-2'] }, 'homework.read'), false)
+  assert.equal(matchesScope('assigned_sections', subjectTeacher, general, 'homework.read'), false, 'teaching a subject is not the class')
+  assert.equal(matchesScope('assigned_subjects', subjectTeacher, item, 'homework.set'), true)
+  assert.equal(matchesScope('assigned_subjects', subjectTeacher, { ...item, subjectIds: ['science'] }, 'homework.read'), false)
+  assert.equal(matchesScope('assigned_subjects', subjectTeacher, general, 'homework.set'), false, 'general homework has no subject')
+  assert.equal(matchesScope('assigned_subjects', classTeacher, item, 'homework.read'), false)
+
+  const parent: RelationshipFacts = { selfStaffId: null, assignments: [], ownChildStudentIds: ['pupil-1'] }
+  const check: ResourceFacts = { ...item, id: 'check-1', studentId: 'pupil-1' }
+  assert.equal(matchesScope('own_children', parent, check, 'homework.read'), true)
+  assert.equal(matchesScope('own_children', parent, { ...check, academicYearId: 'year-0' }, 'homework.read'), true, 'any year')
+  assert.equal(matchesScope('own_children', parent, { ...check, studentId: 'pupil-2' }, 'homework.read'), false, 'another pupil\'s check')
+  assert.equal(matchesScope('own_children', parent, { ...check, removed: true }, 'homework.read'), false, 'removed is gone')
+  assert.equal(matchesScope('own_children', parent, item, 'homework.read'), false, 'an item names no child of the caller')
+  const pupil: RelationshipFacts = { selfStaffId: null, assignments: [], ownChildStudentIds: [], ownStudentId: 'pupil-1' }
+  assert.equal(matchesScope('own_record', pupil, check, 'homework.read'), true)
+  assert.equal(matchesScope('own_record', pupil, { ...check, studentId: 'pupil-2' }, 'homework.read'), false)
+})

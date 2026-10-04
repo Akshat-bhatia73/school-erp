@@ -38,6 +38,8 @@ const examYear = randomUUID()
 const examSection = randomUUID()
 const examSubject = randomUUID()
 const examPt1 = randomUUID()
+const homeworkLive = randomUUID()
+const homeworkRemoved = randomUUID()
 const examHalf = randomUUID()
 
 let server: TestServer
@@ -207,6 +209,36 @@ before(async () => {
     [schoolA, examPt1, examYear, examSection, fixtureIds.ownerA as string],
   )
 
+  // Homework check-offs (Task 25): the child's on a live item and on one
+  // removed since, and the other child's on the live item.
+  for (const [id, title] of [
+    [homeworkLive, 'Subject access worksheet'],
+    [homeworkRemoved, 'Subject access removed'],
+  ] as const) {
+    await pool.query(
+      `INSERT INTO homework(id,school_id,academic_year_id,section_id,title,set_on,due_on,
+                            created_by_membership_id,updated_by_membership_id)
+       VALUES ($1,$2,$3,$4,$5,'2026-04-13','2026-04-15',$6,$6)`,
+      [id, schoolA, fixtureIds.yearA as string, fixtureIds.sectionA as string, title, fixtureIds.ownerA as string],
+    )
+  }
+  for (const [itemId, studentId, status, remark] of [
+    [homeworkLive, studentA2, 'done', 'Neat work'],
+    [homeworkRemoved, studentA2, 'not_done', null],
+    [homeworkLive, studentA, 'not_done', 'Another child'],
+  ] as const) {
+    await pool.query(
+      `INSERT INTO homework_checks(school_id,homework_id,student_id,academic_year_id,section_id,status,remark,
+                                   checked_by_membership_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [schoolA, itemId, studentId, fixtureIds.yearA as string, fixtureIds.sectionA as string, status, remark, fixtureIds.ownerA as string],
+    )
+  }
+  await pool.query(`UPDATE homework SET removed_at = now(), removed_by_membership_id = $2 WHERE id = $1`, [
+    homeworkRemoved,
+    fixtureIds.ownerA as string,
+  ])
+
   await setFixturePassword(server, parentUserId, PASSWORD)
   await setFixturePassword(server, teacherUser, PASSWORD)
   owner = await signInWithMfa(server, { userId: ownerUserId, email: OWNER_EMAIL, password: PASSWORD })
@@ -216,6 +248,11 @@ before(async () => {
 
 after(async () => {
   const pool = adminPool()
+  // Only the retention sweep deletes homework, so its guard is lifted for the tidy-up alone.
+  await pool.query('DELETE FROM homework_checks WHERE homework_id = ANY($1::uuid[])', [[homeworkLive, homeworkRemoved]])
+  await pool.query('ALTER TABLE homework DISABLE TRIGGER homework_guard_delete')
+  await pool.query('DELETE FROM homework WHERE id = ANY($1::uuid[])', [[homeworkLive, homeworkRemoved]])
+  await pool.query('ALTER TABLE homework ENABLE TRIGGER homework_guard_delete')
   for (const userId of [ownerUserId, parentUserId]) {
     await pool.query('DELETE FROM auth_two_factor WHERE user_id = $1', [userId])
     await pool.query('UPDATE auth_user SET two_factor_enabled = false WHERE id = $1', [userId])
@@ -291,6 +328,24 @@ test("the owner's export carries the live marks of every exam", async () => {
     year.exams.map((exam) => exam.exam.kind).sort(),
     ['half_yearly', 'periodic_test_1'],
   )
+})
+
+test("the export carries the child's own homework check-offs, a family's copy without removed items", async () => {
+  const family = await parsedExport(parent, studentA2)
+  assert.deepEqual(
+    family.homework?.map((row) => [row.title, row.status, row.remark, row.dueOn]),
+    [['Subject access worksheet', 'done', 'Neat work', '2026-04-15']],
+  )
+  assert.equal(family.homework?.[0]?.section.id, fixtureIds.sectionA as string)
+  const office = await parsedExport(owner, studentA2)
+  assert.deepEqual(
+    office.homework?.map((row) => [row.title, row.status]).sort(),
+    [
+      ['Subject access removed', 'not_done'],
+      ['Subject access worksheet', 'done'],
+    ],
+  )
+  assert.ok(!JSON.stringify(office).includes('Another child'), "another pupil's check-off never appears")
 })
 
 test('a parent is refused another family\'s child', async () => {

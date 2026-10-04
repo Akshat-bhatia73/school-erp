@@ -201,6 +201,29 @@ uses, never to the internet; checklist item 16 checks both halves.
 Migrations run as `erp_migrator` and only at deploy time. The running service
 never holds that login.
 
+Migration `0030_homework.sql` is the homework release (Task 25). It is
+additive: three new tables (`homework`, `homework_attachments`,
+`homework_checks`) with their guard triggers, two columns on
+`communication_settings` (`homework_digest_enabled`, default true, and
+`homework_digest_time`, default `17:00`), three CHECK constraints widened
+(`messages.kind` and `message_templates.kind` gain `homework_digest`,
+`export_jobs.kind` gains `homework_report`), read access for `erp_maintenance`
+to `academic_years` (school, id and end date) with its policy, and three
+`SECURITY DEFINER` functions owned by `erp_maintenance`
+(`list_expired_homework_attachments`, `forget_homework_attachment`,
+`sweep_homework`), so the previous version of the code runs against it.
+**It changes the role templates**: the four `homework.*` keys become active, so
+every existing school needs `pnpm db:sync-roles` with the migrator credential,
+after the migration and before the smoke test; a school on the previous
+templates gains 17 grants (four each for owner, principal and admin, three for
+teacher, one each for parent and student, none for the accountant). Without it
+nobody holds a homework key and the Homework screen is missing. It needs no new
+setting: files go to the same private store, and the evening message through
+the same pump, Resend key and crons. The order is the same: migrate,
+`migrate:check`, `db:sync-roles`, merge, deploy, smoke. A school's evening
+homework messages start the first time the pump runs for it after the release,
+never about an earlier day.
+
 Migration `0021_assistant.sql` is the assistant release (Task 24, part 24a). It
 is additive: four new tables (`assistant_settings`, `assistant_threads`,
 `assistant_messages`, `assistant_usage`), one `SECURITY DEFINER` function owned
@@ -405,12 +428,20 @@ It also removes messages two years after they went out (and drafts untouched for
 a year): the attachment bytes first, then the rows (`sweep_messages`), reported
 as `messages.files_removed`, `messages.files_left` and `messages.messages`.
 
+It also removes homework once its academic year ended more than a year ago: the
+file bytes first (`list_expired_homework_attachments`, then
+`forget_homework_attachment` for each one removed), then the items
+(`sweep_homework`). An item whose file bytes could not be removed waits for the
+next run. Pupils' check-offs stay, with the link to the item emptied.
+
 ## 6.1.1 The message pump
 
 `GET /api/maintenance/messages`, scheduled in `vercel.json` at 02:30 UTC (08:00 in
 India), runs the message pump for every school: scheduled messages whose time
 has come, the automatic messages that are due (absences, results, report cards,
-fee reminders, birthdays) and the email queue. Like the sweep it exists only when
+fee reminders, birthdays, leave decisions and the evening homework messages a
+school's evening pump missed, which may still go until 09:00) and the email
+queue. Like the sweep it exists only when
 `CRON_SECRET` is set, refuses any other bearer token, stops after 45 seconds
 (reporting `schools_left`) and logs one line of counts. The same pump also runs
 in the background whenever a member of the school has the app open (the unread
@@ -444,6 +475,8 @@ quote the same numbers. Periods start when the purpose ends, not when the row wa
 | Staff attendance (`staff_attendance_entries`) | With the staff record: employed, plus 8 years | Nothing prunes it today | The same grant and the `staff_attendance_entries_no_change` trigger |
 | Exam marks and publications (`exam_marks`, `exam_publications`), co-scholastic grades (`report_card_entries`) and published report cards (`report_card_versions.content`) | Permanently, as the pupil's academic record | Nothing | The runtime login holds no UPDATE or DELETE on marks and publications and the `exam_marks_no_change` and `exam_publications_no_change` triggers refuse every edit; `report_card_versions_no_change` refuses every edit of a published card except clearing its remarks |
 | The class teacher's remarks (`report_card_entries.remarks`, `report_card_versions.remarks`) | With the student sensitive fields: enrolled, plus 3 years after leaving | Anonymise | `POST /students/:studentId/anonymise` clears both in the same transaction |
+| Homework items and their files (`homework`, `homework_attachments`) | The item's academic year, plus one more year | Deleted, file bytes first; a removed item is kept for the same period | `list_expired_homework_attachments ()`, `forget_homework_attachment ()` then `sweep_homework ()`, daily |
+| Homework check-offs and remarks (`homework_checks`) | With the student sensitive fields: enrolled, plus 3 years after leaving | Nothing prunes the check-offs today; anonymisation clears the remark; they outlive the item with `homework_id` emptied | `POST /students/:studentId/anonymise`; the `homework_checks_guard` trigger allows exactly that change on a removed item |
 | Staff records (salary, identifier fragments, private contact) | Employed, plus 8 years after leaving for statutory payroll records | Anonymise contact and identifiers; keep employment dates and designation | `POST /staff/:id/anonymise` |
 | Login identity and credentials | While the person holds any active membership | Sessions end when the last membership is removed; credentials go 30 days later, keeping `auth_user.id` and the name for audit attribution | Membership removal, then `sweep_orphaned_credentials` |
 | Sessions, one-time codes, reset tokens, throttle rows, held text messages | Until expiry | Deleted | `sweep_auth_transients`, daily |

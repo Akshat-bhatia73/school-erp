@@ -27,6 +27,7 @@ import { loadSchedules, scheduleForGrade, type Schedule } from './bell.ts'
 import { countLeaveApplicationsPending, enrollmentScope, substitutionScope } from './office.ts'
 import { attendancePlans } from '../attendance/figures.ts'
 import { marksToEnter } from './exams.ts'
+import { readHomeworkToCheck } from '../homework/reads.ts'
 
 type WeekRow = {
   section_id: string
@@ -268,7 +269,17 @@ export async function teacherDashboard(
   // Their class's pupil applications waiting for them; absent without the
   // decide key, which for a teacher is the class-teacher post.
   const leaveApplicationsPending = await countLeaveApplicationsPending(conn, context, 'student')
-  const waiting = leaveApplicationsPending === undefined ? {} : { leaveApplicationsPending }
+  // "To check": homework past its due date with pupils not checked, through
+  // the homework plans, whatever year it was set in. Absent, not empty, for a
+  // teacher who checks homework nowhere.
+  const homeworkToCheck = await optionalBlock(async () => {
+    await readPlan(conn, context, 'homework.check', 'homework')
+    return readHomeworkToCheck(conn, context, date)
+  })
+  const waiting = {
+    ...(leaveApplicationsPending === undefined ? {} : { leaveApplicationsPending }),
+    ...(homeworkToCheck === undefined ? {} : { homeworkToCheck }),
+  }
 
   if (facts.selfStaffId === null || year === null) {
     return {

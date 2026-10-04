@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { CONSENT_PURPOSES, type ConsentPurpose, type ParentDashboard as ParentDashboardData } from '@erp/contracts'
 import { BentoGrid, Cell, DashboardCard } from './blocks/card'
 import { ReportCardLink } from '@/components/exams/dashboard-cards'
+import { HomeworkDueCard } from '@/components/homework/dashboard-cards'
 import { DayTimeline } from './blocks/timeline'
 import { EmptyState, Facts, SectionLabel } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
@@ -375,6 +376,10 @@ export function ParentDashboard({ data, isLoading, error }: { data?: ParentDashb
   const askForAssistant = guardianId !== undefined && hasPermission('students.manage_consents')
     ? data.children.filter((child) => child.hasPupilLogin && child.assistantConsent !== undefined && child.assistantConsent !== 'given')
     : []
+  // "Homework due" for every child the server sent it for, named when there is more than one.
+  const homeworkGroups = data.children.flatMap((child) => (child.homeworkDue
+    ? [{ key: child.student.id, name: data.children.length > 1 ? fullName(child.student) : undefined, due: child.homeworkDue }]
+    : []))
   return (
     <BentoGrid dense>
       {askForMessages && (
@@ -392,6 +397,9 @@ export function ParentDashboard({ data, isLoading, error }: { data?: ParentDashb
       ))}
       {classAside && (
         <Cell col={4} rows={6}><ClassCard enrollment={classAside} /></Cell>
+      )}
+      {homeworkGroups.length > 0 && (
+        <Cell col={12} rows={3}><HomeworkDueCard groups={homeworkGroups} /></Cell>
       )}
     </BentoGrid>
   )

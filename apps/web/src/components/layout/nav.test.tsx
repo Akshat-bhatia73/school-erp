@@ -114,6 +114,16 @@ describe('Sidebar', () => {
     expect(screen.queryByText('Exams & report cards')).not.toBeInTheDocument()
   })
 
+  it('offers Homework to anybody who reads homework, and to nobody else', async () => {
+    const { Sidebar } = await import('./sidebar')
+    const { unmount } = renderWithSession(<Sidebar onOpenQuickActions={() => {}} />, { roleKeys: ['teacher'], capabilities: ['homework.read', 'homework.set'] })
+    expect(screen.getByText('Homework').closest('a')).toHaveAttribute('href', '/homework')
+    unmount()
+
+    renderWithSession(<Sidebar onOpenQuickActions={() => {}} />, { roleKeys: ['accountant'], capabilities: ['fees.read'] })
+    expect(screen.queryByText('Homework')).not.toBeInTheDocument()
+  })
+
   it('hides Exams from somebody who reads neither', async () => {
     const { Sidebar } = await import('./sidebar')
     renderWithSession(<Sidebar onOpenQuickActions={() => {}} />, { roleKeys: ['accountant'], capabilities: ['fees.read'] })
@@ -152,14 +162,15 @@ describe('a pupil', () => {
   const PUPIL_CAPABILITIES = [
     'grades.read', 'sections.read', 'subjects.read', 'holidays.read', 'students.read_basic', 'students.read_enrollments',
     'timetable.read', 'dashboard.read', 'attendance.read', 'exams.read', 'report_cards.read', 'communication.read',
+    'homework.read',
   ] as const
 
-  it('sees Home, Timetable, Attendance, Exams and Messages and nothing of the office', async () => {
+  it('sees Home, Timetable, Attendance, Exams, Homework and Messages and nothing of the office', async () => {
     const { Sidebar } = await import('./sidebar')
     renderWithSession(<Sidebar onOpenQuickActions={() => {}} />, { roleKeys: ['student'], capabilities: [...PUPIL_CAPABILITIES] })
 
     const links = screen.getAllByRole('link').map((link) => link.textContent)
-    expect(links).toEqual(['Home', 'Timetable', 'Attendance', 'Exams', 'Messages'])
+    expect(links).toEqual(['Home', 'Timetable', 'Attendance', 'Exams', 'Homework', 'Messages'])
     expect(screen.queryByText('Students')).not.toBeInTheDocument()
     expect(screen.queryByText('School setup')).not.toBeInTheDocument()
     expect(screen.queryByText('Quick actions')).not.toBeInTheDocument()
@@ -242,5 +253,22 @@ describe('CommandMenu', () => {
     await userEvent.type(screen.getByPlaceholderText(/Search screens/), 'stu')
     await waitFor(() => expect(screen.queryByText('Students')).not.toBeInTheDocument())
     expect(searchRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('MobileTabBar', () => {
+  it('puts Homework in the bar of a parent who reads it', async () => {
+    const { MobileTabBar } = await import('./mobile-nav')
+    renderWithSession(<MobileTabBar />, { roleKeys: ['parent'], capabilities: ['homework.read', 'communication.read'] })
+    expect(screen.getByText('Homework').closest('a')).toHaveAttribute('href', '/homework')
+  })
+
+  it('leaves Homework to the drawer for staff, and out for somebody who cannot read it', async () => {
+    const { MobileTabBar } = await import('./mobile-nav')
+    const { unmount } = renderWithSession(<MobileTabBar />, { roleKeys: ['teacher'], capabilities: ['homework.read', 'timetable.read'] })
+    expect(screen.queryByText('Homework')).not.toBeInTheDocument()
+    unmount()
+    renderWithSession(<MobileTabBar />, { roleKeys: ['parent'], capabilities: ['communication.read'] })
+    expect(screen.queryByText('Homework')).not.toBeInTheDocument()
   })
 })

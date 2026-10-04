@@ -23,7 +23,7 @@ Owner or permission changed:
 - `students.enrollments` scope is now also applied to the class summary carried on a student hit in the roster, the search and the detail read, so a caller with no enrolment grant sees the pupil without the class.
 - Attaching an existing guardian during admission needs `students.manage_guardians` as well as `students.create`.
 - `subjects.setGradeSubjects` answers `GradeSubjectList`, not `Subject` or `EmptySuccess`.
-- Export job status polling (`GET /api/schools/:schoolId/exports/:jobId`) and the export file download (`GET /api/schools/:schoolId/exports/:jobId/file`) are endpoints this inventory does not list. Each requires one of `students.export`, `staff.export`, `audit.export`, `timetable.read`, `fees.export`, `fees.read`, `attendance.export`, `attendance.read`, `staff_attendance.export`, `exams.export`, `report_cards.export` or `communication.export` and then re-decides the permission the job itself recorded. The download also needs the job to be ready and to belong to the caller, and it writes one audit row.
+- Export job status polling (`GET /api/schools/:schoolId/exports/:jobId`) and the export file download (`GET /api/schools/:schoolId/exports/:jobId/file`) are endpoints this inventory does not list. Each requires one of `students.export`, `staff.export`, `audit.export`, `timetable.read`, `fees.export`, `fees.read`, `attendance.export`, `attendance.read`, `staff_attendance.export`, `exams.export`, `report_cards.export`, `communication.export` or `homework.export` and then re-decides the permission the job itself recorded. The download also needs the job to be ready and to belong to the caller, and it writes one audit row.
 - Three export endpoints this inventory does not list were added by decision on 19 September 2026: `POST /students/:studentId/export-profile` (`students.export`) and `POST /staff/:staffId/export-profile` (`staff.export`) turn one record into a document, and `POST /timetable/export` (`timetable.read`) turns one week into a spreadsheet or a document. Exporting a timetable is reading it in another format, so it carries the read permission rather than an export permission of its own.
 - `auditLogs.list` redaction by audience is the scope term: `audit.read` and `audit.export` at the `finance` scope select only rows whose action is in `FINANCE_AUDIT_ACTIONS`, so an accountant's list, count and export never exceed the money trail.
 - `timetable.bellSchedules` and `timetable.bellFor` are school-wide rather than matched scope: `timetable.read` is a permission over timetable entries, so no read plan can be built for a bell schedule.
@@ -100,6 +100,9 @@ Owner or permission changed:
 | `/messages/:messageId/edit` | `communication.send` / the author of a draft or a scheduled message, or `communication.manage` | `MessageDetail` | Task 22 |
 | `/messages/templates` | `communication.send` to read; `communication.manage` / school to change | `MessageTemplateList`, `MessageTemplate` | Task 22 |
 | `/messages/settings` | `communication.manage` / school | `CommunicationSettings` | Task 22 |
+| `/homework` | `homework.read` / school, the class-teacher post, assigned subjects, own children or own record; setting an item uses `homework.set` | `HomeworkListResponse` | Task 25 |
+| `/homework/:homeworkId` | `homework.read` / matched record scope (the item); edit, remove and files use `homework.set`; the check-off sheet uses `homework.read` to read and `homework.check` to save | `HomeworkDetail`, `HomeworkCheckSheet` | Task 25 |
+| `/homework/report` | `homework.check` / school, the class-teacher post or assigned subjects; the Excel file uses `homework.export` | `HomeworkReportResponse` | Task 25 |
 | `/assistant` | `ai_assistant.use` / self (every role; a pupil also needs a guardian's `ai_assistant` consent). Every answer reads through the other routes in this table as the person, so it reaches what their other keys reach and nothing more | `AssistantStatus`, `AssistantThreadList`, `AssistantThread`, the turn stream of `AssistantToolOutput` parts | Task 24 |
 | `/settings/assistant` | `ai_assistant.manage` / school | `AssistantSettings`, `AssistantUsage` | Task 24 |
 
@@ -281,6 +284,23 @@ extra checks is in [protected school APIs](./PROTECTED_APIS.md#messages).
 | `messages.export` | `communication.export` / school; privileged | `MessageExportJob` | Task 22 |
 | `messages.templates`, `messages.createTemplate`, `messages.updateTemplate`, `messages.archiveTemplate` | `communication.send` to read; `communication.manage` / school to change; privileged | `MessageTemplateList`, `MessageTemplate` | Task 22 |
 | `messages.settings`, `messages.saveSettings` | `communication.manage` / school; privileged | `CommunicationSettings` | Task 22 |
+
+The homework module (Task 25) added these. Every one is a `protectedRoute` under `/homework` except
+the upload and the file byte route, registered by hand like a message file; the route table with its
+extra checks is in [protected school APIs](./PROTECTED_APIS.md#homework).
+
+| Operation | Permission / scope | Safe response family | Owner |
+|---|---|---|---|
+| `homework.list` | `homework.read` / school, the class-teacher post (every item of the class), assigned subjects (own section and subject), own children or own record (the child's class on the day each item was set, every year, never a removed item) | `HomeworkListResponse` | Homework (0030) |
+| `homework.get` | `homework.read` / matched record scope (the item); a family gets its own children's status only | `HomeworkDetail` | Homework (0030) |
+| `homework.create` | `homework.set` / school (privileged), the class-teacher post for general items, or assigned subjects for the teacher's own section and subject; the row is decided through the plan after the insert and rolled back when it is not reached; the subject one of the class's subjects; due within 60 days and inside the year | `HomeworkDetail` | Homework (0030) |
+| `homework.update`, `homework.remove` | `homework.set` / matched record scope (the item), whoever wrote it; not removed; `expectedVersion`; never the section or subject; the remove reason is an audit note | `HomeworkDetail` | Homework (0030) |
+| `homework.addAttachment`, `homework.removeAttachment` | `homework.set` / matched record scope; not removed; `expectedVersion`; at most 3 files, PDF, JPEG or PNG by the first bytes, 4 MB each | `HomeworkDetail` | Homework (0030) |
+| `homework.downloadAttachment` | `homework.read` / matched record scope, decided again for every request through the detail plan; a byte stream | a byte stream | Homework (0030) |
+| `homework.checks` | `homework.read` / matched record scope, staff only (a family is refused); the roster on the due date, limited to the pupils the caller may name | `HomeworkCheckSheet` | Homework (0030) |
+| `homework.saveChecks` | `homework.check` / matched record scope; privileged at school scope; from the due date, until 14 days after it except at school scope; changed lines only, each with its version; one audit row per save with the remarks as its note | `HomeworkCheckSheet` | Homework (0030) |
+| `homework.report` | `homework.check` / school, the class-teacher post (general items) or assigned subjects; pupils named through `students.read_basic` | `HomeworkReportResponse` | Homework (0030) |
+| `homework.export` (`exportReport`) | `homework.export` / school; privileged; a `homework_report` job re-read under the requester's plans | `HomeworkExportJob` | Homework (0030) |
 
 ## Read auditing
 

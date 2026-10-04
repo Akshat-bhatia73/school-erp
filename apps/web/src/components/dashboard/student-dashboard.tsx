@@ -11,6 +11,7 @@ import { BentoGrid, Cell, DashboardCard } from '@/components/dashboard/blocks/ca
 import { DayTimeline } from '@/components/dashboard/blocks/timeline'
 import { CalendarTile, SimpleList } from '@/components/dashboard/blocks/list'
 import { ReportCardLink } from '@/components/exams/dashboard-cards'
+import { HomeworkDueCard } from '@/components/homework/dashboard-cards'
 import { Facts, SectionLabel } from '@/components/shared/page'
 import { Tag } from '@/components/shared/tag'
 import { UserAvatar } from '@/components/shared/avatar'
@@ -123,6 +124,11 @@ export function StudentDashboard({ data, isLoading, error }: { data?: StudentDas
           ) : undefined}
         </DashboardCard>
       </Cell>
+      {data.me.homeworkDue && (
+        <Cell col={12} rows={3}>
+          <HomeworkDueCard groups={[{ key: data.me.student.id, due: data.me.homeworkDue }]} />
+        </Cell>
+      )}
     </BentoGrid>
   )
 }

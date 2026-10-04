@@ -299,8 +299,12 @@ async function removePreviousSchool(client: pg.PoolClient): Promise<void> {
   await client.query('ALTER TABLE guardian_consents DISABLE TRIGGER guardian_consents_no_update')
   // A message that went out is kept; only a draft may be deleted.
   await client.query('ALTER TABLE messages DISABLE TRIGGER messages_guard_delete')
+  // Only the retention sweep deletes homework.
+  await client.query('ALTER TABLE homework DISABLE TRIGGER homework_guard_delete')
   const tables = [
     'assistant_usage', 'assistant_messages', 'assistant_threads', 'assistant_settings',
+    'homework_checks', 'homework_attachments', 'homework',
+    'leave_applications', 'leave_records',
     'message_recipients', 'message_attachments', 'messages', 'message_templates', 'communication_settings',
     'guardian_consents', 'audit_event_notes',
     'attendance_entries', 'staff_attendance_entries',
@@ -331,6 +335,7 @@ async function removePreviousSchool(client: pg.PoolClient): Promise<void> {
   await client.query('ALTER TABLE report_card_versions ENABLE TRIGGER report_card_versions_no_change')
   await client.query('ALTER TABLE guardian_consents ENABLE TRIGGER guardian_consents_no_update')
   await client.query('ALTER TABLE messages ENABLE TRIGGER messages_guard_delete')
+  await client.query('ALTER TABLE homework ENABLE TRIGGER homework_guard_delete')
   await client.query('DELETE FROM schools WHERE id = $1', [schoolId])
 
   // Identities are shared across schools, so only the ones with no membership
@@ -1892,6 +1897,183 @@ async function main(): Promise<void> {
         values,
       )
     }
+
+    // -------------------------------------------------------------- homework
+    // Task 25. Every section of this year: an item on about every other school
+    // day of the last three weeks, a third of them general homework from the
+    // class teacher and the rest from the subject teacher, checked off on the
+    // due date (mostly done, some partly done, a few not done with a remark).
+    // In each section the two newest past items are left for the teacher to
+    // check, so the "To check" card has something; one item is due today and
+    // one, set today, tomorrow, so the families' "Homework due" card does too.
+    // Nursery A (teacher1's class) also has one removed item, and in every
+    // fifth section one pupil has not done three items, for the report. No
+    // files: they would need the document store.
+    const HOMEWORK_TITLES: Readonly<Record<string, readonly string[]>> = {
+      general: ['Bring a leaf for the nature table', 'Read a story with a grown-up', 'Cover your notebooks', 'Practise your poem', 'Draw your family'],
+      subject: ['Worksheet', 'Exercise questions', 'Read the chapter and answer the questions', 'Learn the spellings', 'Revise for the class test', 'Complete the notebook work'],
+    }
+    const homeworkRemarks = ['Did not bring the notebook', 'Half done, please finish', 'Was absent the day it was set', 'Needs to be neater']
+    interface HomeworkRow {
+      id: string
+      sectionId: string
+      subjectId: string | null
+      title: string
+      setOn: string
+      dueOn: string
+      by: string
+      staffId: string | null
+      removed: boolean
+    }
+    interface HomeworkCheckRow {
+      homeworkId: string
+      studentId: string
+      sectionId: string
+      subjectId: string | null
+      status: 'done' | 'partly_done' | 'not_done'
+      remark: string | null
+      by: string
+      dueOn: string
+    }
+    const nextSchoolDay = (date: string): string => {
+      let next = shiftDays(date, 1)
+      for (let guard = 0; guard < 10 && !isSchoolDay(next); guard += 1) next = shiftDays(next, 1)
+      return next
+    }
+    const homeworkRows: HomeworkRow[] = []
+    const homeworkChecks: HomeworkCheckRow[] = []
+    const recentDays = markedDays.filter((date) => date < runDate && date >= shiftDays(runDate, -21))
+    for (const [index, section] of sectionsNow.entries()) {
+      const classTeacher = classTeacherOf.get(`${section.grade.sortOrder}-${section.name}`)
+      const subjects = subjectsFor(section.grade).filter((subject) => teacherFor.has(`${section.id}:${subject.id}`))
+      const author = (subjectId: string | null): { by: string; staffId: string | null } => {
+        const teacher = subjectId === null ? classTeacher : teacherFor.get(`${section.id}:${subjectId}`)
+        const membership = teacher ? teacherMembershipOf.get(teacher.id) : undefined
+        // A teacher with no login of their own: the principal entered it for
+        // them, and it still shows as the teacher's.
+        return membership !== undefined && teacher !== undefined
+          ? { by: membership, staffId: teacher.id }
+          : { by: principalMembership, staffId: teacher?.id ?? null }
+      }
+      const days = recentDays.filter((_, dayIndex) => (dayIndex + index) % 2 === 0)
+      const items: HomeworkRow[] = days.map((setOn, dayIndex) => {
+        // Counted from the newest, every third item is general homework, the newest one included.
+        const fromNewest = days.length - 1 - dayIndex
+        const subject = fromNewest % 3 === 0 || subjects.length === 0 ? null : (subjects[(dayIndex + index) % subjects.length] as SubjectSeed)
+        const titles = subject === null ? HOMEWORK_TITLES.general : HOMEWORK_TITLES.subject
+        const title = pick(titles as readonly string[])
+        const dueOn = nextSchoolDay(setOn)
+        return {
+          id: randomUUID(),
+          sectionId: section.id,
+          subjectId: subject?.id ?? null,
+          title,
+          setOn,
+          dueOn: dueOn > yearNow.end ? setOn : dueOn,
+          ...author(subject?.id ?? null),
+          removed: false,
+        }
+      })
+      // Due today (set two days ago, a subject's) when today is a school day,
+      // and due on the next school day (set today, general).
+      const todaySubject = subjects[index % Math.max(subjects.length, 1)]
+      if (isSchoolDay(runDate) && shiftDays(runDate, -2) >= yearNow.start) {
+        items.push({
+          id: randomUUID(),
+          sectionId: section.id,
+          subjectId: todaySubject?.id ?? null,
+          title: todaySubject ? pick(HOMEWORK_TITLES.subject as readonly string[]) : 'Practise your poem',
+          setOn: shiftDays(runDate, -2),
+          dueOn: runDate,
+          ...author(todaySubject?.id ?? null),
+          removed: false,
+        })
+      }
+      if (nextSchoolDay(runDate) <= yearNow.end) {
+        items.push({
+          id: randomUUID(),
+          sectionId: section.id,
+          subjectId: null,
+          title: pick(HOMEWORK_TITLES.general as readonly string[]),
+          setOn: runDate,
+          dueOn: nextSchoolDay(runDate),
+          ...author(null),
+          removed: false,
+        })
+      }
+      if (index === 0 && items.length > 0) {
+        // Nursery A: one item the class teacher set by mistake and the office removed.
+        items.push({ ...(items[0] as HomeworkRow), id: randomUUID(), title: 'Set by mistake', removed: true })
+      }
+      homeworkRows.push(...items)
+
+      // Check-offs for the items already due, except the newest two of them.
+      const due = items.filter((item) => !item.removed && item.dueOn < runDate).sort((a, b) => a.dueOn.localeCompare(b.dueOn))
+      const toCheck = due.slice(0, Math.max(0, due.length - 2))
+      const behind = index % 5 === 0 ? rosterOn(section.id, runDate)[0] : undefined
+      for (const [itemIndex, item] of toCheck.entries()) {
+        for (const studentId of rosterOn(section.id, item.dueOn)) {
+          const roll = random()
+          const status: HomeworkCheckRow['status'] =
+            studentId === behind && itemIndex >= toCheck.length - 3
+              ? 'not_done'
+              : roll < 0.82
+                ? 'done'
+                : roll < 0.93
+                  ? 'partly_done'
+                  : 'not_done'
+          homeworkChecks.push({
+            homeworkId: item.id,
+            studentId,
+            sectionId: section.id,
+            subjectId: item.subjectId,
+            status,
+            remark: status === 'done' ? null : random() < 0.5 ? pick(homeworkRemarks) : null,
+            by: item.by,
+            dueOn: item.dueOn,
+          })
+        }
+      }
+    }
+    for (let start = 0; start < homeworkRows.length; start += 300) {
+      const chunk = homeworkRows.slice(start, start + 300)
+      const values: unknown[] = []
+      const rows = chunk.map((row) => {
+        values.push(row.id, schoolId, yearNow.id, row.sectionId, row.subjectId, row.title, row.setOn, row.dueOn, row.by, row.staffId, row.removed ? principalMembership : null)
+        const base = values.length - 11
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, '', $${base + 7}::date, $${base + 8}::date,
+                 $${base + 9}, $${base + 10}, $${base + 9}, CASE WHEN $${base + 11}::uuid IS NULL THEN NULL ELSE now() END, $${base + 11}::uuid,
+                 ($${base + 7}::date + time '16:00') AT TIME ZONE 'Asia/Kolkata')`
+      })
+      await client.query(
+        `INSERT INTO homework (id, school_id, academic_year_id, section_id, subject_id, title, instructions, set_on, due_on,
+                               created_by_membership_id, created_by_staff_id, updated_by_membership_id,
+                               removed_at, removed_by_membership_id, created_at)
+         VALUES ${rows.join(', ')}`,
+        values,
+      )
+    }
+    for (let start = 0; start < homeworkChecks.length; start += 500) {
+      const chunk = homeworkChecks.slice(start, start + 500)
+      const values: unknown[] = []
+      const rows = chunk.map((row) => {
+        values.push(schoolId, row.homeworkId, row.studentId, yearNow.id, row.sectionId, row.subjectId, row.status, row.remark, row.by, row.dueOn)
+        const base = values.length - 10
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9},
+                 ($${base + 10}::date + time '15:30') AT TIME ZONE 'Asia/Kolkata')`
+      })
+      await client.query(
+        `INSERT INTO homework_checks (school_id, homework_id, student_id, academic_year_id, section_id, subject_id, status,
+                                      remark, checked_by_membership_id, checked_at)
+         VALUES ${rows.join(', ')}`,
+        values,
+      )
+    }
+    console.info(
+      `Homework: ${homeworkRows.length} items over ${sectionsNow.length} sections in the last three weeks ` +
+        `(one due today on a school day and one due on the next school day in each), ${homeworkChecks.length} check-offs; ` +
+        'the two newest past items of each section are left to check.',
+    )
 
     // ----------------------------------------------------------------- exams
     // Last year: all four exams set, marked, published, with a term 1 and a

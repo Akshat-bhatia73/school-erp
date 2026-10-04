@@ -2,6 +2,7 @@
 import { z } from 'zod'
 import { DisplayName, Id, Reason, Timestamp, Version } from './common.ts'
 import { AllowedActions, ExportJobSummary, NamedReference } from './responses.ts'
+import { HOMEWORK_DIGEST_DEFAULT_TIME, HomeworkDigestTime } from './module-homework.ts'
 
 // ---------------------------------------------------------------------------
 // What a message is.
@@ -24,6 +25,8 @@ export const MessageKind = z.enum([
   // The answer to a leave application (migration 0029).
   'leave_decision_pupil',
   'leave_decision_staff',
+  // The evening list of the day's homework, to the families (migration 0030).
+  'homework_digest',
 ])
 export type MessageKind = z.infer<typeof MessageKind>
 export const MESSAGE_KINDS = MessageKind.options
@@ -44,6 +47,7 @@ export const MESSAGE_KIND_LABELS: Readonly<Record<MessageKind, string>> = {
   birthday_staff: 'Staff birthday',
   leave_decision_pupil: 'Leave decision',
   leave_decision_staff: 'Staff leave decision',
+  homework_digest: 'Homework',
 }
 
 /**
@@ -166,6 +170,7 @@ export const MESSAGE_PLACEHOLDERS = {
   leave_dates: 'The days of leave, such as 29 Sep 2026 to 1 Oct 2026',
   decision: 'approved or not approved',
   decision_note: 'What the person who decided wrote, or nothing',
+  homework_list: 'The homework set that day, one line each: subject, title and due date (at most 12, soonest due first)',
 } as const
 export type MessagePlaceholder = keyof typeof MESSAGE_PLACEHOLDERS
 
@@ -183,6 +188,7 @@ export const PLACEHOLDERS_BY_KIND: Readonly<Record<MessageKind, readonly Message
   birthday_staff: ['school', 'staff_name', 'staff_first_name'],
   leave_decision_pupil: [...PUPIL_PLACEHOLDERS, 'leave_dates', 'decision', 'decision_note'],
   leave_decision_staff: ['school', 'staff_name', 'staff_first_name', 'leave_dates', 'decision', 'decision_note'],
+  homework_digest: [...PUPIL_PLACEHOLDERS, 'date', 'homework_list'],
 }
 
 /** The words an automatic message uses until the school saves its own. */
@@ -222,6 +228,10 @@ export const DEFAULT_MESSAGE_WORDING: Readonly<Record<AutomaticMessageKind, { re
   leave_decision_staff: {
     title: 'Your leave application was {decision}',
     body: 'Dear {staff_first_name},\n\nYour application for leave for {leave_dates} was {decision}.\n{decision_note}\n\n{school}',
+  },
+  homework_digest: {
+    title: 'Homework for {pupil_first_name}, {date}',
+    body: 'Dear parent,\n\nHomework set today, {date}, for {pupil_name}, {class}:\n\n{homework_list}\n\nYou can see the details and any files in the app under Homework.\n\n{school}',
   },
 }
 
@@ -595,6 +605,10 @@ export const CommunicationSettingsValues = z.strictObject({
   birthdaysStaffEnabled: z.boolean(),
   /** Tell whoever applied for leave what was decided. */
   leaveDecisionsEnabled: z.boolean(),
+  /** The evening homework digest to families. */
+  homeworkDigestEnabled: z.boolean(),
+  /** 'HH:MM', 12:00 to 21:00, in the school's timezone: when the digest starts to go. It may go until 09:00 the next morning. */
+  homeworkDigestTime: HomeworkDigestTime,
   /** The hour, in the school's timezone, from which birthday wishes and fee reminders go out. */
   dailySendHour: z.number().int().min(6).max(12),
 })
@@ -611,6 +625,8 @@ export const DEFAULT_COMMUNICATION_SETTINGS: CommunicationSettingsValues = {
   birthdaysPupilsEnabled: true,
   birthdaysStaffEnabled: true,
   leaveDecisionsEnabled: true,
+  homeworkDigestEnabled: true,
+  homeworkDigestTime: HOMEWORK_DIGEST_DEFAULT_TIME,
   dailySendHour: 8,
 }
 

@@ -188,3 +188,25 @@ describe('teacher dashboard, leave requests', () => {
     expect(screen.queryByText(/leave requests? waiting/)).not.toBeInTheDocument()
   })
 })
+
+describe('the To check card', () => {
+  it('lists homework past due with pupils not checked, linked to the item', () => {
+    renderAt('10:00', teacher({
+      homeworkToCheck: [{
+        homeworkId: 'hw-9', section: SIX_A, grade: { id: 'g6', name: 'Class 6' }, subject: MATHS,
+        title: 'Exercise 4.2', dueOn: '2026-09-18', pupils: 30, notChecked: 12,
+      }],
+    }))
+    expect(screen.getByText('To check')).toBeInTheDocument()
+    expect(screen.getByText('Mathematics · Class 6 Six A').closest('a')).toHaveAttribute('href', '/homework/hw-9')
+    expect(screen.getByText('12 of 30 not checked')).toBeInTheDocument()
+  })
+
+  it('says all is checked for an empty list, and is absent when not sent', () => {
+    const { unmount } = renderAt('10:00', teacher({ homeworkToCheck: [] }))
+    expect(screen.getByText('All homework is checked')).toBeInTheDocument()
+    unmount()
+    renderAt('10:00')
+    expect(screen.queryByText('To check')).not.toBeInTheDocument()
+  })
+})

@@ -42,10 +42,14 @@ Last updated: `[date]`.
   teacher's remarks for each term; and every report card the school has published. A mark is never
   edited or deleted: a change is a new entry and the old one stays. Nothing here is visible to you
   until the school publishes it.
+- **Homework.** The homework teachers set for your child's class: what it is, when it was set
+  and when it is due, who set it and any files with it. From the due date the teacher marks your
+  child Done, Partly done or Not done, and may add a short remark. You cannot change the mark; it is
+  the teacher's.
 - **Messages.** Every announcement the school sends: notices to the whole school, a class or a
   section, messages to you about your child, and the messages the school sends by itself (when
   your child is marked absent, when results or a report card are published, when fees fall due or
-  are overdue, and on your child's birthday). For each one we keep who it went to, whether it
+  are overdue, on your child's birthday, and in the evening on a day homework was set). For each one we keep who it went to, whether it
   reached them in the app or by email, and when they opened it in the app. Files attached to a
   message are kept with it. You cannot reply to a message through the app.
 - **Fees.** What your child is charged (tuition and any optional fee you have chosen, such as the
@@ -90,7 +94,7 @@ where it was taken, are stripped out before it is stored. Staff photographs work
 
 ## Why we keep it
 
-- To run the school: admissions, classes, timetable, attendance, exams and report cards, and the
+- To run the school: admissions, classes, timetable, attendance, homework, exams and report cards, and the
   admission register the state requires us to keep. We do not ask for your consent for exam
   results, because a school cannot assess a child without recording the result.
 - To reach you: about your child, about fees, and in an emergency. Messages from the school go only
@@ -145,9 +149,13 @@ Only the people at the school who need to, and only the parts they need.
   co-scholastic grades and remarks, and reads their class's report cards. Only the office changes a
   mark after the re-check deadline, and every change keeps the original and a reason on record.
 - **Your child**, if they are in Class 9 to 12, has their own login and sees their own timetable,
-  attendance, published results and report cards, and the notices the school sends to pupils. They
+  attendance, homework, published results and report cards, and the notices the school sends to pupils. They
   do not see fees, your details, consents, documents or health notes. The school texts their first
   password to the primary guardian's phone; only the school office can switch their login off.
+- **Homework** is set and marked by the teacher of that subject in that class, and general homework
+  by the class teacher. You see the homework set for your child's class while your child was in it,
+  for every year, and your own child's mark and remark, never another child's. Homework the school
+  has removed is not shown to you. Your child, if they have their own login, sees the same.
 - **Messages** you read are the ones addressed to you. The office sees every message the school
   sent and who it reached; a teacher sees the messages sent to their own sections. Another guardian
   of your child does not see a message addressed to you, and you do not see one addressed to them.
@@ -216,6 +224,8 @@ The short version:
 | Your child's marks, co-scholastic grades and published report cards | Permanently, as part of your child's academic record, like the admission register |
 | The class teacher's remarks about your child | With your child's personal details: cleared 3 years after leaving. The marks and grades stay |
 | The name of whoever paid, where it was written on a receipt | With your child's personal details: cleared 3 years after leaving. The receipt itself stays |
+| Homework set for your child's class, with its files | The year it was set and one more year. Then it is deleted |
+| Your child's homework marks and the teacher's remarks | With your child's personal details: while enrolled, plus 3 years after leaving. The remarks are cleared when the details are; the marks stay |
 | Messages the school sent, who they reached and when they were opened | 2 years after the message was sent. The words of a message about your child are cleared earlier if your child's details are cleared |
 | Staff records | While employed, and 8 years after leaving, for payroll law. Then contact details and identifiers are cleared |
 | Logins and passwords | While you have an account. 30 days after your last link to the school ends, the credentials are deleted |

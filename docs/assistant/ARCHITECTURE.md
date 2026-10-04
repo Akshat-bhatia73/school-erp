@@ -208,6 +208,7 @@ the app is:
 | Fees | a pupil's statement, dues, receipts, fee heads and structures |
 | Exams | exams, papers, a pupil's results, a paper's marks |
 | Report cards | a section's cards, a pupil's cards |
+| Homework | `list_homework`: the homework list (title, class, subject, dates; a family's own child's status, staff figures), and with `homeworkId` that item's check-off sheet, which only staff can read |
 | Messages | the person's inbox, messages they sent, audiences, templates |
 | The school | the dashboard figures, holidays, the school profile |
 
@@ -238,6 +239,12 @@ A tool does the work a small model would get wrong, and says plainly how complet
 - **Names in English letters.** The records hold names in English letters. A name the model passes
   in Devanagari (or any other script) is answered with a request to pass it in English letters,
   never "nobody called ..." or an empty search.
+- **Homework.** `list_homework` reads `GET /homework` as the person, so a parent asking what is
+  due tomorrow gets their own child's items with the child's status and nothing of another
+  family's. A teacher asking who has not done an item passes its `homeworkId`; the tool then reads
+  that item's check-off sheet (`GET /homework/:id/checks`, staff only), Not done first, then the
+  pupils nobody checked. It never reads the files and never sets or checks homework; the prompt
+  sends those to the Homework screen.
 - **What was saved.** When a conversation is replayed, a done proposal carries `saved`: each change
   as it was confirmed, the person's edits included (a pupil's mark, an exam cell, grades changed),
   at most 40 with a count of the rest.

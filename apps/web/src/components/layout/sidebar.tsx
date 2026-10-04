@@ -1,6 +1,6 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Building2, CalendarClock, CalendarDays, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, ListChecks, Mail, NotebookPen, PanelLeft, School, ScrollText, Search, ShieldCheck, Users, UserRound, BookOpen, Sparkles, X } from 'lucide-react'
+import { Bell, Building2, CalendarClock, CalendarDays, ClipboardCheck, GraduationCap, IndianRupee, LayoutDashboard, ListChecks, Mail, NotebookPen, NotebookText, PanelLeft, School, ScrollText, Search, ShieldCheck, Users, UserRound, BookOpen, Sparkles, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { AccountMenu } from '@/components/auth/account-menu'
 import { SectionLabel } from '@/components/shared/page'
@@ -13,7 +13,7 @@ import { useAcademicYear } from '@/lib/use-academic-year'
 import { cn } from '@/lib/utils'
 
 /** Everything a pupil's navigation offers; anything else stays out of it whatever it is gated on. */
-export const PUPIL_PATHS: ReadonlySet<string> = new Set(['/dashboard', '/timetable', '/attendance', '/exams', '/messages', '/assistant'])
+export const PUPIL_PATHS: ReadonlySet<string> = new Set(['/dashboard', '/timetable', '/attendance', '/exams', '/homework', '/messages', '/assistant'])
 
 /** `permissions` means any one of them is enough; `permission` stays the single-key form. */
 /** `except` names paths under `to` that belong to another item, so only that one is marked active. */
@@ -75,6 +75,7 @@ export function Sidebar({ collapsed: collapsedProp, onToggle, onOpenQuickActions
     { label: 'Fees', to: '/fees', icon: <IndianRupee />, permission: 'fees.read' },
     { label: 'Attendance', to: '/attendance', icon: <ClipboardCheck />, permissions: ['attendance.read', 'staff_attendance.read', 'leave_applications.read'] },
     { label: 'Exams', to: '/exams', icon: <NotebookPen />, permissions: ['exams.read', 'report_cards.read'] },
+    { label: 'Homework', to: '/homework', icon: <NotebookText />, permission: 'homework.read' },
     { label: 'Messages', to: '/messages', icon: <Mail />, count: unread?.unread ? unread.unread : undefined, permission: 'communication.read' },
     { label: 'Assistant', to: '/assistant', icon: <Sparkles />, permission: 'ai_assistant.use' },
   ]

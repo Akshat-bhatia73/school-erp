@@ -19,7 +19,7 @@
  */
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import test, { after, before } from 'node:test'
+import nodeTest, { after, before } from 'node:test'
 import { attendancePercentage, type AttendanceMark } from '@erp/contracts'
 import { fixtureIds } from '@erp/db/fixtures'
 import {
@@ -228,6 +228,49 @@ function dayOfWeek(date: string): number {
   return new Date(`${date}T00:00:00Z`).getUTCDay()
 }
 
+/**
+ * Why the calendar cannot carry this suite today, or null when it can. The
+ * register is open on today alone and the suite needs three school days and
+ * one more working day before it in the same month, so on the first working
+ * days of a month there is nothing to mark against. The database clock cannot
+ * be moved, so on those days the suite is skipped, with this reason, rather
+ * than failing on every branch. Today is worked out in the zone that
+ * useSchoolDayTimezone will choose.
+ */
+function calendarGap(): string | null {
+  const now = new Date()
+  const zones = ['Asia/Kolkata', 'Etc/GMT+12', 'Pacific/Kiritimati']
+  const local = (zone: string): { date: string; hour: number } => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: zone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(now)
+    const part = (type: string): string => parts.find((p) => p.type === type)?.value ?? ''
+    return { date: `${part('year')}-${part('month')}-${part('day')}`, hour: Number(part('hour')) }
+  }
+  const zone = zones
+    .map(local)
+    .find(({ date, hour }) => dayOfWeek(date) !== 0 && !(dayOfWeek(date) === 6 && hour >= 23))
+  if (zone === undefined) return 'every candidate zone is on a Sunday'
+  const month = zone.date.slice(0, 7)
+  let working = 0
+  for (let day = shift(zone.date, -1); day.startsWith(month); day = shift(day, -1)) {
+    if (dayOfWeek(day) !== 0) working += 1
+  }
+  return working >= 4
+    ? null
+    : `${zone.date} has ${working} working days before it this month; the register suite needs 4`
+}
+
+const SKIP = calendarGap()
+
+/** node:test's test, or a skipped one on a day the calendar cannot carry the suite. */
+const test = (SKIP === null ? nodeTest : (name: string) => nodeTest(name, { skip: SKIP })) as typeof nodeTest
+
 /** Every mark of one pupil and date, oldest first, straight from the table. */
 async function entriesOf(studentId: string, date: string): Promise<
   { id: string; revision: number; mark: string; kind: string; supersedes_entry_id: string | null }[]
@@ -396,6 +439,7 @@ async function insertStaff(label: string): Promise<string> {
 let restoreTimezone: (() => Promise<void>) | undefined
 
 before(async () => {
+  if (SKIP !== null) return
   await seedDatabaseFixtures()
   restoreTimezone = await useSchoolDayTimezone(schoolA)
   const pool = adminPool()
@@ -495,6 +539,10 @@ before(async () => {
 })
 
 after(async () => {
+  if (SKIP !== null) {
+    await closeAdminPool()
+    return
+  }
   await restoreTimezone?.()
   const pool = adminPool()
   await pool.query('DELETE FROM auth_two_factor WHERE user_id = ANY($1::uuid[])', [

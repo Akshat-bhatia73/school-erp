@@ -412,6 +412,40 @@ async function ownChildBehind(
   return result.rows[0]?.student_id
 }
 
+/**
+ * One of the caller's own children, or the pupil a student login is,
+ * enrolled in this homework item's section and year on the day it was set:
+ * the row a family scope reads the
+ * item through. The same children as loadRelationshipFactsFor names, and the
+ * same enrolment rule as the list predicate in scope.ts.
+ */
+async function ownChildInHomeworkClass(
+  conn: AuthzConnection,
+  schoolId: string,
+  membershipId: string,
+  homeworkId: string,
+): Promise<string | undefined> {
+  const result = await conn.client.query<{ student_id: string }>(
+    `SELECT e.student_id
+       FROM homework h
+       JOIN enrollments e ON e.school_id = h.school_id AND e.section_id = h.section_id
+        AND e.academic_year_id = h.academic_year_id
+        AND e.joined_on <= h.set_on AND (e.left_on IS NULL OR e.left_on >= h.set_on)
+      WHERE h.school_id = $1 AND h.id = $3
+        AND (EXISTS (SELECT 1 FROM membership_guardian_links mgl
+                       JOIN guardian_student_access gsa
+                         ON gsa.school_id = mgl.school_id AND gsa.guardian_id = mgl.guardian_id
+                      WHERE mgl.school_id = e.school_id AND mgl.membership_id = $2
+                        AND gsa.student_id = e.student_id AND gsa.status = 'approved' AND gsa.revoked_at IS NULL)
+          OR EXISTS (SELECT 1 FROM membership_student_links msl
+                      WHERE msl.school_id = e.school_id AND msl.membership_id = $2
+                        AND msl.student_id = e.student_id))
+      LIMIT 1`,
+    [schoolId, membershipId, homeworkId],
+  )
+  return result.rows[0]?.student_id
+}
+
 function facts(resource: ResourceReference, extra: Omit<ResourceFacts, 'resourceType' | 'id'>): ResourceFacts {
   return { resourceType: resource.resourceType, id: resource.id, ...extra }
 }
@@ -875,6 +909,58 @@ export async function loadResourceFacts(
         return facts(resource, { studentId: found.student_id, ...sections })
       }
       return facts(resource, found.staff_id === null ? {} : { staffId: found.staff_id })
+    }
+    case 'homework': {
+      // Three faces: an item, a pupil's check-off and a pupil. Ids are random
+      // uuids, so at most one matches. An item and a check-off name their
+      // section, year and subject ([] for general homework) and whether the
+      // item is removed. A pupil names themselves and their current sections,
+      // exactly as a student does. For an item, the caller's own child (or
+      // the pupil a student login is) enrolled in its class on the day it was set is
+      // named, so own_children and own_record answer exactly as the list
+      // predicate does.
+      const row = await conn.client.query<{
+        face: string
+        student_id: string | null
+        section_id: string | null
+        academic_year_id: string | null
+        subject_id: string | null
+        removed: boolean | null
+      }>(
+        `SELECT 'item' AS face, NULL::uuid AS student_id, section_id, academic_year_id, subject_id,
+                removed_at IS NOT NULL AS removed
+           FROM homework WHERE school_id = $1 AND id = $2
+         UNION ALL
+         SELECT 'check', c.student_id, c.section_id, c.academic_year_id, c.subject_id,
+                COALESCE(h.removed_at IS NOT NULL, FALSE)
+           FROM homework_checks c
+           LEFT JOIN homework h ON h.school_id = c.school_id AND h.id = c.homework_id
+          WHERE c.school_id = $1 AND c.id = $2
+         UNION ALL
+         SELECT 'pupil', id, NULL::uuid, NULL::uuid, NULL::uuid, NULL::boolean
+           FROM students WHERE school_id = $1 AND id = $2
+         LIMIT 1`,
+        [schoolId, id],
+      )
+      const found = row.rows[0]
+      if (!found) return null
+      if (found.face === 'pupil' && found.student_id !== null) {
+        const sections = await currentSectionsOfStudent(conn, schoolId, found.student_id)
+        return facts(resource, { studentId: found.student_id, ...sections })
+      }
+      const removed = found.removed === true
+      let studentId = found.student_id ?? undefined
+      if (found.face === 'item' && !removed) {
+        studentId = await ownChildInHomeworkClass(conn, schoolId, context.membershipId, id)
+      }
+      return facts(resource, {
+        ...(studentId === undefined ? {} : { studentId }),
+        ...(found.section_id === null ? {} : { sectionIds: [found.section_id] }),
+        ...(found.academic_year_id === null ? {} : { academicYearId: found.academic_year_id }),
+        subjectIds: found.subject_id === null ? [] : [found.subject_id],
+        general: found.subject_id === null,
+        removed,
+      })
     }
     case 'dashboard':
       // The dashboard is computed from the whole authorized dataset, so it has
