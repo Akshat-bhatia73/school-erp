@@ -34,7 +34,7 @@ export function AppShell() {
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pb-[4.5rem] md:pb-0">
             <Outlet />
           </main>
-          <MobileTabBar />
+          <MobileTabBar onOpenMore={() => setNavOpen(true)} />
         </div>
       </div>
 

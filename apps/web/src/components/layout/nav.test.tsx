@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { writeDashboardView } from '@/lib/dashboard-view'
@@ -257,6 +257,23 @@ describe('CommandMenu', () => {
 })
 
 describe('MobileTabBar', () => {
+  it('keeps the office bar to five slots, with the rest behind More', async () => {
+    const { MobileTabBar } = await import('./mobile-nav')
+    const onOpenMore = vi.fn()
+    renderWithSession(<MobileTabBar onOpenMore={onOpenMore} />, { roleKeys: ['principal'], capabilities: ['students.read_basic', 'staff.read_directory', 'timetable.read', 'fees.read', 'attendance.read'] })
+    const bar = screen.getByRole('navigation', { name: 'Primary' })
+    expect(within(bar).getAllByRole('link').map((a) => a.textContent)).toEqual(['Home', 'Students', 'Attendance', 'Fees'])
+    fireEvent.click(within(bar).getByRole('button', { name: /More/ }))
+    expect(onOpenMore).toHaveBeenCalledOnce()
+  })
+
+  it('shows every tab when they fit, with no More', async () => {
+    const { MobileTabBar } = await import('./mobile-nav')
+    renderWithSession(<MobileTabBar onOpenMore={() => {}} />, { roleKeys: ['teacher'], capabilities: ['students.read_basic', 'timetable.read', 'attendance.read'] })
+    expect(screen.queryByRole('button', { name: /More/ })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('link')).toHaveLength(4)
+  })
+
   it('puts Homework in the bar of a parent who reads it', async () => {
     const { MobileTabBar } = await import('./mobile-nav')
     renderWithSession(<MobileTabBar />, { roleKeys: ['parent'], capabilities: ['homework.read', 'communication.read'] })
