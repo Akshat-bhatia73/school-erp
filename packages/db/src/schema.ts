@@ -78,6 +78,9 @@ export const authUsers = pgTable('auth_user', {
   // The second step in use, and one being switched to. See migration 0027.
   twoFactorMethod: text('two_factor_method'),
   twoFactorPendingMethod: text('two_factor_pending_method'),
+  // A dummy test identity an operator let sign in without a second step.
+  // See migration 0031.
+  mfaExempt: boolean('mfa_exempt').notNull().default(false),
   ...timestamps(),
 })
 export const authSessions = pgTable(
