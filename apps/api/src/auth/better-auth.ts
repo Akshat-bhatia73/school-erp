@@ -192,6 +192,13 @@ export function createAuth(
           required: false,
           input: false,
         },
+        // A dummy test identity an operator let sign in without a second
+        // step (migration 0031). Set only by hand in the database.
+        mfaExempt: {
+          type: 'boolean',
+          required: false,
+          input: false,
+        },
       },
     },
     session: {

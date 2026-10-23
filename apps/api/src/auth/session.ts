@@ -77,6 +77,7 @@ export async function resolveSession(
   }
   const user = result.user as unknown as VerifiedSession['user'] & {
     mustChangePassword?: boolean | null
+    mfaExempt?: boolean | null
   }
 
   // An operator-disabled identity loses every live session at once, so a
@@ -130,9 +131,13 @@ export async function resolveSession(
     await touchSession(deps, session.id)
   }
 
+  // A test identity an operator exempted (migration 0031) counts as verified
+  // from sign-in, so freshness still expires five minutes after it.
   const mfaVerifiedAt = session.mfaVerifiedAt
     ? new Date(session.mfaVerifiedAt).toISOString()
-    : null
+    : user.mfaExempt === true
+      ? createdAt.toISOString()
+      : null
   const providerExpiresAt = new Date(session.expiresAt)
 
   return {

@@ -96,7 +96,7 @@ async function resetTwoFactorState(): Promise<void> {
     `UPDATE auth_user
         SET two_factor_enabled = false, two_factor_method = NULL,
             two_factor_pending_method = NULL, phone_number = NULL,
-            phone_number_verified = false
+            phone_number_verified = false, mfa_exempt = false
       WHERE id = $1`,
     [ownerUserId],
   )
@@ -208,6 +208,29 @@ test('the enabled flag alone is not enough: an unstamped session is refused', as
     session: { assurance: string }
   }
   assert.equal(me.session.assurance, 'single_factor')
+})
+
+test('an operator-exempted test identity enters with the password alone', async () => {
+  await admin.query('UPDATE auth_user SET mfa_exempt = true WHERE id = $1', [
+    ownerUserId,
+  ])
+  const client = clientFor(server)
+  assert.equal((await client.signIn(OWNER_EMAIL, PASSWORD)).status, 200)
+
+  const me = (await (await client.fetch('/api/me')).json()) as {
+    session: { assurance: string; mfaVerifiedAt: string | null }
+  }
+  assert.equal(me.session.assurance, 'mfa')
+  assert.ok(me.session.mfaVerifiedAt)
+  assert.equal((await client.fetch(`/api/schools/${schoolA}/context`)).status, 200)
+
+  // The flag is read on every request: clearing it refuses the same session.
+  await admin.query('UPDATE auth_user SET mfa_exempt = false WHERE id = $1', [
+    ownerUserId,
+  ])
+  const denied = await client.fetch(`/api/schools/${schoolA}/context`)
+  assert.equal(denied.status, 403)
+  assert.equal(((await denied.json()) as ErrorBody).error.code, 'MFA_REQUIRED')
 })
 
 test('a challenged sign-in holds no session until the code is verified', async () => {
